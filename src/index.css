@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #0f0f1a;
+  color: #ffffff;
+  overflow: hidden;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #141428;
+}
+::-webkit-scrollbar-thumb {
+  background: #363660;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #7B73FF;
+}
+
+/* Google Maps InfoWindow override */
+.gm-style-iw-d {
+  overflow: hidden !important;
+}
+.gm-style-iw {
+  background-color: #1a1a2e !important;
+  border: 1px solid #2a2a4a !important;
+  border-radius: 12px !important;
+  padding: 0 !important;
+}
+.gm-style-iw-tc::after {
+  background: #1a1a2e !important;
+}
+.gm-ui-hover-effect {
+  top: 4px !important;
+  right: 4px !important;
+}
+.gm-ui-hover-effect > span {
+  background-color: #fff !important;
+}
