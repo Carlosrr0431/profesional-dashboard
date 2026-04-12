@@ -45,8 +45,8 @@ export default function StatsBar({ drivers }) {
 
 function StatCard({ icon, label, value, color, bg }) {
   return (
-    <div className={`flex-1 ${bg} border border-dark-600/50 rounded-xl px-4 py-3 flex items-center gap-3`}>
-      <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-dark-700/50">
+    <div className={`flex-1 ${bg} border border-light-300/50 rounded-xl px-4 py-3 flex items-center gap-3`}>
+      <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-light-200/80">
         {icon}
       </div>
       <div>

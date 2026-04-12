@@ -1,13 +1,13 @@
 import React, { useCallback, useState } from 'react';
 import { GoogleMap, useJsApiLoader, Marker, InfoWindow, OverlayView } from '@react-google-maps/api';
-import { SALTA_CENTER, DEFAULT_ZOOM, DARK_MAP_STYLE, CAR_ICON_SVG, MOTO_ICON_SVG } from '../lib/constants';
+import { SALTA_CENTER, DEFAULT_ZOOM, LIGHT_MAP_STYLE, CAR_ICON_SVG, MOTO_ICON_SVG } from '../lib/constants';
 import DriverInfoWindow from './DriverInfoWindow';
 
 const containerStyle = { width: '100%', height: '100%' };
 const LIBRARIES = ['places'];
 
 const mapOptions = {
-  styles: DARK_MAP_STYLE,
+  styles: LIGHT_MAP_STYLE,
   disableDefaultUI: true,
   zoomControl: true,
   zoomControlOptions: { position: 9 },
@@ -35,7 +35,7 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, o
 
   if (!isLoaded) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-dark-900">
+      <div className="flex-1 flex items-center justify-center bg-light-200">
         <div className="flex flex-col items-center gap-3 text-gray-400">
           <div className="w-10 h-10 border-4 border-accent border-t-transparent rounded-full animate-spin" />
           <span className="text-sm">Cargando mapa...</span>
@@ -62,7 +62,7 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, o
               onClick={() => handleMarkerClick(driver)}
               icon={{
                 path: driver.vehicleType === 'moto' ? MOTO_ICON_SVG : CAR_ICON_SVG,
-                fillColor: driver.activeTrip ? '#EF4444' : driver.isOnline ? '#4ADE80' : '#94A3B8',
+                fillColor: driver.activeTrip ? '#EF4444' : driver.isOnline ? '#22C55E' : '#94A3B8',
                 fillOpacity: 1,
                 strokeColor: driver.activeTrip ? '#B91C1C' : driver.isOnline ? '#16A34A' : '#64748B',
                 strokeWeight: 1.5,

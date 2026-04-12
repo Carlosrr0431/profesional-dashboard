@@ -6,10 +6,10 @@ import { sendPushNotification, formatPrice, formatKm } from '../lib/utils';
 const inputStyle = {
   width: '100%',
   padding: '10px 12px',
-  background: '#111B2E',
-  border: '1px solid #253352',
+  background: '#F1F3F8',
+  border: '1px solid #E2E8F0',
   borderRadius: '8px',
-  color: '#fff',
+  color: '#0F172A',
   fontSize: '13px',
   outline: 'none',
   fontFamily: 'inherit',
@@ -309,13 +309,13 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
     >
       <div
         style={{
-          background: '#162036',
+          background: '#FFFFFF',
           borderRadius: '16px',
           width: '100%',
           maxWidth: '460px',
           maxHeight: '90vh',
           overflowY: 'auto',
-          border: '1px solid #253352',
+          border: '1px solid #E2E8F0',
           boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
         }}
       >
@@ -323,14 +323,14 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
         <div
           style={{
             padding: '16px 20px',
-            borderBottom: '1px solid #253352',
+            borderBottom: '1px solid #E2E8F0',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
           }}
         >
           <div>
-            <h2 style={{ color: '#fff', fontSize: '16px', fontWeight: 700, margin: 0 }}>
+            <h2 style={{ color: '#0F172A', fontSize: '16px', fontWeight: 700, margin: 0 }}>
               Asignar Viaje
             </h2>
             <p style={{ color: '#94A3B8', fontSize: '12px', margin: '2px 0 0' }}>
@@ -340,8 +340,8 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
           <button
             onClick={onClose}
             style={{
-              background: '#111B2E',
-              border: '1px solid #253352',
+              background: '#F1F3F8',
+              border: '1px solid #E2E8F0',
               borderRadius: '8px',
               color: '#94A3B8',
               width: '32px',
@@ -382,7 +382,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
               <div
                 style={{
                   ...inputStyle,
-                  background: '#111B2E',
+                  background: '#F1F3F8',
                   color: '#EF4444',
                   display: 'flex',
                   alignItems: 'center',
@@ -469,12 +469,12 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
             >
               <div style={{ flex: 1, textAlign: 'center' }}>
                 <div style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 600, marginBottom: '2px' }}>DISTANCIA</div>
-                <div style={{ color: '#fff', fontSize: '15px', fontWeight: 700 }}>{routeInfo.distanceKm} km</div>
+                <div style={{ color: '#0F172A', fontSize: '15px', fontWeight: 700 }}>{routeInfo.distanceKm} km</div>
               </div>
               <div style={{ width: '1px', background: 'rgba(220,38,38,0.2)' }} />
               <div style={{ flex: 1, textAlign: 'center' }}>
                 <div style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 600, marginBottom: '2px' }}>TIEMPO</div>
-                <div style={{ color: '#fff', fontSize: '15px', fontWeight: 700 }}>{routeInfo.durationMinutes} min</div>
+                <div style={{ color: '#0F172A', fontSize: '15px', fontWeight: 700 }}>{routeInfo.durationMinutes} min</div>
               </div>
               <div style={{ width: '1px', background: 'rgba(220,38,38,0.2)' }} />
               <div style={{ flex: 1, textAlign: 'center' }}>
@@ -540,8 +540,8 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
               style={{
                 flex: 1,
                 padding: '10px',
-                background: '#111B2E',
-                border: '1px solid #253352',
+                background: '#F1F3F8',
+                border: '1px solid #E2E8F0',
                 borderRadius: '10px',
                 color: '#94A3B8',
                 fontSize: '13px',
@@ -557,10 +557,10 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
               style={{
                 flex: 2,
                 padding: '10px',
-                background: loading ? '#334565' : 'linear-gradient(135deg, #EF4444, #DC2626)',
+                background: loading ? '#CBD5E1' : 'linear-gradient(135deg, #EF4444, #DC2626)',
                 border: 'none',
                 borderRadius: '10px',
-                color: '#fff',
+                color: '#FFFFFF',
                 fontSize: '13px',
                 fontWeight: 700,
                 cursor: loading ? 'not-allowed' : 'pointer',

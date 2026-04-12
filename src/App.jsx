@@ -77,7 +77,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-dark-900">
+      <div className="h-screen flex items-center justify-center bg-light-200">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-accent border-t-transparent rounded-full animate-spin" />
           <p className="text-gray-400 text-sm font-medium">Cargando dashboard...</p>
@@ -92,7 +92,7 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col">
       {/* Top bar */}
-      <div className="bg-dark-800 border-b border-dark-600/50 px-4 py-2.5 flex items-center gap-5">
+      <div className="bg-light-50 border-b border-light-300/50 px-4 py-2.5 flex items-center gap-5">
         {/* Logo */}
         <div className="flex items-center gap-2.5 flex-shrink-0">
           <div className="w-9 h-9 bg-gradient-to-br from-accent to-accent-light rounded-xl flex items-center justify-center shadow-lg shadow-accent/20">
@@ -101,7 +101,7 @@ export default function App() {
             </svg>
           </div>
           <div>
-            <h1 className="text-white font-bold text-sm leading-tight">Profesional App</h1>
+            <h1 className="text-navy-900 font-bold text-sm leading-tight">Profesional App</h1>
             <p className="text-gray-500 text-[10px]">Panel de control</p>
           </div>
         </div>
@@ -114,13 +114,13 @@ export default function App() {
         {/* Clock & actions */}
         <div className="flex items-center gap-3 flex-shrink-0">
           <div className="text-right">
-            <p className="text-white text-sm font-semibold tabular-nums">{timeStr}</p>
+            <p className="text-navy-900 text-sm font-semibold tabular-nums">{timeStr}</p>
             <p className="text-gray-500 text-[10px] capitalize">{dateStr}</p>
           </div>
           <button
             onClick={handleCenterAll}
             title="Centrar todos los choferes"
-            className="w-9 h-9 rounded-xl bg-dark-700 border border-dark-600/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all"
+            className="w-9 h-9 rounded-xl bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
@@ -129,7 +129,7 @@ export default function App() {
           <button
             onClick={refetch}
             title="Refrescar datos"
-            className="w-9 h-9 rounded-xl bg-dark-700 border border-dark-600/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all"
+            className="w-9 h-9 rounded-xl bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

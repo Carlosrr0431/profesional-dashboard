@@ -8,8 +8,8 @@ function getDriverStatusInfo(driver) {
     const s = getTripStatus(driver.activeTrip.status);
     return { label: s.label, color: '#EF4444', bg: 'rgba(220,38,38,0.15)', busy: true };
   }
-  if (driver.isOnline) return { label: 'Disponible', color: '#4ADE80', bg: 'rgba(74,222,128,0.15)', busy: false };
-  return { label: 'Desconectado', color: '#94A3B8', bg: 'rgba(148,163,184,0.15)', busy: true };
+  if (driver.isOnline) return { label: 'Disponible', color: '#22C55E', bg: 'rgba(34,197,94,0.1)', busy: false };
+  return { label: 'Desconectado', color: '#94A3B8', bg: 'rgba(148,163,184,0.1)', busy: true };
 }
 
 export default function DriverInfoWindow({ driver, onAssignTrip }) {
@@ -18,21 +18,21 @@ export default function DriverInfoWindow({ driver, onAssignTrip }) {
   const canAssign = !status.busy;
 
   return (
-    <div style={{ background: '#162036', color: '#fff', padding: '14px', minWidth: '250px', borderRadius: '12px' }}>
+    <div style={{ background: '#FFFFFF', color: '#0F172A', padding: '14px', minWidth: '250px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid #253352' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid #E2E8F0' }}>
         <div style={{
           width: '38px', height: '38px', borderRadius: '10px',
-          background: driver.isOnline ? 'rgba(74,222,128,0.12)' : 'rgba(148,163,184,0.12)',
+          background: driver.isOnline ? 'rgba(34,197,94,0.1)' : 'rgba(148,163,184,0.1)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: '13px', fontWeight: 700,
-          color: driver.isOnline ? '#4ADE80' : '#94A3B8',
+          color: driver.isOnline ? '#22C55E' : '#94A3B8',
         }}>
           {initials}
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <p style={{ color: '#fff', fontSize: '14px', fontWeight: 700, margin: 0 }}>{driver.fullName}</p>
+            <p style={{ color: '#0F172A', fontSize: '14px', fontWeight: 700, margin: 0 }}>{driver.fullName}</p>
             {driver.driverNumber && (
               <span style={{
                 fontSize: '10px', fontWeight: 800, color: '#EF4444',
@@ -66,11 +66,11 @@ export default function DriverInfoWindow({ driver, onAssignTrip }) {
             {driver.vehicleType === 'moto' ? 'Moto' : 'Auto'}
           </p>
         </div>
-        <div style={{ flex: 1, background: '#111B2E', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
+        <div style={{ flex: 1, background: '#F1F3F8', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
           <p style={{ fontSize: '10px', color: '#94A3B8', margin: 0 }}>Vehículo</p>
-          <p style={{ fontSize: '12px', fontWeight: 600, color: '#fff', margin: '2px 0 0' }}>{driver.vehicleBrand} {driver.vehicleModel}</p>
+          <p style={{ fontSize: '12px', fontWeight: 600, color: '#0F172A', margin: '2px 0 0' }}>{driver.vehicleBrand} {driver.vehicleModel}</p>
         </div>
-        <div style={{ background: '#111B2E', borderRadius: '8px', padding: '8px', textAlign: 'center', minWidth: '70px' }}>
+        <div style={{ background: '#F1F3F8', borderRadius: '8px', padding: '8px', textAlign: 'center', minWidth: '70px' }}>
           <p style={{ fontSize: '10px', color: '#94A3B8', margin: 0 }}>Patente</p>
           <p style={{ fontSize: '12px', fontWeight: 700, color: '#DC2626', margin: '2px 0 0' }}>{driver.vehiclePlate || '-'}</p>
         </div>
@@ -127,7 +127,7 @@ export default function DriverInfoWindow({ driver, onAssignTrip }) {
           width: '100%',
           marginTop: '10px',
           padding: '8px 12px',
-          background: canAssign ? 'linear-gradient(135deg, #EF4444, #DC2626)' : '#253352',
+          background: canAssign ? 'linear-gradient(135deg, #EF4444, #DC2626)' : '#E2E8F0',
           border: 'none',
           borderRadius: '8px',
           color: canAssign ? '#fff' : '#666',
@@ -149,9 +149,9 @@ export default function DriverInfoWindow({ driver, onAssignTrip }) {
 
 function InfoStat({ label, value }) {
   return (
-    <div style={{ background: '#111B2E', borderRadius: '8px', padding: '6px', textAlign: 'center' }}>
+    <div style={{ background: '#F1F3F8', borderRadius: '8px', padding: '6px', textAlign: 'center' }}>
       <p style={{ fontSize: '9px', color: '#94A3B8', margin: 0 }}>{label}</p>
-      <p style={{ fontSize: '12px', fontWeight: 600, color: '#fff', margin: '2px 0 0' }}>{value}</p>
+      <p style={{ fontSize: '12px', fontWeight: 600, color: '#0F172A', margin: '2px 0 0' }}>{value}</p>
     </div>
   );
 }

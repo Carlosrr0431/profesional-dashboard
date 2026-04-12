@@ -10,8 +10,8 @@
 
 body {
   font-family: 'Inter', sans-serif;
-  background-color: #0B1120;
-  color: #ffffff;
+  background-color: #F1F3F8;
+  color: #0F172A;
   overflow: hidden;
 }
 
@@ -29,10 +29,10 @@ body {
   width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #111B2E;
+  background: #F1F3F8;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334565;
+  background: #CBD5E1;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
@@ -44,34 +44,34 @@ body {
   overflow: hidden !important;
 }
 .gm-style-iw {
-  background-color: #162036 !important;
-  border: 1px solid #253352 !important;
+  background-color: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
   border-radius: 14px !important;
   padding: 0 !important;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12) !important;
 }
 .gm-style-iw-tc::after {
-  background: #162036 !important;
+  background: #FFFFFF !important;
 }
 .gm-ui-hover-effect {
   top: 6px !important;
   right: 6px !important;
 }
 
-/* Google Places Autocomplete dropdown - must be above modal */
+/* Google Places Autocomplete dropdown */
 .pac-container {
   z-index: 99999 !important;
-  background-color: #111B2E !important;
-  border: 1px solid #253352 !important;
+  background-color: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
   border-radius: 8px !important;
   margin-top: 4px !important;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12) !important;
   font-family: inherit !important;
 }
 .pac-item {
   padding: 8px 12px !important;
-  border-top: 1px solid #1A2540 !important;
-  color: #e2e8f0 !important;
+  border-top: 1px solid #F1F3F8 !important;
+  color: #334155 !important;
   cursor: pointer !important;
   font-size: 13px !important;
   line-height: 1.4 !important;
@@ -80,13 +80,13 @@ body {
   border-top: none !important;
 }
 .pac-item:hover {
-  background-color: #1A2540 !important;
+  background-color: #F8F9FC !important;
 }
 .pac-item-selected {
-  background-color: #1A2540 !important;
+  background-color: #F8F9FC !important;
 }
 .pac-item-query {
-  color: #fff !important;
+  color: #0F172A !important;
   font-weight: 600 !important;
   font-size: 13px !important;
 }
@@ -94,7 +94,7 @@ body {
   color: #DC2626 !important;
 }
 .pac-icon {
-  filter: brightness(2) !important;
+  filter: none !important;
 }
 .pac-logo::after {
   display: none !important;
@@ -137,7 +137,7 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   position: absolute;
   inset: -2px;
   border-radius: 50%;
-  background: #4ADE80;
+  background: #22C55E;
   animation: pulse-ring 2s ease-out infinite;
   z-index: -1;
 }

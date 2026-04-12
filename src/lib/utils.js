@@ -60,7 +60,7 @@ const STATUS_MAP = {
 };
 
 export function getTripStatus(status) {
-  return STATUS_MAP[status] || { label: status, color: 'text-gray-400', bg: 'bg-dark-600/50' };
+  return STATUS_MAP[status] || { label: status, color: 'text-gray-400', bg: 'bg-light-300/50' };
 }
 
 /**

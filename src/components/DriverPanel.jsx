@@ -41,14 +41,14 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
     : trips;
 
   return (
-    <div className="w-96 bg-dark-800 border-l border-dark-600/50 flex flex-col h-full animate-slideIn">
+    <div className="w-96 bg-light-50 border-l border-light-300/50 flex flex-col h-full animate-slideIn">
       {/* Header */}
-      <div className="p-4 border-b border-dark-600/50">
+      <div className="p-4 border-b border-light-300/50">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold text-white">Detalle del chofer</h3>
+          <h3 className="text-sm font-bold text-navy-900">Detalle del chofer</h3>
           <button
             onClick={onClose}
-            className="w-7 h-7 rounded-lg bg-dark-700 border border-dark-600/50 flex items-center justify-center text-gray-400 hover:text-white transition-colors"
+            className="w-7 h-7 rounded-lg bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-navy-800 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -59,13 +59,13 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
         {/* Driver info card */}
         <div className="flex items-center gap-3 mb-3">
           <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-sm font-bold ${
-            driver.isOnline ? 'bg-online-dim text-online' : 'bg-dark-600/50 text-gray-400'
+            driver.isOnline ? 'bg-online-dim text-online' : 'bg-light-300/50 text-gray-400'
           }`}>
             {initials}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <p className="text-sm font-semibold text-white truncate">{driver.fullName}</p>
+              <p className="text-sm font-semibold text-navy-900 truncate">{driver.fullName}</p>
               {driver.driverNumber && (
                 <span className="text-[10px] font-bold text-accent bg-accent/15 px-1.5 py-0.5 rounded-md">#{driver.driverNumber}</span>
               )}
@@ -144,15 +144,15 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
 
         {/* All-time summary row */}
         <div className="flex gap-2 mt-2">
-          <div className="flex-1 bg-dark-700/50 rounded-lg px-3 py-2 text-center">
+          <div className="flex-1 bg-light-200/80 rounded-lg px-3 py-2 text-center">
             <p className="text-[10px] text-gray-500">Total ganado</p>
             <p className="text-sm font-bold text-green-400">{formatPrice(stats.totalEarnings)}</p>
           </div>
-          <div className="flex-1 bg-dark-700/50 rounded-lg px-3 py-2 text-center">
+          <div className="flex-1 bg-light-200/80 rounded-lg px-3 py-2 text-center">
             <p className="text-[10px] text-gray-500">Total km</p>
             <p className="text-sm font-bold text-accent">{formatKm(stats.totalKm)}</p>
           </div>
-          <div className="flex-1 bg-dark-700/50 rounded-lg px-3 py-2 text-center">
+          <div className="flex-1 bg-light-200/80 rounded-lg px-3 py-2 text-center">
             <p className="text-[10px] text-gray-500">Cancelados</p>
             <p className="text-sm font-bold text-danger">{stats.cancelled}</p>
           </div>
@@ -164,7 +164,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
             ? 'bg-danger/10 border-danger/30'
             : stats.commissionBalance > 0
               ? 'bg-amber-500/10 border-amber-500/25'
-              : 'bg-dark-700/50 border-dark-600/30'
+              : 'bg-light-200/80 border-light-300/30'
         }`}>
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5">
@@ -194,7 +194,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
             </div>
           </div>
           {stats.commissionBalance > 0 && (
-            <div className="mt-2 pt-2 border-t border-dark-600/30">
+            <div className="mt-2 pt-2 border-t border-light-300/30">
               {payingCommission ? (
                 <div className="flex gap-2">
                   <input
@@ -202,7 +202,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
                     placeholder="Monto"
                     value={payAmount}
                     onChange={(e) => setPayAmount(e.target.value)}
-                    className="flex-1 bg-dark-700 border border-dark-600/50 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-accent"
+                    className="flex-1 bg-light-200 border border-light-300/50 rounded-lg px-2 py-1.5 text-xs text-navy-900 focus:outline-none focus:border-accent"
                   />
                   <button
                     onClick={async () => {
@@ -223,7 +223,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
                   </button>
                   <button
                     onClick={() => { setPayingCommission(false); setPayAmount(''); }}
-                    className="px-2 py-1.5 bg-dark-700 rounded-lg text-[10px] text-gray-400 hover:text-white transition-colors"
+                    className="px-2 py-1.5 bg-light-200 rounded-lg text-[10px] text-gray-400 hover:text-navy-800 transition-colors"
                   >
                     ✕
                   </button>
@@ -238,7 +238,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
                   </button>
                   <button
                     onClick={() => setPayingCommission(true)}
-                    className="flex-1 text-[10px] font-semibold py-1.5 rounded-lg bg-dark-700 text-gray-400 hover:text-white transition-colors"
+                    className="flex-1 text-[10px] font-semibold py-1.5 rounded-lg bg-light-200 text-gray-400 hover:text-navy-800 transition-colors"
                   >
                     Pago parcial
                   </button>
@@ -255,7 +255,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
       </div>
 
       {/* Trips tabs */}
-      <div className="px-4 flex gap-1 bg-dark-700/30 mx-4 rounded-lg p-1">
+      <div className="px-4 flex gap-1 bg-light-300/40 mx-4 rounded-lg p-1">
         {[
           { key: 'today', label: 'Hoy' },
           { key: 'all', label: 'Historial' },
@@ -266,7 +266,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
             className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-all ${
               tab === t.key
                 ? 'bg-accent text-white shadow-md shadow-accent/20'
-                : 'text-gray-400 hover:text-white'
+                : 'text-gray-400 hover:text-navy-900'
             }`}
           >
             {t.label}
@@ -279,7 +279,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
         {loading ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-16 bg-dark-700/40 rounded-xl animate-pulse" />
+              <div key={i} className="h-16 bg-light-200/60 rounded-xl animate-pulse" />
             ))}
           </div>
         ) : filteredTrips.length === 0 ? (
@@ -303,12 +303,12 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
 
 function StatBox({ label, value, icon, sub }) {
   return (
-    <div className="bg-dark-700/50 border border-dark-600/30 rounded-xl px-3 py-2.5">
+    <div className="bg-light-200/80 border border-light-300/30 rounded-xl px-3 py-2.5">
       <div className="flex items-center justify-between mb-1">
         <span className="text-[10px] text-gray-500">{label}</span>
         <span className="text-xs">{icon}</span>
       </div>
-      <p className="text-sm font-bold text-white">
+      <p className="text-sm font-bold text-navy-900">
         {value}
         {sub && <span className="text-[10px] font-normal text-gray-500 ml-1">{sub}</span>}
       </p>
@@ -320,14 +320,14 @@ function TripRow({ trip }) {
   const status = getTripStatus(trip.status);
 
   return (
-    <div className="bg-dark-700/40 border border-dark-600/30 rounded-xl p-3 hover:bg-dark-700/60 transition-colors">
+    <div className="bg-light-200/60 border border-light-300/30 rounded-xl p-3 hover:bg-light-300/60 transition-colors">
       {/* Top: passenger + status */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
           </svg>
-          <span className="text-xs font-medium text-white truncate">{trip.passenger_name}</span>
+          <span className="text-xs font-medium text-navy-900 truncate">{trip.passenger_name}</span>
         </div>
         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${status.bg} ${status.color}`}>
           {status.label}
