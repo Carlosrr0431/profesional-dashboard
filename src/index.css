@@ -10,9 +10,18 @@
 
 body {
   font-family: 'Inter', sans-serif;
-  background-color: #0f0f1a;
+  background-color: #161625;
   color: #ffffff;
   overflow: hidden;
+}
+
+/* Slide-in animation for DriverPanel */
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.animate-slideIn {
+  animation: slideIn 0.2s ease-out;
 }
 
 /* Custom scrollbar */
@@ -20,14 +29,14 @@ body {
   width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #141428;
+  background: #1C1C35;
 }
 ::-webkit-scrollbar-thumb {
-  background: #363660;
+  background: #444478;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #7B73FF;
+  background: #8B83FF;
 }
 
 /* Google Maps InfoWindow override */
@@ -35,18 +44,100 @@ body {
   overflow: hidden !important;
 }
 .gm-style-iw {
-  background-color: #1a1a2e !important;
-  border: 1px solid #2a2a4a !important;
-  border-radius: 12px !important;
+  background-color: #232345 !important;
+  border: 1px solid #333360 !important;
+  border-radius: 14px !important;
   padding: 0 !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important;
 }
 .gm-style-iw-tc::after {
-  background: #1a1a2e !important;
+  background: #232345 !important;
 }
 .gm-ui-hover-effect {
-  top: 4px !important;
-  right: 4px !important;
+  top: 6px !important;
+  right: 6px !important;
+}
+
+/* Google Places Autocomplete dropdown - must be above modal */
+.pac-container {
+  z-index: 99999 !important;
+  background-color: #1C1C35 !important;
+  border: 1px solid #333360 !important;
+  border-radius: 8px !important;
+  margin-top: 4px !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+  font-family: inherit !important;
+}
+.pac-item {
+  padding: 8px 12px !important;
+  border-top: 1px solid #2a2a50 !important;
+  color: #e2e8f0 !important;
+  cursor: pointer !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+.pac-item:first-child {
+  border-top: none !important;
+}
+.pac-item:hover {
+  background-color: #2a2a50 !important;
+}
+.pac-item-selected {
+  background-color: #2a2a50 !important;
+}
+.pac-item-query {
+  color: #fff !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+}
+.pac-matched {
+  color: #8B83FF !important;
+}
+.pac-icon {
+  filter: brightness(2) !important;
+}
+.pac-logo::after {
+  display: none !important;
+}
+
+/* Hide Google Maps billing warning dialog */
+.gm-err-container,
+.dismissButton {
+  display: none !important;
+}
+.gm-err-title, .gm-err-message {
+  display: none !important;
+}
+/* Hide the "This page can't load Google Maps correctly" modal */
+.gm-style-pbc {
+  display: none !important;
+}
+/* Google's billing warning overlays - hide and disable pointer events */
+div.gm-control-active.gm-fullscreen-control ~ div[style*="background-color"],
+.gm-style > div > div > div > div > div[style*="background-color: white"],
+div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="position: absolute"]:not(.pac-container) {
+  display: none !important;
+  pointer-events: none !important;
+}
+/* Pac container above everything */
+.pac-container {
+  pointer-events: auto !important;
 }
 .gm-ui-hover-effect > span {
-  background-color: #fff !important;
+  background-color: #cbd5e1 !important;
+}
+
+/* Pulse animation for online drivers */
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.pulse-online::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: #4ADE80;
+  animation: pulse-ring 2s ease-out infinite;
+  z-index: -1;
 }

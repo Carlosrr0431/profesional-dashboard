@@ -1,25 +1,27 @@
-import { useCallback, useRef, useState } from 'react';
-import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api';
-import { SALTA_CENTER, DEFAULT_ZOOM, DARK_MAP_STYLE } from '../lib/constants';
+import React, { useCallback, useState } from 'react';
+import { GoogleMap, useJsApiLoader, Marker, InfoWindow, OverlayView } from '@react-google-maps/api';
+import { SALTA_CENTER, DEFAULT_ZOOM, DARK_MAP_STYLE, CAR_ICON_SVG, MOTO_ICON_SVG } from '../lib/constants';
 import DriverInfoWindow from './DriverInfoWindow';
 
 const containerStyle = { width: '100%', height: '100%' };
+const LIBRARIES = ['places'];
 
 const mapOptions = {
   styles: DARK_MAP_STYLE,
   disableDefaultUI: true,
   zoomControl: true,
-  zoomControlOptions: { position: 9 }, // RIGHT_CENTER
+  zoomControlOptions: { position: 9 },
   fullscreenControl: false,
   streetViewControl: false,
   mapTypeControl: false,
 };
 
-export default function MapView({ drivers, selectedId, onSelectDriver, mapRef }) {
+export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, onAssignTrip }) {
   const [activeInfo, setActiveInfo] = useState(null);
 
   const { isLoaded } = useJsApiLoader({
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+    libraries: LIBRARIES,
   });
 
   const onLoad = useCallback((map) => {
@@ -34,12 +36,9 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef })
   if (!isLoaded) {
     return (
       <div className="flex-1 flex items-center justify-center bg-dark-900">
-        <div className="flex items-center gap-3 text-gray-400">
-          <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          Cargando mapa...
+        <div className="flex flex-col items-center gap-3 text-gray-400">
+          <div className="w-10 h-10 border-4 border-accent border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm">Cargando mapa...</span>
         </div>
       </div>
     );
@@ -54,31 +53,65 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef })
       onLoad={onLoad}
       onClick={() => setActiveInfo(null)}
     >
-      {drivers.map((driver) => (
-        <Marker
-          key={driver.id}
-          position={{ lat: driver.lat, lng: driver.lng }}
-          onClick={() => handleMarkerClick(driver)}
-          icon={{
-            path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z',
-            fillColor: driver.isOnline ? '#34D399' : '#6B7280',
-            fillOpacity: 1,
-            strokeColor: driver.isOnline ? '#059669' : '#4B5563',
-            strokeWeight: 2,
-            scale: selectedId === driver.id ? 2 : 1.5,
-            anchor: { x: 12, y: 22 },
-          }}
-          title={driver.fullName}
-        />
-      ))}
+      {drivers.map((driver) => {
+        const isSelected = selectedId === driver.id;
+        return (
+          <React.Fragment key={driver.id}>
+            <Marker
+              position={{ lat: driver.lat, lng: driver.lng }}
+              onClick={() => handleMarkerClick(driver)}
+              icon={{
+                path: driver.vehicleType === 'moto' ? MOTO_ICON_SVG : CAR_ICON_SVG,
+                fillColor: driver.activeTrip ? '#A8A2FF' : driver.isOnline ? '#4ADE80' : '#94A3B8',
+                fillOpacity: 1,
+                strokeColor: driver.activeTrip ? '#6C63FF' : driver.isOnline ? '#16A34A' : '#64748B',
+                strokeWeight: 1.5,
+                scale: isSelected ? 1.8 : 1.4,
+                anchor: { x: 12, y: 12 },
+                rotation: driver.heading || 0,
+              }}
+              title={driver.fullName}
+            />
+            {driver.driverNumber != null && (
+              <OverlayView
+                position={{ lat: driver.lat, lng: driver.lng }}
+                mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                getPixelPositionOffset={(w, h) => ({ x: -(w / 2), y: -h - (isSelected ? 20 : 14) })}
+              >
+              <div
+                onClick={() => handleMarkerClick(driver)}
+                style={{
+                  background: driver.activeTrip ? '#6C63FF' : driver.isOnline ? '#22C55E' : '#64748B',
+                  color: '#fff',
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  lineHeight: '16px',
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
+                  border: '1.5px solid rgba(255,255,255,0.6)',
+                  userSelect: 'none',
+                  letterSpacing: '-0.5px',
+                }}
+              >
+                {driver.driverNumber}
+              </div>
+            </OverlayView>
+          )}
+          </React.Fragment>
+        );
+      })}
 
       {activeInfo && (
         <InfoWindow
           position={{ lat: activeInfo.lat, lng: activeInfo.lng }}
           onCloseClick={() => setActiveInfo(null)}
-          options={{ pixelOffset: new window.google.maps.Size(0, -30) }}
+          options={{ pixelOffset: new window.google.maps.Size(0, -20) }}
         >
-          <DriverInfoWindow driver={activeInfo} />
+          <DriverInfoWindow driver={activeInfo} onAssignTrip={onAssignTrip} />
         </InfoWindow>
       )}
     </GoogleMap>
