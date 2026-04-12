@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { useDriverTrips } from '../hooks/useTrips';
 import { formatPrice, formatKm, formatDuration, formatTime, formatDateTime, getTripStatus } from '../lib/utils';
+import { supabase } from '../lib/supabase';
 
-export default function DriverPanel({ driver, onClose, onAssignTrip }) {
-  const { trips, loading, stats } = useDriverTrips(driver?.id);
+export default function DriverPanel({ driver, onClose, onAssignTrip, commissionPercent }) {
+  const { trips, loading, stats, refetchPayments } = useDriverTrips(driver?.id);
   const [tab, setTab] = useState('today');
+  const [payingCommission, setPayingCommission] = useState(false);
+  const [payAmount, setPayAmount] = useState('');
 
   if (!driver) return null;
 
@@ -154,6 +157,101 @@ export default function DriverPanel({ driver, onClose, onAssignTrip }) {
             <p className="text-sm font-bold text-danger">{stats.cancelled}</p>
           </div>
         </div>
+
+        {/* Commission section */}
+        <div className={`mt-3 rounded-xl border p-3 ${
+          stats.isOverdue
+            ? 'bg-danger/10 border-danger/30'
+            : stats.commissionBalance > 0
+              ? 'bg-amber-500/10 border-amber-500/25'
+              : 'bg-dark-700/50 border-dark-600/30'
+        }`}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs">💰</span>
+              <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Comisiones ({commissionPercent}%)</span>
+            </div>
+            {stats.isOverdue && (
+              <span className="text-[9px] font-bold text-danger bg-danger/15 px-1.5 py-0.5 rounded-md animate-pulse">
+                ⚠️ VENCIDA
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1 text-center">
+              <p className="text-[9px] text-gray-500">Acumulado</p>
+              <p className="text-sm font-bold text-amber-400">{formatPrice(stats.totalCommission)}</p>
+            </div>
+            <div className="flex-1 text-center">
+              <p className="text-[9px] text-gray-500">Pagado</p>
+              <p className="text-sm font-bold text-green-400">{formatPrice(stats.totalPaid)}</p>
+            </div>
+            <div className="flex-1 text-center">
+              <p className="text-[9px] text-gray-500">Deuda</p>
+              <p className={`text-sm font-bold ${stats.commissionBalance > 0 ? (stats.isOverdue ? 'text-danger' : 'text-amber-400') : 'text-green-400'}`}>
+                {formatPrice(stats.commissionBalance)}
+              </p>
+            </div>
+          </div>
+          {stats.commissionBalance > 0 && (
+            <div className="mt-2 pt-2 border-t border-dark-600/30">
+              {payingCommission ? (
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    placeholder="Monto"
+                    value={payAmount}
+                    onChange={(e) => setPayAmount(e.target.value)}
+                    className="flex-1 bg-dark-700 border border-dark-600/50 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-accent"
+                  />
+                  <button
+                    onClick={async () => {
+                      const amount = parseFloat(payAmount);
+                      if (!amount || amount <= 0) return;
+                      await supabase.from('commission_payments').insert({
+                        driver_id: driver.id,
+                        amount: Math.min(amount, stats.commissionBalance),
+                        notes: `Pago desde dashboard`,
+                      });
+                      setPayAmount('');
+                      setPayingCommission(false);
+                      refetchPayments();
+                    }}
+                    className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-[10px] font-semibold text-white transition-colors"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    onClick={() => { setPayingCommission(false); setPayAmount(''); }}
+                    className="px-2 py-1.5 bg-dark-700 rounded-lg text-[10px] text-gray-400 hover:text-white transition-colors"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setPayAmount(String(stats.commissionBalance)); setPayingCommission(true); }}
+                    className="flex-1 text-[10px] font-semibold py-1.5 rounded-lg bg-green-600/15 text-green-400 hover:bg-green-600/25 transition-colors"
+                  >
+                    Registrar pago total
+                  </button>
+                  <button
+                    onClick={() => setPayingCommission(true)}
+                    className="flex-1 text-[10px] font-semibold py-1.5 rounded-lg bg-dark-700 text-gray-400 hover:text-white transition-colors"
+                  >
+                    Pago parcial
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {stats.lastPayment && (
+            <p className="text-[9px] text-gray-500 mt-1.5">
+              Último pago: {formatDateTime(stats.lastPayment)}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Trips tabs */}
@@ -251,6 +349,9 @@ function TripRow({ trip }) {
       {/* Bottom: price, km, time */}
       <div className="flex items-center gap-3 text-[10px] text-gray-500">
         <span className="font-semibold text-green-400">{formatPrice(trip.price)}</span>
+        {parseFloat(trip.commission_amount) > 0 && (
+          <span className="font-semibold text-amber-400">-{formatPrice(trip.commission_amount)}</span>
+        )}
         <span>·</span>
         <span>{formatKm(trip.distance_km)}</span>
         <span>·</span>

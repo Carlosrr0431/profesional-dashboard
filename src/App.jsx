@@ -9,7 +9,7 @@ import TripAssignModal from './components/TripAssignModal';
 
 export default function App() {
   const { drivers, loading, refetch } = useDrivers();
-  const { tariffPerKm, tariffBase, calculatePrice, updateSetting } = useSettings();
+  const { tariffPerKm, tariffBase, commissionPercent, calculatePrice, updateSetting } = useSettings();
   const [selectedId, setSelectedId] = useState(null);
   const [panelDriverId, setPanelDriverId] = useState(null);
   const [clock, setClock] = useState(new Date());
@@ -150,6 +150,7 @@ export default function App() {
           onCenterDriver={handleCenterDriver}
           tariffPerKm={tariffPerKm}
           tariffBase={tariffBase}
+          commissionPercent={commissionPercent}
           onUpdateSetting={updateSetting}
         />
         <div className="flex-1">
@@ -166,6 +167,7 @@ export default function App() {
             driver={drivers.find((d) => d.id === panelDriverId)}
             onClose={() => { setPanelDriverId(null); setSelectedId(null); }}
             onAssignTrip={handleAssignTrip}
+            commissionPercent={commissionPercent}
           />
         )}
       </div>
@@ -179,6 +181,7 @@ export default function App() {
           calculatePrice={calculatePrice}
           tariffPerKm={tariffPerKm}
           tariffBase={tariffBase}
+          commissionPercent={commissionPercent}
         />
       )}
     </div>

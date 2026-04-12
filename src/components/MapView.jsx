@@ -62,9 +62,9 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, o
               onClick={() => handleMarkerClick(driver)}
               icon={{
                 path: driver.vehicleType === 'moto' ? MOTO_ICON_SVG : CAR_ICON_SVG,
-                fillColor: driver.activeTrip ? '#A8A2FF' : driver.isOnline ? '#4ADE80' : '#94A3B8',
+                fillColor: driver.activeTrip ? '#EF4444' : driver.isOnline ? '#4ADE80' : '#94A3B8',
                 fillOpacity: 1,
-                strokeColor: driver.activeTrip ? '#6C63FF' : driver.isOnline ? '#16A34A' : '#64748B',
+                strokeColor: driver.activeTrip ? '#B91C1C' : driver.isOnline ? '#16A34A' : '#64748B',
                 strokeWeight: 1.5,
                 scale: isSelected ? 1.8 : 1.4,
                 anchor: { x: 12, y: 12 },
@@ -81,7 +81,7 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, o
               <div
                 onClick={() => handleMarkerClick(driver)}
                 style={{
-                  background: driver.activeTrip ? '#6C63FF' : driver.isOnline ? '#22C55E' : '#64748B',
+                  background: driver.activeTrip ? '#B91C1C' : driver.isOnline ? '#22C55E' : '#64748B',
                   color: '#fff',
                   fontSize: '9px',
                   fontWeight: 700,

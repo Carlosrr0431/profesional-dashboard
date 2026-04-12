@@ -8,19 +8,19 @@ export const SALTA_CENTER = {
 export const DEFAULT_ZOOM = 13;
 
 export const DARK_MAP_STYLE = [
-  { elementType: 'geometry', stylers: [{ color: '#232345' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#232345' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#9999cc' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#333360' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#444478' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#3d3d70' }] },
-  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#505088' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#1a1a35' }] },
+  { elementType: 'geometry', stylers: [{ color: '#162036' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#162036' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#7088A8' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#253352' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#334565' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#2A3F5F' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#3A5070' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0B1120' }] },
   { featureType: 'poi', stylers: [{ visibility: 'off' }] },
   { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#223322' }] },
-  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#444478' }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#aaaadd' }] },
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#1A2E1A' }] },
+  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#334565' }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#8AA0C0' }] },
 ];
 
 // SVG car icon for map markers (minimal sedan silhouette)

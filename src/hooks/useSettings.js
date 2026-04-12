@@ -35,6 +35,7 @@ export function useSettings() {
 
   const tariffPerKm = parseFloat(settings.tariff_per_km) || 0;
   const tariffBase = parseFloat(settings.tariff_base) || 0;
+  const commissionPercent = parseFloat(settings.commission_percent) || 10;
 
   const calculatePrice = useCallback((distanceKm) => {
     if (!distanceKm || distanceKm <= 0) return null;
@@ -46,6 +47,7 @@ export function useSettings() {
     loading,
     tariffPerKm,
     tariffBase,
+    commissionPercent,
     updateSetting,
     calculatePrice,
     refetch: fetchSettings,

@@ -10,7 +10,7 @@
 
 body {
   font-family: 'Inter', sans-serif;
-  background-color: #161625;
+  background-color: #0B1120;
   color: #ffffff;
   overflow: hidden;
 }
@@ -29,14 +29,14 @@ body {
   width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #1C1C35;
+  background: #111B2E;
 }
 ::-webkit-scrollbar-thumb {
-  background: #444478;
+  background: #334565;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #8B83FF;
+  background: #DC2626;
 }
 
 /* Google Maps InfoWindow override */
@@ -44,14 +44,14 @@ body {
   overflow: hidden !important;
 }
 .gm-style-iw {
-  background-color: #232345 !important;
-  border: 1px solid #333360 !important;
+  background-color: #162036 !important;
+  border: 1px solid #253352 !important;
   border-radius: 14px !important;
   padding: 0 !important;
   box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important;
 }
 .gm-style-iw-tc::after {
-  background: #232345 !important;
+  background: #162036 !important;
 }
 .gm-ui-hover-effect {
   top: 6px !important;
@@ -61,8 +61,8 @@ body {
 /* Google Places Autocomplete dropdown - must be above modal */
 .pac-container {
   z-index: 99999 !important;
-  background-color: #1C1C35 !important;
-  border: 1px solid #333360 !important;
+  background-color: #111B2E !important;
+  border: 1px solid #253352 !important;
   border-radius: 8px !important;
   margin-top: 4px !important;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
@@ -70,7 +70,7 @@ body {
 }
 .pac-item {
   padding: 8px 12px !important;
-  border-top: 1px solid #2a2a50 !important;
+  border-top: 1px solid #1A2540 !important;
   color: #e2e8f0 !important;
   cursor: pointer !important;
   font-size: 13px !important;
@@ -80,10 +80,10 @@ body {
   border-top: none !important;
 }
 .pac-item:hover {
-  background-color: #2a2a50 !important;
+  background-color: #1A2540 !important;
 }
 .pac-item-selected {
-  background-color: #2a2a50 !important;
+  background-color: #1A2540 !important;
 }
 .pac-item-query {
   color: #fff !important;
@@ -91,7 +91,7 @@ body {
   font-size: 13px !important;
 }
 .pac-matched {
-  color: #8B83FF !important;
+  color: #DC2626 !important;
 }
 .pac-icon {
   filter: brightness(2) !important;

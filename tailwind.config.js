@@ -5,15 +5,15 @@ export default {
     extend: {
       colors: {
         dark: {
-          900: '#161625',
-          800: '#1C1C35',
-          700: '#232345',
-          600: '#333360',
-          500: '#444478',
+          900: '#0B1120',
+          800: '#111B2E',
+          700: '#162036',
+          600: '#253352',
+          500: '#334565',
         },
-        accent: '#8B83FF',
-        'accent-light': '#A8A2FF',
-        'accent-dim': 'rgba(139,131,255,0.12)',
+        accent: '#DC2626',
+        'accent-light': '#EF4444',
+        'accent-dim': 'rgba(220,38,38,0.12)',
         online: '#4ADE80',
         'online-dim': 'rgba(74,222,128,0.12)',
         offline: '#94A3B8',

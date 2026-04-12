@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { timeAgo, formatSpeed, getTripStatus } from '../lib/utils';
 
-export default function Sidebar({ drivers, selectedId, onSelectDriver, onCenterDriver, tariffPerKm, tariffBase, onUpdateSetting }) {
+export default function Sidebar({ drivers, selectedId, onSelectDriver, onCenterDriver, tariffPerKm, tariffBase, commissionPercent, onUpdateSetting }) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [showTariff, setShowTariff] = useState(false);
@@ -100,8 +100,7 @@ export default function Sidebar({ drivers, selectedId, onSelectDriver, onCenterD
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span className="font-semibold">Tarifa: ${tariffPerKm}/km</span>
-            {tariffBase > 0 && <span className="text-gray-500">+ ${tariffBase} base</span>}
+            <span className="font-semibold">Tarifa: ${tariffPerKm}/km · {commissionPercent}% comisión</span>
           </div>
           <svg className={`w-3.5 h-3.5 text-gray-500 transition-transform ${showTariff ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -133,9 +132,22 @@ export default function Sidebar({ drivers, selectedId, onSelectDriver, onCenterD
                   className="w-full bg-dark-700 border border-dark-600/50 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
                 />
               </div>
+              <div className="flex-1">
+                <label className="text-[10px] text-gray-500 font-semibold block mb-1">COMISIÓN %</label>
+                <input
+                  type="number"
+                  value={commissionPercent}
+                  onChange={(e) => onUpdateSetting('commission_percent', e.target.value)}
+                  min="0"
+                  max="100"
+                  step="1"
+                  className="w-full bg-dark-700 border border-dark-600/50 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
+                />
+              </div>
             </div>
             <p className="text-[10px] text-gray-500">
               Ej: 5km = ${tariffBase > 0 ? `${tariffBase} + ` : ''}{tariffPerKm} × 5 = <span className="text-accent font-semibold">${Math.round(tariffBase + tariffPerKm * 5).toLocaleString('es-AR')}</span>
+              {' · '}Comisión: <span className="text-amber-400 font-semibold">${Math.round((tariffBase + tariffPerKm * 5) * commissionPercent / 100).toLocaleString('es-AR')}</span>
             </p>
           </div>
         )}
@@ -206,6 +218,9 @@ function DriverRow({ driver, isSelected, onClick }) {
           <p className="text-sm font-semibold text-white truncate">{driver.fullName}</p>
           {driver.driverNumber && (
             <span className="text-[10px] font-bold text-accent bg-accent/15 px-1.5 py-0.5 rounded-md">#{driver.driverNumber}</span>
+          )}
+          {driver.commissionOverdue && (
+            <span className="text-[9px] font-bold text-amber-400 bg-amber-500/15 px-1 py-0.5 rounded" title="Comisión vencida">⚠️</span>
           )}
         </div>
         <p className="text-xs text-gray-400 truncate">

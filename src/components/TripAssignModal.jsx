@@ -6,8 +6,8 @@ import { sendPushNotification, formatPrice, formatKm } from '../lib/utils';
 const inputStyle = {
   width: '100%',
   padding: '10px 12px',
-  background: '#1C1C35',
-  border: '1px solid #333360',
+  background: '#111B2E',
+  border: '1px solid #253352',
   borderRadius: '8px',
   color: '#fff',
   fontSize: '13px',
@@ -23,7 +23,7 @@ const labelStyle = {
   fontWeight: 600,
 };
 
-export default function TripAssignModal({ driver, onClose, onSuccess, calculatePrice, tariffPerKm, tariffBase }) {
+export default function TripAssignModal({ driver, onClose, onSuccess, calculatePrice, tariffPerKm, tariffBase, commissionPercent }) {
   const [originAddress, setOriginAddress] = useState('');
   const [originLat, setOriginLat] = useState(null);
   const [originLng, setOriginLng] = useState(null);
@@ -135,6 +135,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
   }, [originLat, originLng, destLat, destLng]);
 
   const autoPrice = routeInfo ? calculatePrice(routeInfo.distanceKm) : null;
+  const autoCommission = autoPrice ? Math.round(autoPrice * (commissionPercent || 10) / 100) : null;
 
   // Geocode a text address to coordinates
   const geocodeAddress = async (address) => {
@@ -231,6 +232,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
         destination_lng: destLng,
         status: 'pending',
         price: autoPrice || null,
+        commission_amount: autoCommission || null,
         distance_km: distanceKm,
         duration_minutes: durationMinutes,
         notes: notes.trim() || null,
@@ -307,13 +309,13 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
     >
       <div
         style={{
-          background: '#232345',
+          background: '#162036',
           borderRadius: '16px',
           width: '100%',
           maxWidth: '460px',
           maxHeight: '90vh',
           overflowY: 'auto',
-          border: '1px solid #333360',
+          border: '1px solid #253352',
           boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
         }}
       >
@@ -321,7 +323,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
         <div
           style={{
             padding: '16px 20px',
-            borderBottom: '1px solid #333360',
+            borderBottom: '1px solid #253352',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -338,8 +340,8 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
           <button
             onClick={onClose}
             style={{
-              background: '#1C1C35',
-              border: '1px solid #333360',
+              background: '#111B2E',
+              border: '1px solid #253352',
               borderRadius: '8px',
               color: '#94A3B8',
               width: '32px',
@@ -367,7 +369,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
                 style={{
                   background: 'none',
                   border: 'none',
-                  color: '#8B83FF',
+                  color: '#DC2626',
                   fontSize: '10px',
                   cursor: 'pointer',
                   fontWeight: 600,
@@ -380,8 +382,8 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
               <div
                 style={{
                   ...inputStyle,
-                  background: '#1C1C35',
-                  color: '#A8A2FF',
+                  background: '#111B2E',
+                  color: '#EF4444',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
@@ -460,8 +462,8 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
                 gap: '8px',
                 marginBottom: '12px',
                 padding: '12px',
-                background: 'rgba(139,131,255,0.06)',
-                border: '1px solid rgba(139,131,255,0.15)',
+                background: 'rgba(220,38,38,0.06)',
+                border: '1px solid rgba(220,38,38,0.15)',
                 borderRadius: '10px',
               }}
             >
@@ -469,12 +471,12 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
                 <div style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 600, marginBottom: '2px' }}>DISTANCIA</div>
                 <div style={{ color: '#fff', fontSize: '15px', fontWeight: 700 }}>{routeInfo.distanceKm} km</div>
               </div>
-              <div style={{ width: '1px', background: 'rgba(139,131,255,0.2)' }} />
+              <div style={{ width: '1px', background: 'rgba(220,38,38,0.2)' }} />
               <div style={{ flex: 1, textAlign: 'center' }}>
                 <div style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 600, marginBottom: '2px' }}>TIEMPO</div>
                 <div style={{ color: '#fff', fontSize: '15px', fontWeight: 700 }}>{routeInfo.durationMinutes} min</div>
               </div>
-              <div style={{ width: '1px', background: 'rgba(139,131,255,0.2)' }} />
+              <div style={{ width: '1px', background: 'rgba(220,38,38,0.2)' }} />
               <div style={{ flex: 1, textAlign: 'center' }}>
                 <div style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 600, marginBottom: '2px' }}>PRECIO</div>
                 <div style={{ color: '#00E6B8', fontSize: '18px', fontWeight: 700 }}>
@@ -484,6 +486,20 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
                   {tariffBase > 0 ? `$${tariffBase} + ` : ''}${tariffPerKm}/km
                 </div>
               </div>
+              {autoCommission > 0 && (
+                <>
+                  <div style={{ width: '1px', background: 'rgba(220,38,38,0.2)' }} />
+                  <div style={{ flex: 1, textAlign: 'center' }}>
+                    <div style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 600, marginBottom: '2px' }}>COMISIÓN</div>
+                    <div style={{ color: '#F59E0B', fontSize: '15px', fontWeight: 700 }}>
+                      ${autoCommission?.toLocaleString('es-AR') || '—'}
+                    </div>
+                    <div style={{ color: '#64748B', fontSize: '9px', marginTop: '1px' }}>
+                      {commissionPercent}%
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -524,8 +540,8 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
               style={{
                 flex: 1,
                 padding: '10px',
-                background: '#1C1C35',
-                border: '1px solid #333360',
+                background: '#111B2E',
+                border: '1px solid #253352',
                 borderRadius: '10px',
                 color: '#94A3B8',
                 fontSize: '13px',
@@ -541,7 +557,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
               style={{
                 flex: 2,
                 padding: '10px',
-                background: loading ? '#4a4a80' : 'linear-gradient(135deg, #8B83FF, #6C63FF)',
+                background: loading ? '#334565' : 'linear-gradient(135deg, #EF4444, #DC2626)',
                 border: 'none',
                 borderRadius: '10px',
                 color: '#fff',

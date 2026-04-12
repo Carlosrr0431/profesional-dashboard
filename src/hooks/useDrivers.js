@@ -59,6 +59,54 @@ export function useDrivers() {
         }
       } catch (_) {}
 
+      // Fetch commission data for all drivers
+      let commissionMap = {}; // driverId -> { total, paid, balance, isOverdue }
+      try {
+        const { data: commTrips } = await supabase
+          .from('trips')
+          .select('driver_id, commission_amount, completed_at')
+          .eq('status', 'completed')
+          .gt('commission_amount', 0);
+
+        const { data: commPayments } = await supabase
+          .from('commission_payments')
+          .select('driver_id, amount, created_at')
+          .order('created_at', { ascending: false });
+
+        // Aggregate commissions per driver
+        const driverComm = {};
+        (commTrips || []).forEach((t) => {
+          if (!driverComm[t.driver_id]) driverComm[t.driver_id] = { total: 0, trips: [] };
+          driverComm[t.driver_id].total += parseFloat(t.commission_amount) || 0;
+          driverComm[t.driver_id].trips.push(t);
+        });
+
+        // Aggregate payments per driver
+        const driverPaid = {};
+        (commPayments || []).forEach((p) => {
+          if (!driverPaid[p.driver_id]) driverPaid[p.driver_id] = { total: 0, lastDate: null };
+          driverPaid[p.driver_id].total += parseFloat(p.amount) || 0;
+          if (!driverPaid[p.driver_id].lastDate) driverPaid[p.driver_id].lastDate = p.created_at;
+        });
+
+        const threeDaysAgo = new Date();
+        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+        Object.keys(driverComm).forEach((dId) => {
+          const total = driverComm[dId].total;
+          const paid = driverPaid[dId]?.total || 0;
+          const balance = Math.round((total - paid) * 100) / 100;
+          const lastPayDate = driverPaid[dId]?.lastDate ? new Date(driverPaid[dId].lastDate) : null;
+          const trips = driverComm[dId].trips.sort((a, b) => new Date(a.completed_at) - new Date(b.completed_at));
+          const unpaid = lastPayDate
+            ? trips.filter((t) => new Date(t.completed_at) > lastPayDate)
+            : trips;
+          const oldest = unpaid.length > 0 ? unpaid[0] : null;
+          const isOverdue = balance > 0 && oldest && new Date(oldest.completed_at) < threeDaysAgo;
+          commissionMap[dId] = { total, paid, balance, isOverdue };
+        });
+      } catch (_) {}
+
       const mapped = (driversData || []).map((d) => {
         const loc = locationsMap[d.id];
         const activeTrip = activeTripsMap[d.id] || null;
@@ -83,6 +131,8 @@ export function useDrivers() {
           rating: parseFloat(d.rating || 5),
           totalTrips: d.total_trips || 0,
           activeTrip,
+          commissionBalance: commissionMap[d.id]?.balance || 0,
+          commissionOverdue: commissionMap[d.id]?.isOverdue || false,
         };
       });
 
