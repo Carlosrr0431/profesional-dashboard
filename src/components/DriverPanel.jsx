@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { useDriverTrips } from '../hooks/useTrips';
 import { formatPrice, formatKm, formatDuration, formatTime, formatDateTime, getTripStatus } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import VoiceChat from './VoiceChat';
 
 export default function DriverPanel({ driver, onClose, onAssignTrip, commissionPercent }) {
   const { trips, loading, stats, refetchPayments } = useDriverTrips(driver?.id);
   const [tab, setTab] = useState('today');
   const [payingCommission, setPayingCommission] = useState(false);
   const [payAmount, setPayAmount] = useState('');
+  const [showVoice, setShowVoice] = useState(false);
 
   if (!driver) return null;
 
@@ -46,14 +48,27 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
       <div className="p-4 border-b border-light-300/50">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-bold text-navy-900">Detalle del chofer</h3>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-lg bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-navy-800 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setShowVoice(!showVoice)}
+              className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-colors ${
+                showVoice
+                  ? 'bg-accent/15 border-accent/30 text-accent'
+                  : 'bg-light-200 border-light-300/50 text-gray-400 hover:text-navy-800'
+              }`}
+              title="Radio / Mensajes de voz"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+            </button>
+            <button
+              onClick={onClose}
+              className="w-7 h-7 rounded-lg bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-navy-800 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Driver info card */}
@@ -110,6 +125,10 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
         </div>
       </div>
 
+      {showVoice ? (
+        <VoiceChat driver={driver} onClose={() => setShowVoice(false)} />
+      ) : (
+      <>
       {/* Active trip banner */}
       {stats.inProgress && (
         <div className="mx-4 mt-3 p-3 rounded-xl bg-accent/10 border border-accent/20">
@@ -297,6 +316,8 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

@@ -285,12 +285,12 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
     componentRestrictions: { country: 'ar' },
     fields: ['formatted_address', 'geometry', 'name'],
     bounds: {
-      north: -24.65,
-      south: -24.90,
-      east: -65.30,
-      west: -65.50,
+      north: -24.68,
+      south: -24.88,
+      east: -65.33,
+      west: -65.48,
     },
-    strictBounds: false,
+    strictBounds: true,
   };
 
   return (

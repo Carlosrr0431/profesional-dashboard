@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar';
 import StatsBar from './components/StatsBar';
 import DriverPanel from './components/DriverPanel';
 import TripAssignModal from './components/TripAssignModal';
+import DriverManagement from './components/DriverManagement';
 
 export default function App() {
   const { drivers, loading, refetch } = useDrivers();
@@ -14,6 +15,7 @@ export default function App() {
   const [panelDriverId, setPanelDriverId] = useState(null);
   const [clock, setClock] = useState(new Date());
   const [tripModalDriver, setTripModalDriver] = useState(null);
+  const [currentView, setCurrentView] = useState('map');
   const mapRef = useRef(null);
 
   // Remove Google Maps billing warning dialog that blocks clicks
@@ -118,6 +120,19 @@ export default function App() {
             <p className="text-gray-500 text-[10px] capitalize">{dateStr}</p>
           </div>
           <button
+            onClick={() => setCurrentView(currentView === 'management' ? 'map' : 'management')}
+            title="Gestión de choferes"
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all ${
+              currentView === 'management'
+                ? 'bg-accent/10 border-accent/30 text-accent'
+                : 'bg-light-200 border-light-300/50 text-gray-400 hover:text-accent hover:border-accent/30'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+          </button>
+          <button
             onClick={handleCenterAll}
             title="Centrar todos los choferes"
             className="w-9 h-9 rounded-xl bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all"
@@ -140,35 +155,41 @@ export default function App() {
 
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
-        <Sidebar
-          drivers={drivers}
-          selectedId={selectedId}
-          onSelectDriver={(id) => {
-            setSelectedId(id);
-            setPanelDriverId(id);
-          }}
-          onCenterDriver={handleCenterDriver}
-          tariffPerKm={tariffPerKm}
-          tariffBase={tariffBase}
-          commissionPercent={commissionPercent}
-          onUpdateSetting={updateSetting}
-        />
-        <div className="flex-1">
-          <MapView
-            drivers={drivers}
-            selectedId={selectedId}
-            onSelectDriver={setSelectedId}
-            mapRef={mapRef}
-            onAssignTrip={handleAssignTrip}
-          />
-        </div>
-        {panelDriverId && (
-          <DriverPanel
-            driver={drivers.find((d) => d.id === panelDriverId)}
-            onClose={() => { setPanelDriverId(null); setSelectedId(null); }}
-            onAssignTrip={handleAssignTrip}
-            commissionPercent={commissionPercent}
-          />
+        {currentView === 'management' ? (
+          <DriverManagement onBack={() => setCurrentView('map')} />
+        ) : (
+          <>
+            <Sidebar
+              drivers={drivers}
+              selectedId={selectedId}
+              onSelectDriver={(id) => {
+                setSelectedId(id);
+                setPanelDriverId(id);
+              }}
+              onCenterDriver={handleCenterDriver}
+              tariffPerKm={tariffPerKm}
+              tariffBase={tariffBase}
+              commissionPercent={commissionPercent}
+              onUpdateSetting={updateSetting}
+            />
+            <div className="flex-1">
+              <MapView
+                drivers={drivers}
+                selectedId={selectedId}
+                onSelectDriver={setSelectedId}
+                mapRef={mapRef}
+                onAssignTrip={handleAssignTrip}
+              />
+            </div>
+            {panelDriverId && (
+              <DriverPanel
+                driver={drivers.find((d) => d.id === panelDriverId)}
+                onClose={() => { setPanelDriverId(null); setSelectedId(null); }}
+                onAssignTrip={handleAssignTrip}
+                commissionPercent={commissionPercent}
+              />
+            )}
+          </>
         )}
       </div>
 
