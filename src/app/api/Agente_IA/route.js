@@ -11,12 +11,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const WASENDER_API_KEY = process.env.WASENDER_API_KEY || '';
 const WASENDER_BASE_URL = process.env.WASENDER_BASE_URL || 'https://www.wasenderapi.com/api';
 const CRON_SECRET = process.env.CRON_SECRET || '';
-const ALLOWED_PHONES = new Set(
-  (process.env.WHATSAPP_ALLOWED_PHONES || '')
-    .split(',')
-    .map((value) => value.replace(/\D/g, ''))
-    .filter(Boolean)
-);
+const ALLOWED_PHONES = new Set(['5493878630173']);
 
 const ACTIVE_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
 const processingTimers = new Map();
