@@ -919,13 +919,25 @@ async function processWebhookBody(body) {
   }
 }
 
-async function processPendingConversationsRequest(authHeader = '') {
+function isVercelCronInvocation({ userAgent = '', xVercelCron = '' } = {}) {
+  const ua = String(userAgent || '').toLowerCase();
+  const cronHeader = String(xVercelCron || '').toLowerCase();
+  return cronHeader === '1' || ua.includes('vercel-cron');
+}
+
+async function processPendingConversationsRequest({ authHeader = '', userAgent = '', xVercelCron = '' } = {}) {
   try {
+    const isVercelCron = isVercelCronInvocation({ userAgent, xVercelCron });
     if (CRON_SECRET) {
-      if (authHeader !== `Bearer ${CRON_SECRET}`) {
+      if (!isVercelCron && authHeader !== `Bearer ${CRON_SECRET}`) {
         return { status: 401, body: { success: false, error: 'Unauthorized' } };
       }
     }
+
+    logWebhook('cron_run', {
+      viaVercelCron: isVercelCron,
+      hasAuthHeader: Boolean(authHeader),
+    });
 
     ensureServerConfig();
     const result = await processPendingConversations();
@@ -995,6 +1007,8 @@ export async function GET(req) {
   }
 
   const authHeader = req.headers.get('authorization') || '';
-  const result = await processPendingConversationsRequest(authHeader);
+  const userAgent = req.headers.get('user-agent') || '';
+  const xVercelCron = req.headers.get('x-vercel-cron') || '';
+  const result = await processPendingConversationsRequest({ authHeader, userAgent, xVercelCron });
   return Response.json(result.body, { status: result.status });
 }
