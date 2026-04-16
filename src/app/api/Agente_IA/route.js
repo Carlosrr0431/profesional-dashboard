@@ -57,15 +57,20 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 }
 
 function ensureServerConfig() {
+  const missing = getMissingServerConfig();
+  if (missing.length > 0) {
+    throw new Error(`Faltan variables de entorno: ${missing.join(', ')}`);
+  }
+}
+
+function getMissingServerConfig() {
   const missing = [];
   if (!process.env.SUPABASE_URL && !process.env.VITE_SUPABASE_URL) missing.push('SUPABASE_URL');
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
   if (!OPENAI_API_KEY) missing.push('OPENAI_API_KEY');
   if (!WASENDER_API_KEY) missing.push('WASENDER_API_KEY');
-  if (!GOOGLE_MAPS_API_KEY) missing.push('GOOGLE_MAPS_API_KEY');
-  if (missing.length > 0) {
-    throw new Error(`Faltan variables de entorno: ${missing.join(', ')}`);
-  }
+  if (!GOOGLE_MAPS_API_KEY && !process.env.VITE_GOOGLE_MAPS_API_KEY) missing.push('GOOGLE_MAPS_API_KEY');
+  return missing;
 }
 
 function getSupabase() {
@@ -754,11 +759,27 @@ async function processPendingConversations() {
 
 async function processWebhookBody(body) {
   try {
-    ensureServerConfig();
     const payloadBody = body || {};
     const event = payloadBody.event;
+    if (event === 'webhook.test') {
+      return { status: 200, body: { success: true, ignored: true, reason: 'webhook_test' } };
+    }
+
     if (!['messages.upsert', 'messages.received'].includes(event)) {
       return { status: 200, body: { success: true, ignored: true, reason: 'event_not_supported' } };
+    }
+
+    const missing = getMissingServerConfig();
+    if (missing.length > 0) {
+      return {
+        status: 200,
+        body: {
+          success: true,
+          ignored: true,
+          reason: 'missing_server_env',
+          missing,
+        },
+      };
     }
 
     const rawMessage = payloadBody?.data?.messages || payloadBody?.data;
@@ -860,6 +881,13 @@ async function warmPendingTimers() {
 async function ensureWarm() {
   if (warmed) return;
   warmed = true;
+
+  const missing = getMissingServerConfig();
+  if (missing.length > 0) {
+    console.warn(`Warmup omitido por variables faltantes: ${missing.join(', ')}`);
+    return;
+  }
+
   try {
     await warmPendingTimers();
   } catch (error) {
