@@ -14,7 +14,7 @@ const CRON_SECRET = process.env.CRON_SECRET || '';
 const ALLOWED_PHONES = new Set(['5493878630173']);
 const IS_SERVERLESS = Boolean(process.env.VERCEL);
 const IMMEDIATE_PROCESSING =
-  (process.env.WHATSAPP_IMMEDIATE_PROCESSING || '').toLowerCase() === 'true' || IS_SERVERLESS;
+  (process.env.WHATSAPP_IMMEDIATE_PROCESSING || '').toLowerCase() === 'true';
 
 const ACTIVE_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
 const processingTimers = new Map();
@@ -898,7 +898,21 @@ async function processWebhookBody(body) {
       };
     }
 
-    return { status: 200, body: { success: true, queued: true, conversationId: appendResult.conversation_id } };
+    logWebhook('awaiting_cron', {
+      conversationId: appendResult.conversation_id,
+      accumulationMs: ACCUMULATION_MS,
+      immediateProcessing: false,
+    });
+
+    return {
+      status: 200,
+      body: {
+        success: true,
+        queued: true,
+        awaitingCron: true,
+        conversationId: appendResult.conversation_id,
+      },
+    };
   } catch (error) {
     console.error('Error en webhook Wasender:', error);
     return { status: 500, body: { success: false, error: error.message } };
