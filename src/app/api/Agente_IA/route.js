@@ -29,6 +29,21 @@ function normalizePhone(phone) {
   return String(phone || '').replace(/\D/g, '');
 }
 
+function maskPhone(phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return 'unknown';
+  if (normalized.length <= 4) return normalized;
+  return `${'*'.repeat(Math.max(0, normalized.length - 4))}${normalized.slice(-4)}`;
+}
+
+function logWebhook(stage, meta = {}) {
+  try {
+    console.info('[wasender-webhook]', JSON.stringify({ stage, ...meta }));
+  } catch {
+    console.info('[wasender-webhook]', stage);
+  }
+}
+
 function isAuthorizedPhone(phone) {
   if (ALLOWED_PHONES.size === 0) return true;
   const normalized = normalizePhone(phone);
@@ -761,16 +776,21 @@ async function processWebhookBody(body) {
   try {
     const payloadBody = body || {};
     const event = payloadBody.event;
+    logWebhook('received', { event: event || 'unknown' });
+
     if (event === 'webhook.test') {
+      logWebhook('ignored', { reason: 'webhook_test' });
       return { status: 200, body: { success: true, ignored: true, reason: 'webhook_test' } };
     }
 
     if (!['messages.upsert', 'messages.received'].includes(event)) {
+      logWebhook('ignored', { reason: 'event_not_supported', event: event || 'unknown' });
       return { status: 200, body: { success: true, ignored: true, reason: 'event_not_supported' } };
     }
 
     const missing = getMissingServerConfig();
     if (missing.length > 0) {
+      logWebhook('ignored', { reason: 'missing_server_env', missing });
       return {
         status: 200,
         body: {
@@ -785,23 +805,28 @@ async function processWebhookBody(body) {
     const rawMessage = payloadBody?.data?.messages || payloadBody?.data;
     const messageData = Array.isArray(rawMessage) ? rawMessage[0] : rawMessage;
     if (!messageData?.key) {
+      logWebhook('ignored', { reason: 'invalid_payload' });
       return { status: 200, body: { success: true, ignored: true, reason: 'invalid_payload' } };
     }
 
     if (messageData.key.fromMe) {
+      logWebhook('ignored', { reason: 'outgoing' });
       return { status: 200, body: { success: true, ignored: true, reason: 'outgoing' } };
     }
 
     if (messageData.key.remoteJid?.includes('@g.us')) {
+      logWebhook('ignored', { reason: 'group' });
       return { status: 200, body: { success: true, ignored: true, reason: 'group' } };
     }
 
     const phone = extractPhoneFromMessage(messageData);
     if (!phone || phone.length < 8) {
+      logWebhook('ignored', { reason: 'invalid_phone' });
       return { status: 200, body: { success: true, ignored: true, reason: 'invalid_phone' } };
     }
 
     if (!isAuthorizedPhone(phone)) {
+      logWebhook('ignored', { reason: 'phone_not_allowed', phone: maskPhone(phone) });
       return { status: 200, body: { success: true, ignored: true, reason: 'phone_not_allowed' } };
     }
 
@@ -830,10 +855,18 @@ async function processWebhookBody(body) {
     });
 
     if (!appendResult?.inserted) {
+      logWebhook('ignored', { reason: 'duplicate_message', phone: maskPhone(phone), messageId });
       return { status: 200, body: { success: true, ignored: true, reason: 'duplicate_message' } };
     }
 
     scheduleConversationProcessing(appendResult.conversation_id, ACCUMULATION_MS);
+    logWebhook('queued', {
+      phone: maskPhone(phone),
+      messageId,
+      messageType,
+      conversationId: appendResult.conversation_id,
+      accumulationMs: ACCUMULATION_MS,
+    });
     return { status: 200, body: { success: true, queued: true, conversationId: appendResult.conversation_id } };
   } catch (error) {
     console.error('Error en webhook Wasender:', error);
@@ -898,7 +931,13 @@ async function ensureWarm() {
 export async function POST(req) {
   await ensureWarm();
   const body = await req.json();
+  logWebhook('http_post', {
+    vercelId: req.headers.get('x-vercel-id') || null,
+    hasEvent: Boolean(body?.event),
+    event: body?.event || null,
+  });
   const result = await processWebhookBody(body);
+  logWebhook('http_post_result', { status: result.status, success: result.body?.success === true });
   return Response.json(result.body, { status: result.status });
 }
 

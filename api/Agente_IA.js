@@ -49,6 +49,7 @@ async function sendResponse(response, res) {
 
 export default async function handler(req, res) {
   try {
+    console.info('[agente-ia-api]', JSON.stringify({ stage: 'request', method: req.method, path: req.url }));
     const request = toRequest(req);
 
     let response;
@@ -60,8 +61,10 @@ export default async function handler(req, res) {
       response = Response.json({ success: false, error: 'Method Not Allowed' }, { status: 405 });
     }
 
+    console.info('[agente-ia-api]', JSON.stringify({ stage: 'response', method: req.method, path: req.url, status: response.status }));
     await sendResponse(response, res);
   } catch (error) {
+    console.error('[agente-ia-api]', JSON.stringify({ stage: 'error', method: req.method, path: req.url, error: error?.message || 'Internal Server Error' }));
     res.statusCode = 500;
     res.setHeader('content-type', 'application/json; charset=utf-8');
     res.end(JSON.stringify({ success: false, error: error?.message || 'Internal Server Error' }));
