@@ -540,6 +540,31 @@ async function geocodeAddress(address) {
   return resultPayload;
 }
 
+async function reverseGeocodeLatLng(lat, lng) {
+  logWebhook('maps_reverse_geocode_start', { lat, lng });
+  const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+  url.searchParams.set('latlng', `${lat},${lng}`);
+  url.searchParams.set('language', 'es');
+  url.searchParams.set('region', 'ar');
+  url.searchParams.set('key', GOOGLE_MAPS_API_KEY);
+
+  const response = await fetch(url);
+  const payload = await response.json();
+  if (payload.status !== 'OK' || !payload.results?.length) {
+    logWebhook('maps_reverse_geocode_fail', {
+      lat,
+      lng,
+      status: payload.status || null,
+      resultCount: payload.results?.length || 0,
+    });
+    return `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
+  }
+
+  const formatted = payload.results[0]?.formatted_address || `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
+  logWebhook('maps_reverse_geocode_ok', { lat, lng, formattedAddress: formatted });
+  return formatted;
+}
+
 async function getRouteMetrics(origin, destination) {
   logWebhook('maps_route_start', {
     originLat: origin?.lat,
@@ -743,33 +768,67 @@ async function createTripFromConversation({ conversation, extracted }) {
     hasDestination: Boolean(extracted?.destination),
   });
 
-  let origin;
-  let destination;
-  try {
-    origin = await geocodeAddress(extracted.origin);
-    destination = await geocodeAddress(extracted.destination);
-  } catch (error) {
-    logWebhook('trip_create_geocode_error', {
-      conversationId: conversation?.id || null,
-      error: error?.message || 'geocode_error',
-      originQuery: extracted?.origin || null,
-      destinationQuery: extracted?.destination || null,
-    });
+  const pickupQuery = extracted?.pickup_location || extracted?.destination || extracted?.origin || null;
+  if (!pickupQuery) {
     return {
       ok: false,
-      reason: 'invalid_address',
+      reason: 'missing_pickup_location',
       reply:
-        'No pude ubicar bien una de las direcciones. Pasame *calle y número* (o referencia bien precisa) para origen y destino, así te asigno el móvil correcto.',
+        'Necesito la ubicación donde te pasamos a buscar (calle y número). Mandamela y te derivo el móvil.',
       context: {
         passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
-        origin: extracted.origin,
-        destination: extracted.destination,
+        pickup_location: extracted?.pickup_location || null,
         notes: extracted.notes || null,
       },
     };
   }
 
-  const route = await getRouteMetrics(origin, destination);
+  let pickupLocation;
+  try {
+    pickupLocation = await geocodeAddress(pickupQuery);
+  } catch (error) {
+    logWebhook('trip_create_geocode_error', {
+      conversationId: conversation?.id || null,
+      error: error?.message || 'geocode_error',
+      pickupQuery,
+    });
+    return {
+      ok: false,
+      reason: 'invalid_address',
+      reply:
+        'No pude ubicar bien la dirección de retiro. Pasame *calle y número* (o referencia bien precisa) para derivarte el móvil correcto.',
+      context: {
+        passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
+        pickup_location: pickupQuery,
+        notes: extracted.notes || null,
+      },
+    };
+  }
+
+  const driver = await chooseDriver({ lat: pickupLocation.lat, lng: pickupLocation.lng });
+  if (!driver) {
+    logWebhook('trip_create_no_driver', {
+      conversationId: conversation?.id || null,
+      phone: maskPhone(conversation?.phone || ''),
+      pickupAddress: pickupLocation.formattedAddress,
+    });
+    return {
+      ok: false,
+      reason: 'no_driver',
+      reply:
+        'Tomé tu pedido, pero ahora no hay choferes disponibles. Si querés, te aviso apenas se libere uno.',
+      context: {
+        passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
+        pickup_location: pickupQuery,
+        notes: extracted.notes || null,
+      },
+    };
+  }
+
+  const driverLat = Number(driver.current_lat);
+  const driverLng = Number(driver.current_lng);
+  const driverOriginAddress = await reverseGeocodeLatLng(driverLat, driverLng);
+  const route = await getRouteMetrics({ lat: driverLat, lng: driverLng }, pickupLocation);
   const settings = await getSettingsMap();
   const tariffPerKm = Number(settings.tariff_per_km || 0);
   const tariffBase = Number(settings.tariff_base || 0);
@@ -811,42 +870,22 @@ async function createTripFromConversation({ conversation, extracted }) {
     };
   }
 
-  const driver = await chooseDriver({ lat: origin.lat, lng: origin.lng });
-  if (!driver) {
-    logWebhook('trip_create_no_driver', {
-      conversationId: conversation?.id || null,
-      phone: maskPhone(conversation?.phone || ''),
-    });
-    return {
-      ok: false,
-      reason: 'no_driver',
-      reply:
-        'Tomé tu pedido, pero ahora no hay choferes disponibles. Si querés, te aviso apenas se libere uno.',
-      context: {
-        passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
-        origin: extracted.origin,
-        destination: extracted.destination,
-        notes: extracted.notes || null,
-      },
-    };
-  }
-
   const tripPayload = {
     driver_id: driver.id,
     passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
     passenger_phone: conversation.phone,
-    origin_address: origin.formattedAddress,
-    origin_lat: origin.lat,
-    origin_lng: origin.lng,
-    destination_address: destination.formattedAddress,
-    destination_lat: destination.lat,
-    destination_lng: destination.lng,
+    origin_address: driverOriginAddress,
+    origin_lat: driverLat,
+    origin_lng: driverLng,
+    destination_address: pickupLocation.formattedAddress,
+    destination_lat: pickupLocation.lat,
+    destination_lng: pickupLocation.lng,
     status: 'pending',
     price,
     commission_amount: commissionAmount,
     distance_km: route.distanceKm,
     duration_minutes: route.durationMinutes,
-    notes: extracted.notes || 'Creado automáticamente desde WhatsApp',
+    notes: extracted.notes || 'Creado automáticamente desde WhatsApp (chofer -> retiro pasajero)',
   };
 
   const { data: trip, error } = await getSupabase().from('trips').insert(tripPayload).select().single();
@@ -877,7 +916,7 @@ async function createTripFromConversation({ conversation, extracted }) {
     trip,
     driver,
     reply:
-      `Listo, ya te busqué un móvil.\nChofer: *${driver.full_name || 'Sin nombre'}*${driverMeta ? `\n${driverMeta}` : ''}${price ? `\nTarifa estimada: *$${price.toLocaleString('es-AR')}*` : ''}`,
+      `Listo, ya te busqué un móvil para ir a buscarte.\nChofer: *${driver.full_name || 'Sin nombre'}*${driverMeta ? `\n${driverMeta}` : ''}\nRetiro: *${pickupLocation.formattedAddress}*${price ? `\nTarifa estimada (hasta retiro): *$${price.toLocaleString('es-AR')}*` : ''}`,
     context: {},
   };
 }
@@ -916,8 +955,10 @@ async function processClaimedConversation(batch) {
 
   const nextContext = {
     passenger_name: extracted.passenger_name || context.passenger_name || batch.push_name || null,
-    origin: extracted.origin || context.origin || null,
-    destination: extracted.destination || context.destination || null,
+    // For auto-dispatch, prioritize the latest passenger pickup location from the current batch.
+    pickup_location: extracted.destination || extracted.origin || context.pickup_location || null,
+    origin: extracted.origin || null,
+    destination: extracted.destination || null,
     notes: extracted.notes || context.notes || null,
   };
 
@@ -952,18 +993,14 @@ async function processClaimedConversation(batch) {
     };
   }
 
-  if (!nextContext.origin || !nextContext.destination) {
-    const missing = [];
-    if (!nextContext.origin) missing.push('origen');
-    if (!nextContext.destination) missing.push('destino');
+  if (!nextContext.pickup_location) {
     const reply =
       extracted.reply ||
-      `Para asignarte un móvil necesito ${missing.join(' y ')}. Mandamelo en un solo mensaje si podés.`;
+      'Para derivarte un móvil necesito la ubicación de retiro (calle y número). Mandamela en un solo mensaje si podés.';
     await sendWhatsAppText(batch.phone, reply);
     logWebhook('conversation_missing_fields', {
       conversationId: batch?.id || null,
-      missingOrigin: !nextContext.origin,
-      missingDestination: !nextContext.destination,
+      missingPickupLocation: !nextContext.pickup_location,
     });
     return {
       handled: true,
