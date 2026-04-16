@@ -18,6 +18,7 @@ const IMMEDIATE_PROCESSING =
 
 const ACTIVE_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
 const processingTimers = new Map();
+const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !== 'false';
 
 let warmed = false;
 let supabaseClient = null;
@@ -788,6 +789,11 @@ async function processWebhookBody(body) {
     if (event === 'webhook.test') {
       logWebhook('ignored', { reason: 'webhook_test' });
       return { status: 200, body: { success: true, ignored: true, reason: 'webhook_test' } };
+    }
+
+    if (UPSERT_ONLY && event === 'messages.received') {
+      logWebhook('ignored', { reason: 'received_ignored_upsert_only' });
+      return { status: 200, body: { success: true, ignored: true, reason: 'received_ignored_upsert_only' } };
     }
 
     if (!['messages.upsert', 'messages.received'].includes(event)) {
