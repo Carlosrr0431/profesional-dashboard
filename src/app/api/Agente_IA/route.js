@@ -43,6 +43,16 @@ function logWebhook(stage, meta = {}) {
   }
 }
 
+function summarizeDbError(error) {
+  if (!error) return null;
+  return {
+    code: error.code || null,
+    message: error.message || null,
+    details: error.details || null,
+    hint: error.hint || null,
+  };
+}
+
 function isAuthorizedPhone(phone) {
   if (ALLOWED_PHONES.size === 0) return true;
   const normalized = normalizePhone(phone);
@@ -215,6 +225,14 @@ async function appendIncomingMessage({
   transcription = null,
   rawPayload,
 }) {
+  logWebhook('db_append_incoming_start', {
+    phone: maskPhone(phone),
+    messageId,
+    messageType,
+    hasContent: Boolean(content),
+    hasTranscription: Boolean(transcription),
+  });
+
   const { data, error } = await getSupabase().rpc('append_whatsapp_message', {
     p_phone: normalizePhone(phone),
     p_push_name: pushName || null,
@@ -227,8 +245,17 @@ async function appendIncomingMessage({
     p_raw_payload: rawPayload,
   });
 
-  if (error) throw error;
-  return Array.isArray(data) ? data[0] : data;
+  if (error) {
+    logWebhook('db_append_incoming_error', { error: summarizeDbError(error) });
+    throw error;
+  }
+
+  const result = Array.isArray(data) ? data[0] : data;
+  logWebhook('db_append_incoming_ok', {
+    conversationId: result?.conversation_id || null,
+    inserted: Boolean(result?.inserted),
+  });
+  return result;
 }
 
 async function insertOutgoingMessage({ phone, messageId, content, rawPayload = null }) {
@@ -280,12 +307,23 @@ async function sendWhatsAppText(phone, text) {
 }
 
 async function claimConversationBatch(conversationId) {
+  logWebhook('db_claim_batch_start', { conversationId });
   const { data, error } = await getSupabase().rpc('claim_whatsapp_conversation_batch', {
     p_conversation_id: conversationId,
   });
 
-  if (error) throw error;
-  return Array.isArray(data) ? data[0] : data;
+  if (error) {
+    logWebhook('db_claim_batch_error', { conversationId, error: summarizeDbError(error) });
+    throw error;
+  }
+
+  const result = Array.isArray(data) ? data[0] : data;
+  logWebhook('db_claim_batch_ok', {
+    conversationId,
+    claimed: Boolean(result?.id),
+    status: result?.status || null,
+  });
+  return result;
 }
 
 async function finalizeConversation(conversationId, updates = {}) {
@@ -297,7 +335,15 @@ async function finalizeConversation(conversationId, updates = {}) {
     .from('whatsapp_conversations')
     .update(payload)
     .eq('id', conversationId);
-  if (error) throw error;
+  if (error) {
+    logWebhook('db_finalize_conversation_error', { conversationId, error: summarizeDbError(error) });
+    throw error;
+  }
+  logWebhook('db_finalize_conversation_ok', {
+    conversationId,
+    status: updates?.status || null,
+    hasContext: Boolean(updates?.context),
+  });
 }
 
 async function getRecentConversationMessages(conversationId, limit = 12) {
@@ -308,10 +354,23 @@ async function getRecentConversationMessages(conversationId, limit = 12) {
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw error;
+  logWebhook('db_recent_messages_ok', {
+    conversationId,
+    limit,
+    returned: (data || []).length,
+  });
   return (data || []).reverse();
 }
 
 async function extractTripIntent({ combinedText, context, pushName, phone, history }) {
+  logWebhook('ai_extract_intent_start', {
+    phone: maskPhone(phone),
+    textLen: combinedText?.length || 0,
+    historyCount: history?.length || 0,
+    hasContext: Boolean(context && Object.keys(context).length),
+    hasPushName: Boolean(pushName),
+  });
+
   const completion = await getOpenAI().chat.completions.create({
     model: 'gpt-5.4-mini',
     temperature: 0.1,
@@ -364,6 +423,7 @@ Reglas:
   const raw = completion.choices[0]?.message?.content?.trim();
   const match = raw?.match(/\{[\s\S]*\}/);
   if (!match) {
+    logWebhook('ai_extract_intent_fallback', { reason: 'no_json' });
     return {
       intent: 'other',
       passenger_name: null,
@@ -376,7 +436,7 @@ Reglas:
     };
   }
 
-  return safeJsonParse(match[0], {
+  const parsed = safeJsonParse(match[0], {
     intent: 'other',
     passenger_name: null,
     origin: null,
@@ -386,10 +446,20 @@ Reglas:
     confidence: 0,
     missing_fields: [],
   });
+
+  logWebhook('ai_extract_intent_ok', {
+    intent: parsed?.intent || null,
+    confidence: parsed?.confidence ?? null,
+    hasOrigin: Boolean(parsed?.origin),
+    hasDestination: Boolean(parsed?.destination),
+    missingFields: Array.isArray(parsed?.missing_fields) ? parsed.missing_fields : [],
+  });
+  return parsed;
 }
 
 async function geocodeAddress(address) {
   const query = /salta/i.test(address) ? address : `${address}, Salta, Argentina`;
+  logWebhook('maps_geocode_start', { query });
   const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
   url.searchParams.set('address', query);
   url.searchParams.set('language', 'es');
@@ -399,18 +469,36 @@ async function geocodeAddress(address) {
   const response = await fetch(url);
   const payload = await response.json();
   if (payload.status !== 'OK' || !payload.results?.length) {
+    logWebhook('maps_geocode_fail', {
+      query,
+      status: payload.status || null,
+      resultCount: payload.results?.length || 0,
+    });
     throw new Error(`No se pudo geocodificar: ${address}`);
   }
 
   const result = payload.results[0];
-  return {
+  const resultPayload = {
     formattedAddress: result.formatted_address,
     lat: result.geometry.location.lat,
     lng: result.geometry.location.lng,
   };
+  logWebhook('maps_geocode_ok', {
+    query,
+    formattedAddress: resultPayload.formattedAddress,
+    lat: resultPayload.lat,
+    lng: resultPayload.lng,
+  });
+  return resultPayload;
 }
 
 async function getRouteMetrics(origin, destination) {
+  logWebhook('maps_route_start', {
+    originLat: origin?.lat,
+    originLng: origin?.lng,
+    destinationLat: destination?.lat,
+    destinationLng: destination?.lng,
+  });
   const url = new URL('https://maps.googleapis.com/maps/api/directions/json');
   url.searchParams.set('origin', `${origin.lat},${origin.lng}`);
   url.searchParams.set('destination', `${destination.lat},${destination.lng}`);
@@ -420,24 +508,39 @@ async function getRouteMetrics(origin, destination) {
   const response = await fetch(url);
   const payload = await response.json();
   if (payload.status !== 'OK' || !payload.routes?.length) {
+    logWebhook('maps_route_fail', {
+      status: payload.status || null,
+      routeCount: payload.routes?.length || 0,
+    });
     return { distanceKm: null, durationMinutes: null };
   }
 
   const leg = payload.routes[0].legs[0];
-  return {
+  const metrics = {
     distanceKm: Math.round((leg.distance.value / 1000) * 10) / 10,
     durationMinutes: Math.round(leg.duration.value / 60),
   };
+  logWebhook('maps_route_ok', metrics);
+  return metrics;
 }
 
 async function getSettingsMap() {
   const { data, error } = await getSupabase().from('settings').select('key, value');
   if (error) throw error;
-  return Object.fromEntries((data || []).map((item) => [item.key, item.value]));
+  const map = Object.fromEntries((data || []).map((item) => [item.key, item.value]));
+  logWebhook('db_settings_ok', {
+    total: (data || []).length,
+    hasTariffPerKm: Object.prototype.hasOwnProperty.call(map, 'tariff_per_km'),
+    hasTariffBase: Object.prototype.hasOwnProperty.call(map, 'tariff_base'),
+    hasCommissionPercent: Object.prototype.hasOwnProperty.call(map, 'commission_percent'),
+  });
+  return map;
 }
 
 async function getBlockedDriverIds(driverIds) {
   if (driverIds.length === 0) return new Set();
+
+  logWebhook('db_blocked_drivers_start', { driverCandidates: driverIds.length });
 
   const { data: trips, error: tripsError } = await getSupabase()
     .from('trips')
@@ -490,10 +593,17 @@ async function getBlockedDriverIds(driverIds) {
     }
   }
 
+  logWebhook('db_blocked_drivers_ok', {
+    driverCandidates: driverIds.length,
+    tripsRows: (trips || []).length,
+    paymentsRows: (payments || []).length,
+    blockedCount: blocked.size,
+  });
   return blocked;
 }
 
 async function chooseDriver(origin) {
+  logWebhook('driver_select_start', { originLat: origin?.lat, originLng: origin?.lng });
   const { data: drivers, error } = await getSupabase()
     .from('drivers')
     .select('id, full_name, phone, push_token, current_lat, current_lng, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, is_available')
@@ -501,7 +611,10 @@ async function chooseDriver(origin) {
   if (error) throw error;
 
   const availableDrivers = (drivers || []).filter((driver) => driver.current_lat && driver.current_lng);
-  if (availableDrivers.length === 0) return null;
+  if (availableDrivers.length === 0) {
+    logWebhook('driver_select_no_available_coords', { totalAvailableFlagged: (drivers || []).length });
+    return null;
+  }
 
   const { data: activeTrips, error: activeTripsError } = await getSupabase()
     .from('trips')
@@ -511,13 +624,25 @@ async function chooseDriver(origin) {
 
   const busyDriverIds = new Set((activeTrips || []).map((trip) => trip.driver_id).filter(Boolean));
   const candidateDrivers = availableDrivers.filter((driver) => !busyDriverIds.has(driver.id));
-  if (candidateDrivers.length === 0) return null;
+  if (candidateDrivers.length === 0) {
+    logWebhook('driver_select_all_busy', {
+      availableWithCoords: availableDrivers.length,
+      busyCount: busyDriverIds.size,
+    });
+    return null;
+  }
 
   const blockedDriverIds = await getBlockedDriverIds(candidateDrivers.map((driver) => driver.id));
   const finalCandidates = candidateDrivers.filter((driver) => !blockedDriverIds.has(driver.id));
-  if (finalCandidates.length === 0) return null;
+  if (finalCandidates.length === 0) {
+    logWebhook('driver_select_all_blocked', {
+      candidateDrivers: candidateDrivers.length,
+      blockedDrivers: blockedDriverIds.size,
+    });
+    return null;
+  }
 
-  return finalCandidates
+  const selected = finalCandidates
     .map((driver) => ({
       ...driver,
       distanceToOriginKm: haversineKm(
@@ -528,6 +653,17 @@ async function chooseDriver(origin) {
       ),
     }))
     .sort((a, b) => a.distanceToOriginKm - b.distanceToOriginKm)[0];
+
+  logWebhook('driver_select_ok', {
+    totalAvailable: (drivers || []).length,
+    availableWithCoords: availableDrivers.length,
+    busyCount: busyDriverIds.size,
+    blockedCount: blockedDriverIds.size,
+    finalCandidates: finalCandidates.length,
+    selectedDriverId: selected?.id || null,
+    selectedDistanceKm: selected?.distanceToOriginKm ?? null,
+  });
+  return selected;
 }
 
 async function sendPushNotification(pushToken, payload) {
@@ -552,6 +688,13 @@ async function sendPushNotification(pushToken, payload) {
 }
 
 async function createTripFromConversation({ conversation, extracted }) {
+  logWebhook('trip_create_start', {
+    conversationId: conversation?.id || null,
+    phone: maskPhone(conversation?.phone || ''),
+    hasOrigin: Boolean(extracted?.origin),
+    hasDestination: Boolean(extracted?.destination),
+  });
+
   const origin = await geocodeAddress(extracted.origin);
   const destination = await geocodeAddress(extracted.destination);
   const route = await getRouteMetrics(origin, destination);
@@ -562,8 +705,22 @@ async function createTripFromConversation({ conversation, extracted }) {
   const price = route.distanceKm == null ? null : Math.round(tariffBase + tariffPerKm * route.distanceKm);
   const commissionAmount = price == null ? null : Math.round((price * commissionPercent) / 100);
 
+  logWebhook('trip_pricing_computed', {
+    distanceKm: route.distanceKm,
+    durationMinutes: route.durationMinutes,
+    tariffPerKm,
+    tariffBase,
+    commissionPercent,
+    price,
+    commissionAmount,
+  });
+
   const driver = await chooseDriver({ lat: origin.lat, lng: origin.lng });
   if (!driver) {
+    logWebhook('trip_create_no_driver', {
+      conversationId: conversation?.id || null,
+      phone: maskPhone(conversation?.phone || ''),
+    });
     return {
       ok: false,
       reason: 'no_driver',
@@ -599,6 +756,13 @@ async function createTripFromConversation({ conversation, extracted }) {
   const { data: trip, error } = await getSupabase().from('trips').insert(tripPayload).select().single();
   if (error) throw error;
 
+  logWebhook('db_trip_insert_ok', {
+    tripId: trip?.id || null,
+    driverId: trip?.driver_id || null,
+    price: trip?.price ?? null,
+    distanceKm: trip?.distance_km ?? null,
+  });
+
   await sendPushNotification(driver.push_token, {
     title: 'Nuevo viaje asignado',
     body: `${trip.passenger_name} → ${trip.destination_address}`,
@@ -623,10 +787,22 @@ async function createTripFromConversation({ conversation, extracted }) {
 }
 
 async function processClaimedConversation(batch) {
+  logWebhook('conversation_process_start', {
+    conversationId: batch?.id || null,
+    phone: maskPhone(batch?.phone || ''),
+    currentStatus: batch?.status || null,
+  });
+
   const pendingMessages = safeJsonParse(batch.pending_messages, []);
   if (!Array.isArray(pendingMessages) || pendingMessages.length === 0) {
+    logWebhook('conversation_process_no_pending', { conversationId: batch?.id || null });
     return { handled: false, updates: { processing_started_at: null } };
   }
+
+  logWebhook('conversation_pending_loaded', {
+    conversationId: batch?.id || null,
+    pendingCount: pendingMessages.length,
+  });
 
   const combinedText = pendingMessages
     .map((item) => item?.contenido)
@@ -653,6 +829,7 @@ async function processClaimedConversation(batch) {
     if (extracted.reply) {
       await sendWhatsAppText(batch.phone, extracted.reply);
     }
+    logWebhook('conversation_intent_other', { conversationId: batch?.id || null });
     return {
       handled: true,
       updates: {
@@ -667,6 +844,7 @@ async function processClaimedConversation(batch) {
   if (extracted.intent === 'ask_human') {
     const reply = extracted.reply || 'Te paso con un operador para revisar bien el pedido.';
     await sendWhatsAppText(batch.phone, reply);
+    logWebhook('conversation_intent_ask_human', { conversationId: batch?.id || null });
     return {
       handled: true,
       updates: {
@@ -686,6 +864,11 @@ async function processClaimedConversation(batch) {
       extracted.reply ||
       `Para asignarte un móvil necesito ${missing.join(' y ')}. Mandamelo en un solo mensaje si podés.`;
     await sendWhatsAppText(batch.phone, reply);
+    logWebhook('conversation_missing_fields', {
+      conversationId: batch?.id || null,
+      missingOrigin: !nextContext.origin,
+      missingDestination: !nextContext.destination,
+    });
     return {
       handled: true,
       updates: {
@@ -700,6 +883,14 @@ async function processClaimedConversation(batch) {
   const tripResult = await createTripFromConversation({ conversation: batch, extracted: nextContext });
   await sendWhatsAppText(batch.phone, tripResult.reply);
 
+  logWebhook('conversation_trip_result', {
+    conversationId: batch?.id || null,
+    ok: Boolean(tripResult?.ok),
+    reason: tripResult?.reason || null,
+    tripId: tripResult?.trip?.id || null,
+    driverId: tripResult?.driver?.id || null,
+  });
+
   return {
     handled: true,
     updates: {
@@ -713,18 +904,31 @@ async function processClaimedConversation(batch) {
 }
 
 async function processConversationById(conversationId) {
+  logWebhook('conversation_process_by_id_start', { conversationId });
   const batch = await claimConversationBatch(conversationId);
-  if (!batch?.id) return { ok: true, skipped: true };
+  if (!batch?.id) {
+    logWebhook('conversation_process_by_id_skipped', { conversationId, reason: 'not_claimed' });
+    return { ok: true, skipped: true };
+  }
 
   try {
     const result = await processClaimedConversation(batch);
     await finalizeConversation(conversationId, result.updates);
+    logWebhook('conversation_process_by_id_ok', {
+      conversationId,
+      skipped: false,
+      nextStatus: result?.updates?.status || null,
+    });
     return { ok: true, skipped: false };
   } catch (error) {
     await finalizeConversation(conversationId, {
       status: 'open',
       processing_started_at: null,
       context: safeJsonParse(batch.context, {}),
+    });
+    logWebhook('conversation_process_by_id_error', {
+      conversationId,
+      error: error?.message || 'unknown_error',
     });
     throw error;
   }
@@ -757,6 +961,7 @@ function scheduleConversationProcessing(conversationId, delayMs = ACCUMULATION_M
 }
 
 async function processPendingConversations() {
+  logWebhook('pending_scan_start', { accumulationMs: ACCUMULATION_MS });
   const threshold = new Date(Date.now() - ACCUMULATION_MS).toISOString();
   const { data, error } = await getSupabase()
     .from('whatsapp_conversations')
@@ -764,6 +969,8 @@ async function processPendingConversations() {
     .eq('is_collecting', true)
     .lt('accumulation_started_at', threshold);
   if (error) throw error;
+
+  logWebhook('pending_scan_found', { total: (data || []).length, threshold });
 
   let processed = 0;
   let skipped = 0;
@@ -777,6 +984,7 @@ async function processPendingConversations() {
     }
   }
 
+  logWebhook('pending_scan_done', { processed, skipped, total: (data || []).length });
   return { processed, skipped, total: (data || []).length };
 }
 
