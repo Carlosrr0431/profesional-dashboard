@@ -846,30 +846,6 @@ async function createTripFromConversation({ conversation, extracted }) {
     commissionAmount,
   });
 
-  const samePoint =
-    Math.abs(Number(origin.lat) - Number(destination.lat)) < 0.00005 &&
-    Math.abs(Number(origin.lng) - Number(destination.lng)) < 0.00005;
-
-  if (samePoint) {
-    logWebhook('trip_create_same_point', {
-      conversationId: conversation?.id || null,
-      originAddress: origin.formattedAddress,
-      destinationAddress: destination.formattedAddress,
-    });
-    return {
-      ok: false,
-      reason: 'same_point',
-      reply:
-        'Me está quedando origen y destino en el mismo punto. ¿Me pasás ambos con más precisión (calle y número) para derivarte bien el viaje?',
-      context: {
-        passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
-        origin: extracted.origin,
-        destination: extracted.destination,
-        notes: extracted.notes || null,
-      },
-    };
-  }
-
   const tripPayload = {
     driver_id: driver.id,
     passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
