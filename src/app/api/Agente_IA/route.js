@@ -16,7 +16,7 @@ const IS_SERVERLESS = Boolean(process.env.VERCEL);
 const IMMEDIATE_PROCESSING =
   (process.env.WHATSAPP_IMMEDIATE_PROCESSING || '').toLowerCase() === 'true';
 
-const ACTIVE_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
+const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 const processingTimers = new Map();
 const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !== 'false';
 
