@@ -35,7 +35,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [originMode, setOriginMode] = useState('driver');
+  const [originMode, setOriginMode] = useState('custom');
   const [routeInfo, setRouteInfo] = useState(null); // { distanceKm, durationMinutes }
 
   const originAutoRef = useRef(null);
@@ -201,11 +201,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
     }
 
     if (!currentOriginText || !originLat || !originLng) {
-      setError('Ingresá una dirección de origen');
-      return;
-    }
-    if (!currentDestText) {
-      setError('Ingresá una dirección de destino');
+      setError('Ingresá la dirección de recogida del pasajero');
       return;
     }
     if (!passengerName.trim()) {
@@ -362,7 +358,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
           {/* Origin */}
           <div style={{ marginBottom: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <label style={labelStyle}>📍 ORIGEN</label>
+              <label style={labelStyle}>📍 RECOGIDA DEL PASAJERO</label>
               <button
                 type="button"
                 onClick={() => setOriginMode(originMode === 'driver' ? 'custom' : 'driver')}
@@ -413,7 +409,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
 
           {/* Destination */}
           <div style={{ marginBottom: '12px' }}>
-            <label style={labelStyle}>🏁 DESTINO</label>
+            <label style={labelStyle}>🏁 DESTINO (opcional – el chofer puede indicarlo por voz)</label>
             <Autocomplete
               onLoad={onDestLoad}
               onPlaceChanged={onDestChanged}

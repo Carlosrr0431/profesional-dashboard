@@ -16,7 +16,7 @@ const mapOptions = {
   mapTypeControl: false,
 };
 
-export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, onAssignTrip }) {
+export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, onAssignTrip, multiSelectMode, multiSelectedIds, onToggleMultiSelect }) {
   const [activeInfo, setActiveInfo] = useState(null);
 
   const { isLoaded } = useJsApiLoader({
@@ -29,6 +29,10 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, o
   }, [mapRef]);
 
   const handleMarkerClick = (driver) => {
+    if (multiSelectMode) {
+      onToggleMultiSelect(driver.id);
+      return;
+    }
     setActiveInfo(driver);
     onSelectDriver(driver.id);
   };
@@ -55,6 +59,7 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, o
     >
       {drivers.map((driver) => {
         const isSelected = selectedId === driver.id;
+        const isMultiSelected = multiSelectMode && multiSelectedIds.has(driver.id);
         return (
           <React.Fragment key={driver.id}>
             <Marker
@@ -62,11 +67,11 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, o
               onClick={() => handleMarkerClick(driver)}
               icon={{
                 path: driver.vehicleType === 'moto' ? MOTO_ICON_SVG : CAR_ICON_SVG,
-                fillColor: driver.activeTrip ? '#EF4444' : driver.isOnline ? '#22C55E' : '#94A3B8',
+                fillColor: isMultiSelected ? '#8B5CF6' : driver.activeTrip ? '#EF4444' : driver.isOnline ? '#22C55E' : '#94A3B8',
                 fillOpacity: 1,
-                strokeColor: driver.activeTrip ? '#B91C1C' : driver.isOnline ? '#16A34A' : '#64748B',
-                strokeWeight: 1.5,
-                scale: isSelected ? 1.8 : 1.4,
+                strokeColor: isMultiSelected ? '#7C3AED' : driver.activeTrip ? '#B91C1C' : driver.isOnline ? '#16A34A' : '#64748B',
+                strokeWeight: isMultiSelected ? 2.5 : 1.5,
+                scale: isSelected || isMultiSelected ? 1.8 : 1.4,
                 anchor: { x: 12, y: 12 },
                 rotation: driver.heading || 0,
               }}
@@ -76,12 +81,12 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, o
               <OverlayView
                 position={{ lat: driver.lat, lng: driver.lng }}
                 mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-                getPixelPositionOffset={(w, h) => ({ x: -(w / 2), y: -h - (isSelected ? 20 : 14) })}
+                getPixelPositionOffset={(w, h) => ({ x: -(w / 2), y: -h - (isSelected || isMultiSelected ? 20 : 14) })}
               >
               <div
                 onClick={() => handleMarkerClick(driver)}
                 style={{
-                  background: driver.activeTrip ? '#B91C1C' : driver.isOnline ? '#22C55E' : '#64748B',
+                  background: isMultiSelected ? '#7C3AED' : driver.activeTrip ? '#B91C1C' : driver.isOnline ? '#22C55E' : '#64748B',
                   color: '#fff',
                   fontSize: '9px',
                   fontWeight: 700,
@@ -91,13 +96,13 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, o
                   borderRadius: '50%',
                   cursor: 'pointer',
                   textAlign: 'center',
-                  boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
+                  boxShadow: isMultiSelected ? '0 0 0 3px rgba(139,92,246,0.4), 0 1px 4px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.5)',
                   border: '1.5px solid rgba(255,255,255,0.6)',
                   userSelect: 'none',
                   letterSpacing: '-0.5px',
                 }}
               >
-                {driver.driverNumber}
+                {isMultiSelected ? '✓' : driver.driverNumber}
               </div>
             </OverlayView>
           )}
@@ -105,7 +110,7 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, o
         );
       })}
 
-      {activeInfo && (
+      {activeInfo && !multiSelectMode && (
         <InfoWindow
           position={{ lat: activeInfo.lat, lng: activeInfo.lng }}
           onCloseClick={() => setActiveInfo(null)}

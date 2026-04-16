@@ -128,7 +128,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
       {showVoice ? (
         <VoiceChat driver={driver} onClose={() => setShowVoice(false)} />
       ) : (
-      <>
+      <div className="flex-1 overflow-y-auto overscroll-contain" style={{ minHeight: 0 }}>
       {/* Active trip banner */}
       {stats.inProgress && (
         <div className="mx-4 mt-3 p-3 rounded-xl bg-accent/10 border border-accent/20">
@@ -294,7 +294,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
       </div>
 
       {/* Trip list */}
-      <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4">
+      <div className="px-4 pt-3 pb-4">
         {loading ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => (
@@ -316,7 +316,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
           </div>
         )}
       </div>
-      </>
+      </div>
       )}
     </div>
   );

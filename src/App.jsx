@@ -7,6 +7,7 @@ import StatsBar from './components/StatsBar';
 import DriverPanel from './components/DriverPanel';
 import TripAssignModal from './components/TripAssignModal';
 import DriverManagement from './components/DriverManagement';
+import BroadcastVoiceChat from './components/BroadcastVoiceChat';
 
 export default function App() {
   const { drivers, loading, refetch } = useDrivers();
@@ -17,6 +18,35 @@ export default function App() {
   const [tripModalDriver, setTripModalDriver] = useState(null);
   const [currentView, setCurrentView] = useState('map');
   const mapRef = useRef(null);
+
+  // Multi-select state
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [multiSelectedIds, setMultiSelectedIds] = useState(new Set());
+  const [showBroadcast, setShowBroadcast] = useState(false);
+
+  const toggleMultiSelect = useCallback((driverId) => {
+    setMultiSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(driverId)) next.delete(driverId);
+      else next.add(driverId);
+      return next;
+    });
+  }, []);
+
+  const selectAllAvailable = useCallback(() => {
+    const availableIds = drivers
+      .filter((d) => d.isOnline && !d.activeTrip)
+      .map((d) => d.id);
+    setMultiSelectedIds(new Set(availableIds));
+  }, [drivers]);
+
+  const clearMultiSelect = useCallback(() => {
+    setMultiSelectedIds(new Set());
+    setMultiSelectMode(false);
+    setShowBroadcast(false);
+  }, []);
+
+  const multiSelectedDrivers = drivers.filter((d) => multiSelectedIds.has(d.id));
 
   // Remove Google Maps billing warning dialog that blocks clicks
   useEffect(() => {
@@ -133,6 +163,40 @@ export default function App() {
             </svg>
           </button>
           <button
+            onClick={() => {
+              if (multiSelectMode) {
+                clearMultiSelect();
+              } else {
+                setMultiSelectMode(true);
+                setPanelDriverId(null);
+                setSelectedId(null);
+              }
+            }}
+            title="Seleccionar choferes para audio grupal"
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all ${
+              multiSelectMode
+                ? 'bg-violet-500/15 border-violet-500/30 text-violet-500'
+                : 'bg-light-200 border-light-300/50 text-gray-400 hover:text-violet-500 hover:border-violet-500/30'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+          </button>
+          <button
+            onClick={() => {
+              setMultiSelectMode(true);
+              selectAllAvailable();
+              setShowBroadcast(true);
+              setPanelDriverId(null);
+              setSelectedId(null);
+            }}
+            title="Enviar audio a todos los disponibles"
+            className="w-9 h-9 rounded-xl bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
+            </svg>
+          </button>
+          <button
             onClick={handleCenterAll}
             title="Centrar todos los choferes"
             className="w-9 h-9 rounded-xl bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all"
@@ -172,14 +236,50 @@ export default function App() {
               commissionPercent={commissionPercent}
               onUpdateSetting={updateSetting}
             />
-            <div className="flex-1">
+            <div className="flex-1 relative">
               <MapView
                 drivers={drivers}
                 selectedId={selectedId}
                 onSelectDriver={setSelectedId}
                 mapRef={mapRef}
                 onAssignTrip={handleAssignTrip}
+                multiSelectMode={multiSelectMode}
+                multiSelectedIds={multiSelectedIds}
+                onToggleMultiSelect={toggleMultiSelect}
               />
+
+              {/* Multi-select floating controls */}
+              {multiSelectMode && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 bg-light-50/95 backdrop-blur border border-light-300/50 rounded-2xl shadow-xl px-4 py-2.5">
+                  <div className="flex items-center gap-2 pr-3 border-r border-light-300/50">
+                    <div className="w-2 h-2 rounded-full bg-violet-500 animate-pulse" />
+                    <span className="text-xs font-semibold text-navy-900">Modo selección</span>
+                  </div>
+                  <span className="text-xs text-gray-500 tabular-nums">{multiSelectedIds.size} seleccionado{multiSelectedIds.size !== 1 ? 's' : ''}</span>
+                  <button
+                    onClick={selectAllAvailable}
+                    className="text-[11px] font-semibold text-accent hover:text-accent-light transition-colors px-2 py-1 rounded-lg hover:bg-accent/10"
+                  >
+                    Todos disponibles
+                  </button>
+                  {multiSelectedIds.size > 0 && (
+                    <button
+                      onClick={() => setShowBroadcast(true)}
+                      className="flex items-center gap-1.5 text-[11px] font-semibold text-white bg-gradient-to-r from-accent to-accent-light px-3 py-1.5 rounded-xl hover:shadow-lg hover:shadow-accent/20 transition-all"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+                      Enviar audio
+                    </button>
+                  )}
+                  <button
+                    onClick={clearMultiSelect}
+                    className="w-7 h-7 rounded-lg bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-danger hover:border-danger/30 transition-all"
+                    title="Salir de selección"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+              )}
             </div>
             {panelDriverId && (
               <DriverPanel
@@ -203,6 +303,14 @@ export default function App() {
           tariffPerKm={tariffPerKm}
           tariffBase={tariffBase}
           commissionPercent={commissionPercent}
+        />
+      )}
+
+      {/* Broadcast Voice Chat */}
+      {showBroadcast && multiSelectedDrivers.length > 0 && (
+        <BroadcastVoiceChat
+          drivers={multiSelectedDrivers}
+          onClose={() => setShowBroadcast(false)}
         />
       )}
     </div>
