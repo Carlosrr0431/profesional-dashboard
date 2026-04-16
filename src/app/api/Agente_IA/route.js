@@ -12,6 +12,9 @@ const WASENDER_API_KEY = process.env.WASENDER_API_KEY || '';
 const WASENDER_BASE_URL = process.env.WASENDER_BASE_URL || 'https://www.wasenderapi.com/api';
 const CRON_SECRET = process.env.CRON_SECRET || '';
 const ALLOWED_PHONES = new Set(['5493878630173']);
+const IS_SERVERLESS = Boolean(process.env.VERCEL);
+const IMMEDIATE_PROCESSING =
+  (process.env.WHATSAPP_IMMEDIATE_PROCESSING || '').toLowerCase() === 'true' || IS_SERVERLESS;
 
 const ACTIVE_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
 const processingTimers = new Map();
@@ -727,6 +730,15 @@ async function processConversationById(conversationId) {
 }
 
 function scheduleConversationProcessing(conversationId, delayMs = ACCUMULATION_MS) {
+  if (IS_SERVERLESS) {
+    logWebhook('timer_skipped', {
+      reason: 'serverless_runtime',
+      conversationId,
+      delayMs,
+    });
+    return;
+  }
+
   if (processingTimers.has(conversationId)) {
     clearTimeout(processingTimers.get(conversationId));
   }
@@ -862,6 +874,24 @@ async function processWebhookBody(body) {
       conversationId: appendResult.conversation_id,
       accumulationMs: ACCUMULATION_MS,
     });
+
+    if (IMMEDIATE_PROCESSING) {
+      const processResult = await processConversationById(appendResult.conversation_id);
+      logWebhook('processed_immediately', {
+        conversationId: appendResult.conversation_id,
+        skipped: Boolean(processResult?.skipped),
+      });
+      return {
+        status: 200,
+        body: {
+          success: true,
+          queued: true,
+          processedImmediately: true,
+          conversationId: appendResult.conversation_id,
+        },
+      };
+    }
+
     return { status: 200, body: { success: true, queued: true, conversationId: appendResult.conversation_id } };
   } catch (error) {
     console.error('Error en webhook Wasender:', error);
