@@ -80,6 +80,41 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return earthRadiusKm * c;
 }
 
+function normalizeText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function isCoarseGeocodeResult(result, originalQuery) {
+  const formatted = normalizeText(result?.formatted_address || '');
+  const types = Array.isArray(result?.types) ? result.types : [];
+  const locationType = result?.geometry?.location_type || '';
+  const components = Array.isArray(result?.address_components) ? result.address_components : [];
+
+  const hasRoute = components.some((c) => Array.isArray(c.types) && c.types.includes('route'));
+  const hasStreetNumber = components.some((c) => Array.isArray(c.types) && c.types.includes('street_number'));
+  const hasPremise = components.some((c) => Array.isArray(c.types) && (c.types.includes('premise') || c.types.includes('subpremise')));
+
+  const queryNorm = normalizeText(originalQuery);
+  const queryHasNumber = /\d{1,5}/.test(queryNorm);
+  const cityOnlyPatterns = ['salta, argentina', 'salta, salta, argentina'];
+  const isCityOnly = cityOnlyPatterns.includes(formatted);
+
+  const onlyBroadTypes = types.every((t) =>
+    ['locality', 'administrative_area_level_1', 'administrative_area_level_2', 'country', 'political'].includes(t)
+  );
+
+  if (isCityOnly) return true;
+  if (onlyBroadTypes) return true;
+  if (locationType === 'APPROXIMATE' && !hasRoute && !hasStreetNumber && !hasPremise) return true;
+  if (queryHasNumber && !hasStreetNumber) return true;
+
+  return false;
+}
+
 function ensureServerConfig() {
   const missing = getMissingServerConfig();
   if (missing.length > 0) {
@@ -464,6 +499,9 @@ async function geocodeAddress(address) {
   url.searchParams.set('address', query);
   url.searchParams.set('language', 'es');
   url.searchParams.set('region', 'ar');
+  url.searchParams.set('components', 'country:AR');
+  // Bias results to Salta capital area.
+  url.searchParams.set('bounds', '-24.90,-65.55|-24.70,-65.30');
   url.searchParams.set('key', GOOGLE_MAPS_API_KEY);
 
   const response = await fetch(url);
@@ -477,7 +515,17 @@ async function geocodeAddress(address) {
     throw new Error(`No se pudo geocodificar: ${address}`);
   }
 
-  const result = payload.results[0];
+  const result = payload.results.find((candidate) => !isCoarseGeocodeResult(candidate, query));
+  if (!result) {
+    logWebhook('maps_geocode_fail', {
+      query,
+      status: payload.status || null,
+      reason: 'coarse_result_only',
+      topFormatted: payload.results?.[0]?.formatted_address || null,
+    });
+    throw new Error(`Dirección demasiado amplia o ambigua: ${address}`);
+  }
+
   const resultPayload = {
     formattedAddress: result.formatted_address,
     lat: result.geometry.location.lat,
@@ -695,8 +743,32 @@ async function createTripFromConversation({ conversation, extracted }) {
     hasDestination: Boolean(extracted?.destination),
   });
 
-  const origin = await geocodeAddress(extracted.origin);
-  const destination = await geocodeAddress(extracted.destination);
+  let origin;
+  let destination;
+  try {
+    origin = await geocodeAddress(extracted.origin);
+    destination = await geocodeAddress(extracted.destination);
+  } catch (error) {
+    logWebhook('trip_create_geocode_error', {
+      conversationId: conversation?.id || null,
+      error: error?.message || 'geocode_error',
+      originQuery: extracted?.origin || null,
+      destinationQuery: extracted?.destination || null,
+    });
+    return {
+      ok: false,
+      reason: 'invalid_address',
+      reply:
+        'No pude ubicar bien una de las direcciones. Pasame *calle y número* (o referencia bien precisa) para origen y destino, así te asigno el móvil correcto.',
+      context: {
+        passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
+        origin: extracted.origin,
+        destination: extracted.destination,
+        notes: extracted.notes || null,
+      },
+    };
+  }
+
   const route = await getRouteMetrics(origin, destination);
   const settings = await getSettingsMap();
   const tariffPerKm = Number(settings.tariff_per_km || 0);
@@ -714,6 +786,30 @@ async function createTripFromConversation({ conversation, extracted }) {
     price,
     commissionAmount,
   });
+
+  const samePoint =
+    Math.abs(Number(origin.lat) - Number(destination.lat)) < 0.00005 &&
+    Math.abs(Number(origin.lng) - Number(destination.lng)) < 0.00005;
+
+  if (samePoint) {
+    logWebhook('trip_create_same_point', {
+      conversationId: conversation?.id || null,
+      originAddress: origin.formattedAddress,
+      destinationAddress: destination.formattedAddress,
+    });
+    return {
+      ok: false,
+      reason: 'same_point',
+      reply:
+        'Me está quedando origen y destino en el mismo punto. ¿Me pasás ambos con más precisión (calle y número) para derivarte bien el viaje?',
+      context: {
+        passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
+        origin: extracted.origin,
+        destination: extracted.destination,
+        notes: extracted.notes || null,
+      },
+    };
+  }
 
   const driver = await chooseDriver({ lat: origin.lat, lng: origin.lng });
   if (!driver) {
