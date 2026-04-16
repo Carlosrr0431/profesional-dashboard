@@ -48,28 +48,6 @@ export default function App() {
 
   const multiSelectedDrivers = drivers.filter((d) => multiSelectedIds.has(d.id));
 
-  // Remove Google Maps billing warning dialog that blocks clicks
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const dialogs = document.querySelectorAll('.dismissButton');
-      dialogs.forEach((btn) => {
-        const modal = btn.closest('div[style]');
-        if (modal) modal.remove();
-        else btn.click();
-      });
-      // Also target the white "can't load" dialog
-      document.querySelectorAll('div[style*="background-color: white"]').forEach((el) => {
-        if (el.textContent?.includes("can't load Google Maps") || el.textContent?.includes('Do you own')) {
-          const parent = el.closest('div[style*="z-index"]') || el.parentElement;
-          if (parent && !parent.classList.contains('pac-container')) parent.remove();
-        }
-      });
-    }, 500);
-    // Stop checking after 10s
-    const timeout = setTimeout(() => clearInterval(interval), 10000);
-    return () => { clearInterval(interval); clearTimeout(timeout); };
-  }, []);
-
   // Live clock
   useEffect(() => {
     const t = setInterval(() => setClock(new Date()), 1000);
