@@ -18,7 +18,7 @@ const IMMEDIATE_PROCESSING =
 
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 const OPEN_TRIP_STATUSES = ['pending', ...ACTIVE_TRIP_STATUSES];
-const PENDING_GUARD_MAX_AGE_MINUTES = Number(process.env.WHATSAPP_PENDING_GUARD_MAX_AGE_MINUTES || 30);
+const PENDING_GUARD_MAX_AGE_MINUTES = Number(process.env.WHATSAPP_PENDING_GUARD_MAX_AGE_MINUTES || 5);
 const processingTimers = new Map();
 const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !== 'false';
 const SEARCH_RADII_KM = [1, 2, 5, 10, 15, 20];
