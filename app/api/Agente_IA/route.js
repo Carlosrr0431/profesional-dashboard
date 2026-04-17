@@ -858,7 +858,7 @@ async function createTripFromConversation({ conversation, extracted }) {
     hasDestination: Boolean(extracted?.destination),
   });
 
-  const rawPickupQuery = extracted?.pickup_location || extracted?.destination || extracted?.origin || null;
+  const rawPickupQuery = extracted?.pickup_location || extracted?.origin || extracted?.destination || null;
   const pickupQuery = sanitizeAddressInput(rawPickupQuery);
   if (!pickupQuery) {
     return {
@@ -920,7 +920,7 @@ async function createTripFromConversation({ conversation, extracted }) {
   const driverLng = Number(driver.current_lng);
   const driverOriginAddress = await reverseGeocodeLatLng(driverLat, driverLng);
   const routeToPickup = await getRouteMetrics({ lat: driverLat, lng: driverLng }, pickupLocation);
-  const finalDestinationHint = sanitizeAddressInput(extracted?.origin || extracted?.destination || '');
+  const finalDestinationHint = sanitizeAddressInput(extracted?.destination || '');
 
   // Approach-only trip: driver -> pickup has no fare.
   logWebhook('trip_approach_only_created', {
@@ -1022,8 +1022,8 @@ async function processClaimedConversation(batch) {
 
   const nextContext = {
     passenger_name: extracted.passenger_name || context.passenger_name || batch.push_name || null,
-    // For auto-dispatch, prioritize the latest passenger pickup location from the current batch.
-    pickup_location: extracted.destination || extracted.origin || context.pickup_location || null,
+    // Pickup should map to passenger origin. Destination remains only as final-destination hint.
+    pickup_location: extracted.origin || context.pickup_location || extracted.destination || null,
     origin: extracted.origin || null,
     destination: extracted.destination || null,
     notes: extracted.notes || context.notes || null,
