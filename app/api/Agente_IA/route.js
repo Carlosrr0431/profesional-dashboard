@@ -17,6 +17,7 @@ const IMMEDIATE_PROCESSING =
   (process.env.WHATSAPP_IMMEDIATE_PROCESSING || '').toLowerCase() === 'true';
 
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
+const OPEN_TRIP_STATUSES = ['pending', ...ACTIVE_TRIP_STATUSES];
 const processingTimers = new Map();
 const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !== 'false';
 const SEARCH_RADII_KM = [1, 2, 5, 10, 15, 20];
@@ -423,6 +424,37 @@ async function getRecentConversationMessages(conversationId, limit = 12) {
     returned: (data || []).length,
   });
   return (data || []).reverse();
+}
+
+function isOpenTripStatus(status) {
+  return OPEN_TRIP_STATUSES.includes(String(status || '').toLowerCase());
+}
+
+async function getOpenTripById(tripId) {
+  if (!tripId) return null;
+  const { data, error } = await getSupabase()
+    .from('trips')
+    .select('id, status, passenger_phone, destination_address')
+    .eq('id', tripId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data || !isOpenTripStatus(data.status)) return null;
+  return data;
+}
+
+async function getLatestOpenTripByPhone(phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return null;
+  const { data, error } = await getSupabase()
+    .from('trips')
+    .select('id, status, passenger_phone, destination_address')
+    .eq('passenger_phone', normalized)
+    .in('status', OPEN_TRIP_STATUSES)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
 }
 
 async function extractTripIntent({ combinedText, context, pushName, phone, history }) {
@@ -1005,6 +1037,34 @@ async function processClaimedConversation(batch) {
     conversationId: batch?.id || null,
     pendingCount: pendingMessages.length,
   });
+
+  // Idempotency guard: if the passenger already has an open trip, do not create another one.
+  const openTripByLastId = await getOpenTripById(batch.last_trip_id);
+  const openTripByPhone = openTripByLastId || await getLatestOpenTripByPhone(batch.phone);
+  if (openTripByPhone) {
+    logWebhook('conversation_open_trip_guard', {
+      conversationId: batch?.id || null,
+      tripId: openTripByPhone.id,
+      tripStatus: openTripByPhone.status,
+      matchedBy: openTripByLastId ? 'last_trip_id' : 'phone',
+    });
+
+    await sendWhatsAppText(
+      batch.phone,
+      `Ya tenés un móvil asignado para este pedido. Tu viaje sigue en curso.${openTripByPhone.destination_address ? `\nRetiro: *${openTripByPhone.destination_address}*` : ''}`
+    );
+
+    return {
+      handled: true,
+      updates: {
+        status: 'trip_created',
+        context: safeJsonParse(batch.context, {}),
+        last_trip_id: openTripByPhone.id,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
 
   const combinedText = pendingMessages
     .map((item) => item?.contenido)
