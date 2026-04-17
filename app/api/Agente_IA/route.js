@@ -18,6 +18,7 @@ const IMMEDIATE_PROCESSING =
 
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 const OPEN_TRIP_STATUSES = ['pending', ...ACTIVE_TRIP_STATUSES];
+const PENDING_GUARD_MAX_AGE_MINUTES = Number(process.env.WHATSAPP_PENDING_GUARD_MAX_AGE_MINUTES || 30);
 const processingTimers = new Map();
 const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !== 'false';
 const SEARCH_RADII_KM = [1, 2, 5, 10, 15, 20];
@@ -430,11 +431,26 @@ function isOpenTripStatus(status) {
   return OPEN_TRIP_STATUSES.includes(String(status || '').toLowerCase());
 }
 
+function getTripAgeMinutes(trip) {
+  const createdAtMs = new Date(trip?.created_at || 0).getTime();
+  if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
+  return Math.max(0, Math.round((Date.now() - createdAtMs) / 60000));
+}
+
+function shouldBlockForOpenTrip(trip) {
+  if (!trip) return false;
+  const status = String(trip.status || '').toLowerCase();
+  if (status !== 'pending') return true;
+  const ageMinutes = getTripAgeMinutes(trip);
+  if (ageMinutes == null) return true;
+  return ageMinutes <= PENDING_GUARD_MAX_AGE_MINUTES;
+}
+
 async function getOpenTripById(tripId) {
   if (!tripId) return null;
   const { data, error } = await getSupabase()
     .from('trips')
-    .select('id, status, passenger_phone, destination_address')
+    .select('id, status, passenger_phone, destination_address, created_at')
     .eq('id', tripId)
     .maybeSingle();
   if (error) throw error;
@@ -447,7 +463,7 @@ async function getLatestOpenTripByPhone(phone) {
   if (!normalized) return null;
   const { data, error } = await getSupabase()
     .from('trips')
-    .select('id, status, passenger_phone, destination_address')
+    .select('id, status, passenger_phone, destination_address, created_at')
     .eq('passenger_phone', normalized)
     .in('status', OPEN_TRIP_STATUSES)
     .order('created_at', { ascending: false })
@@ -1041,11 +1057,22 @@ async function processClaimedConversation(batch) {
   // Idempotency guard: if the passenger already has an open trip, do not create another one.
   const openTripByLastId = await getOpenTripById(batch.last_trip_id);
   const openTripByPhone = openTripByLastId || await getLatestOpenTripByPhone(batch.phone);
-  if (openTripByPhone) {
+  if (openTripByPhone && !shouldBlockForOpenTrip(openTripByPhone)) {
+    logWebhook('conversation_open_trip_guard_ignored_stale_pending', {
+      conversationId: batch?.id || null,
+      tripId: openTripByPhone.id,
+      tripStatus: openTripByPhone.status,
+      ageMinutes: getTripAgeMinutes(openTripByPhone),
+      maxAgeMinutes: PENDING_GUARD_MAX_AGE_MINUTES,
+      matchedBy: openTripByLastId ? 'last_trip_id' : 'phone',
+    });
+  }
+  if (openTripByPhone && shouldBlockForOpenTrip(openTripByPhone)) {
     logWebhook('conversation_open_trip_guard', {
       conversationId: batch?.id || null,
       tripId: openTripByPhone.id,
       tripStatus: openTripByPhone.status,
+      ageMinutes: getTripAgeMinutes(openTripByPhone),
       matchedBy: openTripByLastId ? 'last_trip_id' : 'phone',
     });
 
