@@ -19,6 +19,7 @@ const IMMEDIATE_PROCESSING =
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 const processingTimers = new Map();
 const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !== 'false';
+const SEARCH_RADII_KM = [1, 2, 5, 10, 15, 20];
 
 let warmed = false;
 let supabaseClient = null;
@@ -66,6 +67,33 @@ function safeJsonParse(value, fallback = null) {
   } catch {
     return fallback;
   }
+}
+
+async function fetchWithRetry(url, options = {}, { retries = 2, delayMs = 800, label = 'fetch' } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.status >= 500 && attempt < retries) {
+        logWebhook('fetch_retry_server_error', { label, attempt, status: response.status });
+        await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+        continue;
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      logWebhook('fetch_retry_network_error', { label, attempt, error: error?.message });
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError;
+}
+
+function sanitizeAddressInput(address) {
+  if (!address || typeof address !== 'string') return '';
+  return address.replace(/[<>{}[\]\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200);
 }
 
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -124,11 +152,11 @@ function ensureServerConfig() {
 
 function getMissingServerConfig() {
   const missing = [];
-  if (!process.env.SUPABASE_URL && !process.env.VITE_SUPABASE_URL) missing.push('SUPABASE_URL');
+  if (!process.env.SUPABASE_URL) missing.push('SUPABASE_URL');
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
   if (!OPENAI_API_KEY) missing.push('OPENAI_API_KEY');
   if (!WASENDER_API_KEY) missing.push('WASENDER_API_KEY');
-  if (!GOOGLE_MAPS_API_KEY && !process.env.VITE_GOOGLE_MAPS_API_KEY) missing.push('GOOGLE_MAPS_API_KEY');
+  if (!GOOGLE_MAPS_API_KEY) missing.push('GOOGLE_MAPS_API_KEY');
   return missing;
 }
 
@@ -136,7 +164,7 @@ function getSupabase() {
   ensureServerConfig();
   if (!supabaseClient) {
     supabaseClient = createClient(
-      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+      process.env.SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY,
       {
         auth: { persistSession: false, autoRefreshToken: false },
@@ -210,7 +238,7 @@ async function decryptAudioMessage(messageData) {
     },
   };
 
-  const response = await fetch(`${WASENDER_BASE_URL}/decrypt-media`, {
+  const response = await fetchWithRetry(`${WASENDER_BASE_URL}/decrypt-media`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${WASENDER_API_KEY}`,
@@ -229,7 +257,7 @@ async function decryptAudioMessage(messageData) {
 }
 
 async function transcribeAudioFromUrl(audioUrl) {
-  const response = await fetch(audioUrl);
+  const response = await fetchWithRetry(audioUrl, {}, { label: 'audio_download' });
   if (!response.ok) {
     throw new Error(`No se pudo descargar el audio: ${response.status}`);
   }
@@ -317,7 +345,7 @@ async function insertOutgoingMessage({ phone, messageId, content, rawPayload = n
 
 async function sendWhatsAppText(phone, text) {
   const to = `${normalizePhone(phone)}@s.whatsapp.net`;
-  const response = await fetch(`${WASENDER_BASE_URL}/send-message`, {
+  const response = await fetchWithRetry(`${WASENDER_BASE_URL}/send-message`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${WASENDER_API_KEY}`,
@@ -504,7 +532,7 @@ async function geocodeAddress(address) {
   url.searchParams.set('bounds', '-24.90,-65.55|-24.70,-65.30');
   url.searchParams.set('key', GOOGLE_MAPS_API_KEY);
 
-  const response = await fetch(url);
+  const response = await fetchWithRetry(url, {}, { label: 'geocode' });
   const payload = await response.json();
   if (payload.status !== 'OK' || !payload.results?.length) {
     logWebhook('maps_geocode_fail', {
@@ -548,7 +576,7 @@ async function reverseGeocodeLatLng(lat, lng) {
   url.searchParams.set('region', 'ar');
   url.searchParams.set('key', GOOGLE_MAPS_API_KEY);
 
-  const response = await fetch(url);
+  const response = await fetchWithRetry(url, {}, { label: 'reverse_geocode' });
   const payload = await response.json();
   if (payload.status !== 'OK' || !payload.results?.length) {
     logWebhook('maps_reverse_geocode_fail', {
@@ -578,7 +606,7 @@ async function getRouteMetrics(origin, destination) {
   url.searchParams.set('language', 'es');
   url.searchParams.set('key', GOOGLE_MAPS_API_KEY);
 
-  const response = await fetch(url);
+  const response = await fetchWithRetry(url, {}, { label: 'route_metrics' });
   const payload = await response.json();
   if (payload.status !== 'OK' || !payload.routes?.length) {
     logWebhook('maps_route_fail', {
@@ -606,8 +634,44 @@ async function getSettingsMap() {
     hasTariffPerKm: Object.prototype.hasOwnProperty.call(map, 'tariff_per_km'),
     hasTariffBase: Object.prototype.hasOwnProperty.call(map, 'tariff_base'),
     hasCommissionPercent: Object.prototype.hasOwnProperty.call(map, 'commission_percent'),
+    hasWhatsappAmtFare: Object.prototype.hasOwnProperty.call(map, 'whatsapp_amt_fare'),
+    hasWhatsappDriverCommission: Object.prototype.hasOwnProperty.call(map, 'whatsapp_driver_commission'),
   });
   return map;
+}
+
+function calculateWhatsAppTripPricing(settings, route) {
+  const tariffPerKm = Number(settings.tariff_per_km || 0);
+  const tariffBase = Number(settings.tariff_base || 0);
+  const commissionPercent = Number(settings.commission_percent || 10);
+  const whatsappAmtFare = Math.max(0, Number(settings.whatsapp_amt_fare || 0));
+  const whatsappDriverCommission = Math.max(0, Number(settings.whatsapp_driver_commission || 0));
+
+  const fallbackPrice = route.distanceKm == null ? null : Math.round(tariffBase + tariffPerKm * route.distanceKm);
+  const fallbackCommission = fallbackPrice == null ? null : Math.round((fallbackPrice * commissionPercent) / 100);
+
+  // WhatsApp AMT: per-km rate (uses same tariff_base as base)
+  const whatsappPrice = whatsappAmtFare > 0 && route.distanceKm != null
+    ? Math.round(tariffBase + whatsappAmtFare * route.distanceKm)
+    : fallbackPrice;
+  // WhatsApp commission: percentage of the WhatsApp price
+  const whatsappCommission = whatsappDriverCommission > 0 && whatsappPrice != null
+    ? Math.round((whatsappPrice * whatsappDriverCommission) / 100)
+    : fallbackCommission;
+
+  const price = whatsappAmtFare > 0 ? whatsappPrice : fallbackPrice;
+  const commissionAmount = whatsappDriverCommission > 0 ? whatsappCommission : fallbackCommission;
+
+  return {
+    price,
+    commissionAmount,
+    pricingMode: whatsappAmtFare > 0 || whatsappDriverCommission > 0 ? 'whatsapp_amt' : 'distance_based',
+    tariffPerKm,
+    tariffBase,
+    commissionPercent,
+    whatsappAmtFare,
+    whatsappDriverCommission,
+  };
 }
 
 async function getBlockedDriverIds(driverIds) {
@@ -715,7 +779,8 @@ async function chooseDriver(origin) {
     return null;
   }
 
-  const selected = finalCandidates
+  // Calculate distance from each candidate to the passenger's pickup location
+  const withDistance = finalCandidates
     .map((driver) => ({
       ...driver,
       distanceToOriginKm: haversineKm(
@@ -725,18 +790,43 @@ async function chooseDriver(origin) {
         origin.lng
       ),
     }))
-    .sort((a, b) => a.distanceToOriginKm - b.distanceToOriginKm)[0];
+    .sort((a, b) => a.distanceToOriginKm - b.distanceToOriginKm);
 
-  logWebhook('driver_select_ok', {
+  // Expanding radius search: start at 1km, widen progressively (like Uber)
+  for (const radiusKm of SEARCH_RADII_KM) {
+    const inRadius = withDistance.filter((d) => d.distanceToOriginKm <= radiusKm);
+    if (inRadius.length > 0) {
+      const selected = inRadius[0];
+      logWebhook('driver_select_ok', {
+        searchRadiusKm: radiusKm,
+        totalAvailable: (drivers || []).length,
+        availableWithCoords: availableDrivers.length,
+        busyCount: busyDriverIds.size,
+        blockedCount: blockedDriverIds.size,
+        finalCandidates: finalCandidates.length,
+        driversInRadius: inRadius.length,
+        selectedDriverId: selected.id,
+        selectedDistanceKm: Math.round(selected.distanceToOriginKm * 10) / 10,
+      });
+      return { ...selected, searchRadiusKm: radiusKm };
+    }
+    logWebhook('driver_radius_expand', {
+      currentRadiusKm: radiusKm,
+      driversInRadius: 0,
+      nextRadiusKm: SEARCH_RADII_KM[SEARCH_RADII_KM.indexOf(radiusKm) + 1] || null,
+    });
+  }
+
+  // No driver found within maximum search radius
+  logWebhook('driver_select_none_in_max_radius', {
+    maxRadiusKm: SEARCH_RADII_KM[SEARCH_RADII_KM.length - 1],
     totalAvailable: (drivers || []).length,
-    availableWithCoords: availableDrivers.length,
-    busyCount: busyDriverIds.size,
-    blockedCount: blockedDriverIds.size,
     finalCandidates: finalCandidates.length,
-    selectedDriverId: selected?.id || null,
-    selectedDistanceKm: selected?.distanceToOriginKm ?? null,
+    closestDriverKm: withDistance[0]?.distanceToOriginKm
+      ? Math.round(withDistance[0].distanceToOriginKm * 10) / 10
+      : null,
   });
-  return selected;
+  return null;
 }
 
 async function sendPushNotification(pushToken, payload) {
@@ -768,7 +858,8 @@ async function createTripFromConversation({ conversation, extracted }) {
     hasDestination: Boolean(extracted?.destination),
   });
 
-  const pickupQuery = extracted?.pickup_location || extracted?.destination || extracted?.origin || null;
+  const rawPickupQuery = extracted?.pickup_location || extracted?.destination || extracted?.origin || null;
+  const pickupQuery = sanitizeAddressInput(rawPickupQuery);
   if (!pickupQuery) {
     return {
       ok: false,
@@ -828,22 +919,14 @@ async function createTripFromConversation({ conversation, extracted }) {
   const driverLat = Number(driver.current_lat);
   const driverLng = Number(driver.current_lng);
   const driverOriginAddress = await reverseGeocodeLatLng(driverLat, driverLng);
-  const route = await getRouteMetrics({ lat: driverLat, lng: driverLng }, pickupLocation);
-  const settings = await getSettingsMap();
-  const tariffPerKm = Number(settings.tariff_per_km || 0);
-  const tariffBase = Number(settings.tariff_base || 0);
-  const commissionPercent = Number(settings.commission_percent || 10);
-  const price = route.distanceKm == null ? null : Math.round(tariffBase + tariffPerKm * route.distanceKm);
-  const commissionAmount = price == null ? null : Math.round((price * commissionPercent) / 100);
+  const routeToPickup = await getRouteMetrics({ lat: driverLat, lng: driverLng }, pickupLocation);
+  const finalDestinationHint = sanitizeAddressInput(extracted?.origin || extracted?.destination || '');
 
-  logWebhook('trip_pricing_computed', {
-    distanceKm: route.distanceKm,
-    durationMinutes: route.durationMinutes,
-    tariffPerKm,
-    tariffBase,
-    commissionPercent,
-    price,
-    commissionAmount,
+  // Approach-only trip: driver -> pickup has no fare.
+  logWebhook('trip_approach_only_created', {
+    approachDistanceKm: routeToPickup.distanceKm,
+    approachDurationMinutes: routeToPickup.durationMinutes,
+    hasFinalDestinationHint: Boolean(finalDestinationHint),
   });
 
   const tripPayload = {
@@ -857,11 +940,15 @@ async function createTripFromConversation({ conversation, extracted }) {
     destination_lat: pickupLocation.lat,
     destination_lng: pickupLocation.lng,
     status: 'pending',
-    price,
-    commission_amount: commissionAmount,
-    distance_km: route.distanceKm,
-    duration_minutes: route.durationMinutes,
-    notes: extracted.notes || 'Creado automáticamente desde WhatsApp (chofer -> retiro pasajero)',
+    price: null,
+    commission_amount: null,
+    distance_km: null,
+    duration_minutes: null,
+    notes: [
+      '[APPROACH_ONLY]',
+      extracted.notes || 'Creado automáticamente desde WhatsApp (chofer -> retiro pasajero, sin cobro inicial).',
+      finalDestinationHint ? `Destino final sugerido por pasajero: ${finalDestinationHint}` : 'Destino final: se define al subir el pasajero.',
+    ].join(' '),
   };
 
   const { data: trip, error } = await getSupabase().from('trips').insert(tripPayload).select().single();
@@ -886,13 +973,17 @@ async function createTripFromConversation({ conversation, extracted }) {
 
   const driverLabel = [driver.vehicle_brand, driver.vehicle_model].filter(Boolean).join(' ');
   const driverMeta = [driver.full_name, driverLabel, driver.vehicle_plate].filter(Boolean).join(' · ');
+  const etaText = routeToPickup.durationMinutes != null ? `\nLlegada estimada: *~${routeToPickup.durationMinutes} min*` : '';
+  const distText = driver.distanceToOriginKm != null
+    ? ` (a ${Math.round(driver.distanceToOriginKm * 10) / 10} km)`
+    : '';
 
   return {
     ok: true,
     trip,
     driver,
     reply:
-      `Listo, ya te busqué un móvil para ir a buscarte.\nChofer: *${driver.full_name || 'Sin nombre'}*${driverMeta ? `\n${driverMeta}` : ''}\nRetiro: *${pickupLocation.formattedAddress}*${price ? `\nTarifa estimada (hasta retiro): *$${price.toLocaleString('es-AR')}*` : ''}`,
+      `Listo, ya te asigné un móvil que va en camino a buscarte.\n\nChofer: *${driver.full_name || 'Sin nombre'}*${distText}${driverMeta ? `\n${driverMeta}` : ''}${etaText}\nRetiro: *${pickupLocation.formattedAddress}*\n\nEl precio se calcula recién cuando subís y se define el destino final.`,
     context: {},
   };
 }

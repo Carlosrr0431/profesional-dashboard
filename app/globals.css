@@ -15,30 +15,6 @@ body {
   overflow: hidden;
 }
 
-#root {
-  height: 100vh;
-}
-
-.bg-dashboard-shell {
-  background:
-    radial-gradient(circle at top left, rgba(220, 38, 38, 0.08), transparent 28%),
-    radial-gradient(circle at top right, rgba(36, 95, 141, 0.12), transparent 24%),
-    linear-gradient(180deg, #f7f8fc 0%, #eef2f8 100%);
-}
-
-.dashboard-toolbar::-webkit-scrollbar {
-  height: 5px;
-}
-
-.dashboard-toolbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.dashboard-toolbar::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.45);
-  border-radius: 999px;
-}
-
 /* Slide-in animation for DriverPanel */
 @keyframes slideIn {
   from { transform: translateX(100%); opacity: 0; }

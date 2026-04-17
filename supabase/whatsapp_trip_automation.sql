@@ -179,3 +179,9 @@ CREATE POLICY "Dashboard can manage whatsapp messages"
   TO anon
   USING (true)
   WITH CHECK (true);
+
+INSERT INTO settings (key, value, updated_at)
+VALUES
+  ('whatsapp_amt_fare', '0', NOW()),
+  ('whatsapp_driver_commission', '0', NOW())
+ON CONFLICT (key) DO NOTHING;
