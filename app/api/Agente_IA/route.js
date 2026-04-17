@@ -18,6 +18,7 @@ const IMMEDIATE_PROCESSING =
 
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 const OPEN_TRIP_STATUSES = ['pending', ...ACTIVE_TRIP_STATUSES];
+const LOCKED_CONVERSATION_STATUSES = ['trip_created', 'awaiting_driver'];
 const processingTimers = new Map();
 const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !== 'false';
 const SEARCH_RADII_KM = [1, 2, 5, 10, 15, 20];
@@ -1066,6 +1067,24 @@ async function processClaimedConversation(batch) {
     };
   }
 
+  // Keep conversation locked if a trip was already derived and no open-trip row is currently found
+  // (for example transient data mismatch or delayed persistence).
+  if (LOCKED_CONVERSATION_STATUSES.includes(String(batch?.status || '').toLowerCase())) {
+    logWebhook('conversation_status_locked_without_open_trip', {
+      conversationId: batch?.id || null,
+      status: batch?.status || null,
+    });
+    return {
+      handled: true,
+      updates: {
+        status: batch.status,
+        context: safeJsonParse(batch.context, {}),
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
+
   const combinedText = pendingMessages
     .map((item) => item?.contenido)
     .filter(Boolean)
@@ -1090,14 +1109,16 @@ async function processClaimedConversation(batch) {
   };
 
   if (extracted.intent === 'other') {
-    if (extracted.reply) {
+    const currentStatus = String(batch?.status || '').toLowerCase();
+    const shouldKeepLockedStatus = LOCKED_CONVERSATION_STATUSES.includes(currentStatus);
+    if (!shouldKeepLockedStatus && extracted.reply) {
       await sendWhatsAppText(batch.phone, extracted.reply);
     }
     logWebhook('conversation_intent_other', { conversationId: batch?.id || null });
     return {
       handled: true,
       updates: {
-        status: 'open',
+        status: shouldKeepLockedStatus ? batch.status : 'open',
         context: nextContext,
         processing_started_at: null,
         last_processed_at: new Date().toISOString(),
