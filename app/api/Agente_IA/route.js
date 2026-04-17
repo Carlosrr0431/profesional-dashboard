@@ -509,9 +509,10 @@ Reglas:
 - Considerá el contexto previo: si el cliente antes dijo el origen y ahora manda el destino, unificá todo.
 - "origin" y "destination" deben ser queries cortas y geocodificables en Google Maps, con sesgo a Salta. Ejemplo: "Belgrano 245, Salta" o "Barrio Tres Cerritos, Salta".
 - Si no hay suficientes datos para pedir un viaje, marcá los faltantes exactos en missing_fields.
-- Un viaje requiere como mínimo origen y destino.
-- Si el texto es un saludo o algo que no pide viaje, devolvé intent="other".
-- Si parece que el caso debe verlo una persona, devolvé intent="ask_human".
+  - Un viaje requiere como mínimo origen (de dónde te paso a buscar) y destino (adónde vas). Si falta alguno, intent="trip_request" con missing_fields y reply pidiendo el dato faltante.
+  - Si el cliente pide un remís pero solo da destino sin origen, intent="trip_request", origin=null, missing_fields=["origin"], y pedile la dirección de retiro.
+  - Si el texto es un saludo, pregunta genérica o algo que no pide viaje, devolvé intent="other".
+  - intent="ask_human" SOLO para casos que requieren intervención humana real: queja grave, accidente, disputa de pago, insultos, o situación que el sistema no puede resolver. NUNCA uses ask_human solo porque falte información del viaje.
 - reply debe ser una respuesta breve en español argentino lista para WhatsApp.
 - No inventes direcciones.`,
       },
@@ -1133,18 +1134,30 @@ async function processClaimedConversation(batch) {
   }
 
   if (extracted.intent === 'ask_human') {
-    const reply = extracted.reply || 'Te paso con un operador para revisar bien el pedido.';
-    await sendWhatsAppText(batch.phone, reply);
-    logWebhook('conversation_intent_ask_human', { conversationId: batch?.id || null });
-    return {
-      handled: true,
-      updates: {
-        status: 'paused',
-        context: nextContext,
-        processing_started_at: null,
-        last_processed_at: new Date().toISOString(),
-      },
-    };
+    // If there's a partial trip address, the AI misclassified — treat as trip_request with missing info
+    const hasPartialTripData = extracted.destination || extracted.origin || nextContext.pickup_location;
+    if (hasPartialTripData) {
+      logWebhook('conversation_ask_human_overridden_to_trip', {
+        conversationId: batch?.id || null,
+        hasDestination: Boolean(extracted.destination),
+        hasOrigin: Boolean(extracted.origin),
+      });
+      extracted.intent = 'trip_request';
+      // Fall through to trip_request handling below
+    } else {
+      const reply = extracted.reply || 'Te paso con un operador para revisar bien el pedido.';
+      await sendWhatsAppText(batch.phone, reply);
+      logWebhook('conversation_intent_ask_human', { conversationId: batch?.id || null });
+      return {
+        handled: true,
+        updates: {
+          status: 'paused',
+          context: nextContext,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
+      };
+    }
   }
 
   if (!nextContext.pickup_location) {
