@@ -5,6 +5,7 @@ import DriverInfoWindow from './DriverInfoWindow';
 
 const containerStyle = { width: '100%', height: '100%' };
 const LIBRARIES = ['places'];
+const FIXED_MARKER_ROTATION = -90;
 
 const mapOptions = {
   styles: LIGHT_MAP_STYLE,
@@ -73,7 +74,7 @@ export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, o
                 strokeWeight: isMultiSelected ? 2.5 : 1.5,
                 scale: isSelected || isMultiSelected ? 1.8 : 1.4,
                 anchor: { x: 12, y: 12 },
-                rotation: driver.heading || 0,
+                rotation: FIXED_MARKER_ROTATION,
               }}
               title={driver.fullName}
             />
