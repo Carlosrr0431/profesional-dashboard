@@ -118,6 +118,128 @@ function normalizeText(value) {
     .trim();
 }
 
+function normalizeForMatch(value) {
+  return normalizeText(value)
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenizeAddress(value) {
+  return normalizeForMatch(value)
+    .split(' ')
+    .filter((token) => token.length > 1 && !['de', 'del', 'la', 'el', 'en', 'y', 'al', 'a'].includes(token));
+}
+
+function extractNumbers(value) {
+  const matches = String(value || '').match(/\b\d{1,5}\b/g);
+  return new Set((matches || []).map((n) => Number(n)));
+}
+
+function buildAddressVariants(address) {
+  const base = sanitizeAddressInput(address);
+  if (!base) return [];
+
+  const variants = [];
+  const pushVariant = (item) => {
+    const cleaned = sanitizeAddressInput(item);
+    if (cleaned) variants.push(cleaned);
+  };
+
+  const withSalta = /salta/i.test(base) ? base : `${base}, Salta`;
+  pushVariant(withSalta);
+
+  const noBarrioPrefix = withSalta.replace(/^barrio\s+/i, '').trim();
+  if (noBarrioPrefix !== withSalta) pushVariant(noBarrioPrefix);
+  pushVariant(withSalta.replace(/\besquina\s+con\b/gi, 'y'));
+
+  const normalized = normalizeForMatch(withSalta);
+  const unique = new Set();
+  const result = [];
+  for (const variant of variants) {
+    const key = normalizeForMatch(variant);
+    if (!key || unique.has(key)) continue;
+    unique.add(key);
+    result.push(variant);
+  }
+
+  if (!result.some((item) => normalizeForMatch(item).includes('salta'))) {
+    result.push(`${base}, Salta`);
+  }
+
+  return result.slice(0, 5);
+}
+
+function scoreGeocodeResult(result, query) {
+  const queryTokens = new Set(tokenizeAddress(query));
+  const formatted = result?.formatted_address || '';
+  const addressTokens = new Set(tokenizeAddress(formatted));
+  const addressComponents = Array.isArray(result?.address_components) ? result.address_components : [];
+  const locationType = result?.geometry?.location_type || '';
+  const types = Array.isArray(result?.types) ? result.types : [];
+
+  let tokenOverlap = 0;
+  queryTokens.forEach((token) => {
+    if (addressTokens.has(token)) tokenOverlap += 1;
+  });
+
+  let score = queryTokens.size > 0 ? tokenOverlap / queryTokens.size : 0;
+
+  if (locationType === 'ROOFTOP') score += 0.5;
+  else if (locationType === 'RANGE_INTERPOLATED') score += 0.35;
+  else if (locationType === 'GEOMETRIC_CENTER') score += 0.2;
+  else if (locationType === 'APPROXIMATE') score -= 0.1;
+
+  if (result?.partial_match) score -= 0.25;
+
+  const queryNumbers = extractNumbers(query);
+  const addressNumbers = extractNumbers(formatted);
+  if (queryNumbers.size > 0) {
+    let matchedNumbers = 0;
+    queryNumbers.forEach((num) => {
+      if (addressNumbers.has(num)) matchedNumbers += 1;
+    });
+    score += matchedNumbers > 0 ? 0.35 : -0.25;
+  }
+
+  const hasStreetNumber = addressComponents.some((component) => component?.types?.includes('street_number'));
+  const hasRoute = addressComponents.some((component) => component?.types?.includes('route'));
+  if (hasStreetNumber) score += 0.15;
+  if (hasRoute) score += 0.1;
+
+  const normalizedFormatted = normalizeForMatch(formatted);
+  if (normalizedFormatted.includes('salta')) score += 0.2;
+  if (types.includes('street_address')) score += 0.15;
+  if (types.includes('intersection')) score += 0.1;
+
+  return score;
+}
+
+function inferTripHeuristics(combinedText, context = {}) {
+  const text = String(combinedText || '').trim();
+  const normalized = normalizeForMatch(text);
+
+  const looksLikeTripRequest = /(remis|taxi|movil|m[oó]vil|viaje|pasame\s+a\s+buscar|buscame|llevame|llevarme|quiero\s+ir)/i.test(normalized);
+
+  const deAHasta = text.match(/\bde\s+([^\n,.;]{4,90}?)\s+a\s+([^\n,.;]{4,90})(?:$|[\n.!?])/i);
+  if (deAHasta) {
+    return {
+      pickup: sanitizeAddressInput(deAHasta[1]),
+      destination: sanitizeAddressInput(deAHasta[2]),
+      looksLikeTripRequest,
+    };
+  }
+
+  const pickupMatch = text.match(/(?:pasame\s+a\s+buscar(?:me)?|buscame|retiro(?:\s+en)?|estoy\s+en|origen(?:\s+es)?|desde)\s*[:,-]?\s*([^\n.;]{4,120})/i);
+  const destinationMatch = text.match(/(?:destino(?:\s+es)?|hacia|hasta|llevame\s+a|quiero\s+ir\s+a|a\s+)([^\n.;]{4,120})/i);
+
+  return {
+    pickup: sanitizeAddressInput(pickupMatch?.[1] || context.pickup_location || ''),
+    destination: sanitizeAddressInput(destinationMatch?.[1] || context.destination || ''),
+    looksLikeTripRequest,
+  };
+}
+
 function isCoarseGeocodeResult(result, originalQuery) {
   const formatted = normalizeText(result?.formatted_address || '');
   const types = Array.isArray(result?.types) ? result.types : [];
@@ -508,6 +630,7 @@ Devolvé SOLO JSON válido con este esquema:
 {
   "intent": "trip_request" | "ask_human" | "other",
   "passenger_name": string | null,
+  "pickup_location": string | null,
   "origin": string | null,
   "destination": string | null,
   "notes": string | null,
@@ -518,10 +641,11 @@ Devolvé SOLO JSON válido con este esquema:
 
 Reglas:
 - Considerá el contexto previo: si el cliente antes dijo el origen y ahora manda el destino, unificá todo.
+- "pickup_location" es la dirección de retiro del pasajero (la más importante).
 - "origin" y "destination" deben ser queries cortas y geocodificables en Google Maps, con sesgo a Salta. Ejemplo: "Belgrano 245, Salta" o "Barrio Tres Cerritos, Salta".
 - Si no hay suficientes datos para pedir un viaje, marcá los faltantes exactos en missing_fields.
-  - Un viaje requiere como mínimo origen (de dónde te paso a buscar) y destino (adónde vas). Si falta alguno, intent="trip_request" con missing_fields y reply pidiendo el dato faltante.
-  - Si el cliente pide un remís pero solo da destino sin origen, intent="trip_request", origin=null, missing_fields=["origin"], y pedile la dirección de retiro.
+  - Para generar asignación inicial, se requiere pickup_location (dirección de retiro). El destino puede ser opcional y definirse después.
+  - Si falta pickup_location, intent="trip_request" con missing_fields=["pickup_location"] y pedile dirección de retiro.
   - Si el texto es un saludo, pregunta genérica o algo que no pide viaje, devolvé intent="other".
   - intent="ask_human" SOLO para casos que requieren intervención humana real: queja grave, accidente, disputa de pago, insultos, o situación que el sistema no puede resolver. NUNCA uses ask_human solo porque falte información del viaje.
 - reply debe ser una respuesta breve en español argentino lista para WhatsApp.
@@ -550,18 +674,20 @@ Reglas:
     return {
       intent: 'other',
       passenger_name: null,
+      pickup_location: null,
       origin: null,
       destination: null,
       notes: null,
       reply: 'No terminé de entender el pedido. Pasame origen y destino así te asigno un móvil.',
       confidence: 0,
-      missing_fields: ['origin', 'destination'],
+      missing_fields: ['pickup_location'],
     };
   }
 
   const parsed = safeJsonParse(match[0], {
     intent: 'other',
     passenger_name: null,
+    pickup_location: null,
     origin: null,
     destination: null,
     notes: null,
@@ -581,46 +707,72 @@ Reglas:
 }
 
 async function geocodeAddress(address) {
-  const query = /salta/i.test(address) ? address : `${address}, Salta, Argentina`;
-  logWebhook('maps_geocode_start', { query });
-  const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
-  url.searchParams.set('address', query);
-  url.searchParams.set('language', 'es');
-  url.searchParams.set('region', 'ar');
-  url.searchParams.set('components', 'country:AR');
-  // Bias results to Salta capital area.
-  url.searchParams.set('bounds', '-24.90,-65.55|-24.70,-65.30');
-  url.searchParams.set('key', GOOGLE_MAPS_API_KEY);
-
-  const response = await fetchWithRetry(url, {}, { label: 'geocode' });
-  const payload = await response.json();
-  if (payload.status !== 'OK' || !payload.results?.length) {
-    logWebhook('maps_geocode_fail', {
-      query,
-      status: payload.status || null,
-      resultCount: payload.results?.length || 0,
-    });
+  const variants = buildAddressVariants(address);
+  if (variants.length === 0) {
     throw new Error(`No se pudo geocodificar: ${address}`);
   }
 
-  const result = payload.results.find((candidate) => !isCoarseGeocodeResult(candidate, query));
-  if (!result) {
+  const candidates = [];
+
+  for (const query of variants) {
+    logWebhook('maps_geocode_start', { query });
+    const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+    url.searchParams.set('address', query);
+    url.searchParams.set('language', 'es');
+    url.searchParams.set('region', 'ar');
+    url.searchParams.set('components', 'country:AR');
+    // Bias results to Salta capital area.
+    url.searchParams.set('bounds', '-24.90,-65.55|-24.70,-65.30');
+    url.searchParams.set('key', GOOGLE_MAPS_API_KEY);
+
+    const response = await fetchWithRetry(url, {}, { label: 'geocode' });
+    const payload = await response.json();
+    if (payload.status !== 'OK' || !payload.results?.length) {
+      logWebhook('maps_geocode_variant_fail', {
+        query,
+        status: payload.status || null,
+        resultCount: payload.results?.length || 0,
+      });
+      continue;
+    }
+
+    for (const result of payload.results) {
+      if (isCoarseGeocodeResult(result, query)) continue;
+
+      const score = scoreGeocodeResult(result, query);
+      candidates.push({ result, score, query });
+    }
+  }
+
+  if (candidates.length === 0) {
     logWebhook('maps_geocode_fail', {
-      query,
-      status: payload.status || null,
-      reason: 'coarse_result_only',
-      topFormatted: payload.results?.[0]?.formatted_address || null,
+      originalAddress: address,
+      reason: 'no_non_coarse_candidates',
+      variantsTried: variants,
     });
     throw new Error(`Dirección demasiado amplia o ambigua: ${address}`);
   }
 
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0];
+  if (!best || best.score < 0.25) {
+    logWebhook('maps_geocode_fail', {
+      originalAddress: address,
+      reason: 'low_confidence_candidate',
+      topScore: best?.score ?? null,
+      topAddress: best?.result?.formatted_address || null,
+    });
+    throw new Error(`No se pudo geocodificar con confianza: ${address}`);
+  }
+
   const resultPayload = {
-    formattedAddress: result.formatted_address,
-    lat: result.geometry.location.lat,
-    lng: result.geometry.location.lng,
+    formattedAddress: best.result.formatted_address,
+    lat: best.result.geometry.location.lat,
+    lng: best.result.geometry.location.lng,
   };
   logWebhook('maps_geocode_ok', {
-    query,
+    query: best.query,
+    score: Math.round(best.score * 100) / 100,
     formattedAddress: resultPayload.formattedAddress,
     lat: resultPayload.lat,
     lng: resultPayload.lng,
@@ -1132,12 +1284,34 @@ async function processClaimedConversation(batch) {
     history,
   });
 
+  const heuristics = inferTripHeuristics(combinedText, context);
+  if (extracted.intent === 'other' && heuristics.looksLikeTripRequest) {
+    logWebhook('conversation_override_other_to_trip_request', {
+      conversationId: batch?.id || null,
+      reason: 'heuristics_detected_trip_request',
+    });
+    extracted.intent = 'trip_request';
+  }
+
+  const pickupLocation =
+    extracted.pickup_location ||
+    extracted.origin ||
+    heuristics.pickup ||
+    context.pickup_location ||
+    null;
+
+  const destinationHint =
+    extracted.destination ||
+    heuristics.destination ||
+    context.destination ||
+    null;
+
   const nextContext = {
     passenger_name: extracted.passenger_name || context.passenger_name || batch.push_name || null,
     // Pickup should map to passenger origin. Destination remains only as final-destination hint.
-    pickup_location: extracted.origin || extracted.destination || context.pickup_location || null,
-    origin: extracted.origin || null,
-    destination: extracted.destination || null,
+    pickup_location: sanitizeAddressInput(pickupLocation),
+    origin: sanitizeAddressInput(extracted.origin || heuristics.pickup || ''),
+    destination: sanitizeAddressInput(destinationHint),
     notes: extracted.notes || context.notes || null,
   };
 
