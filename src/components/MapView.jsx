@@ -6,6 +6,7 @@ import DriverInfoWindow from './DriverInfoWindow';
 const containerStyle = { width: '100%', height: '100%' };
 const LIBRARIES = ['places'];
 const FIXED_MARKER_ROTATION = 0;
+const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '';
 
 const mapOptions = {
   styles: LIGHT_MAP_STYLE,
@@ -20,10 +21,32 @@ const mapOptions = {
 export default function MapView({ drivers, selectedId, onSelectDriver, mapRef, onAssignTrip, multiSelectMode, multiSelectedIds, onToggleMultiSelect }) {
   const [activeInfo, setActiveInfo] = useState(null);
 
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_KEY,
     libraries: LIBRARIES,
   });
+
+  if (!GOOGLE_MAPS_KEY) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-light-200">
+        <div className="flex flex-col items-center gap-2 text-gray-500 px-6 text-center">
+          <p className="text-sm font-semibold">Falta configurar Google Maps</p>
+          <p className="text-xs">Defini NEXT_PUBLIC_GOOGLE_MAPS_API_KEY o GOOGLE_MAPS_API_KEY.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-light-200">
+        <div className="flex flex-col items-center gap-2 text-red-500 px-6 text-center">
+          <p className="text-sm font-semibold">No se pudo cargar Google Maps</p>
+          <p className="text-xs">Revisá restricciones de la API Key en Google Cloud y el dominio de Vercel.</p>
+        </div>
+      </div>
+    );
+  }
 
   const onLoad = useCallback((map) => {
     mapRef.current = map;
