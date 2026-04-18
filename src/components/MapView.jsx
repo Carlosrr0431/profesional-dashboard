@@ -5,7 +5,7 @@ import DriverInfoWindow from './DriverInfoWindow';
 
 const containerStyle = { width: '100%', height: '100%' };
 const LIBRARIES = ['places'];
-const FIXED_MARKER_ROTATION = -90;
+const FIXED_MARKER_ROTATION = 0;
 
 const mapOptions = {
   styles: LIGHT_MAP_STYLE,
