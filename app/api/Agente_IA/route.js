@@ -458,6 +458,17 @@ async function getOpenTripById(tripId) {
   return data;
 }
 
+async function getTripById(tripId) {
+  if (!tripId) return null;
+  const { data, error } = await getSupabase()
+    .from('trips')
+    .select('id, status, passenger_phone, destination_address, created_at, completed_at')
+    .eq('id', tripId)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
 async function getLatestOpenTripByPhone(phone) {
   const normalized = normalizePhone(phone);
   if (!normalized) return null;
@@ -1055,8 +1066,21 @@ async function processClaimedConversation(batch) {
     pendingCount: pendingMessages.length,
   });
 
+  const lastTripById = await getTripById(batch.last_trip_id);
+
+  // If the previous trip is already closed, start the new request with a clean context/history.
+  const shouldResetConversationState = Boolean(lastTripById && !isOpenTripStatus(lastTripById.status));
+  if (shouldResetConversationState) {
+    logWebhook('conversation_reset_closed_trip_context', {
+      conversationId: batch?.id || null,
+      tripId: lastTripById.id,
+      tripStatus: lastTripById.status,
+      completedAt: lastTripById.completed_at || null,
+    });
+  }
+
   // Idempotency guard: if the passenger already has an open trip, do not create another one.
-  const openTripByLastId = await getOpenTripById(batch.last_trip_id);
+  const openTripByLastId = lastTripById && isOpenTripStatus(lastTripById.status) ? lastTripById : null;
   const openTripByPhone = openTripByLastId || await getLatestOpenTripByPhone(batch.phone);
   if (openTripByPhone && !shouldBlockForOpenTrip(openTripByPhone)) {
     logWebhook('conversation_open_trip_guard_ignored_stale_pending', {
@@ -1098,8 +1122,8 @@ async function processClaimedConversation(batch) {
     .map((item) => item?.contenido)
     .filter(Boolean)
     .join('\n');
-  const context = safeJsonParse(batch.context, {});
-  const history = await getRecentConversationMessages(batch.id, 12);
+  const context = shouldResetConversationState ? {} : safeJsonParse(batch.context, {});
+  const history = shouldResetConversationState ? [] : await getRecentConversationMessages(batch.id, 12);
   const extracted = await extractTripIntent({
     combinedText,
     context,
@@ -1111,7 +1135,7 @@ async function processClaimedConversation(batch) {
   const nextContext = {
     passenger_name: extracted.passenger_name || context.passenger_name || batch.push_name || null,
     // Pickup should map to passenger origin. Destination remains only as final-destination hint.
-    pickup_location: extracted.origin || context.pickup_location || extracted.destination || null,
+    pickup_location: extracted.origin || extracted.destination || context.pickup_location || null,
     origin: extracted.origin || null,
     destination: extracted.destination || null,
     notes: extracted.notes || context.notes || null,
@@ -1127,6 +1151,7 @@ async function processClaimedConversation(batch) {
       updates: {
         status: 'open',
         context: nextContext,
+        last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
         processing_started_at: null,
         last_processed_at: new Date().toISOString(),
       },
@@ -1153,6 +1178,7 @@ async function processClaimedConversation(batch) {
         updates: {
           status: 'paused',
           context: nextContext,
+          last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
           processing_started_at: null,
           last_processed_at: new Date().toISOString(),
         },
@@ -1174,6 +1200,7 @@ async function processClaimedConversation(batch) {
       updates: {
         status: 'awaiting_info',
         context: nextContext,
+        last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
         processing_started_at: null,
         last_processed_at: new Date().toISOString(),
       },
@@ -1196,7 +1223,7 @@ async function processClaimedConversation(batch) {
     updates: {
       status: tripResult.ok ? 'trip_created' : 'awaiting_driver',
       context: tripResult.context,
-      last_trip_id: tripResult.trip?.id || batch.last_trip_id || null,
+      last_trip_id: tripResult.trip?.id || (shouldResetConversationState ? null : batch.last_trip_id || null),
       processing_started_at: null,
       last_processed_at: new Date().toISOString(),
     },
