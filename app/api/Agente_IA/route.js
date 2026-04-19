@@ -11,6 +11,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const WASENDER_API_KEY = process.env.WASENDER_API_KEY || '';
 const WASENDER_BASE_URL = process.env.WASENDER_BASE_URL || 'https://www.wasenderapi.com/api';
 const CRON_SECRET = process.env.CRON_SECRET || '';
+const WHATSAPP_TRIP_TRANSITION_SECRET = process.env.WHATSAPP_TRIP_TRANSITION_SECRET || '';
 const ALLOWED_PHONES = new Set(['5493878630173']);
 const IS_SERVERLESS = Boolean(process.env.VERCEL);
 const IMMEDIATE_PROCESSING =
@@ -61,6 +62,14 @@ function isAuthorizedPhone(phone) {
   if (ALLOWED_PHONES.size === 0) return true;
   const normalized = normalizePhone(phone);
   return [...ALLOWED_PHONES].some((allowed) => normalized === allowed || normalized.endsWith(allowed.slice(-10)));
+}
+
+function isTripTransitionAuthorized({ authHeader = '', tripTransitionSecretHeader = '' } = {}) {
+  if (!WHATSAPP_TRIP_TRANSITION_SECRET) return false;
+  return (
+    tripTransitionSecretHeader === WHATSAPP_TRIP_TRANSITION_SECRET ||
+    authHeader === `Bearer ${WHATSAPP_TRIP_TRANSITION_SECRET}`
+  );
 }
 
 function safeJsonParse(value, fallback = null) {
@@ -1496,6 +1505,137 @@ async function processTripLifecycleTransitions() {
   };
 }
 
+async function processTripLifecycleTransitionsForTripId(tripId) {
+  if (!tripId) {
+    return { watched: 0, confirmed: 0, reassigned: 0, reset: 0 };
+  }
+
+  logWebhook('trip_transition_trip_scan_start', { tripId });
+
+  const { data: conversations, error } = await getSupabase()
+    .from('whatsapp_conversations')
+    .select('id, phone, status, context, last_trip_id')
+    .in('status', ['awaiting_driver', 'trip_created'])
+    .eq('last_trip_id', tripId)
+    .order('updated_at', { ascending: true });
+
+  if (error) throw error;
+
+  let confirmed = 0;
+  let reassigned = 0;
+  let reset = 0;
+
+  for (const conversation of conversations || []) {
+    const context = safeJsonParse(conversation.context, {});
+    const trip = await getConversationFlowTripById(conversation.last_trip_id);
+
+    if (!trip) {
+      await finalizeConversation(conversation.id, {
+        status: 'open',
+        context: {},
+        last_trip_id: null,
+      });
+      reset += 1;
+      continue;
+    }
+
+    const tripStatus = String(trip.status || '').toLowerCase();
+
+    if (ACTIVE_TRIP_STATUSES.includes(tripStatus)) {
+      if (context.confirmed_trip_id !== trip.id) {
+        const driver = await getDriverById(trip.driver_id);
+        if (driver) {
+          const reply = await buildPassengerDriverConfirmationMessage(trip, driver);
+          await sendWhatsAppText(conversation.phone, reply);
+          await finalizeConversation(conversation.id, {
+            status: 'trip_created',
+            context: {
+              ...context,
+              confirmed_trip_id: trip.id,
+            },
+            last_trip_id: trip.id,
+          });
+          confirmed += 1;
+        }
+      }
+      continue;
+    }
+
+    if (tripStatus === 'pending') {
+      if (conversation.status !== 'awaiting_driver' || context.confirmed_trip_id === trip.id) {
+        await finalizeConversation(conversation.id, {
+          status: 'awaiting_driver',
+          context: {
+            ...context,
+            confirmed_trip_id: null,
+          },
+          last_trip_id: trip.id,
+        });
+      }
+      continue;
+    }
+
+    if (tripStatus === 'cancelled') {
+      const wasPassengerNotified = context.confirmed_trip_id === trip.id;
+      const cancellationAlreadyNotified = context.last_cancellation_notified_trip_id === trip.id;
+      const shouldReassign = shouldReassignCancelledTrip(trip);
+
+      if (!shouldReassign) {
+        await finalizeConversation(conversation.id, {
+          status: 'open',
+          context: {},
+          last_trip_id: null,
+        });
+        reset += 1;
+        continue;
+      }
+
+      if (wasPassengerNotified && !cancellationAlreadyNotified) {
+        await sendWhatsAppText(
+          conversation.phone,
+          'El chofer asignado no va a poder tomar el viaje. Estoy buscando otro móvil y te aviso apenas quede confirmado.'
+        );
+      }
+
+      const replacement = await createReplacementTripFromCancelledTrip(trip, {
+        excludedDriverIds: [trip.driver_id],
+      });
+
+      await finalizeConversation(conversation.id, {
+        status: 'awaiting_driver',
+        context: {
+          ...context,
+          confirmed_trip_id: null,
+          last_cancellation_notified_trip_id: trip.id,
+        },
+        last_trip_id: replacement.ok ? replacement.trip.id : trip.id,
+      });
+
+      if (replacement.ok) reassigned += 1;
+      continue;
+    }
+
+    if (!isOpenTripStatus(tripStatus)) {
+      await finalizeConversation(conversation.id, {
+        status: 'open',
+        context: {},
+        last_trip_id: null,
+      });
+      reset += 1;
+    }
+  }
+
+  const result = {
+    watched: (conversations || []).length,
+    confirmed,
+    reassigned,
+    reset,
+  };
+
+  logWebhook('trip_transition_trip_scan_done', { tripId, ...result });
+  return result;
+}
+
 async function processClaimedConversation(batch) {
   logWebhook('conversation_process_start', {
     conversationId: batch?.id || null,
@@ -1788,11 +1928,38 @@ async function processPendingConversations() {
   return { processed, skipped, total: (data || []).length };
 }
 
-async function processWebhookBody(body) {
+async function processWebhookBody(body, requestMeta = {}) {
   try {
     const payloadBody = body || {};
     const event = payloadBody.event;
     logWebhook('received', { event: event || 'unknown' });
+
+    if (event === 'trip.transition') {
+      const authHeader = requestMeta.authHeader || '';
+      const tripTransitionSecretHeader = requestMeta.tripTransitionSecretHeader || '';
+
+      if (!isTripTransitionAuthorized({ authHeader, tripTransitionSecretHeader })) {
+        logWebhook('trip_transition_unauthorized');
+        return { status: 401, body: { success: false, error: 'Unauthorized' } };
+      }
+
+      const tripId = String(payloadBody.tripId || '').trim();
+      if (!tripId) {
+        return { status: 400, body: { success: false, error: 'tripId is required' } };
+      }
+
+      ensureServerConfig();
+      const transitions = await processTripLifecycleTransitionsForTripId(tripId);
+      return {
+        status: 200,
+        body: {
+          success: true,
+          event: 'trip.transition',
+          tripId,
+          transitions,
+        },
+      };
+    }
 
     if (event === 'webhook.test') {
       logWebhook('ignored', { reason: 'webhook_test' });
@@ -1997,12 +2164,14 @@ async function ensureWarm() {
 export async function POST(req) {
   await ensureWarm();
   const body = await req.json();
+  const authHeader = req.headers.get('authorization') || '';
+  const tripTransitionSecretHeader = req.headers.get('x-trip-transition-secret') || '';
   logWebhook('http_post', {
     vercelId: req.headers.get('x-vercel-id') || null,
     hasEvent: Boolean(body?.event),
     event: body?.event || null,
   });
-  const result = await processWebhookBody(body);
+  const result = await processWebhookBody(body, { authHeader, tripTransitionSecretHeader });
   logWebhook('http_post_result', { status: result.status, success: result.body?.success === true });
   return Response.json(result.body, { status: result.status });
 }
