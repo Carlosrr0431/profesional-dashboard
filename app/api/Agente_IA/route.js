@@ -252,6 +252,14 @@ function isCoarseGeocodeResult(result, originalQuery) {
 
   const queryNorm = normalizeText(originalQuery);
   const queryHasNumber = /\d{1,5}/.test(queryNorm);
+  const queryNumbers = extractNumbers(queryNorm);
+  const formattedNumbers = extractNumbers(formatted);
+  let hasMatchingNumber = false;
+  if (queryNumbers.size > 0) {
+    queryNumbers.forEach((num) => {
+      if (formattedNumbers.has(num)) hasMatchingNumber = true;
+    });
+  }
   const cityOnlyPatterns = ['salta, argentina', 'salta, salta, argentina'];
   const isCityOnly = cityOnlyPatterns.includes(formatted);
 
@@ -262,9 +270,31 @@ function isCoarseGeocodeResult(result, originalQuery) {
   if (isCityOnly) return true;
   if (onlyBroadTypes) return true;
   if (locationType === 'APPROXIMATE' && !hasRoute && !hasStreetNumber && !hasPremise) return true;
-  if (queryHasNumber && !hasStreetNumber) return true;
+  if (queryHasNumber && !hasStreetNumber) {
+    // Accept route-level matches when Google omits street_number component
+    // but the formatted address still includes the same house number.
+    if (!hasRoute) return true;
+    if (!hasMatchingNumber && !hasPremise) return true;
+  }
 
   return false;
+}
+
+function extractDirectAddressCandidate(text) {
+  const lines = String(text || '')
+    .split('\n')
+    .map((line) => sanitizeAddressInput(line))
+    .filter(Boolean);
+  if (lines.length === 0) return null;
+
+  const candidate = lines[lines.length - 1];
+  const hasStreetAndNumber = /[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]*\s\d{1,5}\b/.test(candidate);
+  if (!hasStreetAndNumber) return null;
+
+  // Avoid stealing intent from explicit "de ... a ..." messages.
+  if (/\bde\b.+\ba\b/i.test(candidate)) return null;
+
+  return candidate;
 }
 
 function ensureServerConfig() {
@@ -1295,8 +1325,9 @@ async function processClaimedConversation(batch) {
 
   const pickupLocation =
     extracted.pickup_location ||
-    extracted.origin ||
     heuristics.pickup ||
+    extractDirectAddressCandidate(combinedText) ||
+    extracted.origin ||
     context.pickup_location ||
     null;
 
