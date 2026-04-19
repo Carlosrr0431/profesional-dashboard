@@ -21,6 +21,7 @@ const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 const OPEN_TRIP_STATUSES = ['pending', ...ACTIVE_TRIP_STATUSES];
 const DRIVER_BUSY_TRIP_STATUSES = ['pending', ...ACTIVE_TRIP_STATUSES];
 const PENDING_GUARD_MAX_AGE_MINUTES = Number(process.env.WHATSAPP_PENDING_GUARD_MAX_AGE_MINUTES || 5);
+const DRIVER_PENDING_BUSY_MAX_AGE_MINUTES = Number(process.env.WHATSAPP_DRIVER_PENDING_BUSY_MAX_AGE_MINUTES || 5);
 const processingTimers = new Map();
 const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !== 'false';
 const SEARCH_RADII_KM = [1, 2, 5, 10, 15, 20];
@@ -1136,11 +1137,30 @@ async function chooseDriver(origin, { excludedDriverIds = [] } = {}) {
 
   const { data: activeTrips, error: activeTripsError } = await getSupabase()
     .from('trips')
-    .select('driver_id')
+    .select('driver_id, status, created_at')
     .in('status', DRIVER_BUSY_TRIP_STATUSES);
   if (activeTripsError) throw activeTripsError;
 
-  const busyDriverIds = new Set((activeTrips || []).map((trip) => trip.driver_id).filter(Boolean));
+  const busyDriverIds = new Set();
+  let ignoredStalePending = 0;
+  for (const trip of activeTrips || []) {
+    if (!trip?.driver_id) continue;
+
+    const status = String(trip.status || '').toLowerCase();
+    if (status !== 'pending') {
+      busyDriverIds.add(trip.driver_id);
+      continue;
+    }
+
+    // Pending trips can remain stale if a driver never accepted/rejected; ignore old ones.
+    const ageMinutes = getTripAgeMinutes(trip);
+    if (ageMinutes == null || ageMinutes <= DRIVER_PENDING_BUSY_MAX_AGE_MINUTES) {
+      busyDriverIds.add(trip.driver_id);
+    } else {
+      ignoredStalePending += 1;
+    }
+  }
+
   const excludedDriverIdSet = new Set((excludedDriverIds || []).filter(Boolean));
   const candidateDrivers = availableDrivers.filter(
     (driver) => !busyDriverIds.has(driver.id) && !excludedDriverIdSet.has(driver.id)
@@ -1149,6 +1169,7 @@ async function chooseDriver(origin, { excludedDriverIds = [] } = {}) {
     logWebhook('driver_select_all_busy', {
       availableWithCoords: availableDrivers.length,
       busyCount: busyDriverIds.size,
+      stalePendingIgnored: ignoredStalePending,
       excludedCount: excludedDriverIdSet.size,
     });
     return null;
