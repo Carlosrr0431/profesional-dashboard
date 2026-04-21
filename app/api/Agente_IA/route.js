@@ -2730,19 +2730,71 @@ async function processWebhookBody(body, requestMeta = {}) {
         return { status: 500, body: { success: false, error: 'db_error' } };
       }
 
-      const matchedConv = (pollConvs || []).find((c) => {
+      // Búsqueda primaria: conversación que tenga el msg_id del poll en su contexto
+      let matchedConv = (pollConvs || []).find((c) => {
         const ctx = safeJsonParse(c.context, {});
         return ctx?.pending_poll?.msg_id === pollMsgId;
       });
+
+      let pollCtx = safeJsonParse(matchedConv?.context, {});
+      let pollCandidates = pollCtx?.pending_poll?.candidates || [];
+      let selectedCandidate = pollCandidates.find((c) => c.label === voted.name);
+
+      // Fallback: si no encontramos la conversación por contexto (ej: contexto perdido por
+      // error de constraint previo), buscamos el mensaje del poll por external_message_id
+      // y re-geocodificamos la opción votada directamente.
+      if (!matchedConv || !selectedCandidate) {
+        logWebhook('poll_results_fallback_by_msg_id', {
+          pollMsgId,
+          votedName: voted.name,
+          reason: !matchedConv ? 'conv_not_found' : 'candidate_not_found',
+        });
+
+        const { data: pollMsg } = await getSupabase()
+          .from('whatsapp_messages')
+          .select('conversation_id')
+          .eq('external_message_id', pollMsgId)
+          .maybeSingle();
+
+        if (pollMsg?.conversation_id) {
+          const { data: convFromMsg } = await getSupabase()
+            .from('whatsapp_conversations')
+            .select('id, phone, push_name, context')
+            .eq('id', pollMsg.conversation_id)
+            .maybeSingle();
+
+          if (convFromMsg) {
+            matchedConv = convFromMsg;
+            pollCtx = safeJsonParse(convFromMsg.context, {});
+
+            // El nombre votado ya es una dirección formateada por Google → re-geocodificar directo
+            try {
+              const geo = await geocodeAddress(voted.name);
+              selectedCandidate = {
+                label: voted.name,
+                formattedAddress: geo.formattedAddress,
+                lat: geo.lat,
+                lng: geo.lng,
+              };
+              logWebhook('poll_results_fallback_geocoded', {
+                conversationId: matchedConv.id,
+                votedName: voted.name,
+                formattedAddress: geo.formattedAddress,
+              });
+            } catch (geoErr) {
+              logWebhook('poll_results_fallback_geocode_fail', {
+                votedName: voted.name,
+                error: geoErr?.message || 'geocode_error',
+              });
+            }
+          }
+        }
+      }
 
       if (!matchedConv) {
         logWebhook('poll_results_ignored', { reason: 'conversation_not_found', pollMsgId });
         return { status: 200, body: { success: true, ignored: true, reason: 'conversation_not_found' } };
       }
-
-      const pollCtx = safeJsonParse(matchedConv.context, {});
-      const pollCandidates = pollCtx?.pending_poll?.candidates || [];
-      const selectedCandidate = pollCandidates.find((c) => c.label === voted.name);
 
       if (!selectedCandidate) {
         logWebhook('poll_results_ignored', { reason: 'voted_option_not_found', votedName: voted.name });
