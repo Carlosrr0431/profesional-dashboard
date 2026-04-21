@@ -1683,16 +1683,37 @@ async function processTripLifecycleTransitions() {
         continue;
       }
 
-      if (wasPassengerNotified && !cancellationAlreadyNotified) {
-        await sendWhatsAppText(
-          conversation.phone,
-          'El chofer asignado no va a poder tomar el viaje. Estoy buscando otro móvil y te aviso apenas quede confirmado.'
-        );
+      // Acumular choferes excluidos a través de múltiples cancelaciones para nunca
+      // reasignar el mismo viaje al chofer que ya lo rechazó.
+      const prevExcluded = Array.isArray(context.excluded_driver_ids) ? context.excluded_driver_ids : [];
+      const accumulatedExcluded = [...new Set([...prevExcluded, trip.driver_id].filter(Boolean))];
+
+      if (!cancellationAlreadyNotified) {
+        if (wasPassengerNotified) {
+          await sendWhatsAppText(
+            conversation.phone,
+            'El chofer asignado no va a poder tomar el viaje. Estoy buscando otro móvil y te aviso apenas quede confirmado.'
+          );
+        } else {
+          await sendWhatsAppText(
+            conversation.phone,
+            'Estoy buscando un chofer disponible, te aviso en cuanto haya uno cerca.'
+          );
+        }
       }
 
       const replacement = await createReplacementTripFromCancelledTrip(trip, {
-        excludedDriverIds: [trip.driver_id],
+        excludedDriverIds: accumulatedExcluded,
       });
+
+      if (!replacement.ok) {
+        logWebhook('trip_reassign_no_driver', {
+          conversationId: conversation.id,
+          cancelledTripId: trip.id,
+          excludedCount: accumulatedExcluded.length,
+          reason: replacement.reason,
+        });
+      }
 
       await finalizeConversation(conversation.id, {
         status: 'awaiting_driver',
@@ -1700,6 +1721,7 @@ async function processTripLifecycleTransitions() {
           ...context,
           confirmed_trip_id: null,
           last_cancellation_notified_trip_id: trip.id,
+          excluded_driver_ids: accumulatedExcluded,
         },
         last_trip_id: replacement.ok ? replacement.trip.id : trip.id,
       });
@@ -1818,16 +1840,37 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
         continue;
       }
 
-      if (wasPassengerNotified && !cancellationAlreadyNotified) {
-        await sendWhatsAppText(
-          conversation.phone,
-          'El chofer asignado no va a poder tomar el viaje. Estoy buscando otro móvil y te aviso apenas quede confirmado.'
-        );
+      // Acumular choferes excluidos a través de múltiples cancelaciones para nunca
+      // reasignar el mismo viaje al chofer que ya lo rechazó.
+      const prevExcluded = Array.isArray(context.excluded_driver_ids) ? context.excluded_driver_ids : [];
+      const accumulatedExcluded = [...new Set([...prevExcluded, trip.driver_id].filter(Boolean))];
+
+      if (!cancellationAlreadyNotified) {
+        if (wasPassengerNotified) {
+          await sendWhatsAppText(
+            conversation.phone,
+            'El chofer asignado no va a poder tomar el viaje. Estoy buscando otro móvil y te aviso apenas quede confirmado.'
+          );
+        } else {
+          await sendWhatsAppText(
+            conversation.phone,
+            'Estoy buscando un chofer disponible, te aviso en cuanto haya uno cerca.'
+          );
+        }
       }
 
       const replacement = await createReplacementTripFromCancelledTrip(trip, {
-        excludedDriverIds: [trip.driver_id],
+        excludedDriverIds: accumulatedExcluded,
       });
+
+      if (!replacement.ok) {
+        logWebhook('trip_reassign_no_driver', {
+          conversationId: conversation.id,
+          cancelledTripId: trip.id,
+          excludedCount: accumulatedExcluded.length,
+          reason: replacement.reason,
+        });
+      }
 
       await finalizeConversation(conversation.id, {
         status: 'awaiting_driver',
@@ -1835,6 +1878,7 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
           ...context,
           confirmed_trip_id: null,
           last_cancellation_notified_trip_id: trip.id,
+          excluded_driver_ids: accumulatedExcluded,
         },
         last_trip_id: replacement.ok ? replacement.trip.id : trip.id,
       });
