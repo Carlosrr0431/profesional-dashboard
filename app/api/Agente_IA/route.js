@@ -1147,28 +1147,119 @@ async function geocodeAddressMultiple(address, maxResults = 5) {
   return candidates.slice(0, maxResults);
 }
 
+/**
+ * Puntúa un resultado de reverse-geocode por precisión.
+ * Prioridad: tipo de resultado + tipo de ubicación geométrica.
+ * Retorna un número mayor = mejor.
+ */
+function scoreReverseGeocodeResult(result) {
+  const types = Array.isArray(result?.types) ? result.types : [];
+  const locationType = result?.geometry?.location_type || '';
+  const components = Array.isArray(result?.address_components) ? result.address_components : [];
+
+  const hasStreetNumber = components.some((c) => Array.isArray(c.types) && c.types.includes('street_number'));
+  const hasRoute = components.some((c) => Array.isArray(c.types) && c.types.includes('route'));
+
+  let score = 0;
+
+  // Tipo de resultado (cuanto más específico, mejor)
+  if (types.includes('street_address')) score += 40;
+  else if (types.includes('premise')) score += 35;
+  else if (types.includes('subpremise')) score += 30;
+  else if (types.includes('establishment')) score += 20;
+  else if (types.includes('intersection')) score += 15;
+  else if (types.includes('route')) score += 5;
+  // Tipos muy generales = penalización fuerte
+  if (types.some((t) => ['locality', 'administrative_area_level_1', 'administrative_area_level_2', 'country', 'political', 'postal_code'].includes(t))) {
+    score -= 30;
+  }
+
+  // Tipo de geometría (ROOFTOP = coordenada exacta del edificio)
+  if (locationType === 'ROOFTOP') score += 30;
+  else if (locationType === 'RANGE_INTERPOLATED') score += 20;
+  else if (locationType === 'GEOMETRIC_CENTER') score += 10;
+  else if (locationType === 'APPROXIMATE') score -= 10;
+
+  // Componentes de dirección completa
+  if (hasStreetNumber) score += 15;
+  if (hasRoute) score += 10;
+
+  return score;
+}
+
 async function reverseGeocodeLatLng(lat, lng) {
   logWebhook('maps_reverse_geocode_start', { lat, lng });
-  const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
-  url.searchParams.set('latlng', `${lat},${lng}`);
-  url.searchParams.set('language', 'es');
-  url.searchParams.set('region', 'ar');
-  url.searchParams.set('key', GOOGLE_MAPS_API_KEY);
+  const fallback = `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
 
-  const response = await fetchWithRetry(url, {}, { label: 'reverse_geocode' });
+  // Primera pasada: pedir solo street_address con ROOFTOP o RANGE_INTERPOLATED
+  // Esto filtra de entrada a Google para que devuelva solo direcciones exactas
+  const urlPrecise = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+  urlPrecise.searchParams.set('latlng', `${lat},${lng}`);
+  urlPrecise.searchParams.set('result_type', 'street_address');
+  urlPrecise.searchParams.set('location_type', 'ROOFTOP|RANGE_INTERPOLATED');
+  urlPrecise.searchParams.set('language', 'es');
+  urlPrecise.searchParams.set('region', 'ar');
+  urlPrecise.searchParams.set('key', GOOGLE_MAPS_API_KEY);
+
+  try {
+    const preciseResp = await fetchWithRetry(urlPrecise, {}, { label: 'reverse_geocode_precise' });
+    const precisePayload = await preciseResp.json();
+    if (precisePayload.status === 'OK' && precisePayload.results?.length > 0) {
+      // Tomar el resultado con mayor puntaje entre los devueltos
+      const best = precisePayload.results
+        .map((r) => ({ r, score: scoreReverseGeocodeResult(r) }))
+        .sort((a, b) => b.score - a.score)[0];
+      const formatted = best.r.formatted_address || fallback;
+      logWebhook('maps_reverse_geocode_ok', {
+        lat, lng,
+        formattedAddress: formatted,
+        locationType: best.r?.geometry?.location_type,
+        resultType: (best.r?.types || [])[0] || null,
+        score: best.score,
+        pass: 'precise',
+      });
+      return formatted;
+    }
+  } catch (_) {
+    // Si falla la pasada precisa, continuamos con la general
+  }
+
+  // Segunda pasada: consulta general, puntuamos todos los resultados y elegimos el mejor
+  const urlGeneral = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+  urlGeneral.searchParams.set('latlng', `${lat},${lng}`);
+  urlGeneral.searchParams.set('language', 'es');
+  urlGeneral.searchParams.set('region', 'ar');
+  urlGeneral.searchParams.set('key', GOOGLE_MAPS_API_KEY);
+
+  const response = await fetchWithRetry(urlGeneral, {}, { label: 'reverse_geocode_general' });
   const payload = await response.json();
+
   if (payload.status !== 'OK' || !payload.results?.length) {
     logWebhook('maps_reverse_geocode_fail', {
-      lat,
-      lng,
+      lat, lng,
       status: payload.status || null,
       resultCount: payload.results?.length || 0,
     });
-    return `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
+    return fallback;
   }
 
-  const formatted = payload.results[0]?.formatted_address || `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
-  logWebhook('maps_reverse_geocode_ok', { lat, lng, formattedAddress: formatted });
+  // Puntuar y elegir el resultado más preciso disponible
+  const scored = payload.results
+    .map((r) => ({ r, score: scoreReverseGeocodeResult(r) }))
+    .sort((a, b) => b.score - a.score);
+
+  const best = scored[0];
+  const formatted = best.r.formatted_address || fallback;
+
+  logWebhook('maps_reverse_geocode_ok', {
+    lat, lng,
+    formattedAddress: formatted,
+    locationType: best.r?.geometry?.location_type,
+    resultType: (best.r?.types || [])[0] || null,
+    score: best.score,
+    totalResults: scored.length,
+    pass: 'general',
+  });
   return formatted;
 }
 
