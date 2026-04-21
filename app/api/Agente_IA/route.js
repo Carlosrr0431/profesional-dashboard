@@ -810,29 +810,83 @@ async function createReplacementTripFromCancelledTrip(sourceTrip, { excludedDriv
   return { ok: true, trip, driver };
 }
 
-async function extractTripIntent({ combinedText, context, pushName, phone, history }) {
+async function extractTripIntent({ combinedText, context, pushName, phone, history, conversationStatus = 'open', lastBotReply = null }) {
   logWebhook('ai_extract_intent_start', {
     phone: maskPhone(phone),
     textLen: combinedText?.length || 0,
     historyCount: history?.length || 0,
     hasContext: Boolean(context && Object.keys(context).length),
     hasPushName: Boolean(pushName),
+    conversationStatus,
+    hasLastBotReply: Boolean(lastBotReply),
   });
 
-  const completion = await getOpenAI().chat.completions.create({
-    model: 'gpt-5.4-mini',
-    temperature: 0.1,
-    max_completion_tokens: 500,
-    messages: [
-      {
-        role: 'system',
-        content: `Sos un operador que convierte mensajes de WhatsApp en pedidos de remís para Salta Capital, Argentina.
+  const passengerName = context?.passenger_name || pushName || null;
+  const hasPickupInContext = Boolean(sanitizeAddressInput(context?.pickup_location || ''));
+  const awaitingGps = Boolean(context?.awaiting_gps);
+  const pendingCancelConfirm = Boolean(context?.pending_cancel_confirm);
 
-Tu tarea es leer los mensajes acumulados y extraer datos para crear un viaje.
+  const stateDescription = {
+    open: 'Sin viaje activo. El pasajero puede estar iniciando un nuevo pedido o retomando conversación.',
+    awaiting_info: awaitingGps
+      ? 'Esperando que el pasajero comparta su ubicación GPS o la dirección de retiro. NO volver a pedir lo mismo si ya se pidió.'
+      : 'Esperando información de dirección de retiro del pasajero.',
+    awaiting_driver: 'El viaje fue creado y está esperando que un chofer lo acepte. El pasajero puede preguntar el estado.',
+    trip_created: 'El viaje fue aceptado y está en curso. El pasajero puede consultar el estado.',
+    awaiting_address_selection: 'Se envió una encuesta al pasajero para que elija su dirección exacta. Esperando respuesta.',
+    paused: 'Conversación pausada, esperando atención humana.',
+  }[conversationStatus] || 'Estado desconocido.';
 
-Devolvé SOLO JSON válido con este esquema:
+  const systemPrompt = `Sos el asistente de un servicio de remises en Salta Capital, Argentina. Respondés por WhatsApp como un operador humano experimentado.
+
+## PERSONALIDAD Y ESTILO
+- Español rioplatense informal y natural. Sin formalismos ni frases de bot.
+- Conciso y directo: máximo 1-2 oraciones por respuesta (salvo confirmaciones de viaje con datos del chofer).
+- Nunca repetís lo que ya dijiste. Nunca hacés la misma pregunta dos veces.
+- Si el pasajero ya dio una info, la usás. No la volvés a pedir.
+- Si el pasajero responde "sí", "dale", "bueno", "ok", "perfecto", lo interpretás como confirmación de lo anterior.
+- Variás el vocabulario. Nunca mandás el mismo texto dos veces seguidas.
+
+## ESTADO ACTUAL DE LA CONVERSACIÓN
+- Estado del sistema: ${stateDescription}
+- Nombre del pasajero: ${passengerName || 'desconocido'}
+- Dirección de retiro ya registrada: ${hasPickupInContext ? `"${context.pickup_location}"` : 'ninguna todavía'}
+- Esperando GPS del pasajero: ${awaitingGps ? 'SÍ — no volver a pedir la dirección' : 'no'}
+- Esperando confirmación de cancelación: ${pendingCancelConfirm ? 'SÍ' : 'no'}
+- Tu último mensaje enviado: ${lastBotReply ? `"${lastBotReply}"` : 'ninguno (primera interacción)'}
+
+## LENGUAJE COLOQUIAL DE SALTA QUE ENTENDÉS
+- "mandame/mándame un remis/movil/auto" → pedido de viaje
+- "me buscás/buscame/venís a buscarme/pasame a buscar/venís" → pedido de retiro
+- "estoy en [lugar]", "estoy parado en [lugar]", "estoy acá en [lugar]" → dirección de retiro
+- "me llevás a/hasta [lugar]", "quiero ir a [lugar]", "voy a [lugar]" → destino
+- "cuánto falta", "dónde está el chofer/remis/auto", "ya viene", "tarda mucho" → consulta de estado
+- "cancelá", "no quiero más", "olvidate", "ya no", "cancelar", "dejalo" → cancelación
+- "para más tarde", "para las [hora]", "reservar para", "mañana a las" → solicitud programada
+- Barrios: "tres cerr" → Tres Cerritos, "grand bourg/grand" → Grand Bourg, "castañ" → Castañares, "limache" → Limache, "portezuelo" → Portezuelo, "cpo quijano/campo quij" → Campo Quijano, "la loma" → La Loma, "el bosque" → El Bosque
+- Lugares de referencia: "el hospital" → Hospital San Bernardo Salta, "la terminal" → Terminal de Ómnibus Salta, "el shopping" → Shopping Salta, "el correo" → Correo Argentino Salta, "la municipalidad" → Municipalidad de Salta, "el jockey" → Hipódromo Jockey Club Salta
+
+## CÓMO EXTRAER DIRECCIONES (pickup_location, origin, destination)
+- Generá siempre una query geocodificable en Google Maps Argentina
+- Formato ideal: "Calle Número, Salta" o "Calle y Calle, Salta" o "Barrio Nombre, Salta"
+- Si solo dan el número: buscá la calle en el historial y completá ("Belgrano 1200, Salta")
+- Esquina: "España y Belgrano, Salta"
+- Barrio: "Barrio Tres Cerritos, Salta"
+- Lugar conocido: "Hospital San Bernardo, Salta", "Terminal de Ómnibus, Salta"
+- NO agregues "Argentina" — con "Salta" alcanza
+- NO inventes calles ni números que el pasajero no dijo
+
+## INTENTS POSIBLES
+- "trip_request": quiere un remís ahora (con o sin dirección completa)
+- "status_query": pregunta dónde está el chofer o cuánto falta
+- "cancel_trip": quiere cancelar el viaje actual o ya no necesita el móvil
+- "schedule_trip": quiere reservar para un horario futuro específico (no inmediato)
+- "ask_human": queja grave, accidente, disputa de pago, insultos, o situación imposible de resolver automáticamente
+- "other": saludo, agradecimiento, mensaje sin acción requerida, respuesta que solo requiere un "ok" o nada
+
+## ESQUEMA DE RESPUESTA — Devolvé SOLO JSON válido, sin texto adicional:
 {
-  "intent": "trip_request" | "ask_human" | "other",
+  "intent": "trip_request" | "status_query" | "cancel_trip" | "schedule_trip" | "ask_human" | "other",
   "passenger_name": string | null,
   "pickup_location": string | null,
   "origin": string | null,
@@ -840,41 +894,58 @@ Devolvé SOLO JSON válido con este esquema:
   "notes": string | null,
   "reply": string | null,
   "confidence": number,
-  "missing_fields": string[]
+  "missing_fields": string[],
+  "cancel_confirmed": boolean,
+  "schedule_time": string | null
 }
 
-Reglas:
-- Considerá el contexto previo: si el cliente antes dijo el origen y ahora manda el destino, unificá todo.
-- "pickup_location" es la dirección de retiro del pasajero (la más importante).
-- "origin" y "destination" deben ser queries cortas y geocodificables en Google Maps, con sesgo a Salta. Ejemplo: "Belgrano 245, Salta" o "Barrio Tres Cerritos, Salta".
-- Si no hay suficientes datos para pedir un viaje, marcá los faltantes exactos en missing_fields.
-  - Para generar asignación inicial, se requiere pickup_location (dirección de retiro). El destino puede ser opcional y definirse después.
-  - Si falta pickup_location, intent="trip_request" con missing_fields=["pickup_location"] y pedile dirección de retiro.
-  - Si el texto es un saludo, pregunta genérica o algo que no pide viaje, devolvé intent="other".
-  - intent="ask_human" SOLO para casos que requieren intervención humana real: queja grave, accidente, disputa de pago, insultos, o situación que el sistema no puede resolver. NUNCA uses ask_human solo porque falte información del viaje.
-- reply debe ser una respuesta breve en español argentino lista para WhatsApp.
-- No inventes direcciones.`,
-      },
-      {
-        role: 'user',
-        content: JSON.stringify({
-          pushName,
-          phone,
-          currentContext: context || {},
-          history: history.map((item) => ({
-            direction: item.direction,
-            content: item.transcription || item.content,
-          })),
-          latestBatch: combinedText,
-        }),
-      },
+## REGLAS CRÍTICAS
+1. Si tu último mensaje ya pedía la dirección Y el pasajero no la dio → NO la pedís de nuevo con el mismo texto. Variá o esperá.
+2. Si awaiting_gps=true → NO pedís dirección de texto, el sistema ya lo solicitó.
+3. Si la dirección de retiro ya está en el contexto → NO la pedís de nuevo, usala directamente.
+4. Si el estado es "awaiting_driver" o "trip_created" y el pasajero pregunta algo → respondé sobre el estado del viaje.
+5. cancel_confirmed=true SOLO si el pasajero expresó clara e inequívocamente que quiere cancelar. Si hay ambigüedad, poné false y pedí confirmación en el reply.
+6. Si pending_cancel_confirm=true y el pasajero dice "sí"/"dale"/"sí cancelá" → cancel_confirmed=true.
+7. El reply debe sonar humano y natural. Variá el vocabulario entre respuestas.
+8. Para trip_request sin pickup_location: pedí la dirección de forma natural y breve. Nunca repetir exactamente el mismo texto del lastBotReply.
+9. NUNCA uses ask_human solo porque falta información del viaje. Solo para situaciones humanas reales.`;
+
+  // Formateamos el historial como turns reales de conversación para que el modelo entienda el contexto nativo
+  const historyMessages = history
+    .filter((item) => Boolean(item.transcription || item.content))
+    .map((item) => ({
+      role: item.direction === 'outgoing' ? 'assistant' : 'user',
+      content: String(item.transcription || item.content || '').slice(0, 600),
+    }));
+
+  // Mensaje de contexto actual para el modelo
+  const contextParts = [
+    passengerName ? `Nombre del pasajero: ${passengerName}` : null,
+    Object.keys(context || {}).filter((k) => !['last_bot_reply', 'pending_poll'].includes(k)).length > 0
+      ? `Contexto del viaje: ${JSON.stringify(
+          Object.fromEntries(
+            Object.entries(context).filter(([k]) => !['last_bot_reply', 'pending_poll'].includes(k))
+          )
+        )}`
+      : null,
+    `Mensajes del pasajero:\n${combinedText}`,
+  ].filter(Boolean).join('\n\n');
+
+  const completion = await getOpenAI().chat.completions.create({
+    model: 'gpt-5.4-mini',
+    temperature: 0.15,
+    max_completion_tokens: 650,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...historyMessages,
+      { role: 'user', content: contextParts },
     ],
   });
 
   const raw = completion.choices[0]?.message?.content?.trim();
   const match = raw?.match(/\{[\s\S]*\}/);
   if (!match) {
-    logWebhook('ai_extract_intent_fallback', { reason: 'no_json' });
+    logWebhook('ai_extract_intent_fallback', { reason: 'no_json', rawSnippet: raw?.slice(0, 200) });
     return {
       intent: 'other',
       passenger_name: null,
@@ -882,9 +953,11 @@ Reglas:
       origin: null,
       destination: null,
       notes: null,
-      reply: 'No terminé de entender el pedido. Pasame origen y destino así te asigno un móvil.',
+      reply: hasPickupInContext ? null : '¿Desde dónde te buscamos?',
       confidence: 0,
-      missing_fields: ['pickup_location'],
+      missing_fields: hasPickupInContext ? [] : ['pickup_location'],
+      cancel_confirmed: false,
+      schedule_time: null,
     };
   }
 
@@ -898,13 +971,17 @@ Reglas:
     reply: null,
     confidence: 0,
     missing_fields: [],
+    cancel_confirmed: false,
+    schedule_time: null,
   });
 
   logWebhook('ai_extract_intent_ok', {
     intent: parsed?.intent || null,
     confidence: parsed?.confidence ?? null,
+    hasPickup: Boolean(parsed?.pickup_location),
     hasOrigin: Boolean(parsed?.origin),
     hasDestination: Boolean(parsed?.destination),
+    cancelConfirmed: Boolean(parsed?.cancel_confirmed),
     missingFields: Array.isArray(parsed?.missing_fields) ? parsed.missing_fields : [],
   });
   return parsed;
@@ -1847,12 +1924,24 @@ async function processClaimedConversation(batch) {
     .join('\n');
   const context = shouldResetConversationState ? {} : safeJsonParse(batch.context, {});
   const history = shouldResetConversationState ? [] : await getRecentConversationMessages(batch.id, 12);
+
+  // Extraemos el último mensaje del bot del historial para evitar repeticiones
+  const rawLastBotReply = history.length > 0
+    ? (history.filter((m) => m.direction === 'outgoing').pop()?.content || null)
+    : null;
+  // Limpiamos prefijos internos (encuesta, etc.) y truncamos para el prompt
+  const lastBotReply = rawLastBotReply
+    ? rawLastBotReply.replace(/^\[ENCUESTA\]\s*/i, '').slice(0, 350)
+    : null;
+
   const extracted = await extractTripIntent({
     combinedText,
     context,
     pushName: batch.push_name,
     phone: batch.phone,
     history,
+    conversationStatus: batch.status || 'open',
+    lastBotReply,
   });
 
   const heuristics = inferTripHeuristics(combinedText, context);
@@ -1886,6 +1975,123 @@ async function processClaimedConversation(batch) {
     destination: sanitizeAddressInput(destinationHint),
     notes: extracted.notes || context.notes || null,
   };
+
+  // --- Cancelación solicitada por el pasajero ---
+  if (extracted.intent === 'cancel_trip') {
+    if (!extracted.cancel_confirmed) {
+      // GPT pidió confirmación en el reply; guardamos el flag para la próxima vuelta
+      if (extracted.reply) await sendWhatsAppText(batch.phone, extracted.reply);
+      logWebhook('conversation_cancel_pending_confirm', { conversationId: batch?.id || null });
+      return {
+        handled: true,
+        updates: {
+          status: batch.status || 'open',
+          context: { ...nextContext, pending_cancel_confirm: true },
+          last_trip_id: batch.last_trip_id || null,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
+      };
+    }
+
+    // cancel_confirmed = true: cancelar el viaje abierto si existe
+    const tripToCancel =
+      openTripByPhone && isOpenTripStatus(openTripByPhone.status) ? openTripByPhone : null;
+    if (tripToCancel) {
+      const { error: cancelErr } = await getSupabase()
+        .from('trips')
+        .update({ status: 'cancelled', cancel_reason: 'Pasajero canceló por WhatsApp' })
+        .eq('id', tripToCancel.id);
+      if (cancelErr) {
+        logWebhook('conversation_cancel_trip_error', {
+          conversationId: batch?.id || null,
+          tripId: tripToCancel.id,
+          error: summarizeDbError(cancelErr),
+        });
+      } else {
+        logWebhook('conversation_passenger_cancelled_trip', {
+          conversationId: batch?.id || null,
+          tripId: tripToCancel.id,
+        });
+      }
+    }
+    const cancelReply =
+      extracted.reply ||
+      (tripToCancel
+        ? 'Listo, cancelé el pedido. Avisame cuando necesites otro móvil.'
+        : 'No encontré ningún viaje activo para cancelar. ¿Necesitás un móvil?');
+    await sendWhatsAppText(batch.phone, cancelReply);
+    return {
+      handled: true,
+      updates: {
+        status: 'open',
+        context: {},
+        last_trip_id: null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  // --- Consulta de estado del viaje ---
+  if (extracted.intent === 'status_query') {
+    const tripForStatus =
+      openTripByPhone && isOpenTripStatus(openTripByPhone.status) ? openTripByPhone : null;
+    let statusReply;
+    if (!tripForStatus) {
+      statusReply = extracted.reply || '¿Necesitás un móvil? Mandame desde dónde te busco.';
+    } else {
+      const ts = String(tripForStatus.status || '').toLowerCase();
+      if (ts === 'pending') {
+        statusReply =
+          extracted.reply ||
+          'Tu pedido está tomado, esperando que el chofer lo confirme. Te aviso apenas quede asignado.';
+      } else if (ts === 'accepted' || ts === 'going_to_pickup') {
+        statusReply = extracted.reply || 'El chofer ya aceptó y está yendo a buscarte.';
+      } else if (ts === 'in_progress') {
+        statusReply = extracted.reply || 'Tu viaje está en curso.';
+      } else {
+        statusReply = extracted.reply || 'Tu viaje está activo.';
+      }
+    }
+    await sendWhatsAppText(batch.phone, statusReply);
+    logWebhook('conversation_status_query', {
+      conversationId: batch?.id || null,
+      tripStatus: tripForStatus?.status || null,
+    });
+    return {
+      handled: true,
+      updates: {
+        status: batch.status || 'open',
+        context: nextContext,
+        last_trip_id: batch.last_trip_id || null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  // --- Solicitud programada (no soportada automáticamente) ---
+  if (extracted.intent === 'schedule_trip') {
+    const scheduleReply =
+      extracted.reply ||
+      'Por ahora solo tomamos pedidos inmediatos. Cuando estés listo para salir, mandame un mensaje y te mando el móvil enseguida.';
+    await sendWhatsAppText(batch.phone, scheduleReply);
+    logWebhook('conversation_schedule_trip', {
+      conversationId: batch?.id || null,
+      scheduleTime: extracted.schedule_time || null,
+    });
+    return {
+      handled: true,
+      updates: {
+        status: 'open',
+        context: { ...nextContext, schedule_time: extracted.schedule_time || null },
+        last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
 
   if (extracted.intent === 'other') {
     if (extracted.reply) {
