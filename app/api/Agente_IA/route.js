@@ -1148,6 +1148,108 @@ async function geocodeAddressMultiple(address, maxResults = 5) {
 }
 
 /**
+ * Usa la API de Autocomplete de Google Places para obtener múltiples sugerencias
+ * de calle/dirección para un query ambiguo (ej: "Güemes 200" → Luis Güemes + General Güemes).
+ * Cada sugerencia se geocodifica por place_id para obtener coordenadas precisas.
+ */
+async function autocompleteAndGeocodeAddress(query, maxResults = 5) {
+  const safeQuery = sanitizeAddressInput(query);
+  if (!safeQuery) return [];
+
+  const input = /salta/i.test(safeQuery) ? safeQuery : `${safeQuery}, Salta`;
+
+  const acUrl = new URL('https://maps.googleapis.com/maps/api/place/autocomplete/json');
+  acUrl.searchParams.set('input', input);
+  acUrl.searchParams.set('language', 'es');
+  acUrl.searchParams.set('region', 'ar');
+  acUrl.searchParams.set('components', 'country:AR');
+  acUrl.searchParams.set('location', '-24.7829,-65.4122'); // Salta Capital centro
+  acUrl.searchParams.set('radius', '20000');
+  acUrl.searchParams.set('key', GOOGLE_MAPS_API_KEY);
+
+  let predictions;
+  try {
+    const acResp = await fetchWithRetry(acUrl, {}, { label: 'autocomplete_address' });
+    const acData = await acResp.json();
+    if (acData.status !== 'OK' || !Array.isArray(acData.predictions) || acData.predictions.length === 0) {
+      logWebhook('maps_autocomplete_no_results', { query: safeQuery, status: acData.status || null });
+      return [];
+    }
+    predictions = acData.predictions.slice(0, maxResults);
+    logWebhook('maps_autocomplete_ok', { query: safeQuery, count: predictions.length });
+  } catch (err) {
+    logWebhook('maps_autocomplete_error', { query: safeQuery, error: err?.message || 'unknown' });
+    return [];
+  }
+
+  const results = [];
+  for (const prediction of predictions) {
+    if (!prediction.place_id) continue;
+    try {
+      const geoUrl = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+      geoUrl.searchParams.set('place_id', prediction.place_id);
+      geoUrl.searchParams.set('language', 'es');
+      geoUrl.searchParams.set('key', GOOGLE_MAPS_API_KEY);
+
+      const geoResp = await fetchWithRetry(geoUrl, {}, { label: 'geocode_place_id' });
+      const geoData = await geoResp.json();
+      if (geoData.status !== 'OK' || !geoData.results?.[0]) continue;
+
+      const r = geoData.results[0];
+      if (isCoarseGeocodeResult(r, safeQuery)) continue;
+
+      const score = scoreGeocodeResult(r, safeQuery);
+      if (score >= 0.10) {
+        results.push({
+          formattedAddress: r.formatted_address,
+          lat: r.geometry.location.lat,
+          lng: r.geometry.location.lng,
+          score,
+        });
+      }
+    } catch (err) {
+      logWebhook('maps_autocomplete_geocode_place_error', { placeId: prediction.place_id, error: err?.message || 'unknown' });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Combina geocodificación por variantes y autocomplete para obtener el conjunto
+ * más completo de candidatos de dirección — especialmente útil cuando el nombre
+ * de calle es ambiguo (ej: "Güemes" → Luis Güemes, General Güemes).
+ */
+async function getAddressCandidates(query, maxResults = 5) {
+  const [geocodeResult, autocompleteResult] = await Promise.allSettled([
+    geocodeAddressMultiple(query, maxResults),
+    autocompleteAndGeocodeAddress(query, maxResults),
+  ]);
+
+  const geocodeCandidates = geocodeResult.status === 'fulfilled' ? geocodeResult.value : [];
+  const autocompleteCandidates = autocompleteResult.status === 'fulfilled' ? autocompleteResult.value : [];
+
+  // Merge and deduplicate by formatted address (case-insensitive)
+  const seenKeys = new Set();
+  const merged = [];
+  for (const c of [...geocodeCandidates, ...autocompleteCandidates]) {
+    const key = (c.formattedAddress || '').toLowerCase().trim();
+    if (!key || seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    merged.push(c);
+  }
+
+  merged.sort((a, b) => b.score - a.score);
+  logWebhook('maps_address_candidates_merged', {
+    query,
+    geocodeCount: geocodeCandidates.length,
+    autocompleteCount: autocompleteCandidates.length,
+    mergedCount: merged.length,
+  });
+  return merged.slice(0, maxResults);
+}
+
+/**
  * Puntúa un resultado de reverse-geocode por precisión.
  * Prioridad: tipo de resultado + tipo de ubicación geométrica.
  * Retorna un número mayor = mejor.
@@ -2340,7 +2442,9 @@ async function processClaimedConversation(batch) {
   }
 
   // --- Desambiguación de dirección: obtener candidatos de geocodificación ---
-  const addressCandidates = await geocodeAddressMultiple(nextContext.pickup_location, 5).catch(() => []);
+  // Usamos autocomplete + geocoding por variantes para capturar calles ambiguas
+  // (ej: "Güemes 200" → Luis Güemes 200 Y General Güemes 200)
+  const addressCandidates = await getAddressCandidates(nextContext.pickup_location, 5).catch(() => []);
   const distinctCandidates = addressCandidates.filter(
     (c, i, arr) =>
       i === 0 ||
@@ -2353,7 +2457,7 @@ async function processClaimedConversation(batch) {
 
   if (
     distinctCandidates.length >= 2 &&
-    distinctCandidates[0].score - (distinctCandidates[1]?.score ?? 0) < 0.25
+    distinctCandidates[0].score - (distinctCandidates[1]?.score ?? 0) < 0.40
   ) {
     const pollOptions = distinctCandidates.slice(0, 5).map((c) => c.formattedAddress);
     let pollMsgId = null;
