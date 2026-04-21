@@ -2572,21 +2572,27 @@ async function processConversationById(conversationId) {
     return { ok: true, skipped: true };
   }
 
+  // Declarar fuera del try para poder acceder al contexto nuevo en el catch
+  let claimedResult = null;
   try {
-    const result = await processClaimedConversation(batch);
-    await finalizeConversation(conversationId, result.updates);
+    claimedResult = await processClaimedConversation(batch);
+    await finalizeConversation(conversationId, claimedResult.updates);
     logWebhook('conversation_process_by_id_ok', {
       conversationId,
       skipped: false,
-      nextStatus: result?.updates?.status || null,
+      nextStatus: claimedResult?.updates?.status || null,
     });
     return { ok: true, skipped: false };
   } catch (error) {
+    // Preservar el contexto nuevo (ej: pending_poll con candidatos de dirección)
+    // para que el handler de poll.results pueda encontrarlo aunque el status falle.
+    const fallbackContext = claimedResult?.updates?.context || safeJsonParse(batch.context, {});
     await finalizeConversation(conversationId, {
       status: 'open',
       processing_started_at: null,
-      context: safeJsonParse(batch.context, {}),
-    });
+      context: fallbackContext,
+      last_processed_at: new Date().toISOString(),
+    }).catch(() => {});
     logWebhook('conversation_process_by_id_error', {
       conversationId,
       error: error?.message || 'unknown_error',
@@ -2712,10 +2718,12 @@ async function processWebhookBody(body, requestMeta = {}) {
         return { status: 200, body: { success: true, ignored: true, reason: 'no_votes_yet' } };
       }
 
+      // Buscar tanto en 'awaiting_address_selection' (status correcto) como en 'open'
+      // por si el guardado del status falló por un constraint de DB y cayó al fallback.
       const { data: pollConvs, error: pollConvError } = await getSupabase()
         .from('whatsapp_conversations')
         .select('id, phone, push_name, context')
-        .eq('status', 'awaiting_address_selection');
+        .in('status', ['awaiting_address_selection', 'open', 'awaiting_info']);
 
       if (pollConvError) {
         logWebhook('poll_results_db_error', { error: summarizeDbError(pollConvError) });
