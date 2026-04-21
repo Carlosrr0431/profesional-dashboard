@@ -538,6 +538,40 @@ async function sendWhatsAppText(phone, text) {
   return payload;
 }
 
+async function sendWhatsAppPoll(phone, question, options) {
+  const to = `${normalizePhone(phone)}@s.whatsapp.net`;
+  const response = await fetchWithRetry(`${WASENDER_BASE_URL}/send-message`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${WASENDER_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      to,
+      poll: {
+        question,
+        options,
+        multiSelect: false,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`No se pudo enviar encuesta WhatsApp: ${body.slice(0, 200)}`);
+  }
+
+  const payload = await response.json();
+  const msgId = String(payload?.data?.msgId || `poll_${Date.now()}`);
+  await insertOutgoingMessage({
+    phone,
+    messageId: msgId,
+    content: `[ENCUESTA] ${question}: ${options.join(' | ')}`,
+    rawPayload: payload,
+  });
+  return { msgId, payload };
+}
+
 async function claimConversationBatch(conversationId) {
   logWebhook('db_claim_batch_start', { conversationId });
   const { data, error } = await getSupabase().rpc('claim_whatsapp_conversation_batch', {
@@ -950,6 +984,51 @@ async function geocodeAddress(address) {
   return resultPayload;
 }
 
+async function geocodeAddressMultiple(address, maxResults = 5) {
+  const variants = buildAddressVariants(address);
+  if (variants.length === 0) return [];
+
+  const candidates = [];
+  const seenKeys = new Set();
+
+  for (const query of variants) {
+    const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+    url.searchParams.set('address', query);
+    url.searchParams.set('language', 'es');
+    url.searchParams.set('region', 'ar');
+    url.searchParams.set('components', 'country:AR');
+    url.searchParams.set('bounds', '-24.90,-65.55|-24.70,-65.30');
+    url.searchParams.set('key', GOOGLE_MAPS_API_KEY);
+
+    try {
+      const response = await fetchWithRetry(url, {}, { label: 'geocode_multi' });
+      const payload = await response.json();
+      if (payload.status !== 'OK' || !payload.results?.length) continue;
+
+      for (const result of payload.results) {
+        if (isCoarseGeocodeResult(result, query)) continue;
+        const key = (result.formatted_address || '').toLowerCase().trim();
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        const score = scoreGeocodeResult(result, query);
+        if (score >= 0.20) {
+          candidates.push({
+            formattedAddress: result.formatted_address,
+            lat: result.geometry.location.lat,
+            lng: result.geometry.location.lng,
+            score,
+          });
+        }
+      }
+    } catch (err) {
+      logWebhook('maps_geocode_multi_variant_error', { query, error: err?.message || 'unknown' });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates.slice(0, maxResults);
+}
+
 async function reverseGeocodeLatLng(lat, lng) {
   logWebhook('maps_reverse_geocode_start', { lat, lng });
   const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
@@ -1281,6 +1360,14 @@ async function createTripFromConversation({ conversation, extracted }) {
   }
 
   let pickupLocation;
+  if (extracted._preGeocodedPickup?.lat && extracted._preGeocodedPickup?.lng) {
+    pickupLocation = {
+      formattedAddress: extracted._preGeocodedPickup.formattedAddress,
+      lat: extracted._preGeocodedPickup.lat,
+      lng: extracted._preGeocodedPickup.lng,
+    };
+    logWebhook('trip_create_pickup_pre_geocoded', { formattedAddress: pickupLocation.formattedAddress });
+  } else {
   try {
     pickupLocation = await geocodeAddress(pickupQuery);
   } catch (error) {
@@ -1293,14 +1380,16 @@ async function createTripFromConversation({ conversation, extracted }) {
       ok: false,
       reason: 'invalid_address',
       reply:
-        'No pude ubicar bien la dirección de retiro. Pasame *calle y número* (o referencia bien precisa) para derivarte el móvil correcto.',
+        'No pude ubicar bien esa dirección. Podés escribirme *calle y número* más claro, o compartir tu *ubicación en tiempo real* tocando el ícono de ubicación en WhatsApp y te mando el móvil directo.',
       context: {
         passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
         pickup_location: pickupQuery,
         notes: extracted.notes || null,
+        awaiting_gps: true,
       },
     };
   }
+  } // end pre-geocoded else
 
   const driver = await chooseDriver({ lat: pickupLocation.lat, lng: pickupLocation.lng });
   if (!driver) {
@@ -1678,7 +1767,7 @@ async function processClaimedConversation(batch) {
   const lastTripById = await getTripById(batch.last_trip_id);
 
   // If the previous trip is already closed, start the new request with a clean context/history.
-  const shouldResetConversationState = Boolean(lastTripById && !isOpenTripStatus(lastTripById.status));
+  let shouldResetConversationState = Boolean(lastTripById && !isOpenTripStatus(lastTripById.status));
   if (shouldResetConversationState) {
     logWebhook('conversation_reset_closed_trip_context', {
       conversationId: batch?.id || null,
@@ -1686,6 +1775,29 @@ async function processClaimedConversation(batch) {
       tripStatus: lastTripById.status,
       completedAt: lastTripById.completed_at || null,
     });
+  }
+
+  // Si last_trip_id es null (fue limpiado al completar un viaje previo), verificar si el
+  // último viaje del pasajero ya está cerrado para resetear el historial y evitar
+  // que GPT use contexto contaminado de sesiones anteriores.
+  if (!shouldResetConversationState && !batch.last_trip_id) {
+    const { data: latestTripByPhone } = await getSupabase()
+      .from('trips')
+      .select('id, status, completed_at')
+      .eq('passenger_phone', normalizePhone(batch.phone))
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestTripByPhone && !isOpenTripStatus(latestTripByPhone.status)) {
+      shouldResetConversationState = true;
+      logWebhook('conversation_reset_last_trip_closed_by_phone', {
+        conversationId: batch?.id || null,
+        tripId: latestTripByPhone.id,
+        tripStatus: latestTripByPhone.status,
+        completedAt: latestTripByPhone.completed_at || null,
+      });
+    }
   }
 
   // Idempotency guard: if the passenger already has an open trip, do not create another one.
@@ -1821,24 +1933,88 @@ async function processClaimedConversation(batch) {
   }
 
   if (!nextContext.pickup_location) {
-    const reply =
-      extracted.reply ||
-      'Para derivarte un móvil necesito la ubicación de retiro (calle y número). Mandamela en un solo mensaje si podés.';
-    await sendWhatsAppText(batch.phone, reply);
+    // Si ya estamos esperando el GPS, no volver a pedir
+    const alreadyAwaitingGps = safeJsonParse(batch.context, {})?.awaiting_gps === true;
+    const reply = alreadyAwaitingGps
+      ? null
+      : extracted.reply ||
+        'Para derivarte un móvil necesito tu ubicación de retiro. Podés mandarme la dirección (calle y número) o compartir tu *ubicación en tiempo real* tocando el ícono de ubicación en WhatsApp.';
+    if (reply) await sendWhatsAppText(batch.phone, reply);
     logWebhook('conversation_missing_fields', {
       conversationId: batch?.id || null,
-      missingPickupLocation: !nextContext.pickup_location,
+      missingPickupLocation: true,
+      alreadyAwaitingGps,
     });
     return {
       handled: true,
       updates: {
         status: 'awaiting_info',
-        context: nextContext,
+        context: { ...nextContext, awaiting_gps: true },
         last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
         processing_started_at: null,
         last_processed_at: new Date().toISOString(),
       },
     };
+  }
+
+  // --- Desambiguación de dirección: obtener candidatos de geocodificación ---
+  const addressCandidates = await geocodeAddressMultiple(nextContext.pickup_location, 5).catch(() => []);
+  const distinctCandidates = addressCandidates.filter(
+    (c, i, arr) =>
+      i === 0 ||
+      arr.slice(0, i).every(
+        (prev) =>
+          Math.abs(prev.lat - c.lat) > 0.001 ||
+          Math.abs(prev.lng - c.lng) > 0.001
+      )
+  );
+
+  if (
+    distinctCandidates.length >= 2 &&
+    distinctCandidates[0].score - (distinctCandidates[1]?.score ?? 0) < 0.25
+  ) {
+    const pollOptions = distinctCandidates.slice(0, 5).map((c) => c.formattedAddress);
+    let pollMsgId = null;
+    try {
+      const pollResult = await sendWhatsAppPoll(
+        batch.phone,
+        '¿Cuál es tu dirección de retiro?',
+        pollOptions
+      );
+      pollMsgId = pollResult.msgId;
+    } catch (err) {
+      logWebhook('poll_send_error', { conversationId: batch?.id || null, error: err?.message });
+    }
+
+    if (pollMsgId) {
+      logWebhook('conversation_address_poll_sent', {
+        conversationId: batch?.id || null,
+        pollMsgId,
+        optionCount: pollOptions.length,
+      });
+      return {
+        handled: true,
+        updates: {
+          status: 'awaiting_address_selection',
+          context: {
+            ...nextContext,
+            pending_poll: {
+              msg_id: pollMsgId,
+              candidates: distinctCandidates.slice(0, 5).map((c) => ({
+                label: c.formattedAddress,
+                formattedAddress: c.formattedAddress,
+                lat: c.lat,
+                lng: c.lng,
+              })),
+              extracted: nextContext,
+            },
+          },
+          last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
+      };
+    }
   }
 
   const tripResult = await createTripFromConversation({ conversation: batch, extracted: nextContext });
@@ -1992,6 +2168,104 @@ async function processWebhookBody(body, requestMeta = {}) {
       return { status: 200, body: { success: true, ignored: true, reason: 'received_ignored_upsert_only' } };
     }
 
+    if (event === 'poll.results') {
+      const missing = getMissingServerConfig();
+      if (missing.length > 0) {
+        return { status: 200, body: { success: true, ignored: true, reason: 'missing_server_env' } };
+      }
+
+      const pollMsgId = String(body?.data?.key?.id || '').trim();
+      const pollResult = Array.isArray(body?.data?.pollResult) ? body.data.pollResult : [];
+
+      if (!pollMsgId) {
+        logWebhook('poll_results_ignored', { reason: 'missing_poll_msg_id' });
+        return { status: 200, body: { success: true, ignored: true, reason: 'missing_poll_msg_id' } };
+      }
+
+      const voted = pollResult.find((r) => Array.isArray(r.voters) && r.voters.length > 0);
+      if (!voted) {
+        logWebhook('poll_results_ignored', { reason: 'no_votes_yet', pollMsgId });
+        return { status: 200, body: { success: true, ignored: true, reason: 'no_votes_yet' } };
+      }
+
+      const { data: pollConvs, error: pollConvError } = await getSupabase()
+        .from('whatsapp_conversations')
+        .select('id, phone, push_name, context')
+        .eq('status', 'awaiting_address_selection');
+
+      if (pollConvError) {
+        logWebhook('poll_results_db_error', { error: summarizeDbError(pollConvError) });
+        return { status: 500, body: { success: false, error: 'db_error' } };
+      }
+
+      const matchedConv = (pollConvs || []).find((c) => {
+        const ctx = safeJsonParse(c.context, {});
+        return ctx?.pending_poll?.msg_id === pollMsgId;
+      });
+
+      if (!matchedConv) {
+        logWebhook('poll_results_ignored', { reason: 'conversation_not_found', pollMsgId });
+        return { status: 200, body: { success: true, ignored: true, reason: 'conversation_not_found' } };
+      }
+
+      const pollCtx = safeJsonParse(matchedConv.context, {});
+      const pollCandidates = pollCtx?.pending_poll?.candidates || [];
+      const selectedCandidate = pollCandidates.find((c) => c.label === voted.name);
+
+      if (!selectedCandidate) {
+        logWebhook('poll_results_ignored', { reason: 'voted_option_not_found', votedName: voted.name });
+        return { status: 200, body: { success: true, ignored: true, reason: 'voted_option_not_found' } };
+      }
+
+      logWebhook('poll_results_address_selected', {
+        conversationId: matchedConv.id,
+        phone: maskPhone(matchedConv.phone),
+        selectedAddress: selectedCandidate.formattedAddress,
+      });
+
+      const pendingExtracted = pollCtx?.pending_poll?.extracted || {};
+      const pollTripResult = await createTripFromConversation({
+        conversation: matchedConv,
+        extracted: {
+          ...pendingExtracted,
+          pickup_location: selectedCandidate.formattedAddress,
+          _preGeocodedPickup: {
+            formattedAddress: selectedCandidate.formattedAddress,
+            lat: selectedCandidate.lat,
+            lng: selectedCandidate.lng,
+          },
+        },
+      });
+
+      await sendWhatsAppText(matchedConv.phone, pollTripResult.reply);
+
+      await finalizeConversation(matchedConv.id, {
+        status: pollTripResult.ok ? 'awaiting_driver' : 'open',
+        context: pollTripResult.ok
+          ? { ...pollTripResult.context, pending_poll: null }
+          : { ...pollCtx, pending_poll: null },
+        last_trip_id: pollTripResult.trip?.id || null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      });
+
+      logWebhook('poll_results_trip_result', {
+        conversationId: matchedConv.id,
+        tripId: pollTripResult.trip?.id || null,
+        ok: Boolean(pollTripResult.ok),
+        reason: pollTripResult.reason || null,
+      });
+
+      return {
+        status: 200,
+        body: {
+          success: true,
+          event: 'poll.results',
+          tripId: pollTripResult.trip?.id || null,
+        },
+      };
+    }
+
     if (!['messages.upsert', 'messages.received'].includes(event)) {
       logWebhook('ignored', { reason: 'event_not_supported', event: event || 'unknown' });
       return { status: 200, body: { success: true, ignored: true, reason: 'event_not_supported' } };
@@ -2045,6 +2319,80 @@ async function processWebhookBody(body, requestMeta = {}) {
     let content = extractMessageText(messageData);
     let transcription = null;
     let mediaUrl = null;
+
+    // --- Manejo especial de ubicación GPS en tiempo real ---
+    if (messageType === 'location') {
+      const locMsg = messageData.message?.locationMessage || {};
+      const gpsLat = locMsg.degreesLatitude;
+      const gpsLng = locMsg.degreesLongitude;
+
+      if (typeof gpsLat === 'number' && typeof gpsLng === 'number') {
+        logWebhook('location_message_received', { phone: maskPhone(phone), lat: gpsLat, lng: gpsLng });
+
+        const { data: existingConv } = await getSupabase()
+          .from('whatsapp_conversations')
+          .select('id, status, context, push_name, last_trip_id')
+          .eq('phone', normalizePhone(phone))
+          .maybeSingle();
+
+        const convStatus = existingConv?.status || '';
+        const convCtx = safeJsonParse(existingConv?.context, {});
+        const wantsGps =
+          convCtx?.awaiting_gps === true ||
+          ['awaiting_info', 'awaiting_address_selection', 'open'].includes(convStatus);
+
+        if (existingConv?.id && wantsGps) {
+          let reverseAddress;
+          try {
+            reverseAddress = await reverseGeocodeLatLng(gpsLat, gpsLng);
+          } catch {
+            reverseAddress = `${gpsLat.toFixed(6)}, ${gpsLng.toFixed(6)}`;
+          }
+
+          const gpsTripResult = await createTripFromConversation({
+            conversation: { ...existingConv, phone, push_name: existingConv.push_name || pushName },
+            extracted: {
+              ...convCtx,
+              passenger_name: convCtx.passenger_name || pushName || null,
+              pickup_location: reverseAddress,
+              _preGeocodedPickup: {
+                formattedAddress: reverseAddress,
+                lat: gpsLat,
+                lng: gpsLng,
+              },
+              awaiting_gps: false,
+            },
+          });
+
+          await sendWhatsAppText(phone, gpsTripResult.reply);
+
+          await finalizeConversation(existingConv.id, {
+            status: gpsTripResult.ok ? 'awaiting_driver' : 'open',
+            context: {
+              ...(gpsTripResult.context || convCtx),
+              awaiting_gps: false,
+            },
+            last_trip_id: gpsTripResult.trip?.id || existingConv.last_trip_id || null,
+            processing_started_at: null,
+            last_processed_at: new Date().toISOString(),
+          });
+
+          logWebhook('location_gps_trip_created', {
+            conversationId: existingConv.id,
+            phone: maskPhone(phone),
+            tripId: gpsTripResult.trip?.id || null,
+            ok: Boolean(gpsTripResult.ok),
+          });
+
+          return {
+            status: 200,
+            body: { success: true, gpsHandled: true, tripId: gpsTripResult.trip?.id || null },
+          };
+        }
+      }
+
+      // Si no hay conversación activa esperando GPS, dejar que fluya normal como mensaje
+    }
 
     if (messageType === 'audio') {
       mediaUrl = await decryptAudioMessage(messageData);
