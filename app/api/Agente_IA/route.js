@@ -1728,12 +1728,42 @@ async function createTripFromConversation({ conversation, extracted }) {
   const routeToPickup = await getRouteMetrics({ lat: driverLat, lng: driverLng }, pickupLocation);
   const finalDestinationHint = sanitizeAddressInput(extracted?.destination || '');
 
+  // Intentar geocodificar el destino final si el pasajero lo proporcionó
+  let finalDestinationGeo = null;
+  if (finalDestinationHint) {
+    try {
+      finalDestinationGeo = await geocodeAddress(finalDestinationHint);
+      logWebhook('trip_final_destination_geocoded', {
+        hint: finalDestinationHint,
+        formattedAddress: finalDestinationGeo.formattedAddress,
+        lat: finalDestinationGeo.lat,
+        lng: finalDestinationGeo.lng,
+      });
+    } catch (geoErr) {
+      logWebhook('trip_final_destination_geocode_fail', {
+        hint: finalDestinationHint,
+        error: geoErr?.message || 'unknown',
+      });
+    }
+  }
+
   // Approach-only trip: driver -> pickup has no fare.
   logWebhook('trip_approach_only_created', {
     approachDistanceKm: routeToPickup.distanceKm,
     approachDurationMinutes: routeToPickup.durationMinutes,
     hasFinalDestinationHint: Boolean(finalDestinationHint),
+    hasFinalDestinationGeo: Boolean(finalDestinationGeo),
   });
+
+  // Embeber el destino final geocodificado en notes como JSON parseable
+  // para que la driver-app pueda pre-cargar el destino sin voz
+  const finalDestJson = finalDestinationGeo
+    ? `[FINAL_DEST_JSON:${JSON.stringify({
+        address: finalDestinationGeo.formattedAddress,
+        lat: finalDestinationGeo.lat,
+        lng: finalDestinationGeo.lng,
+      })}]`
+    : null;
 
   const tripPayload = {
     driver_id: driver.id,
@@ -1753,7 +1783,9 @@ async function createTripFromConversation({ conversation, extracted }) {
     notes: [
       '[APPROACH_ONLY]',
       extracted.notes || 'Creado automáticamente desde WhatsApp (chofer -> retiro pasajero, sin cobro inicial).',
-      finalDestinationHint ? `Destino final sugerido por pasajero: ${finalDestinationHint}` : 'Destino final: se define al subir el pasajero.',
+      finalDestJson || (finalDestinationHint
+        ? `Destino final sugerido por pasajero: ${finalDestinationHint}`
+        : 'Destino final: se define al subir el pasajero.'),
     ].join(' '),
   };
 
@@ -1780,12 +1812,18 @@ async function createTripFromConversation({ conversation, extracted }) {
   const driverLabel = [driver.vehicle_brand, driver.vehicle_model].filter(Boolean).join(' ');
   const driverMeta = [driver.full_name, driverLabel, driver.vehicle_plate].filter(Boolean).join(' · ');
 
+  const destinationConfirmLine = finalDestinationGeo
+    ? `\nDestino: *${finalDestinationGeo.formattedAddress}*`
+    : finalDestinationHint
+      ? `\nDestino indicado: *${finalDestinationHint}*`
+      : '';
+
   return {
     ok: true,
     trip,
     driver,
     reply:
-      `Tomé tu pedido y ya lo derivé. Apenas un chofer lo acepte, te paso por WhatsApp quién va a buscarte.\n\nRetiro: *${pickupLocation.formattedAddress}*`,
+      `Tomé tu pedido y ya lo derivé. Apenas un chofer lo acepte, te paso por WhatsApp quién va a buscarte.\n\nRetiro: *${pickupLocation.formattedAddress}*${destinationConfirmLine}`,
     context: {
       passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
       pickup_location: pickupQuery,
