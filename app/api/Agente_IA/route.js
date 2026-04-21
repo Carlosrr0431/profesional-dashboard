@@ -2724,11 +2724,31 @@ async function processWebhookBody(body, requestMeta = {}) {
           ['awaiting_info', 'awaiting_address_selection', 'open'].includes(convStatus);
 
         if (existingConv?.id && wantsGps) {
+          // WhatsApp ya trae la dirección en el payload de la ubicación.
+          // Usarla directamente evita el reverse geocode y sus posibles errores de datos.
+          // Campos posibles: locMsg.name (lugar), locMsg.address (dirección de calle).
+          const waName = String(locMsg.name || '').trim();
+          const waAddress = String(locMsg.address || '').trim();
+          // Preferir address (más específico), luego name, luego reverse geocode como último recurso
+          const waProvidedAddress = waAddress || waName || null;
+
           let reverseAddress;
-          try {
-            reverseAddress = await reverseGeocodeLatLng(gpsLat, gpsLng);
-          } catch {
-            reverseAddress = `${gpsLat.toFixed(6)}, ${gpsLng.toFixed(6)}`;
+          if (waProvidedAddress) {
+            // La dirección viene del payload de WhatsApp — es la misma que muestra el usuario en la preview
+            reverseAddress = waProvidedAddress;
+            logWebhook('location_address_from_wa_payload', {
+              phone: maskPhone(phone),
+              waAddress: waProvidedAddress,
+              lat: gpsLat,
+              lng: gpsLng,
+            });
+          } else {
+            // Fallback: reverse geocode con nuestro algoritmo de dos pasadas
+            try {
+              reverseAddress = await reverseGeocodeLatLng(gpsLat, gpsLng);
+            } catch {
+              reverseAddress = `${gpsLat.toFixed(6)}, ${gpsLng.toFixed(6)}`;
+            }
           }
 
           const gpsTripResult = await createTripFromConversation({
