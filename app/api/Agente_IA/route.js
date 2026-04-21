@@ -236,6 +236,7 @@ function inferTripHeuristics(combinedText, context = {}) {
 
   const looksLikeTripRequest = /(remis|taxi|movil|m[oó]vil|viaje|pasame\s+a\s+buscar|buscame|llevame|llevarme|quiero\s+ir)/i.test(normalized);
 
+  // "de X a Y" → pickup = X, destination = Y
   const deAHasta = text.match(/\bde\s+([^\n,.;]{4,90}?)\s+a\s+([^\n,.;]{4,90})(?:$|[\n.!?])/i);
   if (deAHasta) {
     return {
@@ -245,12 +246,38 @@ function inferTripHeuristics(combinedText, context = {}) {
     };
   }
 
+  // "un movil/remis/taxi para [dirección]" → pickup = dirección
+  // Esto es lo más común: el pasajero pide que lo busquen EN ese lugar
+  const movilParaMatch = text.match(/(?:remis|m[oó]vil|movil|taxi|auto)\s+(?:para|a|en)\s+([^\n.;]{4,120})/i);
+  if (movilParaMatch && looksLikeTripRequest) {
+    return {
+      pickup: sanitizeAddressInput(movilParaMatch[1]),
+      destination: sanitizeAddressInput(context.destination || ''),
+      looksLikeTripRequest,
+    };
+  }
+
   const pickupMatch = text.match(/(?:pasame\s+a\s+buscar(?:me)?|buscame|retiro(?:\s+en)?|estoy\s+en|origen(?:\s+es)?|desde)\s*[:,-]?\s*([^\n.;]{4,120})/i);
-  const destinationMatch = text.match(/(?:destino(?:\s+es)?|hacia|hasta|llevame\s+a|quiero\s+ir\s+a|a\s+)([^\n.;]{4,120})/i);
+  const destinationMatch = text.match(/(?:destino(?:\s+es)?|hacia|hasta|llevame\s+a|quiero\s+ir\s+a)\s*([^\n.;]{4,120})/i);
+
+  let pickup = sanitizeAddressInput(pickupMatch?.[1] || context.pickup_location || '');
+  let destination = sanitizeAddressInput(destinationMatch?.[1] || context.destination || '');
+
+  // Si el mensaje parece un pedido de viaje y tiene forma de intersección/dirección pero sin
+  // keywords de destino, tratar el texto completo como pickup
+  if (looksLikeTripRequest && !pickup && !destination) {
+    // Detectar si el texto (sin la palabra del pedido) parece una dirección o intersección
+    const addressPart = text
+      .replace(/(?:remis|m[oó]vil|movil|taxi|auto|viaje|quiero|pedir?|necesito|manda(?:me)?|un|una|por\s+favor)\s*/gi, '')
+      .trim();
+    if (addressPart.length >= 4) {
+      pickup = sanitizeAddressInput(addressPart);
+    }
+  }
 
   return {
-    pickup: sanitizeAddressInput(pickupMatch?.[1] || context.pickup_location || ''),
-    destination: sanitizeAddressInput(destinationMatch?.[1] || context.destination || ''),
+    pickup,
+    destination,
     looksLikeTripRequest,
   };
 }
@@ -865,6 +892,20 @@ async function extractTripIntent({ combinedText, context, pushName, phone, histo
 - "para más tarde", "para las [hora]", "reservar para", "mañana a las" → solicitud programada
 - Barrios: "tres cerr" → Tres Cerritos, "grand bourg/grand" → Grand Bourg, "castañ" → Castañares, "limache" → Limache, "portezuelo" → Portezuelo, "cpo quijano/campo quij" → Campo Quijano, "la loma" → La Loma, "el bosque" → El Bosque
 - Lugares de referencia: "el hospital" → Hospital San Bernardo Salta, "la terminal" → Terminal de Ómnibus Salta, "el shopping" → Shopping Salta, "el correo" → Correo Argentino Salta, "la municipalidad" → Municipalidad de Salta, "el jockey" → Hipódromo Jockey Club Salta
+
+## REGLA CRÍTICA — "PARA" EN PEDIDOS DE REMÍS
+Cuando alguien dice "un movil/remis para [lugar]" o "un auto para [lugar]", el [lugar] es SIEMPRE la dirección de RETIRO (pickup_location), NO el destino. El chofer va a buscar al pasajero en ese lugar. Ejemplos:
+- "un movil para zuviria y leguizamon" → pickup_location = "Zuviria y Leguizamón, Salta"
+- "un remis para belgrano 500" → pickup_location = "Belgrano 500, Salta"
+- "mandame un taxi para tres cerritos" → pickup_location = "Barrio Tres Cerritos, Salta"
+Solo es destino si hay una segunda dirección explícita con palabras como "hasta", "a", "hacia", "me llevo a".
+
+## INTERSECCIONES DE CALLES
+El "y" entre dos palabras que parezcan calles = intersección, NO destino. Ejemplos:
+- "zuviria y leguizamon" → query: "Zuviria y Leguizamón, Salta"
+- "españa y belgrano" → query: "España y Belgrano, Salta"
+- "san martin y corrientes" → query: "San Martín y Corrientes, Salta"
+No confundir con "quiero ir a X y a Y" que sería dos destinos.
 
 ## CÓMO EXTRAER DIRECCIONES (pickup_location, origin, destination)
 - Generá siempre una query geocodificable en Google Maps Argentina
