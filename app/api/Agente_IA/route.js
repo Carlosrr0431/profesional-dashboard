@@ -1001,8 +1001,8 @@ No confundir con "quiero ir a X y a Y" que sería dos destinos.
 2. Si awaiting_gps=true → NO pedís dirección de texto, el sistema ya lo solicitó.
 3. Si la dirección de retiro ya está en el contexto → NO la pedís de nuevo, usala directamente.
 4. Si el estado es "awaiting_driver" o "trip_created" y el pasajero pregunta algo → respondé sobre el estado del viaje.
-5. cancel_confirmed=true SOLO si el pasajero expresó clara e inequívocamente que quiere cancelar. Si hay ambigüedad, poné false y pedí confirmación en el reply.
-6. Si pending_cancel_confirm=true y el pasajero dice "sí"/"dale"/"sí cancelá" → cancel_confirmed=true.
+5. cancel_confirmed=true SOLO si el pasajero expresó clara e inequívocamente que quiere cancelar. Si hay ambigüedad, poné false y pedí confirmación en el reply. Ejemplos que confirman directamente (cancel_confirmed=true): "quiero cancelar", "cancelar", "cancelá", "ya no quiero el viaje", "no necesito más el móvil", "me surgió algo", "me surgió un problema". Solo pedí confirmación si el mensaje es realmente ambiguo.
+6. Si el estado es "trip_created" y el pasajero pide cancelar con cualquier frase clara → cancel_confirmed=true directamente, sin volver a pedir confirmación.
 7. El reply debe sonar humano y natural. Variá el vocabulario entre respuestas.
 8. Para trip_request sin pickup_location: pedí la dirección de forma natural y breve. Nunca repetir exactamente el mismo texto del lastBotReply.
 9. NUNCA uses ask_human solo porque falta información del viaje. Solo para situaciones humanas reales.`;
@@ -2340,64 +2340,8 @@ async function processClaimedConversation(batch) {
   const openTripByLastId = lastTripById && isOpenTripStatus(lastTripById.status) ? lastTripById : null;
   const openTripByPhone = openTripByLastId || await getLatestOpenTripByPhone(batch.phone);
 
-  // Detect cancellation intent BEFORE applying the guard, so passengers can cancel
-  // a trip that's already been accepted/in progress (going_to_pickup, in_progress, etc.).
-  const combinedTextForCancelCheck = pendingMessages.map((m) => m?.contenido).filter(Boolean).join('\n');
-  const ctxForCancelCheck = safeJsonParse(batch.context, {});
-  const hasPendingCancelConfirm = Boolean(ctxForCancelCheck?.pending_cancel_confirm);
-  const CANCEL_INTENT_RE = /\b(cancel[aá]|ya no|no quiero|dej[aá]lo|olv[ií]date|borralo|no va[sy]?|cor[tá]|no lo necesito|no necesito|no gracias|chau viaje|no voy|para todo)\b/i;
-  const looksLikeCancelRequest = CANCEL_INTENT_RE.test(combinedTextForCancelCheck);
-  const looksLikeCancelConfirm = hasPendingCancelConfirm && /\b(s[ií]|dale|okay|ok|bueno|claro|confirm[aá]?|cancel[aá])\b/i.test(combinedTextForCancelCheck);
-  const passengerWantsToCancel = looksLikeCancelRequest || looksLikeCancelConfirm;
-
-  if (openTripByPhone && !shouldBlockForOpenTrip(openTripByPhone)) {
-    logWebhook('conversation_open_trip_guard_ignored_stale_pending', {
-      conversationId: batch?.id || null,
-      tripId: openTripByPhone.id,
-      tripStatus: openTripByPhone.status,
-      ageMinutes: getTripAgeMinutes(openTripByPhone),
-      maxAgeMinutes: PENDING_GUARD_MAX_AGE_MINUTES,
-      matchedBy: openTripByLastId ? 'last_trip_id' : 'phone',
-    });
-  }
-  if (openTripByPhone && shouldBlockForOpenTrip(openTripByPhone) && !passengerWantsToCancel) {
-    logWebhook('conversation_open_trip_guard', {
-      conversationId: batch?.id || null,
-      tripId: openTripByPhone.id,
-      tripStatus: openTripByPhone.status,
-      ageMinutes: getTripAgeMinutes(openTripByPhone),
-      matchedBy: openTripByLastId ? 'last_trip_id' : 'phone',
-    });
-
-    const openTripStatus = String(openTripByPhone.status || '').toLowerCase();
-    const alreadyAssignedMessage = openTripStatus === 'pending'
-      ? `Tu pedido ya está tomado y estamos esperando que un chofer lo confirme.${openTripByPhone.destination_address ? `\nRetiro: *${openTripByPhone.destination_address}*` : ''}`
-      : `Ya tenés un móvil asignado para este pedido. Tu viaje sigue en curso.${openTripByPhone.destination_address ? `\nRetiro: *${openTripByPhone.destination_address}*` : ''}`;
-
-    await sendWhatsAppText(batch.phone, alreadyAssignedMessage);
-
-    return {
-      handled: true,
-      updates: {
-        status: openTripStatus === 'pending' ? 'awaiting_driver' : 'trip_created',
-        context: safeJsonParse(batch.context, {}),
-        last_trip_id: openTripByPhone.id,
-        processing_started_at: null,
-        last_processed_at: new Date().toISOString(),
-      },
-    };
-  }
-
-  if (openTripByPhone && shouldBlockForOpenTrip(openTripByPhone) && passengerWantsToCancel) {
-    logWebhook('conversation_open_trip_guard_bypassed_for_cancel', {
-      conversationId: batch?.id || null,
-      tripId: openTripByPhone.id,
-      tripStatus: openTripByPhone.status,
-      looksLikeCancelRequest,
-      looksLikeCancelConfirm,
-    });
-  }
-
+  // Run AI intent extraction BEFORE the guard so we can use the detected intent to decide
+  // whether to bypass it — specifically when the passenger wants to cancel an active trip.
   const combinedText = pendingMessages
     .map((item) => item?.contenido)
     .filter(Boolean)
@@ -2455,6 +2399,55 @@ async function processClaimedConversation(batch) {
     destination: sanitizeAddressInput(destinationHint),
     notes: extracted.notes || context.notes || null,
   };
+
+  // AI-detected intent drives the guard bypass — no fragile regex needed.
+  const passengerWantsToCancel = extracted.intent === 'cancel_trip';
+
+  if (openTripByPhone && !shouldBlockForOpenTrip(openTripByPhone)) {
+    logWebhook('conversation_open_trip_guard_ignored_stale_pending', {
+      conversationId: batch?.id || null,
+      tripId: openTripByPhone.id,
+      tripStatus: openTripByPhone.status,
+      ageMinutes: getTripAgeMinutes(openTripByPhone),
+      maxAgeMinutes: PENDING_GUARD_MAX_AGE_MINUTES,
+      matchedBy: openTripByLastId ? 'last_trip_id' : 'phone',
+    });
+  }
+  if (openTripByPhone && shouldBlockForOpenTrip(openTripByPhone) && !passengerWantsToCancel) {
+    logWebhook('conversation_open_trip_guard', {
+      conversationId: batch?.id || null,
+      tripId: openTripByPhone.id,
+      tripStatus: openTripByPhone.status,
+      ageMinutes: getTripAgeMinutes(openTripByPhone),
+      matchedBy: openTripByLastId ? 'last_trip_id' : 'phone',
+    });
+
+    const openTripStatus = String(openTripByPhone.status || '').toLowerCase();
+    const alreadyAssignedMessage = openTripStatus === 'pending'
+      ? `Tu pedido ya está tomado y estamos esperando que un chofer lo confirme.${openTripByPhone.destination_address ? `\nRetiro: *${openTripByPhone.destination_address}*` : ''}`
+      : `Ya tenés un móvil asignado para este pedido. Tu viaje sigue en curso.${openTripByPhone.destination_address ? `\nRetiro: *${openTripByPhone.destination_address}*` : ''}`;
+
+    await sendWhatsAppText(batch.phone, alreadyAssignedMessage);
+
+    return {
+      handled: true,
+      updates: {
+        status: openTripStatus === 'pending' ? 'awaiting_driver' : 'trip_created',
+        context: safeJsonParse(batch.context, {}),
+        last_trip_id: openTripByPhone.id,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  if (openTripByPhone && shouldBlockForOpenTrip(openTripByPhone) && passengerWantsToCancel) {
+    logWebhook('conversation_open_trip_guard_bypassed_for_cancel', {
+      conversationId: batch?.id || null,
+      tripId: openTripByPhone.id,
+      tripStatus: openTripByPhone.status,
+    });
+  }
 
   // --- Cancelación solicitada por el pasajero ---
   if (extracted.intent === 'cancel_trip') {
