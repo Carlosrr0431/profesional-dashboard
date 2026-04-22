@@ -2975,6 +2975,57 @@ async function processWebhookBody(body, requestMeta = {}) {
         }
       }
 
+      // Fallback 3: buscar por teléfono del pasajero usando remoteJid del payload.
+      // El poll fue enviado por el bot (fromMe=true), así que remoteJid = teléfono del pasajero.
+      // Funciona incluso si el pending_poll ya fue borrado del contexto por una carrera con
+      // messages.upsert.
+      if (!matchedConv) {
+        const remoteJid = String(body?.data?.key?.remoteJid || '').trim();
+        const phoneFromJid = normalizePhone(
+          remoteJid.replace('@s.whatsapp.net', '').replace('@lid', '')
+        );
+        if (phoneFromJid && phoneFromJid.length >= 8) {
+          const { data: convByPhone } = await getSupabase()
+            .from('whatsapp_conversations')
+            .select('id, phone, push_name, context')
+            .eq('phone', phoneFromJid)
+            .maybeSingle();
+          if (convByPhone) {
+            matchedConv = convByPhone;
+            pollCtx = safeJsonParse(convByPhone.context, {});
+            logWebhook('poll_results_fallback_by_phone', {
+              conversationId: convByPhone.id,
+              phone: maskPhone(phoneFromJid),
+              pollMsgId,
+            });
+          }
+        }
+      }
+
+      // Si encontramos la conv por teléfono pero ya no tiene candidatos (context limpiado),
+      // geocodificar la opción votada directamente.
+      if (matchedConv && !selectedCandidate) {
+        try {
+          const geo = await geocodeAddress(voted.name);
+          selectedCandidate = {
+            label: voted.name,
+            formattedAddress: geo.formattedAddress,
+            lat: geo.lat,
+            lng: geo.lng,
+          };
+          logWebhook('poll_results_phone_fallback_geocoded', {
+            conversationId: matchedConv.id,
+            votedName: voted.name,
+            formattedAddress: geo.formattedAddress,
+          });
+        } catch (geoErr) {
+          logWebhook('poll_results_fallback_geocode_fail', {
+            votedName: voted.name,
+            error: geoErr?.message || 'geocode_error',
+          });
+        }
+      }
+
       if (!matchedConv) {
         logWebhook('poll_results_ignored', { reason: 'conversation_not_found', pollMsgId });
         return { status: 200, body: { success: true, ignored: true, reason: 'conversation_not_found' } };
@@ -3202,6 +3253,24 @@ async function processWebhookBody(body, requestMeta = {}) {
     if (!appendResult?.inserted) {
       logWebhook('ignored', { reason: 'duplicate_message', phone: maskPhone(phone), messageId });
       return { status: 200, body: { success: true, ignored: true, reason: 'duplicate_message' } };
+    }
+
+    // Los mensajes de tipo poll_response son votos en encuestas de dirección.
+    // El evento poll.results (siempre posterior) los procesa de forma canónica con la
+    // opción ya descifrada. Si intentamos procesar aquí también, corremos el riesgo de
+    // que la coincidencia de texto falle y borre el pending_poll del contexto antes de
+    // que llegue poll.results. Por eso, simplemente registramos el mensaje y salimos.
+    if (messageType === 'poll_response') {
+      logWebhook('poll_response_deferred', {
+        conversationId: appendResult.conversation_id,
+        phone: maskPhone(phone),
+        messageId,
+        reason: 'handled_by_poll_results_event',
+      });
+      return {
+        status: 200,
+        body: { success: true, queued: false, deferred: true, reason: 'poll_response_handled_by_poll_results' },
+      };
     }
 
     scheduleConversationProcessing(appendResult.conversation_id, ACCUMULATION_MS);
