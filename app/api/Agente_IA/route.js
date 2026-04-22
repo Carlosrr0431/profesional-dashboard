@@ -2650,6 +2650,7 @@ async function processClaimedConversation(batch) {
             ...nextContext,
             pending_poll: {
               msg_id: pollMsgId,
+              phone: batch.phone,
               candidates: distinctCandidates.slice(0, 5).map((c) => ({
                 label: c.formattedAddress,
                 formattedAddress: c.formattedAddress,
@@ -2862,11 +2863,37 @@ async function processWebhookBody(body, requestMeta = {}) {
         return { status: 500, body: { success: false, error: 'db_error' } };
       }
 
-      // Búsqueda primaria: conversación que tenga el msg_id del poll en su contexto
+      // Búsqueda primaria: conversación que tenga el msg_id del poll en su contexto.
+      // NOTA: pending_poll.msg_id almacena el ID numérico de WASender (ej: "43156652"), pero
+      // poll.results llega con el ID de formato WhatsApp (ej: "3EB09B15..."). Por eso la
+      // coincidencia exacta de msg_id casi nunca funciona.
+      // Se intenta igual, y a continuación se busca también por opción votada en candidatos.
       let matchedConv = (pollConvs || []).find((c) => {
         const ctx = safeJsonParse(c.context, {});
         return ctx?.pending_poll?.msg_id === pollMsgId;
       });
+
+      // Búsqueda primaria alternativa: por opción votada en candidatos almacenados.
+      // Funciona aunque los IDs no coincidan (caso habitual).
+      if (!matchedConv) {
+        const convByOption = (pollConvs || []).find((c) => {
+          const ctx = safeJsonParse(c.context, {});
+          const cands = ctx?.pending_poll?.candidates || [];
+          return (
+            cands.length > 0 &&
+            cands.some((can) => can.label === voted.name || can.formattedAddress === voted.name)
+          );
+        });
+        if (convByOption) {
+          matchedConv = convByOption;
+          logWebhook('poll_results_matched_by_voted_option', {
+            conversationId: convByOption.id,
+            votedName: voted.name,
+            storedMsgId: safeJsonParse(convByOption.context, {})?.pending_poll?.msg_id,
+            pollMsgId,
+          });
+        }
+      }
 
       let pollCtx = safeJsonParse(matchedConv?.context, {});
       let pollCandidates = pollCtx?.pending_poll?.candidates || [];
@@ -2934,16 +2961,29 @@ async function processWebhookBody(body, requestMeta = {}) {
           .select('id, phone, push_name, context, status')
           .not('context', 'is', null);
 
-        const broadMatch = (allConvs || []).find((c) => {
-          const ctx = safeJsonParse(c.context, {});
-          return ctx?.pending_poll?.msg_id === pollMsgId;
-        });
+        const broadMatch =
+          // Intentar primero por msg_id
+          (allConvs || []).find((c) => {
+            const ctx = safeJsonParse(c.context, {});
+            return ctx?.pending_poll?.msg_id === pollMsgId;
+          }) ||
+          // Luego por opción votada en candidatos (robusto ante mismatch de ID)
+          (allConvs || []).find((c) => {
+            const ctx = safeJsonParse(c.context, {});
+            const cands = ctx?.pending_poll?.candidates || [];
+            return (
+              cands.length > 0 &&
+              cands.some((can) => can.label === voted.name || can.formattedAddress === voted.name)
+            );
+          });
 
         if (broadMatch) {
           matchedConv = broadMatch;
           pollCtx = safeJsonParse(broadMatch.context, {});
           pollCandidates = pollCtx?.pending_poll?.candidates || [];
-          selectedCandidate = pollCandidates.find((c) => c.label === voted.name);
+          selectedCandidate = pollCandidates.find(
+            (c) => c.label === voted.name || c.formattedAddress === voted.name
+          );
           logWebhook('poll_results_fallback_all_statuses_found', {
             conversationId: broadMatch.id,
             status: broadMatch.status,
@@ -2975,27 +3015,73 @@ async function processWebhookBody(body, requestMeta = {}) {
         }
       }
 
-      // Fallback 3: buscar por teléfono del pasajero usando remoteJid del payload.
-      // El poll fue enviado por el bot (fromMe=true), así que remoteJid = teléfono del pasajero.
-      // Funciona incluso si el pending_poll ya fue borrado del contexto por una carrera con
-      // messages.upsert.
+      // Fallback 3: buscar por teléfono del pasajero.
+      // El evento poll.results puede tener el teléfono en varios campos del payload.
+      // Además almacenamos el phone en pending_poll al enviar el poll.
       if (!matchedConv) {
-        const remoteJid = String(body?.data?.key?.remoteJid || '').trim();
-        const phoneFromJid = normalizePhone(
-          remoteJid.replace('@s.whatsapp.net', '').replace('@lid', '')
-        );
-        if (phoneFromJid && phoneFromJid.length >= 8) {
+        // Intentar extraer el teléfono de campos conocidos del payload de poll.results
+        const candidatePhone =
+          normalizePhone(body?.data?.key?.cleanedSenderPn || '') ||
+          normalizePhone(
+            (body?.data?.key?.senderPn || '').replace('@s.whatsapp.net', '').replace('@lid', '')
+          ) ||
+          // remoteJid solo si tiene formato @s.whatsapp.net (no LID)
+          (String(body?.data?.key?.remoteJid || '').includes('@s.whatsapp.net')
+            ? normalizePhone(
+                String(body?.data?.key?.remoteJid || '').replace('@s.whatsapp.net', '')
+              )
+            : '') ||
+          // Buscar en el pending_poll almacenado de cualquier conv en awaiting_address_selection
+          // que tenga este pollMsgId como poll_phone (guardado al enviar)
+          '';
+
+        if (candidatePhone && candidatePhone.length >= 8) {
           const { data: convByPhone } = await getSupabase()
             .from('whatsapp_conversations')
             .select('id, phone, push_name, context')
-            .eq('phone', phoneFromJid)
+            .eq('phone', candidatePhone)
             .maybeSingle();
           if (convByPhone) {
             matchedConv = convByPhone;
             pollCtx = safeJsonParse(convByPhone.context, {});
+            pollCandidates = pollCtx?.pending_poll?.candidates || [];
+            selectedCandidate = pollCandidates.find(
+              (c) => c.label === voted.name || c.formattedAddress === voted.name
+            );
             logWebhook('poll_results_fallback_by_phone', {
               conversationId: convByPhone.id,
-              phone: maskPhone(phoneFromJid),
+              phone: maskPhone(candidatePhone),
+              pollMsgId,
+            });
+          }
+        }
+
+        // Último recurso: buscar la única conversación en awaiting_address_selection que tenga
+        // un pending_poll con el teléfono guardado en pending_poll.phone
+        if (!matchedConv) {
+          const { data: awaitingConvs } = await getSupabase()
+            .from('whatsapp_conversations')
+            .select('id, phone, push_name, context')
+            .eq('status', 'awaiting_address_selection');
+          const awaitingMatch = (awaitingConvs || []).find((c) => {
+            const ctx = safeJsonParse(c.context, {});
+            const cands = ctx?.pending_poll?.candidates || [];
+            return (
+              cands.length > 0 &&
+              cands.some((can) => can.label === voted.name || can.formattedAddress === voted.name)
+            );
+          });
+          if (awaitingMatch) {
+            matchedConv = awaitingMatch;
+            pollCtx = safeJsonParse(awaitingMatch.context, {});
+            pollCandidates = pollCtx?.pending_poll?.candidates || [];
+            selectedCandidate = pollCandidates.find(
+              (c) => c.label === voted.name || c.formattedAddress === voted.name
+            );
+            logWebhook('poll_results_fallback_awaiting_by_option', {
+              conversationId: awaitingMatch.id,
+              phone: maskPhone(awaitingMatch.phone),
+              votedName: voted.name,
               pollMsgId,
             });
           }
