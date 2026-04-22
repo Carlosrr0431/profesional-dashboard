@@ -396,11 +396,23 @@ function detectMessageType(message = {}) {
   if (message.stickerMessage) return 'sticker';
   if (message.locationMessage) return 'location';
   if (message.contactMessage) return 'contact';
+  if (message.pollUpdateMessage) return 'poll_response';
   return 'text';
 }
 
 function extractMessageText(messageData) {
   const message = messageData?.message || {};
+
+  // Poll vote response: extract selected option name as plain text
+  if (message.pollUpdateMessage) {
+    const selected = message.pollUpdateMessage?.vote?.selectedOptions ||
+      message.pollUpdateMessage?.selectedOptions || [];
+    const names = (Array.isArray(selected) ? selected : [])
+      .map((o) => (typeof o === 'string' ? o : o?.name || o?.optionName || ''))
+      .filter(Boolean);
+    if (names.length > 0) return names[0];
+  }
+
   return (
     messageData?.messageBody ||
     message.conversation ||
@@ -2295,8 +2307,12 @@ async function processClaimedConversation(batch) {
   // --- Cancelación solicitada por el pasajero ---
   if (extracted.intent === 'cancel_trip') {
     if (!extracted.cancel_confirmed) {
-      // GPT pidió confirmación en el reply; guardamos el flag para la próxima vuelta
-      if (extracted.reply) await sendWhatsAppText(batch.phone, extracted.reply);
+      // Enviar encuesta nativa de WhatsApp para confirmar la cancelación
+      await sendWhatsAppPoll(
+        batch.phone,
+        '¿Confirmás la cancelación de tu viaje?',
+        ['Sí, cancelar', 'No, mantener el viaje']
+      );
       logWebhook('conversation_cancel_pending_confirm', { conversationId: batch?.id || null });
       return {
         handled: true,
@@ -2314,6 +2330,8 @@ async function processClaimedConversation(batch) {
     const tripToCancel =
       openTripByPhone && isOpenTripStatus(openTripByPhone.status) ? openTripByPhone : null;
     if (tripToCancel) {
+      // Obtener datos completos del viaje (incluye driver_id) para notificar al chofer
+      const fullTripToCancel = await getConversationFlowTripById(tripToCancel.id);
       const { error: cancelErr } = await getSupabase()
         .from('trips')
         .update({ status: 'cancelled', cancel_reason: 'Pasajero canceló por WhatsApp' })
@@ -2328,7 +2346,19 @@ async function processClaimedConversation(batch) {
         logWebhook('conversation_passenger_cancelled_trip', {
           conversationId: batch?.id || null,
           tripId: tripToCancel.id,
+          driverId: fullTripToCancel?.driver_id || null,
         });
+        // Notificar al chofer que el pasajero canceló
+        if (fullTripToCancel?.driver_id) {
+          const cancelledDriver = await getDriverById(fullTripToCancel.driver_id);
+          if (cancelledDriver?.push_token) {
+            await sendPushNotification(cancelledDriver.push_token, {
+              title: 'Viaje cancelado',
+              body: 'El pasajero canceló el viaje por WhatsApp.',
+              data: { type: 'trip_cancelled', tripId: tripToCancel.id },
+            });
+          }
+        }
       }
     }
     const cancelReply =

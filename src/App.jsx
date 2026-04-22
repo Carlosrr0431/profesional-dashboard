@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useDrivers } from './hooks/useDrivers';
 import { useSettings } from './hooks/useSettings';
+import { usePendingPassengers } from './hooks/usePendingPassengers';
 import MapView from './components/MapView';
 import Sidebar from './components/Sidebar';
 import StatsBar from './components/StatsBar';
@@ -11,6 +12,7 @@ import BroadcastVoiceChat from './components/BroadcastVoiceChat';
 
 export default function App() {
   const { drivers, loading, refetch } = useDrivers();
+  const pendingPassengers = usePendingPassengers();
   const {
     tariffPerKm,
     tariffBase,
@@ -219,6 +221,7 @@ export default function App() {
               <div className="flex-1 relative">
                 <MapView
                   drivers={drivers}
+                  pendingPassengers={pendingPassengers}
                   selectedId={selectedId}
                   onSelectDriver={setSelectedId}
                   mapRef={mapRef}
