@@ -586,6 +586,41 @@ async function sendWhatsAppText(phone, text) {
   return payload;
 }
 
+/**
+ * Resuelve un JID de WhatsApp a número de teléfono normalizado.
+ * Soporta formato @s.whatsapp.net (directo) y @lid (requiere llamada API de WASender).
+ * Retorna null si no se puede resolver.
+ */
+async function resolvePhoneFromJid(jid) {
+  if (!jid) return null;
+  const s = String(jid).trim();
+
+  if (s.includes('@s.whatsapp.net')) {
+    return normalizePhone(s.replace('@s.whatsapp.net', '')) || null;
+  }
+
+  if (s.includes('@lid')) {
+    try {
+      const response = await fetchWithRetry(
+        `${WASENDER_BASE_URL}/pn-from-lid/${encodeURIComponent(s)}`,
+        {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${WASENDER_API_KEY}` },
+        }
+      );
+      if (response.ok) {
+        const payload = await response.json();
+        const pn = String(payload?.data?.pn || '').replace('@s.whatsapp.net', '');
+        return normalizePhone(pn) || null;
+      }
+    } catch {
+      // ignorar errores de resolución LID
+    }
+  }
+
+  return null;
+}
+
 async function sendWhatsAppPoll(phone, question, options) {
   const to = `${normalizePhone(phone)}@s.whatsapp.net`;
   const response = await fetchWithRetry(`${WASENDER_BASE_URL}/send-message`, {
@@ -2845,6 +2880,21 @@ async function processWebhookBody(body, requestMeta = {}) {
         return { status: 200, body: { success: true, ignored: true, reason: 'no_votes_yet' } };
       }
 
+      // Extraer el teléfono del votante lo antes posible.
+      // Según docs de WASender, voters[] contiene el JID del votante.
+      // Si fromMe=true, remoteJid también es el JID del pasajero.
+      // En ambos casos puede ser @s.whatsapp.net (directo) o @lid (necesita resolución).
+      const voterJid =
+        voted.voters[0] ||
+        body?.data?.key?.remoteJid ||
+        '';
+      const voterPhone = await resolvePhoneFromJid(voterJid).catch(() => null);
+      logWebhook('poll_results_voter_phone', {
+        voterJid,
+        voterPhone: voterPhone ? maskPhone(voterPhone) : null,
+        pollMsgId,
+      });
+
       // Búsqueda primaria: buscar por msg_id del poll en el contexto de CUALQUIER conversación
       // activa (incluye 'processing' por si la conversación fue reclamada por un cron en ese instante).
       const { data: pollConvs, error: pollConvError } = await getSupabase()
@@ -3015,31 +3065,14 @@ async function processWebhookBody(body, requestMeta = {}) {
         }
       }
 
-      // Fallback 3: buscar por teléfono del pasajero.
-      // El evento poll.results puede tener el teléfono en varios campos del payload.
-      // Además almacenamos el phone en pending_poll al enviar el poll.
+      // Fallback 3: buscar por teléfono del votante (resuelto desde voters[0] o remoteJid).
+      // Cubre el caso donde el contexto ya fue limpiado O el JID era un LID resuelto via API.
       if (!matchedConv) {
-        // Intentar extraer el teléfono de campos conocidos del payload de poll.results
-        const candidatePhone =
-          normalizePhone(body?.data?.key?.cleanedSenderPn || '') ||
-          normalizePhone(
-            (body?.data?.key?.senderPn || '').replace('@s.whatsapp.net', '').replace('@lid', '')
-          ) ||
-          // remoteJid solo si tiene formato @s.whatsapp.net (no LID)
-          (String(body?.data?.key?.remoteJid || '').includes('@s.whatsapp.net')
-            ? normalizePhone(
-                String(body?.data?.key?.remoteJid || '').replace('@s.whatsapp.net', '')
-              )
-            : '') ||
-          // Buscar en el pending_poll almacenado de cualquier conv en awaiting_address_selection
-          // que tenga este pollMsgId como poll_phone (guardado al enviar)
-          '';
-
-        if (candidatePhone && candidatePhone.length >= 8) {
+        if (voterPhone && voterPhone.length >= 8) {
           const { data: convByPhone } = await getSupabase()
             .from('whatsapp_conversations')
             .select('id, phone, push_name, context')
-            .eq('phone', candidatePhone)
+            .eq('phone', voterPhone)
             .maybeSingle();
           if (convByPhone) {
             matchedConv = convByPhone;
@@ -3050,14 +3083,14 @@ async function processWebhookBody(body, requestMeta = {}) {
             );
             logWebhook('poll_results_fallback_by_phone', {
               conversationId: convByPhone.id,
-              phone: maskPhone(candidatePhone),
+              phone: maskPhone(voterPhone),
               pollMsgId,
             });
           }
         }
 
         // Último recurso: buscar la única conversación en awaiting_address_selection que tenga
-        // un pending_poll con el teléfono guardado en pending_poll.phone
+        // un pending_poll con candidatos que incluyan la opción votada.
         if (!matchedConv) {
           const { data: awaitingConvs } = await getSupabase()
             .from('whatsapp_conversations')
@@ -3088,7 +3121,7 @@ async function processWebhookBody(body, requestMeta = {}) {
         }
       }
 
-      // Si encontramos la conv por teléfono pero ya no tiene candidatos (context limpiado),
+      // Si encontramos la conv pero no hay candidato coincidente (context ya fue limpiado),
       // geocodificar la opción votada directamente.
       if (matchedConv && !selectedCandidate) {
         try {
