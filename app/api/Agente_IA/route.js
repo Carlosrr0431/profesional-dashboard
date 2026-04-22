@@ -2169,6 +2169,85 @@ async function processClaimedConversation(batch) {
     pendingCount: pendingMessages.length,
   });
 
+  // --- Resolución temprana de selección de dirección por encuesta ---
+  // Cuando el pasajero vota en el poll de dirección, lo resolvemos aquí ANTES de
+  // cualquier lógica de reset de contexto, porque el pending_poll vive en batch.context
+  // y necesitamos preservarlo.
+  if (batch.status === 'awaiting_address_selection') {
+    const savedContext = safeJsonParse(batch.context, {});
+    const pendingPoll = savedContext.pending_poll;
+    const votedText = pendingMessages.map((m) => m?.contenido).filter(Boolean).join(' ').trim();
+
+    if (pendingPoll?.candidates?.length > 0 && votedText) {
+      const normVoted = normalizeForMatch(votedText);
+      const match = pendingPoll.candidates.find((c) => {
+        const normLabel = normalizeForMatch(c.label || c.formattedAddress || '');
+        const normFmt = normalizeForMatch(c.formattedAddress || '');
+        if (!normLabel && !normFmt) return false;
+        // Coincidencia exacta
+        if (normFmt === normVoted || normLabel === normVoted) return true;
+        // Coincidencia parcial: el texto votado empieza con los primeros tokens del candidato
+        const candidatePrefix = normLabel.split(' ').slice(0, 4).join(' ');
+        const votedPrefix = normVoted.split(' ').slice(0, 4).join(' ');
+        return candidatePrefix && votedPrefix && (
+          normVoted.startsWith(candidatePrefix) || normLabel.startsWith(votedPrefix)
+        );
+      });
+
+      if (match) {
+        logWebhook('conversation_address_poll_resolved', {
+          conversationId: batch?.id || null,
+          votedText,
+          matchedAddress: match.formattedAddress,
+          lat: match.lat,
+          lng: match.lng,
+        });
+
+        const extractedFromPoll = {
+          ...(pendingPoll.extracted || {}),
+          pickup_location: match.formattedAddress,
+          _preGeocodedPickup: {
+            formattedAddress: match.formattedAddress,
+            lat: match.lat,
+            lng: match.lng,
+          },
+        };
+
+        const tripResult = await createTripFromConversation({
+          conversation: batch,
+          extracted: extractedFromPoll,
+        });
+        await sendWhatsAppText(batch.phone, tripResult.reply);
+
+        logWebhook('conversation_trip_result', {
+          conversationId: batch?.id || null,
+          ok: Boolean(tripResult?.ok),
+          reason: tripResult?.reason || null,
+          tripId: tripResult?.trip?.id || null,
+          driverId: tripResult?.driver?.id || null,
+        });
+
+        return {
+          handled: true,
+          updates: {
+            status: tripResult.ok ? 'awaiting_driver' : 'awaiting_info',
+            context: tripResult.context || {},
+            last_trip_id: tripResult.trip?.id || batch.last_trip_id || null,
+            processing_started_at: null,
+            last_processed_at: new Date().toISOString(),
+          },
+        };
+      }
+
+      // El texto votado no coincide con ningún candidato — continuamos con el flujo normal
+      logWebhook('conversation_address_poll_no_match', {
+        conversationId: batch?.id || null,
+        votedText,
+        candidateCount: pendingPoll.candidates.length,
+      });
+    }
+  }
+
   const lastTripById = await getTripById(batch.last_trip_id);
 
   // If the previous trip is already closed, start the new request with a clean context/history.
