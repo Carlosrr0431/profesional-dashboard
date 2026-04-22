@@ -227,6 +227,15 @@ function scoreGeocodeResult(result, query) {
   if (types.includes('street_address')) score += 0.15;
   if (types.includes('intersection')) score += 0.1;
 
+  // Penalización fuerte si ningún token de contenido real del query aparece en el resultado.
+  // Evita que bonuses de tipo/locationType inflen scores de resultados sin relación semántica.
+  const CITY_STOPWORDS = new Set(['salta', 'argentina', 'capital']);
+  const contentQueryTokens = [...queryTokens].filter((t) => !CITY_STOPWORDS.has(t));
+  if (contentQueryTokens.length > 0) {
+    const hasAnyContentMatch = contentQueryTokens.some((t) => addressTokens.has(t));
+    if (!hasAnyContentMatch) score -= 0.6;
+  }
+
   return score;
 }
 
@@ -2239,12 +2248,20 @@ async function processClaimedConversation(batch) {
         };
       }
 
-      // El texto votado no coincide con ningún candidato — continuamos con el flujo normal
+      // El texto votado no coincide con ningún candidato — limpiar el poll pero preservar
+      // el contexto del pasajero (nombre, dirección original) para el flujo normal
       logWebhook('conversation_address_poll_no_match', {
         conversationId: batch?.id || null,
         votedText,
         candidateCount: pendingPoll.candidates.length,
       });
+      // Reescribir el contexto sin pending_poll y forzar estado 'open' para que el flujo
+      // normal procese el nuevo mensaje sin el bloqueo de awaiting_address_selection
+      const pollContextWithoutPoll = { ...savedContext };
+      delete pollContextWithoutPoll.pending_poll;
+      // Mutar las propiedades relevantes del batch para el resto del procesamiento
+      batch.context = JSON.stringify(pollContextWithoutPoll);
+      batch.status = 'open';
     }
   }
 
