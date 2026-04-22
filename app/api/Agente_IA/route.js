@@ -2339,6 +2339,17 @@ async function processClaimedConversation(batch) {
   // Idempotency guard: if the passenger already has an open trip, do not create another one.
   const openTripByLastId = lastTripById && isOpenTripStatus(lastTripById.status) ? lastTripById : null;
   const openTripByPhone = openTripByLastId || await getLatestOpenTripByPhone(batch.phone);
+
+  // Detect cancellation intent BEFORE applying the guard, so passengers can cancel
+  // a trip that's already been accepted/in progress (going_to_pickup, in_progress, etc.).
+  const combinedTextForCancelCheck = pendingMessages.map((m) => m?.contenido).filter(Boolean).join('\n');
+  const ctxForCancelCheck = safeJsonParse(batch.context, {});
+  const hasPendingCancelConfirm = Boolean(ctxForCancelCheck?.pending_cancel_confirm);
+  const CANCEL_INTENT_RE = /\b(cancel[aá]|ya no|no quiero|dej[aá]lo|olv[ií]date|borralo|no va[sy]?|cor[tá]|no lo necesito|no necesito|no gracias|chau viaje|no voy|para todo)\b/i;
+  const looksLikeCancelRequest = CANCEL_INTENT_RE.test(combinedTextForCancelCheck);
+  const looksLikeCancelConfirm = hasPendingCancelConfirm && /\b(s[ií]|dale|okay|ok|bueno|claro|confirm[aá]?|cancel[aá])\b/i.test(combinedTextForCancelCheck);
+  const passengerWantsToCancel = looksLikeCancelRequest || looksLikeCancelConfirm;
+
   if (openTripByPhone && !shouldBlockForOpenTrip(openTripByPhone)) {
     logWebhook('conversation_open_trip_guard_ignored_stale_pending', {
       conversationId: batch?.id || null,
@@ -2349,7 +2360,7 @@ async function processClaimedConversation(batch) {
       matchedBy: openTripByLastId ? 'last_trip_id' : 'phone',
     });
   }
-  if (openTripByPhone && shouldBlockForOpenTrip(openTripByPhone)) {
+  if (openTripByPhone && shouldBlockForOpenTrip(openTripByPhone) && !passengerWantsToCancel) {
     logWebhook('conversation_open_trip_guard', {
       conversationId: batch?.id || null,
       tripId: openTripByPhone.id,
@@ -2375,6 +2386,16 @@ async function processClaimedConversation(batch) {
         last_processed_at: new Date().toISOString(),
       },
     };
+  }
+
+  if (openTripByPhone && shouldBlockForOpenTrip(openTripByPhone) && passengerWantsToCancel) {
+    logWebhook('conversation_open_trip_guard_bypassed_for_cancel', {
+      conversationId: batch?.id || null,
+      tripId: openTripByPhone.id,
+      tripStatus: openTripByPhone.status,
+      looksLikeCancelRequest,
+      looksLikeCancelConfirm,
+    });
   }
 
   const combinedText = pendingMessages
