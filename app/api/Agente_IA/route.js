@@ -2844,12 +2844,18 @@ async function processWebhookBody(body, requestMeta = {}) {
         return { status: 200, body: { success: true, ignored: true, reason: 'no_votes_yet' } };
       }
 
-      // Buscar tanto en 'awaiting_address_selection' (status correcto) como en 'open'
-      // por si el guardado del status falló por un constraint de DB y cayó al fallback.
+      // Búsqueda primaria: buscar por msg_id del poll en el contexto de CUALQUIER conversación
+      // activa (incluye 'processing' por si la conversación fue reclamada por un cron en ese instante).
       const { data: pollConvs, error: pollConvError } = await getSupabase()
         .from('whatsapp_conversations')
         .select('id, phone, push_name, context')
-        .in('status', ['awaiting_address_selection', 'open', 'awaiting_info']);
+        .in('status', [
+          'awaiting_address_selection',
+          'open',
+          'awaiting_info',
+          'processing',
+          'awaiting_driver',
+        ]);
 
       if (pollConvError) {
         logWebhook('poll_results_db_error', { error: summarizeDbError(pollConvError) });
@@ -2864,11 +2870,11 @@ async function processWebhookBody(body, requestMeta = {}) {
 
       let pollCtx = safeJsonParse(matchedConv?.context, {});
       let pollCandidates = pollCtx?.pending_poll?.candidates || [];
-      let selectedCandidate = pollCandidates.find((c) => c.label === voted.name);
+      let selectedCandidate = pollCandidates.find(
+        (c) => c.label === voted.name || c.formattedAddress === voted.name
+      );
 
-      // Fallback: si no encontramos la conversación por contexto (ej: contexto perdido por
-      // error de constraint previo), buscamos el mensaje del poll por external_message_id
-      // y re-geocodificamos la opción votada directamente.
+      // Fallback 1: buscar por external_message_id en whatsapp_messages.
       if (!matchedConv || !selectedCandidate) {
         logWebhook('poll_results_fallback_by_msg_id', {
           pollMsgId,
@@ -2904,6 +2910,58 @@ async function processWebhookBody(body, requestMeta = {}) {
               };
               logWebhook('poll_results_fallback_geocoded', {
                 conversationId: matchedConv.id,
+                votedName: voted.name,
+                formattedAddress: geo.formattedAddress,
+              });
+            } catch (geoErr) {
+              logWebhook('poll_results_fallback_geocode_fail', {
+                votedName: voted.name,
+                error: geoErr?.message || 'geocode_error',
+              });
+            }
+          }
+        }
+      }
+
+      // Fallback 2: si los fallbacks anteriores no encontraron la conversación, buscar en
+      // TODOS los estados (sin filtro de status) por si la conversación quedó en un estado
+      // inesperado (ej: hubo un error al guardar el status correcto).
+      if (!matchedConv) {
+        logWebhook('poll_results_fallback_all_statuses', { pollMsgId, votedName: voted.name });
+
+        const { data: allConvs } = await getSupabase()
+          .from('whatsapp_conversations')
+          .select('id, phone, push_name, context, status')
+          .not('context', 'is', null);
+
+        const broadMatch = (allConvs || []).find((c) => {
+          const ctx = safeJsonParse(c.context, {});
+          return ctx?.pending_poll?.msg_id === pollMsgId;
+        });
+
+        if (broadMatch) {
+          matchedConv = broadMatch;
+          pollCtx = safeJsonParse(broadMatch.context, {});
+          pollCandidates = pollCtx?.pending_poll?.candidates || [];
+          selectedCandidate = pollCandidates.find((c) => c.label === voted.name);
+          logWebhook('poll_results_fallback_all_statuses_found', {
+            conversationId: broadMatch.id,
+            status: broadMatch.status,
+            pollMsgId,
+          });
+
+          // Re-geocodificar si no hay candidato coincidente en el contexto recuperado
+          if (!selectedCandidate) {
+            try {
+              const geo = await geocodeAddress(voted.name);
+              selectedCandidate = {
+                label: voted.name,
+                formattedAddress: geo.formattedAddress,
+                lat: geo.lat,
+                lng: geo.lng,
+              };
+              logWebhook('poll_results_fallback_all_statuses_geocoded', {
+                conversationId: broadMatch.id,
                 votedName: voted.name,
                 formattedAddress: geo.formattedAddress,
               });
