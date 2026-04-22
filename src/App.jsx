@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useDrivers } from './hooks/useDrivers';
 import { useSettings } from './hooks/useSettings';
 import { usePendingPassengers } from './hooks/usePendingPassengers';
+import { useQueuedPassengers } from './hooks/useQueuedPassengers';
 import MapView from './components/MapView';
 import Sidebar from './components/Sidebar';
 import StatsBar from './components/StatsBar';
@@ -9,10 +10,12 @@ import DriverPanel from './components/DriverPanel';
 import TripAssignModal from './components/TripAssignModal';
 import DriverManagement from './components/DriverManagement';
 import BroadcastVoiceChat from './components/BroadcastVoiceChat';
+import QueuePanel from './components/QueuePanel';
 
 export default function App() {
   const { drivers, loading, refetch } = useDrivers();
   const pendingPassengers = usePendingPassengers();
+  const queueData = useQueuedPassengers();
   const {
     tariffPerKm,
     tariffBase,
@@ -105,6 +108,23 @@ export default function App() {
   const dateStr = clock.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
 
   const actionButtons = [
+    {
+      key: 'queue',
+      title: 'Cola de espera',
+      subtitle: queueData.stats.inQueue > 0
+        ? `${queueData.stats.inQueue} en espera`
+        : currentView === 'queue' ? 'Vista activa' : 'Sin pasajeros',
+      active: currentView === 'queue',
+      accent: queueData.stats.inQueue > 0 ? 'amber' : 'slate',
+      badge: queueData.stats.inQueue > 0 ? queueData.stats.inQueue : null,
+      onClick: () => setCurrentView(currentView === 'queue' ? 'map' : 'queue'),
+      icon: (
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      ),
+    },
     {
       key: 'management',
       title: 'Gestionar choferes',
@@ -201,6 +221,11 @@ export default function App() {
         <div className="flex-1 min-h-0 flex overflow-hidden rounded-[24px] border border-white/70 bg-light-50/88 backdrop-blur-xl shadow-[0_24px_70px_rgba(15,23,42,0.08)]">
           {currentView === 'management' ? (
             <DriverManagement onBack={() => setCurrentView('map')} />
+          ) : currentView === 'queue' ? (
+            <QueuePanel
+              {...queueData}
+              onBack={() => setCurrentView('map')}
+            />
           ) : (
             <>
               <Sidebar
@@ -301,7 +326,7 @@ export default function App() {
   );
 }
 
-function ActionButton({ title, subtitle, icon, onClick, active = false, accent = 'slate' }) {
+function ActionButton({ title, subtitle, icon, onClick, active = false, accent = 'slate', badge = null }) {
   const styles = {
     accent: active
       ? 'border-accent/30 bg-accent/10 text-accent shadow-[0_10px_24px_rgba(220,38,38,0.14)]'
@@ -312,13 +337,16 @@ function ActionButton({ title, subtitle, icon, onClick, active = false, accent =
     navy: active
       ? 'border-navy-700/20 bg-navy-dim text-navy-700 shadow-[0_10px_24px_rgba(30,58,95,0.1)]'
       : 'border-light-300/60 bg-white/80 text-navy-800 hover:border-navy-700/20 hover:bg-navy-dim',
+    amber: active
+      ? 'border-warning/30 bg-warning/10 text-warning shadow-[0_10px_24px_rgba(245,158,11,0.14)]'
+      : 'border-warning/30 bg-warning/5 text-navy-800 hover:border-warning/40 hover:bg-warning/10',
     slate: 'border-light-300/60 bg-white/80 text-navy-800 hover:border-navy-700/20 hover:bg-light-100',
   };
 
   return (
     <button
       onClick={onClick}
-      className={`group flex items-center gap-2 rounded-xl border px-3 py-1.5 transition-all duration-200 shadow-[0_4px_12px_rgba(15,23,42,0.04)] whitespace-nowrap ${styles[accent]}`}
+      className={`group relative flex items-center gap-2 rounded-xl border px-3 py-1.5 transition-all duration-200 shadow-[0_4px_12px_rgba(15,23,42,0.04)] whitespace-nowrap ${styles[accent]}`}
     >
       <div className="w-6 h-6 rounded-lg bg-light-100/95 border border-white/70 flex items-center justify-center flex-shrink-0 transition-transform group-hover:scale-105">
         {icon}
@@ -327,6 +355,11 @@ function ActionButton({ title, subtitle, icon, onClick, active = false, accent =
         <p className="text-[12px] font-semibold leading-tight">{title}</p>
         <p className="text-[10px] text-gray-500 leading-tight truncate max-w-[140px]">{subtitle}</p>
       </div>
+      {badge != null && badge > 0 && (
+        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] flex items-center justify-center text-[10px] font-bold text-white bg-warning rounded-full px-1 shadow-sm shadow-warning/40">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </button>
   );
 }
