@@ -57,9 +57,9 @@ export async function GET(_request, { params }) {
 
     const { data: lastTrack, error: trackError } = await supabase
       .from('trip_tracking')
-      .select('lat, lng, created_at')
+      .select('lat, lng, recorded_at')
       .eq('trip_id', trip.id)
-      .order('created_at', { ascending: false })
+      .order('recorded_at', { ascending: false })
       .limit(1)
       .maybeSingle();
     if (trackError) throw trackError;
