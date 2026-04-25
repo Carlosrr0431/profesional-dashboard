@@ -1028,16 +1028,58 @@ No confundir con "quiero ir a X y a Y" que sería dos destinos.
     `Mensajes del pasajero:\n${combinedText}`,
   ].filter(Boolean).join('\n\n');
 
-  const completion = await getOpenAI().chat.completions.create({
-    model: 'gpt-5.4-mini',
-    temperature: 0.15,
-    max_completion_tokens: 650,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...historyMessages,
-      { role: 'user', content: contextParts },
-    ],
-  });
+  let completion;
+  try {
+    completion = await getOpenAI().chat.completions.create({
+      model: 'gpt-4.1-mini',
+      temperature: 0.15,
+      max_completion_tokens: 650,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...historyMessages,
+        { role: 'user', content: contextParts },
+      ],
+    });
+  } catch (error) {
+    const status = Number(error?.status || 0);
+    const code = String(error?.code || error?.error?.code || '').toLowerCase();
+    const type = String(error?.type || error?.error?.type || '').toLowerCase();
+    const isQuotaOrRateLimit =
+      status === 429 ||
+      code === 'insufficient_quota' ||
+      code === 'rate_limit_exceeded' ||
+      type === 'insufficient_quota' ||
+      type === 'rate_limit_error';
+
+    logWebhook('ai_extract_intent_provider_error', {
+      phone: maskPhone(phone),
+      status: status || null,
+      code: code || null,
+      type: type || null,
+      message: error?.message || 'unknown_error',
+      fallbackUsed: isQuotaOrRateLimit,
+    });
+
+    if (!isQuotaOrRateLimit) throw error;
+
+    // Fallback operativo cuando OpenAI no está disponible por cuota/rate-limit.
+    // Dejamos que el flujo continúe con heurísticas downstream para evitar perder mensajes.
+    return {
+      intent: 'other',
+      passenger_name: passengerName,
+      pickup_location: hasPickupInContext ? sanitizeAddressInput(context?.pickup_location || '') : null,
+      origin: null,
+      destination: sanitizeAddressInput(context?.destination || ''),
+      notes: null,
+      reply: hasPickupInContext
+        ? 'Gracias, estamos procesando tu pedido. En un momento te confirmo el móvil.'
+        : 'Perdón, estoy con mucha demanda ahora. ¿Me pasás la dirección exacta desde donde te busco?',
+      confidence: 0,
+      missing_fields: hasPickupInContext ? [] : ['pickup_location'],
+      cancel_confirmed: false,
+      schedule_time: null,
+    };
+  }
 
   const raw = completion.choices[0]?.message?.content?.trim();
   const match = raw?.match(/\{[\s\S]*\}/);

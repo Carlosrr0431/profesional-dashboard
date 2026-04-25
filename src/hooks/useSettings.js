@@ -1,16 +1,31 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
 
 export function useSettings() {
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(true);
 
   const fetchSettings = useCallback(async () => {
-    const { data, error } = await supabase.from('settings').select('*');
-    if (!error && data) {
+    try {
+      const response = await fetch('/api/settings', { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) {
+        console.error('Error fetching settings:', {
+          status: response.status,
+          code: payload?.error?.code || null,
+          message: payload?.error?.message || 'Request failed',
+          details: payload?.error?.details || null,
+        });
+        setLoading(false);
+        return;
+      }
+
       const map = {};
-      data.forEach((row) => { map[row.key] = row.value; });
+      (payload?.data || []).forEach((row) => { map[row.key] = row.value; });
       setSettings(map);
+    } catch (error) {
+      console.error('Error fetching settings:', {
+        message: error?.message || String(error),
+      });
     }
     setLoading(false);
   }, []);
@@ -23,13 +38,27 @@ export function useSettings() {
     const strValue = String(value);
     setSettings((prev) => ({ ...prev, [key]: strValue }));
 
-    const { error } = await supabase
-      .from('settings')
-      .upsert({ key, value: strValue, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-
-    if (error) {
-      console.error('Error updating setting:', error);
-      fetchSettings(); // revert on error
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value: strValue }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        console.error('Error updating setting:', {
+          status: response.status,
+          code: payload?.error?.code || null,
+          message: payload?.error?.message || 'Request failed',
+          details: payload?.error?.details || null,
+        });
+        fetchSettings();
+      }
+    } catch (error) {
+      console.error('Error updating setting:', {
+        message: error?.message || String(error),
+      });
+      fetchSettings();
     }
   }, [fetchSettings]);
 

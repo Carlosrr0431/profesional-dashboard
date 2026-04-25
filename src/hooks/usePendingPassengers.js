@@ -11,19 +11,28 @@ export function usePendingPassengers() {
   const [pendingTrips, setPendingTrips] = useState([]);
   const channelRef = useRef(null);
 
-  const fetch = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('trips')
-      .select('id, passenger_name, passenger_phone, destination_address, destination_lat, destination_lng, created_at, status, notes')
-      .in('status', PENDING_STATUSES)
-      .not('destination_lat', 'is', null)
-      .not('destination_lng', 'is', null)
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      console.error('[usePendingPassengers] fetch error:', error);
+  const fetchPendingPassengers = useCallback(async () => {
+    let payload;
+    try {
+      const response = await fetch(`/api/pending-passengers?statuses=${encodeURIComponent(PENDING_STATUSES.join(','))}`);
+      payload = await response.json();
+      if (!response.ok) {
+        console.error('[usePendingPassengers] fetch error:', {
+          status: response.status,
+          code: payload?.error?.code || null,
+          message: payload?.error?.message || 'Request failed',
+          details: payload?.error?.details || null,
+        });
+        return;
+      }
+    } catch (err) {
+      console.error('[usePendingPassengers] network error:', {
+        message: err?.message || String(err),
+      });
       return;
     }
+
+    const data = payload?.data || [];
 
     setPendingTrips(
       (data || [])
@@ -43,17 +52,17 @@ export function usePendingPassengers() {
   }, []);
 
   useEffect(() => {
-    fetch();
+    fetchPendingPassengers();
 
     channelRef.current = supabase
       .channel('pending_passengers_realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, fetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, fetchPendingPassengers)
       .subscribe();
 
     return () => {
       if (channelRef.current) supabase.removeChannel(channelRef.current);
     };
-  }, [fetch]);
+  }, [fetchPendingPassengers]);
 
   return pendingTrips;
 }

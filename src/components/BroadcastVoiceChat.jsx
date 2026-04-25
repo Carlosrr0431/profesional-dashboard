@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { formatError } from '../lib/errorFormat';
 
 export default function BroadcastVoiceChat({ drivers, onClose }) {
   const [recording, setRecording] = useState(false);
@@ -40,7 +41,7 @@ export default function BroadcastVoiceChat({ drivers, onClose }) {
       setRecordingTime(0);
       timerRef.current = setInterval(() => setRecordingTime((t) => t + 1), 1000);
     } catch (err) {
-      console.error('Mic access denied:', err);
+      console.error('Mic access denied:', formatError(err));
     }
   };
 
@@ -96,7 +97,7 @@ export default function BroadcastVoiceChat({ drivers, onClose }) {
       setSent(true);
       setTimeout(() => setSent(false), 3000);
     } catch (err) {
-      console.error('Error sending broadcast voice:', err);
+      console.error('Error sending broadcast voice:', formatError(err));
     } finally {
       setSending(false);
       setRecordingTime(0);

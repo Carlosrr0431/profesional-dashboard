@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatPrice, formatKm, formatDuration, formatDateTime, formatTime, getTripStatus, timeAgo } from '../lib/utils';
+import { formatError } from '../lib/errorFormat';
 
 export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTrips, getDriverCommissionPayments, recordCommissionPayment }) {
   const [trips, setTrips] = useState([]);
@@ -22,7 +23,7 @@ export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTr
       setTrips(t);
       setPayments(p);
     } catch (err) {
-      console.error(err);
+      console.error('Driver detail load error:', formatError(err));
     } finally {
       setLoading(false);
     }
@@ -75,7 +76,7 @@ export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTr
       setShowPayForm(false);
       await loadData();
     } catch (err) {
-      console.error(err);
+      console.error('Driver payment error:', formatError(err));
     } finally {
       setPaying(false);
     }

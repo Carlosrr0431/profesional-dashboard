@@ -1,3 +1,5 @@
+import { formatError } from './errorFormat';
+
 export function timeAgo(dateStr) {
   if (!dateStr) return 'N/A';
   const now = new Date();
@@ -97,6 +99,6 @@ export async function sendPushNotification(pushToken, { title, body, data = {} }
     }
     return result;
   } catch (error) {
-    console.error('Failed to send push notification:', error);
+    console.error('Failed to send push notification:', formatError(error));
   }
 }

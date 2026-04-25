@@ -8,38 +8,58 @@ export function useDriverTrips(driverId) {
   const channelRef = useRef(null);
   const commChannelRef = useRef(null);
 
+  const fetchSnapshot = useCallback(async () => {
+    if (!driverId) return { trips: [], commissionPayments: [] };
+    const response = await fetch(`/api/driver-trips-snapshot/${encodeURIComponent(driverId)}`, { cache: 'no-store' });
+    const payload = await response.json();
+    if (!response.ok) {
+      const enriched = {
+        status: response.status,
+        code: payload?.error?.code || null,
+        message: payload?.error?.message || 'Request failed',
+        details: payload?.error?.details || null,
+      };
+      throw enriched;
+    }
+    return {
+      trips: payload?.data?.trips || [],
+      commissionPayments: payload?.data?.commissionPayments || [],
+    };
+  }, [driverId]);
+
   const fetchTrips = useCallback(async () => {
     if (!driverId) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('trips')
-        .select('*')
-        .eq('driver_id', driverId)
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      setTrips(data || []);
+      const snapshot = await fetchSnapshot();
+      setTrips(snapshot.trips);
+      setCommissionPayments(snapshot.commissionPayments);
     } catch (err) {
-      console.error('Error fetching trips:', err);
+      console.error('Error fetching trips:', {
+        status: err?.status || null,
+        code: err?.code || null,
+        message: err?.message || String(err),
+        details: err?.details || null,
+      });
     } finally {
       setLoading(false);
     }
-  }, [driverId]);
+  }, [driverId, fetchSnapshot]);
 
   const fetchCommissionPayments = useCallback(async () => {
     if (!driverId) return;
     try {
-      const { data, error } = await supabase
-        .from('commission_payments')
-        .select('*')
-        .eq('driver_id', driverId)
-        .order('created_at', { ascending: false });
-      if (!error) setCommissionPayments(data || []);
+      const snapshot = await fetchSnapshot();
+      setCommissionPayments(snapshot.commissionPayments);
     } catch (err) {
-      console.error('Error fetching commission payments:', err);
+      console.error('Error fetching commission payments:', {
+        status: err?.status || null,
+        code: err?.code || null,
+        message: err?.message || String(err),
+        details: err?.details || null,
+      });
     }
-  }, [driverId]);
+  }, [driverId, fetchSnapshot]);
 
   useEffect(() => {
     if (!driverId) {

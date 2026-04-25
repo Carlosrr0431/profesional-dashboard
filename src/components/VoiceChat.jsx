@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { formatError } from '../lib/errorFormat';
 
 export default function VoiceChat({ driver, onClose }) {
   const [messages, setMessages] = useState([]);
@@ -28,7 +29,7 @@ export default function VoiceChat({ driver, onClose }) {
         .limit(50);
       if (!error) setMessages(data || []);
     } catch (err) {
-      console.error('Error fetching voice messages:', err);
+      console.error('Error fetching voice messages:', formatError(err));
     } finally {
       setLoading(false);
     }
@@ -116,7 +117,7 @@ export default function VoiceChat({ driver, onClose }) {
       setRecordingTime(0);
       timerRef.current = setInterval(() => setRecordingTime((t) => t + 1), 1000);
     } catch (err) {
-      console.error('Mic access denied:', err);
+      console.error('Mic access denied:', formatError(err));
     }
   };
 
@@ -164,7 +165,7 @@ export default function VoiceChat({ driver, onClose }) {
         });
       if (insertError) throw insertError;
     } catch (err) {
-      console.error('Error sending voice:', err);
+      console.error('Error sending voice:', formatError(err));
     } finally {
       setSending(false);
       setRecordingTime(0);

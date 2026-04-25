@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Autocomplete } from '@react-google-maps/api';
 import { supabase } from '../lib/supabase';
 import { sendPushNotification, formatPrice, formatKm } from '../lib/utils';
+import { formatError } from '../lib/errorFormat';
 
 const inputStyle = {
   width: '100%',
@@ -70,7 +71,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
         return result.results[0].formatted_address;
       }
     } catch (e) {
-      console.error('Reverse geocode error:', e);
+      console.error('Reverse geocode error:', formatError(e));
     }
     return null;
   };
@@ -153,7 +154,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
         };
       }
     } catch (e) {
-      console.error('Geocode error:', e);
+      console.error('Geocode error:', formatError(e));
     }
     return null;
   };
@@ -270,7 +271,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
       if (onSuccess) onSuccess(data);
       onClose();
     } catch (err) {
-      console.error('Error creating trip:', err);
+      console.error('Error creating trip:', formatError(err));
       setError(err.message || 'Error al crear el viaje');
     } finally {
       setLoading(false);
