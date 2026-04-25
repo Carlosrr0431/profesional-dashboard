@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import {
   GoogleMap,
   useJsApiLoader,
@@ -11,21 +10,11 @@ import {
 } from '@react-google-maps/api';
 
 // ── Config ─────────────────────────────────────────────────────────────────
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '';
 
 // Stable reference — must not be recreated on each render
 const LIBRARIES = [];
 const MAP_CONTAINER = { width: '100%', height: '100%' };
-
-// Module-level Supabase client (single WebSocket for all realtime channels)
-const supabase =
-  SUPABASE_URL && SUPABASE_ANON_KEY
-    ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        realtime: { params: { eventsPerSecond: 5 } },
-      })
-    : null;
 
 // ── Map style ──────────────────────────────────────────────────────────────
 const MAP_OPTIONS = {
@@ -80,35 +69,6 @@ const STATUS_CONFIG = {
   },
 };
 
-// ── Polyline decoder ───────────────────────────────────────────────────────
-function decodePolyline(encoded) {
-  const path = [];
-  let index = 0;
-  let lat = 0;
-  let lng = 0;
-  while (index < encoded.length) {
-    let b;
-    let shift = 0;
-    let result = 0;
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    lat += result & 1 ? ~(result >> 1) : result >> 1;
-    shift = 0;
-    result = 0;
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    lng += result & 1 ? ~(result >> 1) : result >> 1;
-    path.push({ lat: lat / 1e5, lng: lng / 1e5 });
-  }
-  return path;
-}
-
 // ── Component ──────────────────────────────────────────────────────────────
 export default function TrackingView({ token }) {
   const [trip, setTrip] = useState(null);
@@ -118,7 +78,6 @@ export default function TrackingView({ token }) {
   const [pageState, setPageState] = useState('loading'); // 'loading' | 'ready' | 'not_found'
 
   const mapRef = useRef(null);
-  const dirSvcRef = useRef(null);
   const lastRouteKeyRef = useRef('');
 
   const { isLoaded } = useJsApiLoader({
@@ -126,9 +85,20 @@ export default function TrackingView({ token }) {
     libraries: LIBRARIES,
   });
 
+  const fetchSnapshot = useCallback(async (trackingToken) => {
+    const response = await fetch(`/api/public-tracking/${encodeURIComponent(trackingToken)}`, {
+      cache: 'no-store',
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload?.ok) {
+      throw new Error(payload?.error?.message || 'Tracking not found');
+    }
+    return payload.data;
+  }, []);
+
   // ── Load initial trip + driver ─────────────────────────────────────────
   useEffect(() => {
-    if (!supabase || !token) {
+    if (!token) {
       setPageState('not_found');
       return;
     }
@@ -137,41 +107,26 @@ export default function TrackingView({ token }) {
 
     async function load() {
       try {
-        const { data: tripData, error } = await supabase
-          .from('trips')
-          .select('*')
-          .eq('tracking_token', token)
-          .maybeSingle();
+        const data = await fetchSnapshot(token);
 
         if (cancelled) return;
 
-        if (error || !tripData) {
-          setPageState('not_found');
-          return;
-        }
+        setTrip(data?.trip || null);
+        setDriver(data?.driver || null);
 
-        setTrip(tripData);
-
-        if (tripData.driver_id) {
-          const { data: driverData } = await supabase
-            .from('drivers')
-            .select(
-              'id, full_name, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, photo_url, current_lat, current_lng',
-            )
-            .eq('id', tripData.driver_id)
-            .maybeSingle();
-
-          if (!cancelled && driverData) {
-            setDriver(driverData);
-            const lat = parseFloat(driverData.current_lat);
-            const lng = parseFloat(driverData.current_lng);
-            if (Number.isFinite(lat) && Number.isFinite(lng)) {
-              setDriverPos({ lat, lng });
-            }
+        const trackLat = parseFloat(data?.lastTrack?.lat);
+        const trackLng = parseFloat(data?.lastTrack?.lng);
+        if (Number.isFinite(trackLat) && Number.isFinite(trackLng)) {
+          setDriverPos({ lat: trackLat, lng: trackLng });
+        } else {
+          const lat = parseFloat(data?.driver?.current_lat);
+          const lng = parseFloat(data?.driver?.current_lng);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            setDriverPos({ lat, lng });
           }
         }
 
-        if (!cancelled) setPageState('ready');
+        setPageState('ready');
       } catch {
         if (!cancelled) setPageState('not_found');
       }
@@ -181,96 +136,58 @@ export default function TrackingView({ token }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [fetchSnapshot, token]);
 
-  // ── Realtime subscriptions ────────────────────────────────────────────
+  // ── Poll updates for public link ───────────────────────────────────────
   useEffect(() => {
-    if (!supabase || !trip?.id || !trip?.driver_id) return;
-    if (trip.status === 'completed' || trip.status === 'cancelled') return;
+    if (!token || pageState !== 'ready' || !trip?.id) return;
 
-    const channel = supabase
-      .channel(`tracking-${trip.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'trip_tracking',
-          filter: `trip_id=eq.${trip.id}`,
-        },
-        ({ new: row }) => {
-          const lat = parseFloat(row.lat);
-          const lng = parseFloat(row.lng);
+    let cancelled = false;
+    const intervalId = setInterval(async () => {
+      try {
+        const data = await fetchSnapshot(token);
+        if (cancelled) return;
+
+        setTrip(data?.trip || null);
+        setDriver(data?.driver || null);
+
+        const trackLat = parseFloat(data?.lastTrack?.lat);
+        const trackLng = parseFloat(data?.lastTrack?.lng);
+        if (Number.isFinite(trackLat) && Number.isFinite(trackLng)) {
+          setDriverPos({ lat: trackLat, lng: trackLng });
+        } else {
+          const lat = parseFloat(data?.driver?.current_lat);
+          const lng = parseFloat(data?.driver?.current_lng);
           if (Number.isFinite(lat) && Number.isFinite(lng)) {
             setDriverPos({ lat, lng });
           }
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'drivers',
-          filter: `id=eq.${trip.driver_id}`,
-        },
-        ({ new: row }) => {
-          const lat = parseFloat(row.current_lat);
-          const lng = parseFloat(row.current_lng);
-          if (Number.isFinite(lat) && Number.isFinite(lng)) {
-            setDriverPos({ lat, lng });
-          }
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'trips',
-          filter: `id=eq.${trip.id}`,
-        },
-        ({ new: row }) => {
-          setTrip((prev) => ({ ...prev, ...row }));
-        },
-      )
-      .subscribe();
+        }
+      } catch {
+        // Keep current state on transient polling failures.
+      }
+    }, 5000);
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      clearInterval(intervalId);
     };
-  }, [trip?.id, trip?.driver_id, trip?.status]);
+  }, [fetchSnapshot, pageState, token, trip?.id]);
 
-  // ── Init DirectionsService once Maps API is ready ──────────────────────
-  useEffect(() => {
-    if (isLoaded && !dirSvcRef.current) {
-      dirSvcRef.current = new window.google.maps.DirectionsService();
-    }
-  }, [isLoaded]);
-
-  // ── Fetch route from driver position to next waypoint ─────────────────
+  // ── Build route from driver position to next waypoint ─────────────────
   const fetchRoute = useCallback(
     (origin, dest) => {
-      if (!dirSvcRef.current || !origin || !dest) return;
+      if (!origin || !dest) return;
 
       // Only re-fetch when driver has moved enough (~55 m resolution)
       const key = `${Math.round(origin.lat * 1800)}:${Math.round(origin.lng * 1800)}`;
       if (key === lastRouteKeyRef.current) return;
       lastRouteKeyRef.current = key;
 
-      dirSvcRef.current.route(
-        {
-          origin: { lat: origin.lat, lng: origin.lng },
-          destination: { lat: dest.lat, lng: dest.lng },
-          travelMode: 'DRIVING',
-        },
-        (result, status) => {
-          if (status === 'OK') {
-            const encoded = result?.routes?.[0]?.overview_polyline?.points;
-            if (encoded) setRoutePath(decodePolyline(encoded));
-          }
-        },
-      );
+      // Avoid deprecated DirectionsService in JS Maps API.
+      setRoutePath([
+        { lat: origin.lat, lng: origin.lng },
+        { lat: dest.lat, lng: dest.lng },
+      ]);
     },
     [],
   );

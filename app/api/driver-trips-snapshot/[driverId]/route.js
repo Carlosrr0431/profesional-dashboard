@@ -16,7 +16,8 @@ function getSupabaseAdmin() {
 
 export async function GET(_request, { params }) {
   try {
-    const driverId = params?.driverId;
+    const resolvedParams = await params;
+    const driverId = resolvedParams?.driverId;
     if (!driverId) {
       return NextResponse.json(
         { ok: false, error: { code: 'BAD_REQUEST', message: 'driverId is required' } },

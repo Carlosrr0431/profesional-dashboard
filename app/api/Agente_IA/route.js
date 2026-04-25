@@ -1800,6 +1800,8 @@ async function createTripFromConversation({ conversation, extracted }) {
   }
   } // end pre-geocoded else
 
+  const finalDestinationHint = sanitizeAddressInput(extracted?.destination || '');
+
   const driver = await chooseDriver({ lat: pickupLocation.lat, lng: pickupLocation.lng });
   if (!driver) {
     logWebhook('trip_create_no_driver', {
@@ -1828,7 +1830,6 @@ async function createTripFromConversation({ conversation, extracted }) {
   const driverLng = Number(driver.current_lng);
   const driverOriginAddress = await reverseGeocodeLatLng(driverLat, driverLng);
   const routeToPickup = await getRouteMetrics({ lat: driverLat, lng: driverLng }, pickupLocation);
-  const finalDestinationHint = sanitizeAddressInput(extracted?.destination || '');
 
   // Intentar geocodificar el destino final si el pasajero lo proporcionó
   let finalDestinationGeo = null;

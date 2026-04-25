@@ -167,6 +167,41 @@ export function useDriverManagement() {
     }
   }, [fetchDrivers]);
 
+  const toggleCommissionBlock = useCallback(async (driverId) => {
+    // Keep historical debt logic: unlock means registering a payment that settles
+    // (sum of commissions from trips - sum of commission_payments).
+    const snapshotResponse = await fetch(`/api/driver-trips-snapshot/${encodeURIComponent(driverId)}`, { cache: 'no-store' });
+    const snapshotPayload = await snapshotResponse.json();
+    if (!snapshotResponse.ok) {
+      throw {
+        status: snapshotResponse.status,
+        code: snapshotPayload?.error?.code || null,
+        message: snapshotPayload?.error?.message || 'Request failed',
+        details: snapshotPayload?.error?.details || null,
+      };
+    }
+
+    const trips = snapshotPayload?.data?.trips || [];
+    const payments = snapshotPayload?.data?.commissionPayments || [];
+    const totalCommission = trips
+      .filter((trip) => trip?.status === 'completed')
+      .reduce((sum, trip) => sum + (parseFloat(trip?.commission_amount) || 0), 0);
+    const totalPaid = payments.reduce((sum, payment) => sum + (parseFloat(payment?.amount) || 0), 0);
+    const balance = Math.round((totalCommission - totalPaid) * 100) / 100;
+
+    if (balance <= 0) {
+      await fetchDrivers();
+      return;
+    }
+
+    await recordCommissionPayment(
+      driverId,
+      balance,
+      'Ajuste manual: marcado como comision pagada desde Gestion de Choferes'
+    );
+    await fetchDrivers();
+  }, [fetchDrivers, recordCommissionPayment]);
+
   return {
     drivers,
     loading,
@@ -178,5 +213,6 @@ export function useDriverManagement() {
     getDriverPendingCommission,
     getDriverCommissionAccumulation,
     recordCommissionPayment,
+    toggleCommissionBlock,
   };
 }

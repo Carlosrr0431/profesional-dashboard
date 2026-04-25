@@ -3,9 +3,10 @@ import { useDriverManagement } from '../hooks/useDriverManagement';
 import DriverFormModal from './DriverFormModal';
 import DriverDetailPanel from './DriverDetailPanel';
 import { formatPrice, timeAgo } from '../lib/utils';
+import { formatError } from '../lib/errorFormat';
 
 export default function DriverManagement({ onBack }) {
-  const { drivers, loading, createDriver, updateDriver, getDriverTrips, getDriverCommissionPayments, recordCommissionPayment, refetch } = useDriverManagement();
+  const { drivers, loading, createDriver, updateDriver, getDriverTrips, getDriverCommissionPayments, recordCommissionPayment, toggleCommissionBlock, refetch } = useDriverManagement();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
@@ -13,11 +14,15 @@ export default function DriverManagement({ onBack }) {
   const [detailDriver, setDetailDriver] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [confirmDriver, setConfirmDriver] = useState(null);
+  const [confirmingPayment, setConfirmingPayment] = useState(false);
 
   const filtered = useMemo(() => {
     return drivers.filter((d) => {
       if (filter === 'active' && !d.is_available) return false;
       if (filter === 'inactive' && d.is_available) return false;
+      if (filter === 'blocked' && !d.commission_blocked) return false;
+      if (filter === 'owes' && !(d.pending_commission > 0)) return false;
       if (search) {
         const q = search.toLowerCase();
         return (
@@ -58,6 +63,24 @@ export default function DriverManagement({ onBack }) {
   const handleNewDriver = () => {
     setEditDriver(null);
     setShowForm(true);
+  };
+
+  const handleMarkCommissionPaid = async (driver) => {
+    setConfirmDriver(driver);
+  };
+
+  const handleConfirmMarkCommissionPaid = async () => {
+    if (!confirmDriver) return;
+    setConfirmingPayment(true);
+    try {
+      await toggleCommissionBlock(confirmDriver.id);
+      setConfirmDriver(null);
+    } catch (err) {
+      console.error('Error marking commission as paid:', formatError(err));
+      setError(err?.message || 'No se pudo registrar el pago de comision');
+    } finally {
+      setConfirmingPayment(false);
+    }
   };
 
   if (loading) {
@@ -115,6 +138,8 @@ export default function DriverManagement({ onBack }) {
                 { key: 'all', label: 'Todos' },
                 { key: 'active', label: 'Activos' },
                 { key: 'inactive', label: 'Inactivos' },
+                { key: 'owes', label: 'Deben' },
+                { key: 'blocked', label: 'Bloqueados' },
               ].map((f) => (
                 <button
                   key={f.key}
@@ -161,6 +186,7 @@ export default function DriverManagement({ onBack }) {
                       onView={() => setDetailDriver(driver)}
                       onEdit={() => handleEdit(driver)}
                       isSelected={detailDriver?.id === driver.id}
+                      onToggleBlock={() => handleMarkCommissionPaid(driver)}
                     />
                   ))}
                 </tbody>
@@ -179,6 +205,7 @@ export default function DriverManagement({ onBack }) {
           getDriverTrips={getDriverTrips}
           getDriverCommissionPayments={getDriverCommissionPayments}
           recordCommissionPayment={recordCommissionPayment}
+          toggleCommissionBlock={toggleCommissionBlock}
         />
       )}
 
@@ -192,11 +219,63 @@ export default function DriverManagement({ onBack }) {
           error={error}
         />
       )}
+
+      {confirmDriver && (
+        <ConfirmCommissionPaymentModal
+          driver={confirmDriver}
+          loading={confirmingPayment}
+          onCancel={() => setConfirmDriver(null)}
+          onConfirm={handleConfirmMarkCommissionPaid}
+        />
+      )}
     </div>
   );
 }
 
-function DriverTableRow({ driver, onView, onEdit, isSelected }) {
+function ConfirmCommissionPaymentModal({ driver, loading, onCancel, onConfirm }) {
+  const pending = parseFloat(driver?.pending_commission || 0);
+
+  return (
+    <div className="fixed inset-0 z-[110] bg-navy-900/45 backdrop-blur-[1px] flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-light-50 rounded-2xl border border-light-300/50 shadow-2xl shadow-navy-900/25 overflow-hidden">
+        <div className="px-5 py-4 border-b border-light-300/40">
+          <h3 className="text-sm font-bold text-navy-900">Confirmar Pago de Comision</h3>
+          <p className="text-xs text-gray-500 mt-1">Esta accion registrara un pago para saldar la deuda del chofer.</p>
+        </div>
+
+        <div className="px-5 py-4 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-500">Chofer</span>
+            <span className="font-semibold text-navy-900">{driver?.full_name || 'Sin nombre'}</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-500">Monto a registrar</span>
+            <span className="font-bold text-online">{formatPrice(pending)}</span>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-light-300/40 flex gap-2">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 py-2.5 text-xs font-medium text-gray-600 bg-light-200 border border-light-300/60 rounded-xl hover:bg-light-300/60 disabled:opacity-50 transition-all"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 py-2.5 text-xs font-semibold text-white bg-gradient-to-r from-online to-emerald-500 rounded-xl hover:shadow-lg hover:shadow-online/20 disabled:opacity-50 transition-all"
+          >
+            {loading ? 'Registrando...' : 'Confirmar Pago'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DriverTableRow({ driver, onView, onEdit, isSelected, onToggleBlock }) {
   const initials = (driver.full_name || 'NN')
     .split(' ')
     .map((n) => n[0])
@@ -259,16 +338,36 @@ function DriverTableRow({ driver, onView, onEdit, isSelected }) {
 
       {/* Status */}
       <td className="px-4 py-3 text-center">
-        <span className={`inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full ${
-          driver.is_available ? 'bg-online/15 text-online' : 'bg-light-300/50 text-gray-500'
-        }`}>
-          {driver.is_available ? 'Activo' : 'Inactivo'}
-        </span>
+        <div className="flex flex-col items-center gap-1">
+          <span className={`inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full ${
+            driver.commission_blocked
+              ? 'bg-danger/15 text-danger'
+              : driver.is_available
+              ? 'bg-online/15 text-online'
+              : 'bg-light-300/50 text-gray-500'
+          }`}>
+            {driver.commission_blocked ? '🔒 Bloqueado' : driver.is_available ? 'Activo' : 'Inactivo'}
+          </span>
+          {driver.pending_commission > 0 && (
+            <span className="text-[9px] font-bold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">
+              Debe ${parseFloat(driver.pending_commission).toFixed(0)}
+            </span>
+          )}
+        </div>
       </td>
 
       {/* Actions */}
       <td className="px-4 py-3 text-right">
         <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+          {driver.pending_commission > 0 && (
+            <button
+              onClick={() => onToggleBlock()}
+              className="w-8 h-8 rounded-lg border flex items-center justify-center transition-all bg-online/10 border-online/30 text-online hover:bg-online/20"
+              title="Marcar comision pagada"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6-1a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </button>
+          )}
           <button
             onClick={onView}
             className="w-8 h-8 rounded-lg bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all"

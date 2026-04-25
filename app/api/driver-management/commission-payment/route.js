@@ -43,13 +43,14 @@ export async function POST(request) {
     if (getError) throw getError;
 
     const newBalance = Math.max(0, (driver?.pending_commission || 0) - amount);
+    const updateFields = {
+      pending_commission: newBalance,
+      last_commission_payment_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
     const { error: updateError } = await supabase
       .from('drivers')
-      .update({
-        pending_commission: newBalance,
-        last_commission_payment_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateFields)
       .eq('id', driverId);
     if (updateError) throw updateError;
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { formatPrice, formatKm, formatDuration, formatDateTime, formatTime, getTripStatus, timeAgo } from '../lib/utils';
 import { formatError } from '../lib/errorFormat';
 
-export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTrips, getDriverCommissionPayments, recordCommissionPayment }) {
+export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTrips, getDriverCommissionPayments, recordCommissionPayment, toggleCommissionBlock }) {
   const [trips, setTrips] = useState([]);
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -12,6 +12,8 @@ export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTr
   const [payNotes, setPayNotes] = useState('');
   const [paying, setPaying] = useState(false);
   const [showPayForm, setShowPayForm] = useState(false);
+  const [blocking, setBlocking] = useState(false);
+  const [showSettleConfirm, setShowSettleConfirm] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -82,6 +84,22 @@ export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTr
     }
   };
 
+  const handleToggleBlock = async () => {
+    setShowSettleConfirm(true);
+  };
+
+  const handleConfirmToggleBlock = async () => {
+    setBlocking(true);
+    try {
+      await toggleCommissionBlock(driver.id);
+      setShowSettleConfirm(false);
+    } catch (err) {
+      console.error('Toggle block error:', formatError(err));
+    } finally {
+      setBlocking(false);
+    }
+  };
+
   return (
     <div className="w-[440px] bg-light-50 border-l border-light-300/50 flex flex-col h-full animate-slideIn">
       {/* Header */}
@@ -122,16 +140,19 @@ export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTr
           {[
             { key: 'info', label: 'Resumen' },
             { key: 'trips', label: `Viajes (${trips.length})` },
-            { key: 'commission', label: 'Comisiones' },
+            { key: 'commission', label: 'Comisiones', alert: driver.pending_commission > 0 || driver.commission_blocked },
           ].map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`flex-1 text-[11px] font-medium py-2 rounded-lg transition-all ${
+              className={`flex-1 text-[11px] font-medium py-2 rounded-lg transition-all relative ${
                 tab === t.key ? 'bg-accent text-white shadow-md shadow-accent/20' : 'text-gray-400 hover:text-navy-900'
               }`}
             >
               {t.label}
+              {t.alert && tab !== t.key && (
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-danger" />
+              )}
             </button>
           ))}
         </div>
@@ -163,6 +184,7 @@ export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTr
             )}
             {tab === 'commission' && (
               <CommissionTab
+                driver={driver}
                 totalCommission={totalCommission}
                 totalPaid={totalPaid}
                 commissionBalance={commissionBalance}
@@ -177,11 +199,64 @@ export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTr
                 setPayNotes={setPayNotes}
                 paying={paying}
                 onPay={handlePay}
-                onPayFull={() => { setPayAmount(commissionBalance.toString()); setShowPayForm(true); }}
+                onPayFull={() => { setPayAmount((driver.pending_commission || commissionBalance).toString()); setShowPayForm(true); }}
+                onToggleBlock={handleToggleBlock}
+                blocking={blocking}
               />
             )}
           </>
         )}
+      </div>
+
+      {showSettleConfirm && (
+        <ConfirmCommissionPaymentModal
+          driver={driver}
+          amount={parseFloat(driver?.pending_commission || commissionBalance || 0)}
+          loading={blocking}
+          onCancel={() => setShowSettleConfirm(false)}
+          onConfirm={handleConfirmToggleBlock}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConfirmCommissionPaymentModal({ driver, amount, loading, onCancel, onConfirm }) {
+  return (
+    <div className="absolute inset-0 z-[120] bg-navy-900/45 backdrop-blur-[1px] flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-light-50 rounded-2xl border border-light-300/50 shadow-2xl shadow-navy-900/25 overflow-hidden">
+        <div className="px-5 py-4 border-b border-light-300/40">
+          <h3 className="text-sm font-bold text-navy-900">Confirmar Pago de Comision</h3>
+          <p className="text-xs text-gray-500 mt-1">Se registrara un pago total para este chofer.</p>
+        </div>
+
+        <div className="px-5 py-4 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-500">Chofer</span>
+            <span className="font-semibold text-navy-900">{driver?.full_name || 'Sin nombre'}</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-500">Monto a registrar</span>
+            <span className="font-bold text-online">{formatPrice(amount)}</span>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-light-300/40 flex gap-2">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 py-2.5 text-xs font-medium text-gray-600 bg-light-200 border border-light-300/60 rounded-xl hover:bg-light-300/60 disabled:opacity-50 transition-all"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 py-2.5 text-xs font-semibold text-white bg-gradient-to-r from-online to-emerald-500 rounded-xl hover:shadow-lg hover:shadow-online/20 disabled:opacity-50 transition-all"
+          >
+            {loading ? 'Registrando...' : 'Confirmar Pago'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -315,24 +390,60 @@ function TripRow({ trip }) {
 
 /* ─── Commission Tab ─── */
 function CommissionTab({
-  totalCommission, totalPaid, commissionBalance, isOverdue, todayCommission,
-  payments, showPayForm, setShowPayForm, payAmount, setPayAmount, payNotes, setPayNotes, paying, onPay, onPayFull,
+  driver, totalCommission, totalPaid, commissionBalance, isOverdue, todayCommission,
+  payments, showPayForm, setShowPayForm, payAmount, setPayAmount, payNotes, setPayNotes,
+  paying, onPay, onPayFull, onToggleBlock, blocking,
 }) {
+  const isBlocked = driver?.commission_blocked || false;
+  const pendingFromDB = parseFloat(driver?.pending_commission || 0);
+
   return (
     <div className="p-5 space-y-4">
+      {/* Block status banner */}
+      {isBlocked && (
+        <div className="flex items-center justify-between bg-danger/10 border border-danger/30 rounded-xl px-4 py-3">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-danger flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+            <div>
+              <p className="text-xs font-bold text-danger">Chofer Bloqueado</p>
+              <p className="text-[10px] text-danger/70">No puede tomar viajes hasta regularizar comisión</p>
+            </div>
+          </div>
+          <button
+            onClick={onToggleBlock}
+            disabled={blocking}
+            className="text-[10px] font-bold text-white bg-online px-3 py-1.5 rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-all"
+          >
+            {blocking ? '...' : 'Marcar Pagado'}
+          </button>
+        </div>
+      )}
+
       {/* Balance card */}
-      <div className={`rounded-xl border p-4 ${isOverdue ? 'bg-danger/5 border-danger/20' : commissionBalance > 0 ? 'bg-amber-50 border-amber-200' : 'bg-online/5 border-online/20'}`}>
+      <div className={`rounded-xl border p-4 ${isOverdue || isBlocked ? 'bg-danger/5 border-danger/20' : commissionBalance > 0 ? 'bg-amber-50 border-amber-200' : 'bg-online/5 border-online/20'}`}>
         <div className="flex items-center justify-between mb-3">
           <span className="text-xs font-semibold text-gray-500">Balance de Comisión</span>
-          {isOverdue && (
-            <span className="text-[10px] font-bold text-danger bg-danger/10 px-2 py-0.5 rounded-full">⚠️ VENCIDA</span>
-          )}
+          <div className="flex items-center gap-1.5">
+            {isOverdue && (
+              <span className="text-[10px] font-bold text-danger bg-danger/10 px-2 py-0.5 rounded-full">⚠️ VENCIDA</span>
+            )}
+            {!isBlocked && commissionBalance > 0 && (
+              <button
+                onClick={onToggleBlock}
+                disabled={blocking}
+                className="text-[10px] font-bold text-danger bg-danger/10 px-2.5 py-0.5 rounded-full hover:bg-danger/20 disabled:opacity-50 transition-all"
+                title="Registrar pago total de comision"
+              >
+                {blocking ? '...' : 'Marcar pagado'}
+              </button>
+            )}
+          </div>
         </div>
-        <p className={`text-2xl font-bold ${isOverdue ? 'text-danger' : commissionBalance > 0 ? 'text-amber-600' : 'text-online'}`}>
-          {formatPrice(commissionBalance)}
+        <p className={`text-2xl font-bold ${isOverdue || isBlocked ? 'text-danger' : commissionBalance > 0 ? 'text-amber-600' : 'text-online'}`}>
+          ${pendingFromDB.toFixed(2)}
         </p>
         <p className="text-[10px] text-gray-500 mt-1">
-          {commissionBalance <= 0 ? 'Al día ✓' : `Debe ${formatPrice(commissionBalance)} de comisión`}
+          {pendingFromDB <= 0 ? 'Al día ✓' : `Debe $${pendingFromDB.toFixed(2)} de comisión`}
         </p>
       </div>
 
@@ -353,13 +464,13 @@ function CommissionTab({
       </div>
 
       {/* Pay button */}
-      {commissionBalance > 0 && !showPayForm && (
+      {pendingFromDB > 0 && !showPayForm && (
         <div className="flex gap-2">
           <button
             onClick={onPayFull}
             className="flex-1 py-2.5 bg-gradient-to-r from-online to-emerald-500 text-white text-sm font-semibold rounded-xl hover:shadow-lg hover:shadow-online/20 transition-all"
           >
-            Pagar Todo ({formatPrice(commissionBalance)})
+            Pagar Todo ({formatPrice(pendingFromDB)})
           </button>
           <button
             onClick={() => setShowPayForm(true)}
