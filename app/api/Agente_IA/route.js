@@ -10,6 +10,7 @@ const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const WASENDER_API_KEY = process.env.WASENDER_API_KEY || '';
 const WASENDER_BASE_URL = process.env.WASENDER_BASE_URL || 'https://www.wasenderapi.com/api';
+const TRACKING_BASE_URL = process.env.TRACKING_BASE_URL || 'https://profesional-dashboard.vercel.app';
 const CRON_SECRET = process.env.CRON_SECRET || '';
 const WHATSAPP_TRIP_TRANSITION_SECRET = process.env.WHATSAPP_TRIP_TRANSITION_SECRET || '';
 const ALLOWED_PHONES = new Set(['5493878630173']);
@@ -759,7 +760,7 @@ async function getConversationFlowTripById(tripId) {
   const { data, error } = await getSupabase()
     .from('trips')
     .select(
-      'id, driver_id, status, passenger_name, passenger_phone, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, notes, cancel_reason, created_at, accepted_at, started_at, completed_at'
+      'id, driver_id, status, passenger_name, passenger_phone, tracking_token, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, notes, cancel_reason, created_at, accepted_at, started_at, completed_at'
     )
     .eq('id', tripId)
     .maybeSingle();
@@ -840,8 +841,14 @@ async function buildPassengerDriverConfirmationMessage(trip, driver) {
   const driverMeta = [driver?.full_name, driverLabel, driver?.vehicle_plate].filter(Boolean).join(' · ');
   const etaText = etaMinutes != null ? `\nLlegada estimada: *~${etaMinutes} min*` : '';
   const distText = distanceToPickupKm != null ? ` (a ${distanceToPickupKm} km)` : '';
+  const trackingLink = trip?.tracking_token
+    ? `${TRACKING_BASE_URL}/seguimiento/${trip.tracking_token}`
+    : null;
+  const trackingText = trackingLink
+    ? `\nSeguimiento en vivo: ${trackingLink}`
+    : '';
 
-  return `Listo, tu viaje quedó confirmado.\n\nChofer: *${driver?.full_name || 'Sin nombre'}*${distText}${driverMeta ? `\n${driverMeta}` : ''}${etaText}\nRetiro: *${pickup.address || 'Sin dirección'}*`;
+  return `Listo, tu viaje quedó confirmado.\n\nChofer: *${driver?.full_name || 'Sin nombre'}*${distText}${driverMeta ? `\n${driverMeta}` : ''}${etaText}\nRetiro: *${pickup.address || 'Sin dirección'}*${trackingText}`;
 }
 
 async function createReplacementTripFromCancelledTrip(sourceTrip, { excludedDriverIds = [] } = {}) {
