@@ -128,9 +128,9 @@ export default function TrackingView({ token }) {
 
   useEffect(() => {
     if (!driverPos || !trip || !isLoaded) return;
-    const inP = trip.status === 'in_progress';
-    const dLat = parseFloat(inP ? trip.destination_lat : trip.origin_lat);
-    const dLng = parseFloat(inP ? trip.destination_lng : trip.origin_lng);
+    const goingToDestination = trip.status === 'in_progress' || trip.status === 'completed';
+    const dLat = parseFloat(goingToDestination ? trip.destination_lat : trip.origin_lat);
+    const dLng = parseFloat(goingToDestination ? trip.destination_lng : trip.origin_lng);
     if (!Number.isFinite(dLat) || !Number.isFinite(dLng)) return;
     const key = `${Math.round(driverPos.lat * 2000)}:${Math.round(driverPos.lng * 2000)}`;
     if (key === lastKey.current) return;
@@ -163,7 +163,8 @@ export default function TrackingView({ token }) {
     : { lat: -24.7821, lng: -65.4232 });
   const vehicleTxt = [driver?.vehicle_color, driver?.vehicle_brand, driver?.vehicle_model, driver?.vehicle_plate]
     .filter(Boolean).join(' · ');
-  const showPickup = trip?.status !== 'in_progress' && !!trip?.origin_lat && Number.isFinite(parseFloat(trip.origin_lat));
+  const isPickupStage = trip?.status === 'accepted' || trip?.status === 'going_to_pickup';
+  const showPickup = isPickupStage && !!trip?.origin_lat && Number.isFinite(parseFloat(trip.origin_lat));
   const showDest   = !!trip?.destination_lat && Number.isFinite(parseFloat(trip.destination_lat));
 
   if (pageState === 'loading') return (
