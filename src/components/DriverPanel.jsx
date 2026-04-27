@@ -183,6 +183,8 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
             ? 'bg-danger/10 border-danger/30'
             : stats.commissionBalance > 0
               ? 'bg-amber-500/10 border-amber-500/25'
+              : stats.commissionCredit > 0
+                ? 'bg-online/10 border-online/30'
               : 'bg-light-200/80 border-light-300/30'
         }`}>
           <div className="flex items-center justify-between mb-2">
@@ -212,6 +214,11 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
               </p>
             </div>
           </div>
+          {stats.commissionCredit > 0 && (
+            <p className="text-[10px] font-semibold text-online text-center mt-2">
+              Saldo a favor: {formatPrice(stats.commissionCredit)}
+            </p>
+          )}
           {stats.commissionBalance > 0 && (
             <div className="mt-2 pt-2 border-t border-light-300/30">
               {payingCommission ? (

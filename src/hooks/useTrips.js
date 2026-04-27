@@ -116,7 +116,9 @@ function computeStats(trips, commissionPayments = []) {
   // Commission stats
   const totalCommission = completed.reduce((s, t) => s + (parseFloat(t.commission_amount) || 0), 0);
   const totalPaid = commissionPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
-  const commissionBalance = Math.round((totalCommission - totalPaid) * 100) / 100;
+  const rawCommissionBalance = Math.round((totalCommission - totalPaid) * 100) / 100;
+  const commissionBalance = Math.max(0, rawCommissionBalance);
+  const commissionCredit = Math.max(0, Math.round((totalPaid - totalCommission) * 100) / 100);
 
   // Check if overdue (last payment or first trip > 3 days ago)
   const lastPayment = commissionPayments.length > 0 ? new Date(commissionPayments[0].created_at) : null;
@@ -147,6 +149,7 @@ function computeStats(trips, commissionPayments = []) {
     todayCommission,
     totalCommission,
     totalPaid,
+    commissionCredit,
     commissionBalance,
     isOverdue,
     lastPayment,

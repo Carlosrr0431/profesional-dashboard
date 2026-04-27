@@ -11,6 +11,13 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const WASENDER_API_KEY = process.env.WASENDER_API_KEY || '';
 const WASENDER_BASE_URL = process.env.WASENDER_BASE_URL || 'https://www.wasenderapi.com/api';
 const TRACKING_BASE_URL = process.env.TRACKING_BASE_URL || 'https://profesional-dashboard.vercel.app';
+const SUPABASE_PUBLIC_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  'https://gnqewqtpvygnkxryyaij.supabase.co';
+const SUPABASE_PUBLIC_ANON_KEY =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImducWV3cXRwdnlnbmt4cnl5YWlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjY1ODA5MzksImV4cCI6MjA0MjE1NjkzOX0.WodtkWTtLzGNeEgPcRUuR_rJjHoGn3aDBhBDbmkYKEk';
+const LEGACY_CHAT_OWNER = process.env.WHATSAPP_CHAT_OWNER || 'Profesional_App';
 const CRON_SECRET = process.env.CRON_SECRET || '';
 const WHATSAPP_TRIP_TRANSITION_SECRET = process.env.WHATSAPP_TRIP_TRANSITION_SECRET || '';
 const ALLOWED_PHONES = new Set(['5493878630173']);
@@ -30,6 +37,16 @@ const SEARCH_RADII_KM = [1, 2, 5, 10, 15, 20];
 let warmed = false;
 let supabaseClient = null;
 let openaiClient = null;
+let knowledgeSupabaseClient = null;
+let globalAddressKnowledgeCache = {
+  expiresAt: 0,
+  addresses: [],
+};
+
+const GLOBAL_KNOWLEDGE_TTL_MS = 5 * 60 * 1000;
+const MAX_GLOBAL_KNOWLEDGE_MESSAGES = 1500;
+const MAX_PHONE_KNOWLEDGE_MESSAGES = 300;
+const MAX_KNOWLEDGE_ADDRESSES = 18;
 
 function normalizePhone(phone) {
   return String(phone || '').replace(/\D/g, '');
@@ -152,6 +169,219 @@ function extractNumbers(value) {
   return new Set((matches || []).map((n) => Number(n)));
 }
 
+function normalizeAddressKey(value) {
+  return normalizeForMatch(value)
+    .replace(/\b(avda|av\.|avenida)\b/g, 'avenida')
+    .replace(/\bgral\b/g, 'general')
+    .replace(/\bc\/?\b/g, 'calle')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function looksLikeAddressText(text) {
+  const value = sanitizeAddressInput(text);
+  if (!value) return false;
+
+  const hasStreetAndNumber = /[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]*\s\d{1,5}(?:\s*[a-zA-Z]\d?)?/i.test(value);
+  const hasIntersection = /\b[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]*\s+y\s+[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]*/i.test(value);
+  const hasStreetKeyword = /\b(calle|av\.?|avenida|pasaje|barrio|esquina)\b/i.test(value);
+
+  if (hasStreetAndNumber || hasIntersection) return true;
+  if (hasStreetKeyword && value.length >= 8) return true;
+
+  return false;
+}
+
+function extractAddressSnippetsFromText(text) {
+  const input = String(text || '');
+  if (!input.trim()) return [];
+
+  const snippets = new Set();
+  const lines = input
+    .split(/\n|\.|;/)
+    .map((line) => sanitizeAddressInput(line))
+    .filter(Boolean);
+
+  for (const line of lines) {
+    if (!line) continue;
+    if (looksLikeAddressText(line)) {
+      snippets.add(line);
+      continue;
+    }
+
+    const streetNumMatches = line.match(/[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]{0,80}\s\d{1,5}(?:\s*[a-zA-Z]\d?)?/g);
+    for (const match of streetNumMatches || []) {
+      const cleaned = sanitizeAddressInput(match);
+      if (looksLikeAddressText(cleaned)) snippets.add(cleaned);
+    }
+
+    const cornerMatches = line.match(/[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]{0,60}\s+y\s+[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]{0,60}/g);
+    for (const match of cornerMatches || []) {
+      const cleaned = sanitizeAddressInput(match);
+      if (looksLikeAddressText(cleaned)) snippets.add(cleaned);
+    }
+  }
+
+  return [...snippets].slice(0, 6);
+}
+
+function normalizeAddressPhrase(value) {
+  const input = sanitizeAddressInput(value || '');
+  if (!input) return '';
+
+  return sanitizeAddressInput(
+    input
+      // "belgrano al 200" -> "belgrano 200"
+      .replace(/\bal\s+(\d{1,5})\b/gi, '$1')
+      // "altura 200", "nro 200", "numero 200"
+      .replace(/\b(?:altura|nro\.?|numero|n[uú]mero)\s*(\d{1,5})\b/gi, '$1')
+      // "mitre n 300" / "mitre n° 300"
+      .replace(/\bn\s*[°o]?\s*(\d{1,5})\b/gi, '$1')
+      // Ignorar departamento/piso/oficina cuando viene luego del número de calle.
+      // Ej: "Mitre 351 2B" -> "Mitre 351", "351 2B" -> "351"
+      .replace(/\b(\d{1,5})\s+(?:dto\.?|depto\.?|departamento|dpto\.?|piso|of\.?|oficina|dep\.?|torre|bloque|block)?\s*[a-z]?\d{1,3}[a-z]?\b/gi, '$1')
+      // Limpieza de conectores comunes al inicio
+      .replace(/^(?:en|por|desde|hasta|hacia|a)\s+/i, '')
+      .trim()
+  );
+}
+
+function splitAddressFromIntentPhrase(text, cueRegex) {
+  const src = String(text || '');
+  const cueMatch = src.match(cueRegex);
+  if (!cueMatch) return null;
+
+  const startIdx = cueMatch.index + cueMatch[0].length;
+  const tail = src.slice(startIdx).trim();
+  if (!tail) return null;
+
+  // Cortar cuando aparece una segunda intención clara en la misma oración.
+  const stopPattern = /\b(?:voy\s+(?:para|a)|me\s+llev(?:a|as|en)\s+a|destino(?:\s+es)?|hasta|hacia|despu[eé]s\s+a)\b/i;
+  const stopMatch = tail.match(stopPattern);
+  const segment = stopMatch ? tail.slice(0, stopMatch.index).trim() : tail;
+  return normalizeAddressPhrase(segment);
+}
+
+function extractFullTripByPattern(text) {
+  const src = String(text || '').trim();
+  if (!src) return null;
+
+  const patterns = [
+    /(?:remis|movil|m[oó]vil|taxi|auto)\s+(?:para|a|en)\s+(.+?)\s*(?:,|\.)?\s*(?:voy\s+(?:para|a)|me\s+llev(?:a|as|en)\s+a|destino(?:\s+es)?|hasta|hacia)\s+(.+)$/i,
+    /(?:pasame\s+a\s+buscar(?:me)?|buscame|retiro\s+en|estoy\s+en|desde)\s*[:,-]?\s*(.+?)\s*(?:,|\.)?\s*(?:voy\s+(?:para|a)|me\s+llev(?:a|as|en)\s+a|destino(?:\s+es)?|hasta|hacia)\s+(.+)$/i,
+    /\bde\s+(.+?)\s+a\s+(.+)$/i,
+  ];
+
+  for (const regex of patterns) {
+    const match = src.match(regex);
+    if (!match) continue;
+
+    const pickup = normalizeAddressPhrase(match[1]);
+    const destination = normalizeAddressPhrase(match[2]);
+    if (pickup && destination) {
+      return { pickup, destination };
+    }
+  }
+
+  return null;
+}
+
+function rankAddresses(entries, max = MAX_KNOWLEDGE_ADDRESSES) {
+  const byKey = new Map();
+
+  for (const entry of entries || []) {
+    const raw = sanitizeAddressInput(entry?.address || '');
+    if (!raw) continue;
+    const key = normalizeAddressKey(raw);
+    if (!key) continue;
+
+    const prev = byKey.get(key) || {
+      address: raw,
+      count: 0,
+      lastSeenAt: null,
+    };
+
+    prev.count += Number(entry?.count || 1);
+    const lastSeen = entry?.lastSeenAt || null;
+    if (!prev.lastSeenAt || (lastSeen && new Date(lastSeen).getTime() > new Date(prev.lastSeenAt).getTime())) {
+      prev.lastSeenAt = lastSeen;
+      prev.address = raw;
+    }
+    byKey.set(key, prev);
+  }
+
+  return [...byKey.values()]
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return new Date(b.lastSeenAt || 0).getTime() - new Date(a.lastSeenAt || 0).getTime();
+    })
+    .slice(0, max);
+}
+
+function mergeKnowledgeCandidates({ pickupHint, combinedText, phoneAddresses = [], globalAddresses = [] } = {}) {
+  const candidates = [];
+  const seen = new Set();
+
+  const pushCandidate = (address, source, score) => {
+    const cleaned = sanitizeAddressInput(address);
+    if (!cleaned) return;
+    const key = normalizeAddressKey(cleaned);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    candidates.push({ address: cleaned, source, score });
+  };
+
+  const pickupNums = extractNumbers(pickupHint || '');
+  const textNums = extractNumbers(combinedText || '');
+  const msgTokens = new Set(tokenizeAddress(`${pickupHint || ''} ${combinedText || ''}`));
+
+  for (const item of phoneAddresses) {
+    let score = 0;
+    const itemNums = extractNumbers(item.address);
+    const itemTokens = new Set(tokenizeAddress(item.address));
+
+    if (pickupNums.size > 0) {
+      pickupNums.forEach((num) => {
+        if (itemNums.has(num)) score += 2;
+      });
+    }
+    if (textNums.size > 0) {
+      textNums.forEach((num) => {
+        if (itemNums.has(num)) score += 1;
+      });
+    }
+    msgTokens.forEach((token) => {
+      if (itemTokens.has(token)) score += 0.5;
+    });
+    score += Math.min(item.count || 0, 3) * 0.25;
+
+    pushCandidate(item.address, 'phone_history', score);
+  }
+
+  for (const item of globalAddresses) {
+    let score = 0;
+    const itemNums = extractNumbers(item.address);
+    const itemTokens = new Set(tokenizeAddress(item.address));
+
+    if (pickupNums.size > 0) {
+      pickupNums.forEach((num) => {
+        if (itemNums.has(num)) score += 1.25;
+      });
+    }
+    msgTokens.forEach((token) => {
+      if (itemTokens.has(token)) score += 0.25;
+    });
+    score += Math.min(item.count || 0, 5) * 0.1;
+
+    pushCandidate(item.address, 'global_history', score);
+  }
+
+  return candidates
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12)
+    .map((item) => item.address);
+}
+
 function buildAddressVariants(address) {
   const base = sanitizeAddressInput(address);
   if (!base) return [];
@@ -246,32 +476,42 @@ function inferTripHeuristics(combinedText, context = {}) {
 
   const looksLikeTripRequest = /(remis|taxi|movil|m[oó]vil|viaje|pasame\s+a\s+buscar|buscame|llevame|llevarme|quiero\s+ir)/i.test(normalized);
 
-  // "de X a Y" → pickup = X, destination = Y
-  const deAHasta = text.match(/\bde\s+([^\n,.;]{4,90}?)\s+a\s+([^\n,.;]{4,90})(?:$|[\n.!?])/i);
-  if (deAHasta) {
+  // Casos de ruta completa en una sola oración.
+  // Ej: "un remis para belgrano al 200, voy para mitre al 300"
+  const fullTrip = extractFullTripByPattern(text);
+  if (fullTrip) {
     return {
-      pickup: sanitizeAddressInput(deAHasta[1]),
-      destination: sanitizeAddressInput(deAHasta[2]),
+      pickup: fullTrip.pickup,
+      destination: fullTrip.destination,
       looksLikeTripRequest,
     };
   }
 
   // "un movil/remis/taxi para [dirección]" → pickup = dirección
   // Esto es lo más común: el pasajero pide que lo busquen EN ese lugar
-  const movilParaMatch = text.match(/(?:remis|m[oó]vil|movil|taxi|auto)\s+(?:para|a|en)\s+([^\n.;]{4,120})/i);
+  const movilParaMatch = splitAddressFromIntentPhrase(
+    text,
+    /(?:remis|m[oó]vil|movil|taxi|auto)\s+(?:para|a|en)\s+/i
+  );
   if (movilParaMatch && looksLikeTripRequest) {
     return {
-      pickup: sanitizeAddressInput(movilParaMatch[1]),
+      pickup: sanitizeAddressInput(movilParaMatch),
       destination: sanitizeAddressInput(context.destination || ''),
       looksLikeTripRequest,
     };
   }
 
-  const pickupMatch = text.match(/(?:pasame\s+a\s+buscar(?:me)?|buscame|retiro(?:\s+en)?|estoy\s+en|origen(?:\s+es)?|desde)\s*[:,-]?\s*([^\n.;]{4,120})/i);
-  const destinationMatch = text.match(/(?:destino(?:\s+es)?|hacia|hasta|llevame\s+a|quiero\s+ir\s+a)\s*([^\n.;]{4,120})/i);
+  const pickupMatch = splitAddressFromIntentPhrase(
+    text,
+    /(?:pasame\s+a\s+buscar(?:me)?|buscame|retiro(?:\s+en)?|estoy\s+en|origen(?:\s+es)?|desde)\s*[:,-]?\s*/i
+  );
+  const destinationMatch = splitAddressFromIntentPhrase(
+    text,
+    /(?:destino(?:\s+es)?|hacia|hasta|llevame\s+a|quiero\s+ir\s+a|voy\s+para|voy\s+a)\s*/i
+  );
 
-  let pickup = sanitizeAddressInput(pickupMatch?.[1] || context.pickup_location || '');
-  let destination = sanitizeAddressInput(destinationMatch?.[1] || context.destination || '');
+  let pickup = sanitizeAddressInput(pickupMatch || context.pickup_location || '');
+  let destination = sanitizeAddressInput(destinationMatch || context.destination || '');
 
   // Si el mensaje parece un pedido de viaje y tiene forma de intersección/dirección pero sin
   // keywords de destino, tratar el texto completo como pickup
@@ -281,9 +521,12 @@ function inferTripHeuristics(combinedText, context = {}) {
       .replace(/(?:remis|m[oó]vil|movil|taxi|auto|viaje|quiero|pedir?|necesito|manda(?:me)?|un|una|por\s+favor)\s*/gi, '')
       .trim();
     if (addressPart.length >= 4) {
-      pickup = sanitizeAddressInput(addressPart);
+      pickup = normalizeAddressPhrase(addressPart);
     }
   }
+
+  if (pickup) pickup = normalizeAddressPhrase(pickup);
+  if (destination) destination = normalizeAddressPhrase(destination);
 
   return {
     pickup,
@@ -346,7 +589,40 @@ function extractDirectAddressCandidate(text) {
   // Avoid stealing intent from explicit "de ... a ..." messages.
   if (/\bde\b.+\ba\b/i.test(candidate)) return null;
 
-  return candidate;
+  return normalizeAddressPhrase(candidate);
+}
+
+function getKnowledgeCandidatesForHint(hint, allCandidates = [], maxResults = 6) {
+  const cleanHint = sanitizeAddressInput(hint || '');
+  if (!cleanHint) return [];
+
+  const hintTokens = new Set(tokenizeAddress(cleanHint));
+  const hintNumbers = extractNumbers(cleanHint);
+
+  const scored = (allCandidates || [])
+    .map((candidate) => {
+      const address = sanitizeAddressInput(candidate || '');
+      if (!address) return null;
+      const candidateTokens = new Set(tokenizeAddress(address));
+      const candidateNumbers = extractNumbers(address);
+      let score = 0;
+
+      hintNumbers.forEach((num) => {
+        if (candidateNumbers.has(num)) score += 2;
+      });
+      hintTokens.forEach((token) => {
+        if (candidateTokens.has(token)) score += 0.6;
+      });
+
+      return { address, score };
+    })
+    .filter(Boolean)
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxResults)
+    .map((item) => item.address);
+
+  return scored;
 }
 
 function ensureServerConfig() {
@@ -378,6 +654,209 @@ function getSupabase() {
     );
   }
   return supabaseClient;
+}
+
+function getKnowledgeSupabase() {
+  if (!SUPABASE_PUBLIC_URL || !SUPABASE_PUBLIC_ANON_KEY) {
+    throw new Error('Faltan NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  }
+
+  if (!knowledgeSupabaseClient) {
+    knowledgeSupabaseClient = createClient(SUPABASE_PUBLIC_URL, SUPABASE_PUBLIC_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+
+  return knowledgeSupabaseClient;
+}
+
+async function loadGlobalAddressKnowledge() {
+  const now = Date.now();
+  if (globalAddressKnowledgeCache.expiresAt > now && globalAddressKnowledgeCache.addresses.length > 0) {
+    return globalAddressKnowledgeCache.addresses;
+  }
+
+  const { data, error } = await getKnowledgeSupabase()
+    .from('messages')
+    .select('content, message_timestamp')
+    .eq('propietario', LEGACY_CHAT_OWNER)
+    .eq('direction', 'incoming')
+    .eq('type', 'text')
+    .not('content', 'is', null)
+    .order('message_timestamp', { ascending: false })
+    .limit(MAX_GLOBAL_KNOWLEDGE_MESSAGES);
+
+  if (error) {
+    logWebhook('knowledge_global_load_error', { error: summarizeDbError(error) });
+    return [];
+  }
+
+  const entries = [];
+  for (const row of data || []) {
+    const snippets = extractAddressSnippetsFromText(row.content);
+    for (const snippet of snippets) {
+      entries.push({ address: snippet, count: 1, lastSeenAt: row.message_timestamp || null });
+    }
+  }
+
+  const ranked = rankAddresses(entries, MAX_KNOWLEDGE_ADDRESSES);
+  globalAddressKnowledgeCache = {
+    expiresAt: Date.now() + GLOBAL_KNOWLEDGE_TTL_MS,
+    addresses: ranked,
+  };
+
+  logWebhook('knowledge_global_loaded', {
+    owner: LEGACY_CHAT_OWNER,
+    messagesAnalyzed: (data || []).length,
+    addressesRanked: ranked.length,
+  });
+
+  return ranked;
+}
+
+async function loadPhoneAddressKnowledge(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) return [];
+
+  const { data: chats, error: chatsError } = await getKnowledgeSupabase()
+    .from('chats')
+    .select('id, telefono, contact_name, updated_at')
+    .eq('propietario', LEGACY_CHAT_OWNER)
+    .eq('telefono', normalizedPhone)
+    .order('updated_at', { ascending: false })
+    .limit(10);
+
+  if (chatsError) {
+    logWebhook('knowledge_phone_chats_error', {
+      phone: maskPhone(phone),
+      owner: LEGACY_CHAT_OWNER,
+      error: summarizeDbError(chatsError),
+    });
+    return [];
+  }
+
+  const chatIds = (chats || []).map((chat) => chat.id).filter(Boolean);
+  if (chatIds.length === 0) return [];
+
+  const { data: messages, error: messagesError } = await getKnowledgeSupabase()
+    .from('messages')
+    .select('chat_id, content, message_timestamp')
+    .eq('propietario', LEGACY_CHAT_OWNER)
+    .eq('direction', 'incoming')
+    .eq('type', 'text')
+    .in('chat_id', chatIds)
+    .not('content', 'is', null)
+    .order('message_timestamp', { ascending: false })
+    .limit(MAX_PHONE_KNOWLEDGE_MESSAGES);
+
+  if (messagesError) {
+    logWebhook('knowledge_phone_messages_error', {
+      phone: maskPhone(phone),
+      owner: LEGACY_CHAT_OWNER,
+      error: summarizeDbError(messagesError),
+    });
+    return [];
+  }
+
+  const entries = [];
+  for (const row of messages || []) {
+    const snippets = extractAddressSnippetsFromText(row.content);
+    for (const snippet of snippets) {
+      entries.push({ address: snippet, count: 1, lastSeenAt: row.message_timestamp || null });
+    }
+  }
+
+  const ranked = rankAddresses(entries, MAX_KNOWLEDGE_ADDRESSES);
+  logWebhook('knowledge_phone_loaded', {
+    phone: maskPhone(phone),
+    owner: LEGACY_CHAT_OWNER,
+    chatsFound: chatIds.length,
+    messagesAnalyzed: (messages || []).length,
+    addressesRanked: ranked.length,
+  });
+
+  return ranked;
+}
+
+async function getAddressKnowledgeContext({ phone, combinedText, pickupHint }) {
+  try {
+    const [globalAddresses, phoneAddresses] = await Promise.all([
+      loadGlobalAddressKnowledge(),
+      loadPhoneAddressKnowledge(phone),
+    ]);
+
+    const candidateAddresses = mergeKnowledgeCandidates({
+      pickupHint,
+      combinedText,
+      phoneAddresses,
+      globalAddresses,
+    });
+
+    return {
+      owner: LEGACY_CHAT_OWNER,
+      phoneAddresses,
+      globalAddresses,
+      candidateAddresses,
+    };
+  } catch (error) {
+    logWebhook('knowledge_context_error', {
+      phone: maskPhone(phone),
+      owner: LEGACY_CHAT_OWNER,
+      error: error?.message || 'unknown_error',
+    });
+    return {
+      owner: LEGACY_CHAT_OWNER,
+      phoneAddresses: [],
+      globalAddresses: [],
+      candidateAddresses: [],
+    };
+  }
+}
+
+function hydratePickupFromKnowledge(pickupLocation, knowledge = {}) {
+  const current = sanitizeAddressInput(pickupLocation || '');
+  const candidates = Array.isArray(knowledge?.candidateAddresses) ? knowledge.candidateAddresses : [];
+  if (candidates.length === 0) return current;
+
+  if (!current) return sanitizeAddressInput(candidates[0] || '');
+
+  const currentTokens = new Set(tokenizeAddress(current));
+  const currentNums = extractNumbers(current);
+
+  // Si el usuario manda un texto corto o ambiguo, usamos el mejor match histórico.
+  const isShortAmbiguous = current.length <= 8 || currentTokens.size <= 1;
+  if (!isShortAmbiguous && currentNums.size > 0) return current;
+
+  let bestMatch = null;
+  let bestScore = -Infinity;
+  for (const candidate of candidates) {
+    const candidateTokens = new Set(tokenizeAddress(candidate));
+    const candidateNums = extractNumbers(candidate);
+    let score = 0;
+
+    currentNums.forEach((num) => {
+      if (candidateNums.has(num)) score += 3;
+    });
+    currentTokens.forEach((token) => {
+      if (candidateTokens.has(token)) score += 0.7;
+    });
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = candidate;
+    }
+  }
+
+  if (bestMatch && bestScore >= 1) {
+    logWebhook('knowledge_pickup_hydrated', {
+      rawPickup: current,
+      hydratedPickup: bestMatch,
+      score: Math.round(bestScore * 100) / 100,
+    });
+    return sanitizeAddressInput(bestMatch);
+  }
+
+  return current;
 }
 
 function getOpenAI() {
@@ -900,7 +1379,16 @@ async function createReplacementTripFromCancelledTrip(sourceTrip, { excludedDriv
   return { ok: true, trip, driver };
 }
 
-async function extractTripIntent({ combinedText, context, pushName, phone, history, conversationStatus = 'open', lastBotReply = null }) {
+async function extractTripIntent({
+  combinedText,
+  context,
+  pushName,
+  phone,
+  history,
+  conversationStatus = 'open',
+  lastBotReply = null,
+  addressKnowledge = null,
+}) {
   logWebhook('ai_extract_intent_start', {
     phone: maskPhone(phone),
     textLen: combinedText?.length || 0,
@@ -915,6 +1403,14 @@ async function extractTripIntent({ combinedText, context, pushName, phone, histo
   const hasPickupInContext = Boolean(sanitizeAddressInput(context?.pickup_location || ''));
   const awaitingGps = Boolean(context?.awaiting_gps);
   const pendingCancelConfirm = Boolean(context?.pending_cancel_confirm);
+  const phoneKnowledgeList = (addressKnowledge?.phoneAddresses || [])
+    .slice(0, 8)
+    .map((item) => item.address);
+  const globalKnowledgeList = (addressKnowledge?.globalAddresses || [])
+    .slice(0, 8)
+    .map((item) => item.address);
+  const candidateKnowledgeList = (addressKnowledge?.candidateAddresses || [])
+    .slice(0, 8);
 
   const stateDescription = {
     open: 'Sin viaje activo. El pasajero puede estar iniciando un nuevo pedido o retomando conversación.',
@@ -979,6 +1475,16 @@ No confundir con "quiero ir a X y a Y" que sería dos destinos.
 - Lugar conocido: "Hospital San Bernardo, Salta", "Terminal de Ómnibus, Salta"
 - NO agregues "Argentina" — con "Salta" alcanza
 - NO inventes calles ni números que el pasajero no dijo
+
+## BASE DE CONOCIMIENTO DE DIRECCIONES (para desambiguar)
+- Origen de datos: tablas legacy \`chats\` y \`messages\` filtradas por \`propietario = "${addressKnowledge?.owner || LEGACY_CHAT_OWNER}"\`.
+- Direcciones históricas del pasajero actual (prioridad alta): ${JSON.stringify(phoneKnowledgeList)}
+- Direcciones frecuentes globales (prioridad media): ${JSON.stringify(globalKnowledgeList)}
+- Candidatos sugeridos para este mensaje (prioridad alta): ${JSON.stringify(candidateKnowledgeList)}
+- Usá esta base SOLO para desambiguar o completar pickup/origin/destination. NO usarla para inferir intent, cancelaciones o estado del viaje.
+- No inventes una dirección si no hay evidencia textual.
+- Si el pasajero manda algo tipo "351 2B" o "367 3F", tomá SOLO el número de calle (351/367) y descartá "2B/3F" porque suele ser departamento/piso.
+- Si solo queda el número, intentá completar con la calle más probable del historial del pasajero.
 
 ## INTENTS POSIBLES
 - "trip_request": quiere un remís ahora (con o sin dirección completa)
@@ -1775,6 +2281,12 @@ async function createTripFromConversation({ conversation, extracted }) {
     };
   }
 
+  const knowledgeCandidates = Array.isArray(extracted?._knowledgeAddressCandidates)
+    ? extracted._knowledgeAddressCandidates
+    : [];
+  const normalizedPickupQuery = normalizeAddressPhrase(pickupQuery);
+  const pickupKnowledgeCandidates = getKnowledgeCandidatesForHint(normalizedPickupQuery, knowledgeCandidates, 8);
+
   let pickupLocation;
   if (extracted._preGeocodedPickup?.lat && extracted._preGeocodedPickup?.lng) {
     pickupLocation = {
@@ -1785,29 +2297,50 @@ async function createTripFromConversation({ conversation, extracted }) {
     logWebhook('trip_create_pickup_pre_geocoded', { formattedAddress: pickupLocation.formattedAddress });
   } else {
   try {
-    pickupLocation = await geocodeAddress(pickupQuery);
+    pickupLocation = await geocodeAddress(normalizedPickupQuery || pickupQuery);
   } catch (error) {
+    // Fallback: intentar variantes aprendidas desde la base de conocimiento legacy.
+    for (const candidate of pickupKnowledgeCandidates) {
+      try {
+        pickupLocation = await geocodeAddress(candidate);
+        logWebhook('trip_create_geocode_fallback_knowledge_ok', {
+          conversationId: conversation?.id || null,
+          originalQuery: pickupQuery,
+          candidate,
+          formattedAddress: pickupLocation.formattedAddress,
+        });
+        break;
+      } catch {
+        // probar siguiente candidato
+      }
+    }
+
+    if (pickupLocation) {
+      // resolved by knowledge fallback; continue normal flow
+    } else {
     logWebhook('trip_create_geocode_error', {
       conversationId: conversation?.id || null,
       error: error?.message || 'geocode_error',
       pickupQuery,
+      knowledgeCandidatesTried: pickupKnowledgeCandidates.length,
     });
     return {
       ok: false,
       reason: 'invalid_address',
       reply:
-        'No pude ubicar bien esa dirección. Podés escribirme *calle y número* más claro, o compartir tu *ubicación en tiempo real* tocando el ícono de ubicación en WhatsApp y te mando el móvil directo.',
+        'No pude ubicar con precisión el punto de retiro. Mandame *calle y número exacto* (por ejemplo "Mitre 1234") o compartime tu *ubicación en tiempo real* desde WhatsApp para derivarte el chofer exacto.',
       context: {
         passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
-        pickup_location: pickupQuery,
+        pickup_location: normalizedPickupQuery || pickupQuery,
         notes: extracted.notes || null,
         awaiting_gps: true,
       },
     };
+    }
   }
   } // end pre-geocoded else
 
-  const finalDestinationHint = sanitizeAddressInput(extracted?.destination || '');
+  const finalDestinationHint = normalizeAddressPhrase(extracted?.destination || '');
 
   const driver = await chooseDriver({ lat: pickupLocation.lat, lng: pickupLocation.lng });
   if (!driver) {
@@ -1840,7 +2373,13 @@ async function createTripFromConversation({ conversation, extracted }) {
 
   // Intentar geocodificar el destino final si el pasajero lo proporcionó
   let finalDestinationGeo = null;
+  let destinationNeedsGps = false;
   if (finalDestinationHint) {
+    const destinationKnowledgeCandidates = getKnowledgeCandidatesForHint(
+      finalDestinationHint,
+      knowledgeCandidates,
+      8
+    );
     try {
       finalDestinationGeo = await geocodeAddress(finalDestinationHint);
       logWebhook('trip_final_destination_geocoded', {
@@ -1850,10 +2389,28 @@ async function createTripFromConversation({ conversation, extracted }) {
         lng: finalDestinationGeo.lng,
       });
     } catch (geoErr) {
-      logWebhook('trip_final_destination_geocode_fail', {
-        hint: finalDestinationHint,
-        error: geoErr?.message || 'unknown',
-      });
+      for (const candidate of destinationKnowledgeCandidates) {
+        try {
+          finalDestinationGeo = await geocodeAddress(candidate);
+          logWebhook('trip_final_destination_geocode_fallback_knowledge_ok', {
+            hint: finalDestinationHint,
+            candidate,
+            formattedAddress: finalDestinationGeo.formattedAddress,
+          });
+          break;
+        } catch {
+          // try next
+        }
+      }
+
+      if (!finalDestinationGeo) {
+        destinationNeedsGps = true;
+        logWebhook('trip_final_destination_geocode_fail', {
+          hint: finalDestinationHint,
+          error: geoErr?.message || 'unknown',
+          knowledgeCandidatesTried: destinationKnowledgeCandidates.length,
+        });
+      }
     }
   }
 
@@ -1928,17 +2485,22 @@ async function createTripFromConversation({ conversation, extracted }) {
       ? `\nDestino indicado: *${finalDestinationHint}*`
       : '';
 
+  const destinationGpsLine = destinationNeedsGps
+    ? '\nNo pude ubicar con precisión el destino final. Si querés, mandame la *ubicación del destino* o una dirección más exacta y la dejo cargada para el chofer.'
+    : '';
+
   return {
     ok: true,
     trip,
     driver,
     reply:
-      `Tomé tu pedido y ya lo derivé. Apenas un chofer lo acepte, te paso por WhatsApp quién va a buscarte.\n\nRetiro: *${pickupLocation.formattedAddress}*${destinationConfirmLine}`,
+      `Tomé tu pedido y ya lo derivé. Apenas un chofer lo acepte, te paso por WhatsApp quién va a buscarte.\n\nRetiro: *${pickupLocation.formattedAddress}*${destinationConfirmLine}${destinationGpsLine}`,
     context: {
       passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
-      pickup_location: pickupQuery,
+      pickup_location: normalizedPickupQuery || pickupQuery,
       destination: finalDestinationHint || null,
       notes: extracted.notes || null,
+      awaiting_destination_gps: destinationNeedsGps,
       confirmed_trip_id: null,
       last_cancellation_notified_trip_id: null,
     },
@@ -2587,6 +3149,13 @@ async function processClaimedConversation(batch) {
     .map((item) => item?.contenido)
     .filter(Boolean)
     .join('\n');
+
+  const addressKnowledge = await getAddressKnowledgeContext({
+    phone: batch.phone,
+    combinedText,
+    pickupHint: sanitizeAddressInput(safeJsonParse(batch.context, {})?.pickup_location || ''),
+  });
+
   const context = shouldResetConversationState ? {} : safeJsonParse(batch.context, {});
   const history = shouldResetConversationState ? [] : await getRecentConversationMessages(batch.id, 12);
 
@@ -2607,6 +3176,7 @@ async function processClaimedConversation(batch) {
     history,
     conversationStatus: batch.status || 'open',
     lastBotReply,
+    addressKnowledge,
   });
 
   const heuristics = inferTripHeuristics(combinedText, context);
@@ -2635,10 +3205,16 @@ async function processClaimedConversation(batch) {
   const nextContext = {
     passenger_name: extracted.passenger_name || context.passenger_name || batch.push_name || null,
     // Pickup should map to passenger origin. Destination remains only as final-destination hint.
-    pickup_location: sanitizeAddressInput(pickupLocation),
+    pickup_location: hydratePickupFromKnowledge(sanitizeAddressInput(pickupLocation), addressKnowledge),
     origin: sanitizeAddressInput(extracted.origin || heuristics.pickup || ''),
     destination: sanitizeAddressInput(destinationHint),
     notes: extracted.notes || context.notes || null,
+    awaiting_destination_gps: Boolean(context.awaiting_destination_gps) && !sanitizeAddressInput(destinationHint),
+  };
+
+  const tripExtracted = {
+    ...nextContext,
+    _knowledgeAddressCandidates: addressKnowledge.candidateAddresses,
   };
 
   // AI-detected intent drives the guard bypass — no fragile regex needed.
@@ -2958,7 +3534,7 @@ async function processClaimedConversation(batch) {
     }
   }
 
-  const tripResult = await createTripFromConversation({ conversation: batch, extracted: nextContext });
+  const tripResult = await createTripFromConversation({ conversation: batch, extracted: tripExtracted });
   await sendWhatsAppText(batch.phone, tripResult.reply);
 
   logWebhook('conversation_trip_result', {
