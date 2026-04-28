@@ -178,6 +178,78 @@ function normalizeAddressKey(value) {
     .trim();
 }
 
+// --- Correcciones fonéticas para nombres de calles en Salta ---
+const SALTA_PHONETIC_CORRECTIONS = [
+  [/\birig[uo]g[io]en\b/gi, 'Yrigoyen'],
+  [/\birig[ou]ien\b/gi, 'Yrigoyen'],
+  [/\burquis[ao]\b/gi, 'Urquiza'],
+  [/\burguis[ao]\b/gi, 'Urquiza'],
+  [/\b(?:geme[sz]?|gueme[sz]?)\b/gi, 'Güemes'],
+  [/\bbuenos\s+aire(?!s)\b/gi, 'Buenos Aires'],
+  [/\bcastan[ae]r[ao]s\b/gi, 'Castañares'],
+  [/\bleguisam[o]n\b/gi, 'Leguizamón'],
+  [/\bzub[i]r[ia][ao]?\b/gi, 'Zuviría'],
+  [/\bespana\b/gi, 'España'],
+  [/\bsantiag[ou]\s+del?\s+ester[ou]\b/gi, 'Santiago del Estero'],
+];
+
+function applyPhoneticCorrections(text) {
+  let result = String(text || '');
+  for (const [pattern, replacement] of SALTA_PHONETIC_CORRECTIONS) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
+}
+
+/**
+ * Elimina números de teléfono embebidos en cadenas de dirección.
+ * "España 351-4567890" → "España 351"
+ * "Mitre 200 cel 1547891234" → "Mitre 200"
+ */
+function stripEmbeddedPhoneNumbers(text) {
+  return String(text || '')
+    // "cel/tel/wpp ..." con secuencia de dígitos larga
+    .replace(/\b(?:cel(?:ular)?|tel(?:efono)?|mob(?:il)?|whatsapp|wpp)\s*:?\s*[\d\s\-+().]{7,}/gi, '')
+    // Número corto (nro de calle) seguido de guión + secuencia larga (teléfono): "351-4567890" → "351"
+    .replace(/\b(\d{1,5})-\d{5,}\b/g, '$1')
+    // Secuencias de 8+ dígitos standalone (número de teléfono sin formato)
+    .replace(/\b\d{8,}\b/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+// Tabla de conversión: palabras numéricas en español → valor entero
+const SPANISH_HUNDREDS = {
+  'doscient[ao]s': 200, 'trescient[ao]s': 300, 'cuatrocient[ao]s': 400,
+  'quinient[ao]s': 500, 'seiscient[ao]s': 600, 'setecient[ao]s': 700,
+  'ochocient[ao]s': 800, 'novecient[ao]s': 900, 'ciento?': 100,
+};
+const SPANISH_TENS = {
+  veinte: 20, treinta: 30, cuarenta: 40, cincuenta: 50,
+  sesenta: 60, setenta: 70, ochenta: 80, noventa: 90,
+};
+
+/**
+ * Convierte frases numéricas en español a dígitos dentro de un texto de dirección.
+ * "belgrano doscientos cincuenta" → "belgrano 250"
+ * "calle trescientos" → "calle 300"
+ */
+function convertSpanishNumbersInText(text) {
+  let result = String(text || '');
+  const tensAlternation = Object.keys(SPANISH_TENS).join('|');
+  for (const [hPat, hVal] of Object.entries(SPANISH_HUNDREDS)) {
+    const combinedPattern = new RegExp(
+      `\\b${hPat}(?:\\s+(?:y\\s+)?(${tensAlternation}))?\\b`, 'gi'
+    );
+    result = result.replace(combinedPattern, (m, tens) => {
+      const tVal = tens ? (SPANISH_TENS[tens.toLowerCase()] ?? 0) : 0;
+      const total = hVal + tVal;
+      return total > 0 ? String(total) : m;
+    });
+  }
+  return result;
+}
+
 function looksLikeAddressText(text) {
   const value = sanitizeAddressInput(text);
   if (!value) return false;
@@ -229,8 +301,29 @@ function normalizeAddressPhrase(value) {
   const input = sanitizeAddressInput(value || '');
   if (!input) return '';
 
+  // 1. Frases que NO son direcciones: "acá", "aquí", "donde estoy", etc.
+  if (/^(?:ac[aá](?:\s*nom[aá]s)?|aqu[ií]|donde\s+estoy|en\s+mi\s+cas[ao]|ac[aá]\s+estoy)$/i.test(input.trim())) return '';
+
+  // 2. Eliminar números de teléfono embebidos
+  let work = stripEmbeddedPhoneNumbers(input);
+
+  // 3. Convertir números escritos en español a dígitos
+  work = convertSpanishNumbersInText(work);
+
+  // 4. Aplicar correcciones fonéticas de calles de Salta
+  work = applyPhoneticCorrections(work);
+
   return sanitizeAddressInput(
-    input
+    work
+      // Expandir abreviaturas de tipo de vía
+      .replace(/\bgral\.?\b/gi, 'General')
+      .replace(/\bcnel\.?\b/gi, 'Coronel')
+      .replace(/\btte\.?\b/gi, 'Teniente')
+      .replace(/\bbvd\.?\b/gi, 'Boulevard')
+      .replace(/\bbv\.?\b/gi, 'Boulevard')
+      // Normalizar separadores de intersección: "c/" y "esq." → "y"
+      .replace(/\besq(?:uina)?\.?\s*/gi, 'y ')
+      .replace(/\s+c\/\s*/gi, ' y ')
       // "belgrano al 200" -> "belgrano 200"
       .replace(/\bal\s+(\d{1,5})\b/gi, '$1')
       // "altura 200", "nro 200", "numero 200"
@@ -1464,7 +1557,22 @@ El "y" entre dos palabras que parezcan calles = intersección, NO destino. Ejemp
 - "zuviria y leguizamon" → query: "Zuviria y Leguizamón, Salta"
 - "españa y belgrano" → query: "España y Belgrano, Salta"
 - "san martin y corrientes" → query: "San Martín y Corrientes, Salta"
+Otros formatos de intersección que debés normalizar a "Calle1 y Calle2, Salta":
+- "X c/ Y", "esq. X", "X casi Y", "entre X y Y", "X esquina con Y" → todos son intersecciones válidas
 No confundir con "quiero ir a X y a Y" que sería dos destinos.
+
+## PRECISIÓN OBLIGATORIA DE DIRECCIÓN
+Estas reglas tienen prioridad máxima:
+
+1. Solo número sin calle ("351", "al 200", "el 500"): pickup_location=null, missing_fields=["pickup_location"], reply: "¿En qué calle es ese número?"
+2. Calle sin número ("Belgrano", "Mitre solo"): ponela en pickup_location tal cual, en missing_fields incluí "pickup_number", reply: "¿A qué altura de [calle]?"
+3. "Acá", "aquí", "donde estoy", "en mi casa": pickup_location=null, missing_fields=["pickup_location"], reply pide GPS o calle y número.
+4. "Mismo lugar de siempre" / "la de siempre" / "como siempre": pickup_location=null, el sistema buscará en el historial.
+5. Frente a / al lado de ("frente al banco", "al lado de la farmacia"): pickup_location=null, pedí calle/número exacto o GPS.
+6. Edificios y empresas ("el edificio Suizo", "la oficina de Arcor"): poné en pickup_location como "Edificio Suizo, Salta". El sistema mostrará opciones.
+7. Destino SIEMPRE OPCIONAL: NUNCA incluyas "destination" en missing_fields. Solo el pickup es obligatorio.
+8. Orden invertido: "llevame a X desde Y" → pickup=Y, destination=X. "de X para Y" → pickup=X, destination=Y.
+9. Corrección de dirección con viaje pending: intent=trip_request con la nueva dirección. El sistema actualizará el viaje.
 
 ## CÓMO EXTRAER DIRECCIONES (pickup_location, origin, destination)
 - Generá siempre una query geocodificable en Google Maps Argentina
@@ -3042,6 +3150,27 @@ async function processClaimedConversation(batch) {
       });
 
       if (match) {
+        // "Ninguna de estas opciones" → pedir GPS o calle y número
+        if (normalizeForMatch(match.label || '').startsWith('ninguna')) {
+          const ctxNoPoll = { ...savedContext };
+          delete ctxNoPoll.pending_poll;
+          await sendWhatsAppText(
+            batch.phone,
+            'Entendido. Compartí tu *ubicación en tiempo real* desde WhatsApp (ícono de ubicación → "Ubicación en tiempo real"), o mandame la *calle y número exacto* y te mando el móvil enseguida.'
+          );
+          logWebhook('conversation_address_poll_none_selected', { conversationId: batch?.id || null });
+          return {
+            handled: true,
+            updates: {
+              status: 'awaiting_info',
+              context: { ...ctxNoPoll, awaiting_gps: true },
+              last_trip_id: batch.last_trip_id || null,
+              processing_started_at: null,
+              last_processed_at: new Date().toISOString(),
+            },
+          };
+        }
+
         logWebhook('conversation_address_poll_resolved', {
           conversationId: batch?.id || null,
           votedText,
@@ -3219,6 +3348,93 @@ async function processClaimedConversation(batch) {
 
   // AI-detected intent drives the guard bypass — no fragile regex needed.
   const passengerWantsToCancel = extracted.intent === 'cancel_trip';
+
+  // --- Reasignación de dirección de retiro cuando el viaje está 'pending' (Caso 18) ---
+  // Si el pasajero corrige la dirección antes de que el chofer acepte el viaje,
+  // actualizamos las coordenadas y notificamos al chofer del cambio.
+  if (
+    openTripByPhone &&
+    String(openTripByPhone.status || '').toLowerCase() === 'pending' &&
+    extracted.intent === 'trip_request' &&
+    !passengerWantsToCancel &&
+    nextContext.pickup_location
+  ) {
+    const fullPendingTrip = await getConversationFlowTripById(openTripByPhone.id);
+    const currentPickup = fullPendingTrip?.destination_address || '';
+    const newPickup = sanitizeAddressInput(nextContext.pickup_location || '');
+
+    // Verificar si la nueva dirección difiere significativamente de la actual
+    const currentTokens = new Set(tokenizeAddress(currentPickup));
+    const newTokens = new Set(tokenizeAddress(newPickup));
+    const overlapCount = [...newTokens].filter((t) => currentTokens.has(t)).length;
+    const minSize = Math.min(currentTokens.size, newTokens.size);
+    const isSameAddress = minSize > 0 && overlapCount / minSize >= 0.75;
+
+    if (!isSameAddress && newPickup) {
+      try {
+        const newGeo = await geocodeAddress(normalizeAddressPhrase(newPickup));
+
+        const { error: updateErr } = await getSupabase()
+          .from('trips')
+          .update({
+            destination_address: newGeo.formattedAddress,
+            destination_lat: newGeo.lat,
+            destination_lng: newGeo.lng,
+          })
+          .eq('id', openTripByPhone.id)
+          .eq('status', 'pending'); // Solo actualizar si aún está pendiente
+
+        if (!updateErr) {
+          // Notificar al chofer del cambio de dirección
+          if (fullPendingTrip?.driver_id) {
+            const updatedDriver = await getDriverById(fullPendingTrip.driver_id);
+            if (updatedDriver?.push_token) {
+              await sendPushNotification(updatedDriver.push_token, {
+                title: 'Dirección de retiro actualizada',
+                body: `Nuevo retiro: ${newGeo.formattedAddress}`,
+                data: { type: 'pickup_updated', tripId: openTripByPhone.id, newPickup: newGeo.formattedAddress },
+              });
+            }
+          }
+
+          await sendWhatsAppText(
+            batch.phone,
+            `Actualicé el punto de retiro:\n\n*${newGeo.formattedAddress}*\n\nEl chofer ya fue notificado del cambio.`
+          );
+
+          logWebhook('pickup_reassigned', {
+            conversationId: batch?.id || null,
+            tripId: openTripByPhone.id,
+            oldPickup: currentPickup,
+            newPickup: newGeo.formattedAddress,
+          });
+
+          return {
+            handled: true,
+            updates: {
+              status: 'awaiting_driver',
+              context: {
+                ...nextContext,
+                pickup_formatted_address: newGeo.formattedAddress,
+                pickup_lat: newGeo.lat,
+                pickup_lng: newGeo.lng,
+              },
+              last_trip_id: openTripByPhone.id,
+              processing_started_at: null,
+              last_processed_at: new Date().toISOString(),
+            },
+          };
+        }
+      } catch (geoErr) {
+        logWebhook('pickup_reassign_geocode_fail', {
+          conversationId: batch?.id || null,
+          newPickup,
+          error: geoErr?.message || 'geocode_error',
+        });
+        // Si la geocodificación falla, caemos al flujo normal
+      }
+    }
+  }
 
   if (openTripByPhone && !shouldBlockForOpenTrip(openTripByPhone)) {
     logWebhook('conversation_open_trip_guard_ignored_stale_pending', {
@@ -3446,6 +3662,60 @@ async function processClaimedConversation(batch) {
     }
   }
 
+  // --- Caso 24: "mismo lugar de siempre" / "en mi casa" → ofrecer historial del pasajero ---
+  // Si el pasajero dice algo que implica "la dirección conocida" pero no da la dirección concreta,
+  // mostramos un poll con sus últimas ubicaciones conocidas.
+  const isMismoLugar =
+    !nextContext.pickup_location &&
+    /\b(mismo\s+lugar|la\s+de\s+siempre|mi\s+cas[ao]|la\s+direcci[oó]n\s+de\s+siempre|el\s+mismo\s+lugar|como\s+siempre|desde\s+mi\s+casa)\b/i.test(combinedText) &&
+    !looksLikeAddressText(combinedText);
+
+  if (isMismoLugar && addressKnowledge.phoneAddresses.length > 0) {
+    const historyOptions = addressKnowledge.phoneAddresses.slice(0, 3).map((a) => a.address);
+    const histPollOptions = [...historyOptions, 'Ninguna de estas opciones'];
+    let histPollMsgId = null;
+    try {
+      const histPollResult = await sendWhatsAppPoll(batch.phone, '¿Cuál es tu punto de retiro?', histPollOptions);
+      histPollMsgId = histPollResult.msgId;
+    } catch (pollErr) {
+      logWebhook('mismo_lugar_poll_error', { conversationId: batch?.id || null, error: pollErr?.message });
+    }
+    if (histPollMsgId) {
+      logWebhook('mismo_lugar_poll_sent', {
+        conversationId: batch?.id || null,
+        pollMsgId: histPollMsgId,
+        optionCount: histPollOptions.length,
+      });
+      return {
+        handled: true,
+        updates: {
+          status: 'awaiting_address_selection',
+          context: {
+            ...nextContext,
+            pending_poll: {
+              msg_id: histPollMsgId,
+              phone: batch.phone,
+              candidates: [
+                ...historyOptions.map((addr) => ({
+                  label: addr,
+                  formattedAddress: addr, // se re-geocodificará cuando el pasajero lo elija
+                  lat: null,
+                  lng: null,
+                })),
+                { label: 'Ninguna de estas opciones', formattedAddress: 'Ninguna de estas opciones', lat: null, lng: null },
+              ],
+              extracted: nextContext,
+            },
+          },
+          last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
+      };
+    }
+    // Si el poll falló, caemos al flujo normal de missing_pickup_location
+  }
+
   if (!nextContext.pickup_location) {
     // Si ya estamos esperando el GPS, no volver a pedir
     const alreadyAwaitingGps = safeJsonParse(batch.context, {})?.awaiting_gps === true;
@@ -3489,7 +3759,11 @@ async function processClaimedConversation(batch) {
     distinctCandidates.length >= 2 &&
     distinctCandidates[0].score - (distinctCandidates[1]?.score ?? 0) < 0.40
   ) {
-    const pollOptions = distinctCandidates.slice(0, 5).map((c) => c.formattedAddress);
+    // Limitar a 4 opciones reales + "Ninguna de estas opciones" siempre al final
+    const pollOptions = [
+      ...distinctCandidates.slice(0, 4).map((c) => c.formattedAddress),
+      'Ninguna de estas opciones',
+    ];
     let pollMsgId = null;
     try {
       const pollResult = await sendWhatsAppPoll(
@@ -3517,12 +3791,15 @@ async function processClaimedConversation(batch) {
             pending_poll: {
               msg_id: pollMsgId,
               phone: batch.phone,
-              candidates: distinctCandidates.slice(0, 5).map((c) => ({
-                label: c.formattedAddress,
-                formattedAddress: c.formattedAddress,
-                lat: c.lat,
-                lng: c.lng,
-              })),
+              candidates: [
+                ...distinctCandidates.slice(0, 4).map((c) => ({
+                  label: c.formattedAddress,
+                  formattedAddress: c.formattedAddress,
+                  lat: c.lat,
+                  lng: c.lng,
+                })),
+                { label: 'Ninguna de estas opciones', formattedAddress: 'Ninguna de estas opciones', lat: null, lng: null },
+              ],
               extracted: nextContext,
             },
           },
@@ -3987,6 +4264,26 @@ async function processWebhookBody(body, requestMeta = {}) {
       if (!matchedConv) {
         logWebhook('poll_results_ignored', { reason: 'conversation_not_found', pollMsgId });
         return { status: 200, body: { success: true, ignored: true, reason: 'conversation_not_found' } };
+      }
+
+      // "Ninguna de estas opciones" → pedir GPS o calle y número
+      if (normalizeForMatch(voted.name || '').startsWith('ninguna')) {
+        const existingCtx = safeJsonParse(matchedConv.context, {});
+        const ctxNoPoll = { ...existingCtx };
+        delete ctxNoPoll.pending_poll;
+        await sendWhatsAppText(
+          matchedConv.phone,
+          'Entendido. Compartí tu *ubicación en tiempo real* desde WhatsApp (ícono de ubicación → "Ubicación en tiempo real"), o mandame la *calle y número exacto* y te mando el móvil enseguida.'
+        );
+        await finalizeConversation(matchedConv.id, {
+          status: 'awaiting_info',
+          context: { ...ctxNoPoll, awaiting_gps: true },
+          last_trip_id: null,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        });
+        logWebhook('poll_results_none_selected', { conversationId: matchedConv.id, votedName: voted.name });
+        return { status: 200, body: { success: true, event: 'poll.results', noneSelected: true } };
       }
 
       if (!selectedCandidate) {
