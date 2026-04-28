@@ -3741,9 +3741,36 @@ async function processClaimedConversation(batch) {
     };
   }
 
+  // --- Caso 1: solo número sin calle ---
+  // normalizeAddressPhrase convierte "altura 500" → "500". Si el resultado es solo
+  // dígitos (sin nombre de calle), no tiene sentido geocodificar ni mandar poll;
+  // hay que pedir la calle al pasajero.
+  if (/^\d{1,5}$/.test((nextContext.pickup_location || '').trim())) {
+    const bareNumberReply = `¿En qué calle es el número *${nextContext.pickup_location}*? Mandame calle y número (por ejemplo "Mitre ${nextContext.pickup_location}") o compartí tu *ubicación en tiempo real* desde WhatsApp.`;
+    await sendWhatsAppText(batch.phone, bareNumberReply);
+    logWebhook('conversation_missing_fields', {
+      conversationId: batch?.id || null,
+      missingPickupLocation: true,
+      reason: 'bare_number_without_street',
+      bareNumber: nextContext.pickup_location,
+    });
+    return {
+      handled: true,
+      updates: {
+        status: 'awaiting_info',
+        context: { ...nextContext, pickup_location: null, awaiting_gps: true },
+        last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
+
   // --- Desambiguación de dirección: obtener candidatos de geocodificación ---
   // Usamos autocomplete + geocoding por variantes para capturar calles ambiguas
   // (ej: "Güemes 200" → Luis Güemes 200 Y General Güemes 200)
+  // El poll solo se envía cuando hay una dirección real (calle + número, intersección o POI).
+  // Un pickup sin nombre de calle fue capturado arriba.
   const addressCandidates = await getAddressCandidates(nextContext.pickup_location, 5).catch(() => []);
   const distinctCandidates = addressCandidates.filter(
     (c, i, arr) =>
