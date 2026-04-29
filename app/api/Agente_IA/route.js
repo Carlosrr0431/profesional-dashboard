@@ -567,7 +567,8 @@ function scoreGeocodeResult(result, query) {
  * Detecta direcciones que Google Maps no puede geocodificar con precisión y requieren GPS:
  * - Pasajes / callejones: raramente indexados en Google Maps.
  * - Manzana + Lote: sistema catastral de barrios populares, no soportado por Google Maps.
- * Retorna { required: boolean, reason: 'pasaje' | 'manzana_lote' | null }
+ * - Km de ruta: referencia a un kilómetro de una ruta nacional/provincial, coordenadas imprecisas.
+ * Retorna { required: boolean, reason: 'pasaje' | 'manzana_lote' | 'km_ruta' | null }
  */
 function requiresGpsForAddress(address) {
   const normalized = normalizeForMatch(address || '');
@@ -583,6 +584,13 @@ function requiresGpsForAddress(address) {
     return { required: true, reason: 'manzana_lote' };
   }
 
+  // Kilómetro de ruta nacional/provincial — Google Maps puede devolver un punto
+  // en la ruta pero sin precisión de punto de retiro real.
+  // Ej: "ruta 9 km 7", "km 12 de la ruta 68", "a 5 km de la salida norte"
+  if (/\b(?:ruta\s*(?:nacional|provincial|nac\.?|prov\.?)?\s*\d+|km\s*\d+)\b/.test(normalized)) {
+    return { required: true, reason: 'km_ruta' };
+  }
+
   return { required: false, reason: null };
 }
 
@@ -590,7 +598,7 @@ function inferTripHeuristics(combinedText, context = {}) {
   const text = String(combinedText || '').trim();
   const normalized = normalizeForMatch(text);
 
-  const looksLikeTripRequest = /(remis|taxi|movil|m[oó]vil|viaje|pasame\s+a\s+buscar|buscame|llevame|llevarme|quiero\s+ir)/i.test(normalized);
+  const looksLikeTripRequest = /(remis|taxi|movil|m[oó]vil|\bauto\b|coche|viaje|pasame\s+a\s+buscar|buscame|llevame|llevarme|quiero\s+ir|mand[aá](?:me)?\s+(?:un|el))/i.test(normalized);
 
   // Casos de ruta completa en una sola oración.
   // Ej: "un remis para belgrano al 200, voy para mitre al 300"
@@ -3897,16 +3905,19 @@ async function processClaimedConversation(batch) {
     };
   }
 
-  // --- Caso 25/26: Pasaje/callejón o Manzana/Lote → GPS obligatorio ---
-  // Google Maps no indexa pasajes angostos ni el sistema catastral manzana/lote.
-  // En estos casos pedimos ubicación en tiempo real sin intentar geocodificar.
+  // --- Caso 25/26/27: Pasaje, Manzana/Lote, Km de ruta → GPS obligatorio ---
+  // Google Maps no indexa pasajes angostos, el sistema catastral manzana/lote,
+  // ni tiene precisión de punto de retiro para kilómetros de ruta.
   const gpsCheck = requiresGpsForAddress(nextContext.pickup_location);
   if (gpsCheck.required) {
     const alreadyAwaitingGps = safeJsonParse(batch.context, {})?.awaiting_gps === true;
     if (!alreadyAwaitingGps) {
-      const gpsReply = gpsCheck.reason === 'pasaje'
-        ? `Los pasajes y callejones no aparecen en el GPS. Compartí tu *ubicación en tiempo real* desde WhatsApp (tocá el ícono de ubicación → "Ubicación en tiempo real") para que el chofer te encuentre exactamente.`
-        : `Las direcciones por manzana y lote no figuran en el GPS. Compartí tu *ubicación en tiempo real* desde WhatsApp (tocá el ícono de ubicación → "Ubicación en tiempo real") para que el chofer llegue con precisión.`;
+      const gpsReply =
+        gpsCheck.reason === 'pasaje'
+          ? `Los pasajes y callejones no aparecen en el GPS. Compartí tu *ubicación en tiempo real* desde WhatsApp (tocá el ícono de ubicación → "Ubicación en tiempo real") para que el chofer te encuentre exactamente.`
+          : gpsCheck.reason === 'km_ruta'
+            ? `Las referencias por kilómetro de ruta no tienen punto de retiro preciso. Para que el chofer llegue exactamente donde estás, compartí tu *ubicación en tiempo real* desde WhatsApp (tocá el ícono de ubicación → "Ubicación en tiempo real").`
+            : `Las direcciones por manzana y lote no figuran en el GPS. Compartí tu *ubicación en tiempo real* desde WhatsApp (tocá el ícono de ubicación → "Ubicación en tiempo real") para que el chofer llegue con precisión.`;
       await sendWhatsAppText(batch.phone, gpsReply);
       logWebhook('conversation_gps_required_for_address', {
         conversationId: batch?.id || null,
