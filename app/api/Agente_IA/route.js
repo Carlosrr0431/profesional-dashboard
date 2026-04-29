@@ -598,7 +598,7 @@ function inferTripHeuristics(combinedText, context = {}) {
   const text = String(combinedText || '').trim();
   const normalized = normalizeForMatch(text);
 
-  const looksLikeTripRequest = /(remis|taxi|movil|m[oó]vil|\bauto\b|coche|viaje|pasame\s+a\s+buscar|buscame|llevame|llevarme|quiero\s+ir|mand[aá](?:me)?\s+(?:un|el))/i.test(normalized);
+  const looksLikeTripRequest = /(remis|taxi|movil|m[oó]vil|\bauto\b|coche|viaje|pasame\s+a\s+buscar|busc[aá][sm]e?|me\s+busc[aá]s|llevame|llevarme|quiero\s+ir|mand[aá](?:me)?\s+(?:un|el)|ven[ií]\s+a\s+buscarme)/i.test(normalized);
 
   // Casos de ruta completa en una sola oración.
   // Ej: "un remis para belgrano al 200, voy para mitre al 300"
@@ -627,7 +627,7 @@ function inferTripHeuristics(combinedText, context = {}) {
 
   const pickupMatch = splitAddressFromIntentPhrase(
     text,
-    /(?:pasame\s+a\s+buscar(?:me)?|buscame|retiro(?:\s+en)?|estoy\s+en|origen(?:\s+es)?|desde)\s*[:,-]?\s*/i
+    /(?:pasame\s+a\s+buscar(?:me)?|busc[aá][sm]e?|me\s+busc[aá]s?\s+en|retiro(?:\s+en)?|estoy\s+en|origen(?:\s+es)?|desde)\s*[:,-]?\s*/i
   );
   const destinationMatch = splitAddressFromIntentPhrase(
     text,
