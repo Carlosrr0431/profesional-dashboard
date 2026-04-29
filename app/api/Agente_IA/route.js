@@ -1623,7 +1623,6 @@ trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
   try {
     completion = await getOpenAI().chat.completions.create({
       model: 'gpt-5-nano',
-      temperature: 0.15,
       max_completion_tokens: 400,
       messages: [
         { role: 'system', content: systemPrompt },
