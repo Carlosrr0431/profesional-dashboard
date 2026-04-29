@@ -2655,7 +2655,17 @@ async function createTripFromConversation({ conversation, extracted }) {
       finalDestJson || (finalDestinationHint
         ? `Destino final sugerido por pasajero: ${finalDestinationHint}`
         : 'Destino final: se define al subir el pasajero.'),
-    ].join(' '),
+      // Nomenclatura catastral (Manzana/Lote) cuando el pasajero no tiene dirección en Google Maps.
+      // Preservada desde el contexto para que el chofer vea la referencia original.
+      extracted.catastral_nomenclature
+        ? `[CATASTRAL] ${extracted.catastral_nomenclature}`
+        : null,
+      // Conversación actual del pasajero como indicaciones extra para el chofer.
+      // Se incluyen los mensajes del pedido, no el historial completo.
+      extracted._conversationText
+        ? `[INDICACIONES_PASAJERO] ${extracted._conversationText.replace(/\n+/g, ' | ').trim()}`
+        : null,
+    ].filter(Boolean).join('\n'),
   };
 
   const { data: trip, error } = await getSupabase().from('trips').insert(tripPayload).select().single();
@@ -3462,6 +3472,9 @@ async function processClaimedConversation(batch) {
   const tripExtracted = {
     ...nextContext,
     _knowledgeAddressCandidates: addressKnowledge.candidateAddresses,
+    // Últimos mensajes del pasajero (hasta 500 caracteres) para incluirlos como
+    // indicaciones del viaje visibles para el chofer.
+    _conversationText: combinedText ? combinedText.slice(0, 500) : null,
   };
 
   // AI-detected intent drives the guard bypass — no fragile regex needed.
@@ -3905,7 +3918,15 @@ async function processClaimedConversation(batch) {
       handled: true,
       updates: {
         status: 'awaiting_info',
-        context: { ...nextContext, awaiting_gps: true },
+        context: {
+          ...nextContext,
+          awaiting_gps: true,
+          // Preservar la nomenclatura catastral original para incluirla como
+          // indicación al chofer una vez que llegue el GPS del pasajero.
+          ...(gpsCheck.reason === 'manzana_lote' && nextContext.pickup_location
+            ? { catastral_nomenclature: nextContext.pickup_location }
+            : {}),
+        },
         last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
         processing_started_at: null,
         last_processed_at: new Date().toISOString(),
