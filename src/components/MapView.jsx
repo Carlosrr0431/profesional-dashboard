@@ -15,7 +15,7 @@ function timeAgoShort(isoDate) {
 }
 
 const containerStyle = { width: '100%', height: '100%' };
-const LIBRARIES = ['places'];
+const LIBRARIES = ['places', 'drawing'];
 const FIXED_MARKER_ROTATION = 0;
 const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '';
 

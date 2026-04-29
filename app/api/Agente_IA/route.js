@@ -256,7 +256,7 @@ function looksLikeAddressText(text) {
 
   const hasStreetAndNumber = /[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]*\s\d{1,5}(?:\s*[a-zA-Z]\d?)?/i.test(value);
   const hasIntersection = /\b[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]*\s+y\s+[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]*/i.test(value);
-  const hasStreetKeyword = /\b(calle|av\.?|avenida|pasaje|barrio|esquina)\b/i.test(value);
+  const hasStreetKeyword = /\b(calle|av\.?|avenida|pasaje|pje\.?|barrio|esquina|callej[oó]n|manzana|mz\.?|lote)\b/i.test(value);
 
   if (hasStreetAndNumber || hasIntersection) return true;
   if (hasStreetKeyword && value.length >= 8) return true;
@@ -561,6 +561,29 @@ function scoreGeocodeResult(result, query) {
   }
 
   return score;
+}
+
+/**
+ * Detecta direcciones que Google Maps no puede geocodificar con precisión y requieren GPS:
+ * - Pasajes / callejones: raramente indexados en Google Maps.
+ * - Manzana + Lote: sistema catastral de barrios populares, no soportado por Google Maps.
+ * Retorna { required: boolean, reason: 'pasaje' | 'manzana_lote' | null }
+ */
+function requiresGpsForAddress(address) {
+  const normalized = normalizeForMatch(address || '');
+  if (!normalized) return { required: false, reason: null };
+
+  // Pasaje o callejón
+  if (/\b(pasaje|pje\.?|callejon|callej[oó]n)\b/.test(normalized)) {
+    return { required: true, reason: 'pasaje' };
+  }
+
+  // Manzana (con o sin lote) — el sistema catastral nunca geocodifica bien
+  if (/\b(manzana|mz\.?)\s*\d+/.test(normalized)) {
+    return { required: true, reason: 'manzana_lote' };
+  }
+
+  return { required: false, reason: null };
 }
 
 function inferTripHeuristics(combinedText, context = {}) {
@@ -1573,6 +1596,8 @@ Estas reglas tienen prioridad máxima:
 7. Destino SIEMPRE OPCIONAL: NUNCA incluyas "destination" en missing_fields. Solo el pickup es obligatorio.
 8. Orden invertido: "llevame a X desde Y" → pickup=Y, destination=X. "de X para Y" → pickup=X, destination=Y.
 9. Corrección de dirección con viaje pending: intent=trip_request con la nueva dirección. El sistema actualizará el viaje.
+10. Pasaje / callejón ("pasaje Los Sauces 120", "pje San José mz 3", "callejón del Molino"): poné en pickup_location el texto completo tal como lo escribió el pasajero (ej: "Pasaje Los Sauces 120, Villa Lavalle, Salta"). NO lo marques como missing_fields. El sistema pedirá GPS automáticamente.
+11. Manzana / Lote ("manzana 14 lote 6 en villa yapeyú", "mz 3 lt 2 barrio inta", "mz 12 lote 8 en grand bourg"): poné en pickup_location el texto completo (ej: "Manzana 14 Lote 6, Villa Yapeyú, Salta"). NO lo marques como missing_fields. El sistema pedirá GPS automáticamente.
 
 ## CÓMO EXTRAER DIRECCIONES (pickup_location, origin, destination)
 - Generá siempre una query geocodificable en Google Maps Argentina
@@ -2365,6 +2390,51 @@ async function sendPushNotification(pushToken, payload) {
   });
 }
 
+// ── Zonas de servicio ─────────────────────────────────────────────────────────
+// Algoritmo ray-casting para determinar si un punto está dentro de un polígono.
+function isPointInPolygon(lat, lng, coordinates) {
+  let inside = false;
+  const n = coordinates.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const yi = coordinates[i].lat;
+    const xi = coordinates[i].lng;
+    const yj = coordinates[j].lat;
+    const xj = coordinates[j].lng;
+    if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+async function getActiveServiceZones() {
+  try {
+    const { data, error } = await getSupabase()
+      .from('service_zones')
+      .select('id, name, coordinates')
+      .eq('is_active', true);
+    if (error) {
+      logWebhook('service_zones_load_error', { error: error.message || 'unknown' });
+      return [];
+    }
+    return (data || []).filter(
+      (z) => Array.isArray(z.coordinates) && z.coordinates.length >= 3
+    );
+  } catch (err) {
+    logWebhook('service_zones_load_exception', { error: err?.message || 'unknown' });
+    return [];
+  }
+}
+
+// Devuelve true si el punto está dentro de al menos una zona activa,
+// o si no hay zonas configuradas (sin restricción).
+async function isPickupInServiceZone(lat, lng) {
+  const zones = await getActiveServiceZones();
+  if (zones.length === 0) return true; // sin zonas → aceptar todo
+  return zones.some((zone) => isPointInPolygon(lat, lng, zone.coordinates));
+}
+// ── Fin Zonas de servicio ──────────────────────────────────────────────────────
+
 async function createTripFromConversation({ conversation, extracted }) {
   logWebhook('trip_create_start', {
     conversationId: conversation?.id || null,
@@ -2449,6 +2519,30 @@ async function createTripFromConversation({ conversation, extracted }) {
   } // end pre-geocoded else
 
   const finalDestinationHint = normalizeAddressPhrase(extracted?.destination || '');
+
+  // Validar que el punto de retiro esté dentro de una zona de servicio activa.
+  // Si no hay zonas configuradas, se acepta cualquier dirección.
+  const inServiceZone = await isPickupInServiceZone(pickupLocation.lat, pickupLocation.lng);
+  if (!inServiceZone) {
+    logWebhook('trip_create_outside_service_zone', {
+      conversationId: conversation?.id || null,
+      phone: maskPhone(conversation?.phone || ''),
+      pickupAddress: pickupLocation.formattedAddress,
+      lat: pickupLocation.lat,
+      lng: pickupLocation.lng,
+    });
+    return {
+      ok: false,
+      reason: 'outside_service_zone',
+      reply:
+        'Lo sentimos, por el momento no prestamos servicio en esa zona. Solo operamos dentro de las áreas de cobertura de Salta Capital. ¿Tenés otra dirección dentro de la ciudad?',
+      context: {
+        passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
+        pickup_location: null,
+        notes: extracted.notes || null,
+      },
+    };
+  }
 
   const driver = await chooseDriver({ lat: pickupLocation.lat, lng: pickupLocation.lng });
   if (!driver) {
@@ -3759,6 +3853,35 @@ async function processClaimedConversation(batch) {
       updates: {
         status: 'awaiting_info',
         context: { ...nextContext, pickup_location: null, awaiting_gps: true },
+        last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  // --- Caso 25/26: Pasaje/callejón o Manzana/Lote → GPS obligatorio ---
+  // Google Maps no indexa pasajes angostos ni el sistema catastral manzana/lote.
+  // En estos casos pedimos ubicación en tiempo real sin intentar geocodificar.
+  const gpsCheck = requiresGpsForAddress(nextContext.pickup_location);
+  if (gpsCheck.required) {
+    const alreadyAwaitingGps = safeJsonParse(batch.context, {})?.awaiting_gps === true;
+    if (!alreadyAwaitingGps) {
+      const gpsReply = gpsCheck.reason === 'pasaje'
+        ? `Los pasajes y callejones no aparecen en el GPS. Compartí tu *ubicación en tiempo real* desde WhatsApp (tocá el ícono de ubicación → "Ubicación en tiempo real") para que el chofer te encuentre exactamente.`
+        : `Las direcciones por manzana y lote no figuran en el GPS. Compartí tu *ubicación en tiempo real* desde WhatsApp (tocá el ícono de ubicación → "Ubicación en tiempo real") para que el chofer llegue con precisión.`;
+      await sendWhatsAppText(batch.phone, gpsReply);
+      logWebhook('conversation_gps_required_for_address', {
+        conversationId: batch?.id || null,
+        reason: gpsCheck.reason,
+        pickup: nextContext.pickup_location,
+      });
+    }
+    return {
+      handled: true,
+      updates: {
+        status: 'awaiting_info',
+        context: { ...nextContext, awaiting_gps: true },
         last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
         processing_started_at: null,
         last_processed_at: new Date().toISOString(),

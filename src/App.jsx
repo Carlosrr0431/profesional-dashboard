@@ -9,6 +9,7 @@ import StatsBar from './components/StatsBar';
 import DriverPanel from './components/DriverPanel';
 import TripAssignModal from './components/TripAssignModal';
 import DriverManagement from './components/DriverManagement';
+import ZoneManagement from './components/ZoneManagement';
 import BroadcastVoiceChat from './components/BroadcastVoiceChat';
 import QueuePanel from './components/QueuePanel';
 
@@ -139,6 +140,19 @@ export default function App() {
       ),
     },
     {
+      key: 'zones',
+      title: 'Zonas de servicio',
+      subtitle: currentView === 'zones' ? 'Vista activa' : 'Polígonos de cobertura',
+      active: currentView === 'zones',
+      accent: 'navy',
+      onClick: () => setCurrentView(currentView === 'zones' ? 'map' : 'zones'),
+      icon: (
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+        </svg>
+      ),
+    },
+    {
       key: 'selection',
       title: multiSelectMode ? 'Salir de selección' : 'Seleccionar choferes',
       subtitle: multiSelectMode ? `${multiSelectedIds.size} seleccionados` : 'Elegí varios manualmente',
@@ -221,6 +235,8 @@ export default function App() {
         <div className="flex-1 min-h-0 flex overflow-hidden rounded-[24px] border border-white/70 bg-light-50/88 backdrop-blur-xl shadow-[0_24px_70px_rgba(15,23,42,0.08)]">
           {currentView === 'management' ? (
             <DriverManagement onBack={() => setCurrentView('map')} />
+          ) : currentView === 'zones' ? (
+            <ZoneManagement onBack={() => setCurrentView('map')} />
           ) : currentView === 'queue' ? (
             <QueuePanel
               {...queueData}
