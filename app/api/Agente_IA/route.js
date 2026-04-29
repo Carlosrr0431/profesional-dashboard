@@ -1904,25 +1904,140 @@ async function autocompleteAndGeocodeAddress(query, maxResults = 5) {
 }
 
 /**
+ * Busca en OpenStreetMap vía Nominatim para completar lo que Google Maps no indexa,
+ * especialmente pasajes, callejones y calles secundarias de Salta Capital.
+ * Nominatim es gratuito, no requiere clave API, y usa datos colaborativos de OSM.
+ */
+async function nominatimGeocodeAddress(query, maxResults = 5) {
+  const safeQuery = sanitizeAddressInput(query);
+  if (!safeQuery) return [];
+
+  const input = /salta/i.test(safeQuery) ? safeQuery : `${safeQuery}, Salta, Argentina`;
+
+  const url = new URL('https://nominatim.openstreetmap.org/search');
+  url.searchParams.set('q', input);
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('addressdetails', '1');
+  url.searchParams.set('limit', String(maxResults * 2));
+  url.searchParams.set('countrycodes', 'ar');
+  // viewbox: left(lon),top(lat),right(lon),bottom(lat)
+  url.searchParams.set('viewbox', '-65.55,-24.70,-65.30,-24.90');
+  url.searchParams.set('bounded', '1');
+
+  try {
+    const resp = await fetchWithRetry(
+      url,
+      { headers: { 'User-Agent': 'ProfesionalApp/1.0 (remises-salta)' } },
+      { label: 'nominatim_geocode', retries: 1, delayMs: 500 }
+    );
+    const data = await resp.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      logWebhook('nominatim_no_results', { query: safeQuery });
+      return [];
+    }
+
+    const CITY_STOPWORDS = new Set(['salta', 'argentina', 'capital']);
+    const queryTokens = new Set(tokenizeAddress(safeQuery));
+    const contentQueryTokens = [...queryTokens].filter((t) => !CITY_STOPWORDS.has(t));
+
+    const candidates = [];
+    for (const item of data) {
+      const lat = parseFloat(item.lat);
+      const lng = parseFloat(item.lon);
+      if (isNaN(lat) || isNaN(lng)) continue;
+
+      const displayName = String(item.display_name || '');
+      const road = String(
+        item.address?.road ||
+        item.address?.pedestrian ||
+        item.address?.path ||
+        item.address?.footway ||
+        ''
+      );
+
+      const displayTokens = new Set(tokenizeAddress(displayName));
+      const roadTokens = new Set(tokenizeAddress(road));
+
+      // Token overlap base score
+      let tokenOverlap = 0;
+      queryTokens.forEach((t) => {
+        if (displayTokens.has(t) || roadTokens.has(t)) tokenOverlap++;
+      });
+      let score = queryTokens.size > 0 ? tokenOverlap / queryTokens.size : 0;
+
+      // Boost by OSM class/type
+      const cls = item.class || '';
+      const type = item.type || '';
+      if (cls === 'highway') {
+        if (['service', 'residential', 'unclassified', 'tertiary', 'secondary', 'primary', 'living_street'].includes(type)) {
+          score += 0.4;
+        } else {
+          score += 0.2;
+        }
+      } else if (cls === 'place') {
+        score += 0.1;
+      }
+
+      // Stronger boost if the road name itself matches query tokens
+      if (contentQueryTokens.length > 0) {
+        const hasRoadMatch = contentQueryTokens.some((t) => roadTokens.has(t));
+        if (hasRoadMatch) {
+          score += 0.3;
+        } else {
+          const hasAnyDisplayMatch = contentQueryTokens.some((t) => displayTokens.has(t));
+          if (!hasAnyDisplayMatch) score -= 0.6;
+        }
+      }
+
+      // Small tiebreaker from OSM importance
+      score += (parseFloat(item.importance) || 0) * 0.1;
+
+      if (score >= 0.15) {
+        candidates.push({
+          formattedAddress: displayName,
+          lat,
+          lng,
+          score,
+        });
+      }
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    logWebhook('nominatim_geocode_ok', { query: safeQuery, count: candidates.length });
+    return candidates.slice(0, maxResults);
+  } catch (err) {
+    logWebhook('nominatim_geocode_error', { query: safeQuery, error: err?.message || 'unknown' });
+    return [];
+  }
+}
+
+/**
  * Combina geocodificación por variantes y autocomplete para obtener el conjunto
  * más completo de candidatos de dirección — especialmente útil cuando el nombre
  * de calle es ambiguo (ej: "Güemes" → Luis Güemes, General Güemes).
  */
 async function getAddressCandidates(query, maxResults = 5) {
-  const [geocodeResult, autocompleteResult] = await Promise.allSettled([
+  const [geocodeResult, autocompleteResult, nominatimResult] = await Promise.allSettled([
     geocodeAddressMultiple(query, maxResults),
     autocompleteAndGeocodeAddress(query, maxResults),
+    nominatimGeocodeAddress(query, maxResults),
   ]);
 
   const geocodeCandidates = geocodeResult.status === 'fulfilled' ? geocodeResult.value : [];
   const autocompleteCandidates = autocompleteResult.status === 'fulfilled' ? autocompleteResult.value : [];
+  const nominatimCandidates = nominatimResult.status === 'fulfilled' ? nominatimResult.value : [];
 
-  // Merge and deduplicate by formatted address (case-insensitive)
+  // Merge and deduplicate — first by formatted address string, then by lat/lng proximity (~100m)
   const seenKeys = new Set();
   const merged = [];
-  for (const c of [...geocodeCandidates, ...autocompleteCandidates]) {
+  for (const c of [...geocodeCandidates, ...autocompleteCandidates, ...nominatimCandidates]) {
     const key = (c.formattedAddress || '').toLowerCase().trim();
     if (!key || seenKeys.has(key)) continue;
+    // Also skip if a previous candidate is within ~100m (different string, same place)
+    const tooClose = merged.some(
+      (prev) => Math.abs(prev.lat - c.lat) < 0.001 && Math.abs(prev.lng - c.lng) < 0.001
+    );
+    if (tooClose) continue;
     seenKeys.add(key);
     merged.push(c);
   }
@@ -1932,6 +2047,7 @@ async function getAddressCandidates(query, maxResults = 5) {
     query,
     geocodeCount: geocodeCandidates.length,
     autocompleteCount: autocompleteCandidates.length,
+    nominatimCount: nominatimCandidates.length,
     mergedCount: merged.length,
   });
   return merged.slice(0, maxResults);
