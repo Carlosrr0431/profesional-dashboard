@@ -2535,7 +2535,7 @@ async function createTripFromConversation({ conversation, extracted }) {
       ok: false,
       reason: 'outside_service_zone',
       reply:
-        'Lo sentimos, por el momento no prestamos servicio en esa zona. Solo operamos dentro de las áreas de cobertura de Salta Capital. ¿Tenés otra dirección dentro de la ciudad?',
+        'Disculpá, por el momento no contamos con servicio en esa zona. 🙏 Operamos dentro de las áreas de cobertura de Salta Capital. Si tenés otra dirección dentro de la ciudad, avisanos y con gusto te enviamos un chofer.',
       context: {
         passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
         pickup_location: null,
@@ -2744,6 +2744,30 @@ async function dispatchQueuedPassengers() {
 
     if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) {
       logWebhook('queue_dispatch_skip_no_coords', { conversationId: conversation.id });
+      continue;
+    }
+
+    // Verificar que el punto de retiro sigue dentro de una zona de servicio activa.
+    // Puede haber cambiado si las zonas se editaron después de que el pasajero entró a la cola.
+    const inZone = await isPickupInServiceZone(pickupLat, pickupLng);
+    if (!inZone) {
+      logWebhook('queue_dispatch_outside_zone', {
+        conversationId: conversation.id,
+        pickupLat,
+        pickupLng,
+      });
+      await getSupabase()
+        .from('whatsapp_conversations')
+        .update({
+          status: 'awaiting_info',
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        })
+        .eq('id', conversation.id);
+      await sendWhatsAppText(
+        conversation.phone,
+        'Disculpá la demora. Lamentablemente no podemos atenderte porque tu dirección de retiro quedó fuera de nuestras zonas de cobertura. Si tenés otra dirección dentro de Salta Capital, con gusto te enviamos un chofer. 🙏'
+      );
       continue;
     }
 
@@ -3977,7 +4001,13 @@ async function processClaimedConversation(batch) {
     updates: {
       // Si no hay chofer disponible → cola de espera. El dispatch automático asignará
       // al chofer libre más cercano en el siguiente ciclo de cron.
-      status: tripResult.ok ? 'awaiting_driver' : 'queued_no_driver',
+      // Solo poner en cola si no hay chofer disponible; otros fallos (dirección inválida,
+      // fuera de zona, etc.) deben quedar como awaiting_info para que el pasajero corrija.
+      status: tripResult.ok
+        ? 'awaiting_driver'
+        : tripResult.reason === 'no_driver'
+          ? 'queued_no_driver'
+          : 'awaiting_info',
       context: tripResult.context,
       last_trip_id: tripResult.trip?.id || (shouldResetConversationState ? null : batch.last_trip_id || null),
       processing_started_at: null,
