@@ -3616,17 +3616,14 @@ async function processClaimedConversation(batch) {
     pickupHint: sanitizeAddressInput(safeJsonParse(batch.context, {})?.pickup_location || ''),
   });
 
+  // El historial de mensajes NO se usa para clasificar intención.
+  // La fuente de verdad es el estado del último trip del pasajero.
+  // Si el último trip está cerrado (completed/cancelled) → contexto limpio.
+  // Si está abierto → el fast path ya lo maneja antes de llegar aquí.
   const context = shouldResetConversationState ? {} : safeJsonParse(batch.context, {});
-  const history = shouldResetConversationState ? [] : await getRecentConversationMessages(batch.id, 6);
+  const history = []; // siempre vacío — evita que mensajes previos contaminen la clasificación
 
-  // Extraemos el último mensaje del bot del historial para evitar repeticiones
-  const rawLastBotReply = history.length > 0
-    ? (history.filter((m) => m.direction === 'outgoing').pop()?.content || null)
-    : null;
-  // Limpiamos prefijos internos (encuesta, etc.) y truncamos para el prompt
-  const lastBotReply = rawLastBotReply
-    ? rawLastBotReply.replace(/^\[ENCUESTA\]\s*/i, '').slice(0, 350)
-    : null;
+  const lastBotReply = null; // sin historial, no hay último reply del bot
 
   const extracted = await extractTripIntent({
     combinedText,
