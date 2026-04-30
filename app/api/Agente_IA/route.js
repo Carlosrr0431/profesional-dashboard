@@ -2407,6 +2407,7 @@ async function chooseDriver(origin, { excludedDriverIds = [] } = {}) {
         driversInRadius: inRadius.length,
         selectedDriverId: selected.id,
         selectedDistanceKm: Math.round(selected.distanceToOriginKm * 10) / 10,
+        hasPushToken: Boolean(selected.push_token),
       });
       return { ...selected, searchRadiusKm: radiusKm };
     }
@@ -2430,24 +2431,45 @@ async function chooseDriver(origin, { excludedDriverIds = [] } = {}) {
 }
 
 async function sendPushNotification(pushToken, payload) {
-  if (!pushToken) return;
-  await fetch('https://exp.host/--/api/v2/push/send', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({
-      to: pushToken,
-      title: payload.title,
-      body: payload.body,
-      data: payload.data || {},
-      sound: 'default',
-      priority: 'high',
-      channelId: 'trips',
-      badge: 1,
-    }),
-  });
+  if (!pushToken) {
+    logWebhook('push_notification_skipped', { reason: 'no_push_token', title: payload.title });
+    return;
+  }
+  logWebhook('push_notification_start', { title: payload.title, body: payload.body?.slice(0, 80) });
+  try {
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        to: pushToken,
+        title: payload.title,
+        body: payload.body,
+        data: payload.data || {},
+        sound: 'default',
+        priority: 'high',
+        channelId: 'trips',
+        badge: 1,
+      }),
+    });
+    const result = await response.json().catch(() => null);
+    const ticketStatus = result?.data?.status;
+    const ticketError = result?.data?.details?.error || result?.data?.message;
+    if (!response.ok || ticketStatus === 'error') {
+      logWebhook('push_notification_error', {
+        httpStatus: response.status,
+        ticketStatus,
+        ticketError: ticketError || null,
+        raw: JSON.stringify(result || {}).slice(0, 200),
+      });
+    } else {
+      logWebhook('push_notification_ok', { ticketStatus, ticketId: result?.data?.id || null });
+    }
+  } catch (err) {
+    logWebhook('push_notification_exception', { error: err?.message || 'unknown' });
+  }
 }
 
 // ── Zonas de servicio ─────────────────────────────────────────────────────────
