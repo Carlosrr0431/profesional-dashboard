@@ -1571,8 +1571,8 @@ trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
   let completion;
   try {
     completion = await getOpenAI().chat.completions.create({
-      model: 'gpt-5-nano',
-      max_completion_tokens: 400,
+      model: 'gpt-4o',
+      max_tokens: 400,
       messages: [
         { role: 'system', content: systemPrompt },
         ...historyMessages,
@@ -3495,13 +3495,21 @@ async function processClaimedConversation(batch) {
       .maybeSingle();
 
     if (latestTripByPhone && !isOpenTripStatus(latestTripByPhone.status)) {
-      shouldResetConversationState = true;
-      logWebhook('conversation_reset_last_trip_closed_by_phone', {
-        conversationId: batch?.id || null,
-        tripId: latestTripByPhone.id,
-        tripStatus: latestTripByPhone.status,
-        completedAt: latestTripByPhone.completed_at || null,
-      });
+      // No resetear si ya hay datos parciales acumulados en la conversación actual
+      // (el pasajero está en medio de dar los datos de un nuevo viaje).
+      const existingCtx = safeJsonParse(batch.context, {});
+      const hasMeaningfulContext = Boolean(
+        existingCtx.destination || existingCtx.pickup_location || existingCtx.passenger_name
+      );
+      if (!hasMeaningfulContext) {
+        shouldResetConversationState = true;
+        logWebhook('conversation_reset_last_trip_closed_by_phone', {
+          conversationId: batch?.id || null,
+          tripId: latestTripByPhone.id,
+          tripStatus: latestTripByPhone.status,
+          completedAt: latestTripByPhone.completed_at || null,
+        });
+      }
     }
   }
 
