@@ -3148,6 +3148,18 @@ async function redispatchOrphanedCancelledTrips() {
 
     const ctx = safeJsonParse(conv?.context, {});
 
+    // Skip si la conversación ya está en un flujo activo nuevo — el pasajero inició otro pedido
+    // (ej: poll enviado, viaje ya asignado, viaje en curso). No interferir.
+    const ACTIVE_FLOW_STATUSES = ['awaiting_address_selection', 'awaiting_driver', 'trip_created'];
+    if (conv && ACTIVE_FLOW_STATUSES.includes(conv.status)) {
+      logWebhook('redispatch_orphaned_skip_active_flow', {
+        cancelledTripId: trip.id,
+        phone: maskPhone(phone),
+        convStatus: conv.status,
+      });
+      continue;
+    }
+
     // Skip si ya fue notificado de esta cancelación en un ciclo anterior
     if (ctx.last_cancellation_notified_trip_id === trip.id) {
       logWebhook('redispatch_orphaned_skip_already_notified', {
