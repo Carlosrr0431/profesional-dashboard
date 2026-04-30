@@ -1363,7 +1363,7 @@ async function getConversationFlowTripById(tripId) {
   const { data, error } = await getSupabase()
     .from('trips')
     .select(
-      'id, driver_id, status, passenger_name, passenger_phone, tracking_token, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, notes, cancel_reason, created_at, accepted_at, started_at, completed_at'
+      'id, driver_id, status, passenger_name, passenger_phone, tracking_token, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, notes, cancel_reason, created_at, assigned_at, accepted_at, started_at, completed_at'
     )
     .eq('id', tripId)
     .maybeSingle();
@@ -2970,6 +2970,72 @@ async function dispatchQueuedPassengers() {
 
   logWebhook('queue_dispatch_done', { dispatched, total: queued.length });
   return { dispatched };
+}
+
+// Tiempo máximo que tiene un chofer para aceptar un viaje pending
+// antes de que el sistema lo cancele y reasigne automáticamente.
+const PENDING_ACCEPT_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutos
+
+/**
+ * Cancela los viajes en estado `pending` que superaron el tiempo límite de aceptación.
+ * El ciclo normal de `processTripLifecycleTransitions` los detectará como cancelados
+ * y los reasignará o pondrá en cola automáticamente.
+ */
+async function expireTimedOutPendingTrips() {
+  logWebhook('expire_pending_start');
+
+  const cutoff = new Date(Date.now() - PENDING_ACCEPT_TIMEOUT_MS).toISOString();
+
+  const { data: timedOut, error } = await getSupabase()
+    .from('trips')
+    .select('id, driver_id, passenger_name, assigned_at')
+    .eq('status', 'pending')
+    .not('assigned_at', 'is', null)
+    .lt('assigned_at', cutoff);
+
+  if (error) {
+    logWebhook('expire_pending_db_error', { error: summarizeDbError(error) });
+    return { expired: 0 };
+  }
+
+  if (!timedOut?.length) {
+    logWebhook('expire_pending_none');
+    return { expired: 0 };
+  }
+
+  logWebhook('expire_pending_found', { count: timedOut.length });
+
+  let expired = 0;
+  for (const trip of timedOut) {
+    const minutesPending = Math.round((Date.now() - new Date(trip.assigned_at).getTime()) / 60000);
+
+    const { error: cancelError } = await getSupabase()
+      .from('trips')
+      .update({
+        status: 'cancelled',
+        cancel_reason: 'No aceptado en tiempo — reasignando automáticamente',
+      })
+      .eq('id', trip.id)
+      .eq('status', 'pending'); // guard contra race condition
+
+    if (cancelError) {
+      logWebhook('expire_pending_cancel_error', {
+        tripId: trip.id,
+        error: summarizeDbError(cancelError),
+      });
+      continue;
+    }
+
+    logWebhook('expire_pending_cancelled', {
+      tripId: trip.id,
+      driverId: trip.driver_id,
+      minutesPending,
+    });
+    expired++;
+  }
+
+  logWebhook('expire_pending_done', { expired });
+  return { expired };
 }
 
 async function processTripLifecycleTransitions() {
@@ -4883,8 +4949,9 @@ async function processPendingConversationsRequest({ authHeader = '', userAgent =
 
     ensureServerConfig();
     const pendingResult = await processPendingConversations();
+    const expireResult = await expireTimedOutPendingTrips();
     const transitionResult = await processTripLifecycleTransitions();
-    return { status: 200, body: { success: true, ...pendingResult, tripTransitions: transitionResult } };
+    return { status: 200, body: { success: true, ...pendingResult, expiredPending: expireResult.expired, tripTransitions: transitionResult } };
   } catch (error) {
     console.error('Error procesando pendientes:', error);
     return { status: 500, body: { success: false, error: error.message } };
