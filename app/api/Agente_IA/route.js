@@ -2896,14 +2896,19 @@ async function dispatchQueuedPassengers() {
         pickupLat,
         pickupLng,
       });
-      await getSupabase()
-        .from('whatsapp_conversations')
-        .update({
-          status: 'awaiting_info',
-          processing_started_at: null,
-          last_processed_at: new Date().toISOString(),
-        })
-        .eq('id', conversation.id);
+      // Limpiar contexto: solo conservar nombre y notas, descartar coords de zona incorrecta
+      // para que el próximo mensaje del pasajero sea procesado como nuevo pedido limpio.
+      await finalizeConversation(conversation.id, {
+        status: 'awaiting_info',
+        context: {
+          passenger_name: ctx.passenger_name || conversation.push_name || null,
+          notes: ctx.notes || null,
+          destination: ctx.destination || null,
+        },
+        last_trip_id: null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      }).catch(() => {});
       await sendWhatsAppText(
         conversation.phone,
         'Disculpá la demora. Lamentablemente no podemos atenderte porque tu dirección de retiro quedó fuera de nuestras zonas de cobertura. Si tenés otra dirección dentro de Salta Capital, con gusto te enviamos un chofer. 🙏'
@@ -3239,11 +3244,14 @@ async function redispatchOrphanedCancelledTrips() {
               'Lamentablemente no podemos atenderte porque tu dirección de retiro quedó fuera de nuestras zonas de cobertura. Si tenés otra dirección dentro de Salta Capital, con gusto te enviamos un chofer. 🙏'
             ).catch(() => {});
           }
+          // Limpiar contexto: solo conservar nombre y notas, descartar coords de zona incorrecta
+          // para que el próximo mensaje del pasajero sea procesado como nuevo pedido limpio.
           await finalizeConversation(conv.id, {
-            status: 'open',
+            status: 'awaiting_info',
             context: {
-              ...ctx,
-              confirmed_trip_id: null,
+              passenger_name: ctx.passenger_name || trip.passenger_name || null,
+              notes: ctx.notes || null,
+              destination: ctx.destination || null,
               last_cancellation_notified_trip_id: trip.id,
             },
             last_trip_id: null,
