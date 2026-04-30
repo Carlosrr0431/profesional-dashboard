@@ -1422,6 +1422,21 @@ function shouldReassignCancelledTrip(trip) {
   return !nonReassignableReasons.includes(reason);
 }
 
+/**
+ * Detecta cancelaciones causadas por fallo del sistema (push no entregado,
+ * timeout de aceptación, etc.) donde el chofer original NUNCA rechazó el viaje.
+ * En esos casos no se debe excluir al mismo chofer en el reintento.
+ */
+function isSystemFailureCancellation(trip) {
+  const reason = normalizeReason(trip?.cancel_reason || '');
+  return (
+    reason.includes('no aceptado en tiempo') ||
+    reason.includes('no notificado al chofer') ||
+    reason.includes('reasignando automaticamente') ||
+    reason.includes('reintento necesario')
+  );
+}
+
 async function buildPassengerDriverConfirmationMessage(trip, driver) {
   const pickup = getTripPickupPoint(trip);
   let etaMinutes = null;
@@ -1490,7 +1505,7 @@ async function createReplacementTripFromCancelledTrip(sourceTrip, { excludedDriv
   const { data: trip, error } = await getSupabase().from('trips').insert(tripPayload).select().single();
   if (error) throw error;
 
-  await sendPushNotification(driver.push_token, {
+  await notifyDriver(driver, {
     title: 'Nuevo viaje asignado',
     body: `${trip.passenger_name} → ${trip.destination_address}`,
     data: {
@@ -2472,6 +2487,39 @@ async function sendPushNotification(pushToken, payload) {
   }
 }
 
+/**
+ * Notifica al chofer por push notification. Si no tiene push_token registrado,
+ * cae automáticamente a enviar un WhatsApp desde la cuenta de la empresa.
+ */
+async function notifyDriver(driver, { title, body, data } = {}) {
+  if (driver?.push_token) {
+    await sendPushNotification(driver.push_token, { title, body, data });
+    return;
+  }
+  // Fallback: WhatsApp al número del chofer
+  const driverPhone = normalizePhone(driver?.phone || '');
+  if (!driverPhone) {
+    logWebhook('notify_driver_no_channel', { driverId: driver?.id || null, title });
+    return;
+  }
+  const trip = data?.trip;
+  const waMsg = [
+    `🚖 *${title || 'Nuevo viaje asignado'}*`,
+    trip?.passenger_name ? `Pasajero: *${trip.passenger_name}*` : null,
+    trip?.destination_address ? `Retiro: *${trip.destination_address}*` : (body || null),
+    ``,
+    `Abrí la app para verlo.`,
+  ].filter((l) => l !== null).join('\n');
+  await sendWhatsAppText(driverPhone, waMsg).catch((err) => {
+    logWebhook('notify_driver_whatsapp_error', { driverId: driver?.id || null, error: err?.message });
+  });
+  logWebhook('notify_driver_whatsapp_fallback', {
+    driverId: driver?.id || null,
+    phone: maskPhone(driverPhone),
+    title,
+  });
+}
+
 // ── Zonas de servicio ─────────────────────────────────────────────────────────
 // Algoritmo ray-casting para determinar si un punto está dentro de un polígono.
 function isPointInPolygon(lat, lng, coordinates) {
@@ -2760,7 +2808,7 @@ async function createTripFromConversation({ conversation, extracted }) {
     distanceKm: trip?.distance_km ?? null,
   });
 
-  await sendPushNotification(driver.push_token, {
+  await notifyDriver(driver, {
     title: 'Nuevo viaje asignado',
     body: `${trip.passenger_name} → ${trip.destination_address}`,
     data: {
@@ -2919,8 +2967,8 @@ async function dispatchQueuedPassengers() {
       continue;
     }
 
-    // Notificar al chofer con push notification
-    await sendPushNotification(driver.push_token, {
+    // Notificar al chofer con push notification (o WhatsApp si no tiene push_token)
+    await notifyDriver(driver, {
       title: 'Nuevo viaje asignado',
       body: `${passengerName} → ${pickupAddress}`,
       data: { type: 'new_trip', tripId: trip.id, trip },
@@ -3068,13 +3116,41 @@ async function redispatchOrphanedCancelledTrips() {
     return { redispatched: 0 };
   }
 
+  // Deduplicar por phone: solo procesar el viaje cancelado MÁS RECIENTE por pasajero.
+  // Trips están ordenados ascending → el último en el Map es el más reciente.
+  const latestByPhone = new Map();
+  for (const trip of cancelledTrips) {
+    const phone = normalizePhone(trip.passenger_phone);
+    if (phone && shouldReassignCancelledTrip(trip)) {
+      latestByPhone.set(phone, trip);
+    }
+  }
+
+  if (!latestByPhone.size) {
+    logWebhook('redispatch_orphaned_none');
+    return { redispatched: 0 };
+  }
+
   let redispatched = 0;
 
-  for (const trip of cancelledTrips) {
-    if (!shouldReassignCancelledTrip(trip)) continue;
+  for (const [phone, trip] of latestByPhone) {
+    // Buscar la conversación del pasajero primero para validar estado
+    const { data: conv } = await getSupabase()
+      .from('whatsapp_conversations')
+      .select('id, status, context, last_trip_id')
+      .eq('phone', phone)
+      .maybeSingle();
 
-    const phone = normalizePhone(trip.passenger_phone);
-    if (!phone) continue;
+    const ctx = safeJsonParse(conv?.context, {});
+
+    // Skip si ya fue notificado de esta cancelación en un ciclo anterior
+    if (ctx.last_cancellation_notified_trip_id === trip.id) {
+      logWebhook('redispatch_orphaned_skip_already_notified', {
+        cancelledTripId: trip.id,
+        phone: maskPhone(phone),
+      });
+      continue;
+    }
 
     // Verificar si el pasajero ya tiene un viaje activo MÁS NUEVO que este
     const { data: newerTrip } = await getSupabase()
@@ -3095,27 +3171,24 @@ async function redispatchOrphanedCancelledTrips() {
       continue;
     }
 
+    // Si la cancelación fue por falla del sistema (no recibió el push, timeout),
+    // NO excluir al mismo chofer — él nunca rechazó el viaje.
+    const systemFailure = isSystemFailureCancellation(trip);
+    const excludedDriverIds = systemFailure ? [] : [trip.driver_id].filter(Boolean);
+
     logWebhook('redispatch_orphaned_found', {
       tripId: trip.id,
       phone: maskPhone(phone),
       cancelReason: trip.cancel_reason || null,
+      systemFailure,
+      excludedCount: excludedDriverIds.length,
     });
 
-    const replacement = await createReplacementTripFromCancelledTrip(trip, {
-      excludedDriverIds: [trip.driver_id].filter(Boolean),
-    });
-
-    // Buscar la conversación del pasajero para notificarla y actualizar su estado
-    const { data: conv } = await getSupabase()
-      .from('whatsapp_conversations')
-      .select('id, status, context, last_trip_id')
-      .eq('phone', phone)
-      .maybeSingle();
+    const replacement = await createReplacementTripFromCancelledTrip(trip, { excludedDriverIds });
 
     if (replacement.ok) {
-      // Notificar al pasajero si existe conversación
       if (conv?.id) {
-        const wasConfirmed = safeJsonParse(conv.context, {}).confirmed_trip_id === trip.id;
+        const wasConfirmed = ctx.confirmed_trip_id === trip.id;
         const msg = wasConfirmed
           ? 'El chofer asignado no pudo tomar el viaje. Ya encontré otro móvil y te aviso cuando lo acepte.'
           : 'Estoy buscando un chofer disponible, te aviso en cuanto quede confirmado.';
@@ -3124,10 +3197,10 @@ async function redispatchOrphanedCancelledTrips() {
         await finalizeConversation(conv.id, {
           status: 'awaiting_driver',
           context: {
-            ...safeJsonParse(conv.context, {}),
+            ...ctx,
             confirmed_trip_id: null,
             last_cancellation_notified_trip_id: trip.id,
-            excluded_driver_ids: [trip.driver_id].filter(Boolean),
+            excluded_driver_ids: excludedDriverIds,
           },
           last_trip_id: replacement.trip.id,
           processing_started_at: null,
@@ -3145,12 +3218,14 @@ async function redispatchOrphanedCancelledTrips() {
     } else {
       // Sin chofer disponible → cola de espera
       if (conv?.id) {
-        const ctx = safeJsonParse(conv.context, {});
         const wasConfirmed = ctx.confirmed_trip_id === trip.id;
-        const msg = wasConfirmed
-          ? 'El chofer no pudo tomar el viaje. Te agregué a la cola — en cuanto se libere uno, te mando el móvil automáticamente 🕐'
-          : 'Te agregué a la cola de espera. Apenas haya un chofer disponible, te mando el móvil 🕐';
-        await sendWhatsAppText(phone, msg).catch(() => {});
+        const alreadyQueued = conv.status === 'queued_no_driver';
+        if (!alreadyQueued) {
+          const msg = wasConfirmed
+            ? 'El chofer no pudo tomar el viaje. Te agregué a la cola — en cuanto se libere uno, te mando el móvil automáticamente 🕐'
+            : 'Te agregué a la cola de espera. Apenas haya un chofer disponible, te mando el móvil 🕐';
+          await sendWhatsAppText(phone, msg).catch(() => {});
+        }
 
         await finalizeConversation(conv.id, {
           status: 'queued_no_driver',
@@ -3180,7 +3255,7 @@ async function redispatchOrphanedCancelledTrips() {
     }
   }
 
-  logWebhook('redispatch_orphaned_done', { redispatched, checked: cancelledTrips.length });
+  logWebhook('redispatch_orphaned_done', { redispatched, checked: latestByPhone.size });
   return { redispatched };
 }
 
@@ -3813,8 +3888,8 @@ async function processClaimedConversation(batch) {
           // Notificar al chofer del cambio de dirección
           if (fullPendingTrip?.driver_id) {
             const updatedDriver = await getDriverById(fullPendingTrip.driver_id);
-            if (updatedDriver?.push_token) {
-              await sendPushNotification(updatedDriver.push_token, {
+            if (updatedDriver) {
+              await notifyDriver(updatedDriver, {
                 title: 'Dirección de retiro actualizada',
                 body: `Nuevo retiro: ${newGeo.formattedAddress}`,
                 data: { type: 'pickup_updated', tripId: openTripByPhone.id, newPickup: newGeo.formattedAddress },
@@ -3954,8 +4029,8 @@ async function processClaimedConversation(batch) {
         // Notificar al chofer que el pasajero canceló
         if (fullTripToCancel?.driver_id) {
           const cancelledDriver = await getDriverById(fullTripToCancel.driver_id);
-          if (cancelledDriver?.push_token) {
-            await sendPushNotification(cancelledDriver.push_token, {
+          if (cancelledDriver) {
+            await notifyDriver(cancelledDriver, {
               title: 'Viaje cancelado',
               body: 'El pasajero canceló el viaje por WhatsApp.',
               data: { type: 'trip_cancelled', tripId: tripToCancel.id },
