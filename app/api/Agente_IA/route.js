@@ -4570,6 +4570,21 @@ async function processWebhookBody(body, requestMeta = {}) {
 
       logWebhook('poll_results_trip_created', { tripId: pollTrip.id, phone: maskPhone(pollPassengerPhone), address: confirmedCandidate.formattedAddress });
 
+      // 5️⃣ Actualizar la conversación: last_trip_id + limpiar contexto + estado 'open'
+      if (pollConv?.id) {
+        try {
+          await getSupabase()
+            .from('whatsapp_conversations')
+            .update({
+              last_trip_id: pollTrip.id,
+              status: 'open',
+              context: {},          // contexto limpio — el trip ya fue creado
+              last_processed_at: new Date().toISOString(),
+            })
+            .eq('id', pollConv.id);
+        } catch (_) {}
+      }
+
       await sendWhatsAppText(
         pollPassengerPhone,
         `Dirección confirmada: *${confirmedCandidate.formattedAddress}*. Buscando el chofer más cercano...`
