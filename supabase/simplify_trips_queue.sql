@@ -20,6 +20,17 @@ ALTER TABLE trips ALTER COLUMN origin_address DROP NOT NULL;
 ALTER TABLE trips ALTER COLUMN origin_lat DROP NOT NULL;
 ALTER TABLE trips ALTER COLUMN origin_lng DROP NOT NULL;
 
+-- 5. Contexto de conversación en la fila del viaje (pending_poll, awaiting_gps, etc.)
+--    Permite que GPS handler y poll.results busquen estado directamente en trips
+--    sin depender de whatsapp_conversations.context.
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS wa_context JSONB;
+
+-- 6. Destino nullable: viajes en estado "awaiting address" o "awaiting GPS"
+--    se crean antes de tener la dirección confirmada.
+ALTER TABLE trips ALTER COLUMN destination_address DROP NOT NULL;
+ALTER TABLE trips ALTER COLUMN destination_lat DROP NOT NULL;
+ALTER TABLE trips ALTER COLUMN destination_lng DROP NOT NULL;
+
 -- Verificar resultado:
 -- SELECT column_name, is_nullable FROM information_schema.columns
 -- WHERE table_name = 'trips' ORDER BY ordinal_position;

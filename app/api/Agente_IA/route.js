@@ -1143,25 +1143,11 @@ async function appendIncomingMessage({
 }
 
 async function insertOutgoingMessage({ phone, messageId, content, rawPayload = null }) {
-  const { data: conversation, error: conversationError } = await getSupabase()
-    .from('whatsapp_conversations')
-    .select('id')
-    .eq('phone', normalizePhone(phone))
-    .maybeSingle();
-
-  if (conversationError) throw conversationError;
-  if (!conversation?.id) return;
-
-  const { error } = await getSupabase().from('whatsapp_messages').insert({
-    conversation_id: conversation.id,
-    external_message_id: messageId,
-    direction: 'outgoing',
-    message_type: 'text',
-    content,
-    raw_payload: rawPayload,
-  });
-
-  if (error && error.code !== '23505') throw error;
+  // Registro de mensajes salientes omitido en arquitectura trips-only.
+  // Los mensajes se envían vía WaSender; el log local en whatsapp_messages
+  // ya no es necesario porque el estado del flujo vive en la tabla trips.
+  // Dejar la función para no romper los callers; simplemente no hace nada.
+  void phone; void messageId; void content; void rawPayload;
 }
 
 async function sendWhatsAppText(phone, text) {
@@ -3096,6 +3082,28 @@ async function processTripLifecycleTransitions() {
         continue;
       }
 
+      // Limitar reasignaciones automáticas para evitar bucles infinitos
+      // (conductor que nunca acepta → loop eterno de nuevos viajes)
+      const recentCutoff2h = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const { count: recentCancelledCount } = await getSupabase()
+        .from('trips')
+        .select('id', { count: 'exact', head: true })
+        .eq('passenger_phone', trip.passenger_phone)
+        .eq('status', 'cancelled')
+        .gte('created_at', recentCutoff2h);
+      if ((recentCancelledCount || 0) >= 3) {
+        await sendWhatsAppText(
+          trip.passenger_phone,
+          'No pudimos asignarte un chofer después de varios intentos. Intentá de nuevo en unos minutos 🙏'
+        ).catch(() => {});
+        logWebhook('trip_transition_max_reassignments', {
+          tripId: trip.id,
+          phone: maskPhone(trip.passenger_phone),
+          count: recentCancelledCount,
+        });
+        continue;
+      }
+
       const pickup = getTripPickupPoint(trip);
       if (!Number.isFinite(pickup.lat) || !Number.isFinite(pickup.lng)) continue;
 
@@ -3231,6 +3239,28 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
     const existingTrip = await getLatestOpenTripByPhone(trip.passenger_phone);
     if (existingTrip) {
       logWebhook('trip_transition_skip_has_open', { tripId, existingTripId: existingTrip.id });
+      const queueResult = await dispatchQueuedPassengers();
+      return { confirmed: 0, reassigned: 0, queued: queueResult.dispatched };
+    }
+
+    // Limitar reasignaciones automáticas para evitar bucles infinitos
+    const recentCutoff2h = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const { count: recentCancelledCount } = await getSupabase()
+      .from('trips')
+      .select('id', { count: 'exact', head: true })
+      .eq('passenger_phone', trip.passenger_phone)
+      .eq('status', 'cancelled')
+      .gte('created_at', recentCutoff2h);
+    if ((recentCancelledCount || 0) >= 3) {
+      await sendWhatsAppText(
+        trip.passenger_phone,
+        'No pudimos asignarte un chofer después de varios intentos. Intentá de nuevo en unos minutos 🙏'
+      ).catch(() => {});
+      logWebhook('trip_transition_max_reassignments', {
+        tripId,
+        phone: maskPhone(trip.passenger_phone),
+        count: recentCancelledCount,
+      });
       const queueResult = await dispatchQueuedPassengers();
       return { confirmed: 0, reassigned: 0, queued: queueResult.dispatched };
     }
@@ -3941,6 +3971,39 @@ async function processClaimedConversation(batch) {
       missingPickupLocation: true,
       alreadyAwaitingGps,
     });
+
+    // Crear/actualizar viaje placeholder en trips.wa_context para que el GPS handler lo encuentre.
+    // Solo si no hay ya uno activo para este pasajero.
+    if (!alreadyAwaitingGps) {
+      const { data: existingGpsTrip } = await getSupabase()
+        .from('trips')
+        .select('id')
+        .eq('passenger_phone', normalizePhone(batch.phone))
+        .eq('status', 'queued')
+        .not('wa_context', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existingGpsTrip) {
+        await getSupabase()
+          .from('trips')
+          .update({ wa_context: { awaiting_gps: true, extracted: nextContext } })
+          .eq('id', existingGpsTrip.id)
+          .catch(() => {});
+      } else {
+        await getSupabase()
+          .from('trips')
+          .insert({
+            passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
+            passenger_phone: normalizePhone(batch.phone),
+            status: 'queued',
+            notes: '[APPROACH_ONLY] Esperando GPS del pasajero. Destino final: se define al subir el pasajero.',
+            wa_context: { awaiting_gps: true, extracted: nextContext },
+          })
+          .catch(() => {});
+      }
+    }
+
     return {
       handled: true,
       updates: {
@@ -4061,6 +4124,41 @@ async function processClaimedConversation(batch) {
         pollMsgId,
         optionCount: pollOptions.length,
       });
+
+      // Guardar pending_poll en trips.wa_context para que poll.results lo encuentre
+      // directamente en trips sin depender de whatsapp_conversations.context
+      const pollCandidatesForTrip = [
+        ...distinctCandidates.slice(0, 4).map((c) => ({
+          label: c.formattedAddress,
+          formattedAddress: c.formattedAddress,
+          lat: c.lat,
+          lng: c.lng,
+        })),
+        { label: 'Ninguna de estas opciones', formattedAddress: 'Ninguna de estas opciones', lat: null, lng: null },
+      ];
+      const pollWaContext = {
+        pending_poll: { msg_id: pollMsgId, phone: batch.phone, candidates: pollCandidatesForTrip, extracted: nextContext },
+      };
+      const { data: existingPollTrip } = await getSupabase()
+        .from('trips')
+        .select('id')
+        .eq('passenger_phone', normalizePhone(batch.phone))
+        .eq('status', 'queued')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existingPollTrip) {
+        await getSupabase().from('trips').update({ wa_context: pollWaContext }).eq('id', existingPollTrip.id).catch(() => {});
+      } else {
+        await getSupabase().from('trips').insert({
+          passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
+          passenger_phone: normalizePhone(batch.phone),
+          status: 'queued',
+          notes: '[APPROACH_ONLY] Esperando selección de dirección. Destino final: se define al subir el pasajero.',
+          wa_context: pollWaContext,
+        }).catch(() => {});
+      }
+
       return {
         handled: true,
         updates: {
@@ -4070,15 +4168,7 @@ async function processClaimedConversation(batch) {
             pending_poll: {
               msg_id: pollMsgId,
               phone: batch.phone,
-              candidates: [
-                ...distinctCandidates.slice(0, 4).map((c) => ({
-                  label: c.formattedAddress,
-                  formattedAddress: c.formattedAddress,
-                  lat: c.lat,
-                  lng: c.lng,
-                })),
-                { label: 'Ninguna de estas opciones', formattedAddress: 'Ninguna de estas opciones', lat: null, lng: null },
-              ],
+              candidates: pollCandidatesForTrip,
               extracted: nextContext,
             },
           },
@@ -4288,330 +4378,135 @@ async function processWebhookBody(body, requestMeta = {}) {
         pollMsgId,
       });
 
-      // Búsqueda primaria: buscar por msg_id del poll en el contexto de CUALQUIER conversación
-      // activa (incluye 'processing' por si la conversación fue reclamada por un cron en ese instante).
-      const { data: pollConvs, error: pollConvError } = await getSupabase()
-        .from('whatsapp_conversations')
-        .select('id, phone, push_name, context')
-        .in('status', [
-          'awaiting_address_selection',
-          'open',
-          'processing',
-        ]);
+      // ── Búsqueda en trips.wa_context (arquitectura trips-only) ──────────────────
+      // Los viajes en cola con pending_poll guardan los candidatos en trips.wa_context.
+      // Esto elimina la dependencia de whatsapp_conversations.context para poll.results.
+      const { data: tripsWithPoll } = await getSupabase()
+        .from('trips')
+        .select('id, passenger_phone, wa_context')
+        .eq('status', 'queued')
+        .not('wa_context', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(20);
 
-      if (pollConvError) {
-        logWebhook('poll_results_db_error', { error: summarizeDbError(pollConvError) });
-        return { status: 500, body: { success: false, error: 'db_error' } };
-      }
+      let pollTrip = null;
+      let pollCandidates = [];
+      let selectedCandidate = null;
 
-      // Búsqueda primaria: conversación que tenga el msg_id del poll en su contexto.
-      // NOTA: pending_poll.msg_id almacena el ID numérico de WASender (ej: "43156652"), pero
-      // poll.results llega con el ID de formato WhatsApp (ej: "3EB09B15..."). Por eso la
-      // coincidencia exacta de msg_id casi nunca funciona.
-      // Se intenta igual, y a continuación se busca también por opción votada en candidatos.
-      let matchedConv = (pollConvs || []).find((c) => {
-        const ctx = safeJsonParse(c.context, {});
-        return ctx?.pending_poll?.msg_id === pollMsgId;
-      });
-
-      // Búsqueda primaria alternativa: por opción votada en candidatos almacenados.
-      // Funciona aunque los IDs no coincidan (caso habitual).
-      if (!matchedConv) {
-        const convByOption = (pollConvs || []).find((c) => {
-          const ctx = safeJsonParse(c.context, {});
-          const cands = ctx?.pending_poll?.candidates || [];
-          return (
-            cands.length > 0 &&
-            cands.some((can) => can.label === voted.name || can.formattedAddress === voted.name)
-          );
-        });
-        if (convByOption) {
-          matchedConv = convByOption;
-          logWebhook('poll_results_matched_by_voted_option', {
-            conversationId: convByOption.id,
-            votedName: voted.name,
-            storedMsgId: safeJsonParse(convByOption.context, {})?.pending_poll?.msg_id,
-            pollMsgId,
-          });
+      // Primero: buscar por opción votada en candidatos del wa_context
+      for (const t of tripsWithPoll || []) {
+        const ctx = safeJsonParse(t.wa_context, {});
+        const cands = ctx?.pending_poll?.candidates || [];
+        const match = cands.find((c) => c.label === voted.name || c.formattedAddress === voted.name);
+        if (match) {
+          pollTrip = t;
+          pollCandidates = cands;
+          selectedCandidate = match;
+          logWebhook('poll_results_matched_by_wa_context', { tripId: t.id, votedName: voted.name });
+          break;
         }
       }
 
-      let pollCtx = safeJsonParse(matchedConv?.context, {});
-      let pollCandidates = pollCtx?.pending_poll?.candidates || [];
-      let selectedCandidate = pollCandidates.find(
-        (c) => c.label === voted.name || c.formattedAddress === voted.name
-      );
-
-      // Fallback 1: buscar por external_message_id en whatsapp_messages.
-      if (!matchedConv || !selectedCandidate) {
-        logWebhook('poll_results_fallback_by_msg_id', {
-          pollMsgId,
-          votedName: voted.name,
-          reason: !matchedConv ? 'conv_not_found' : 'candidate_not_found',
-        });
-
-        const { data: pollMsg } = await getSupabase()
-          .from('whatsapp_messages')
-          .select('conversation_id')
-          .eq('external_message_id', pollMsgId)
+      // Segundo fallback: buscar por teléfono del votante entre los viajes con poll pendiente
+      if (!pollTrip && voterPhone) {
+        const { data: tripByPhone } = await getSupabase()
+          .from('trips')
+          .select('id, passenger_phone, wa_context')
+          .eq('passenger_phone', normalizePhone(voterPhone))
+          .eq('status', 'queued')
+          .not('wa_context', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
-
-        if (pollMsg?.conversation_id) {
-          const { data: convFromMsg } = await getSupabase()
-            .from('whatsapp_conversations')
-            .select('id, phone, push_name, context')
-            .eq('id', pollMsg.conversation_id)
-            .maybeSingle();
-
-          if (convFromMsg) {
-            matchedConv = convFromMsg;
-            pollCtx = safeJsonParse(convFromMsg.context, {});
-
-            // El nombre votado ya es una dirección formateada por Google → re-geocodificar directo
-            try {
-              const geo = await geocodeAddress(voted.name);
-              selectedCandidate = {
-                label: voted.name,
-                formattedAddress: geo.formattedAddress,
-                lat: geo.lat,
-                lng: geo.lng,
-              };
-              logWebhook('poll_results_fallback_geocoded', {
-                conversationId: matchedConv.id,
-                votedName: voted.name,
-                formattedAddress: geo.formattedAddress,
-              });
-            } catch (geoErr) {
-              logWebhook('poll_results_fallback_geocode_fail', {
-                votedName: voted.name,
-                error: geoErr?.message || 'geocode_error',
-              });
-            }
-          }
-        }
-      }
-
-      // Fallback 2: si los fallbacks anteriores no encontraron la conversación, buscar en
-      // TODOS los estados (sin filtro de status) por si la conversación quedó en un estado
-      // inesperado (ej: hubo un error al guardar el status correcto).
-      if (!matchedConv) {
-        logWebhook('poll_results_fallback_all_statuses', { pollMsgId, votedName: voted.name });
-
-        const { data: allConvs } = await getSupabase()
-          .from('whatsapp_conversations')
-          .select('id, phone, push_name, context, status')
-          .not('context', 'is', null);
-
-        const broadMatch =
-          // Intentar primero por msg_id
-          (allConvs || []).find((c) => {
-            const ctx = safeJsonParse(c.context, {});
-            return ctx?.pending_poll?.msg_id === pollMsgId;
-          }) ||
-          // Luego por opción votada en candidatos (robusto ante mismatch de ID)
-          (allConvs || []).find((c) => {
-            const ctx = safeJsonParse(c.context, {});
-            const cands = ctx?.pending_poll?.candidates || [];
-            return (
-              cands.length > 0 &&
-              cands.some((can) => can.label === voted.name || can.formattedAddress === voted.name)
-            );
-          });
-
-        if (broadMatch) {
-          matchedConv = broadMatch;
-          pollCtx = safeJsonParse(broadMatch.context, {});
-          pollCandidates = pollCtx?.pending_poll?.candidates || [];
+        if (tripByPhone) {
+          pollTrip = tripByPhone;
+          const ctx = safeJsonParse(tripByPhone.wa_context, {});
+          pollCandidates = ctx?.pending_poll?.candidates || [];
           selectedCandidate = pollCandidates.find(
             (c) => c.label === voted.name || c.formattedAddress === voted.name
           );
-          logWebhook('poll_results_fallback_all_statuses_found', {
-            conversationId: broadMatch.id,
-            status: broadMatch.status,
-            pollMsgId,
-          });
-
-          // Re-geocodificar si no hay candidato coincidente en el contexto recuperado
-          if (!selectedCandidate) {
-            try {
-              const geo = await geocodeAddress(voted.name);
-              selectedCandidate = {
-                label: voted.name,
-                formattedAddress: geo.formattedAddress,
-                lat: geo.lat,
-                lng: geo.lng,
-              };
-              logWebhook('poll_results_fallback_all_statuses_geocoded', {
-                conversationId: broadMatch.id,
-                votedName: voted.name,
-                formattedAddress: geo.formattedAddress,
-              });
-            } catch (geoErr) {
-              logWebhook('poll_results_fallback_geocode_fail', {
-                votedName: voted.name,
-                error: geoErr?.message || 'geocode_error',
-              });
-            }
-          }
+          logWebhook('poll_results_matched_by_phone', { tripId: tripByPhone.id, phone: maskPhone(voterPhone) });
         }
       }
 
-      // Fallback 3: buscar por teléfono del votante (resuelto desde voters[0] o remoteJid).
-      // Cubre el caso donde el contexto ya fue limpiado O el JID era un LID resuelto via API.
-      if (!matchedConv) {
-        if (voterPhone && voterPhone.length >= 8) {
-          const { data: convByPhone } = await getSupabase()
-            .from('whatsapp_conversations')
-            .select('id, phone, push_name, context')
-            .eq('phone', voterPhone)
-            .maybeSingle();
-          if (convByPhone) {
-            matchedConv = convByPhone;
-            pollCtx = safeJsonParse(convByPhone.context, {});
-            pollCandidates = pollCtx?.pending_poll?.candidates || [];
-            selectedCandidate = pollCandidates.find(
-              (c) => c.label === voted.name || c.formattedAddress === voted.name
-            );
-            logWebhook('poll_results_fallback_by_phone', {
-              conversationId: convByPhone.id,
-              phone: maskPhone(voterPhone),
-              pollMsgId,
-            });
-          }
-        }
-
-        // Último recurso: buscar la única conversación en awaiting_address_selection que tenga
-        // un pending_poll con candidatos que incluyan la opción votada.
-        if (!matchedConv) {
-          const { data: awaitingConvs } = await getSupabase()
-            .from('whatsapp_conversations')
-            .select('id, phone, push_name, context')
-            .eq('status', 'awaiting_address_selection');
-          const awaitingMatch = (awaitingConvs || []).find((c) => {
-            const ctx = safeJsonParse(c.context, {});
-            const cands = ctx?.pending_poll?.candidates || [];
-            return (
-              cands.length > 0 &&
-              cands.some((can) => can.label === voted.name || can.formattedAddress === voted.name)
-            );
-          });
-          if (awaitingMatch) {
-            matchedConv = awaitingMatch;
-            pollCtx = safeJsonParse(awaitingMatch.context, {});
-            pollCandidates = pollCtx?.pending_poll?.candidates || [];
-            selectedCandidate = pollCandidates.find(
-              (c) => c.label === voted.name || c.formattedAddress === voted.name
-            );
-            logWebhook('poll_results_fallback_awaiting_by_option', {
-              conversationId: awaitingMatch.id,
-              phone: maskPhone(awaitingMatch.phone),
-              votedName: voted.name,
-              pollMsgId,
-            });
-          }
-        }
+      if (!pollTrip) {
+        logWebhook('poll_results_ignored', { reason: 'poll_trip_not_found', pollMsgId, votedName: voted.name });
+        return { status: 200, body: { success: true, ignored: true, reason: 'poll_trip_not_found' } };
       }
 
-      // Si encontramos la conv pero no hay candidato coincidente (context ya fue limpiado),
-      // geocodificar la opción votada directamente.
-      if (matchedConv && !selectedCandidate) {
-        try {
-          const geo = await geocodeAddress(voted.name);
-          selectedCandidate = {
-            label: voted.name,
-            formattedAddress: geo.formattedAddress,
-            lat: geo.lat,
-            lng: geo.lng,
-          };
-          logWebhook('poll_results_phone_fallback_geocoded', {
-            conversationId: matchedConv.id,
-            votedName: voted.name,
-            formattedAddress: geo.formattedAddress,
-          });
-        } catch (geoErr) {
-          logWebhook('poll_results_fallback_geocode_fail', {
-            votedName: voted.name,
-            error: geoErr?.message || 'geocode_error',
-          });
-        }
-      }
+      const pollTripCtx = safeJsonParse(pollTrip.wa_context, {});
 
-      if (!matchedConv) {
-        logWebhook('poll_results_ignored', { reason: 'conversation_not_found', pollMsgId });
-        return { status: 200, body: { success: true, ignored: true, reason: 'conversation_not_found' } };
-      }
-
-      // "Ninguna de estas opciones" → pedir GPS o calle y número
+      // "Ninguna de estas opciones" → pedir GPS/calle directamente en el viaje
       if (normalizeForMatch(voted.name || '').startsWith('ninguna')) {
-        const existingCtx = safeJsonParse(matchedConv.context, {});
-        const ctxNoPoll = { ...existingCtx };
-        delete ctxNoPoll.pending_poll;
+        await getSupabase()
+          .from('trips')
+          .update({ wa_context: { ...pollTripCtx, pending_poll: null, awaiting_gps: true } })
+          .eq('id', pollTrip.id)
+          .eq('status', 'queued');
         await sendWhatsAppText(
-          matchedConv.phone,
+          pollTrip.passenger_phone,
           'Entendido. Compartí tu *ubicación en tiempo real* desde WhatsApp (ícono de ubicación → "Ubicación en tiempo real"), o mandame la *calle y número exacto* y te mando el móvil enseguida.'
         );
-        await finalizeConversation(matchedConv.id, {
-          status: 'open',
-          context: { ...ctxNoPoll, awaiting_gps: true },
-          last_trip_id: null,
-          processing_started_at: null,
-          last_processed_at: new Date().toISOString(),
-        });
-        logWebhook('poll_results_none_selected', { conversationId: matchedConv.id, votedName: voted.name });
+        logWebhook('poll_results_none_selected', { tripId: pollTrip.id, votedName: voted.name });
         return { status: 200, body: { success: true, event: 'poll.results', noneSelected: true } };
       }
 
-      if (!selectedCandidate) {
-        logWebhook('poll_results_ignored', { reason: 'voted_option_not_found', votedName: voted.name });
-        return { status: 200, body: { success: true, ignored: true, reason: 'voted_option_not_found' } };
+      // Si el candidato tiene coordenadas nulas (historial sin geocodificar), geocodificar ahora
+      if (!selectedCandidate?.lat || !selectedCandidate?.lng) {
+        if (selectedCandidate || voted.name) {
+          try {
+            const geo = await geocodeAddress(voted.name);
+            selectedCandidate = {
+              label: voted.name,
+              formattedAddress: geo.formattedAddress,
+              lat: geo.lat,
+              lng: geo.lng,
+            };
+            logWebhook('poll_results_geocoded_candidate', { tripId: pollTrip.id, votedName: voted.name });
+          } catch (geoErr) {
+            logWebhook('poll_results_geocode_fail', { votedName: voted.name, error: geoErr?.message });
+          }
+        }
+      }
+
+      if (!selectedCandidate?.lat || !selectedCandidate?.lng) {
+        logWebhook('poll_results_ignored', { reason: 'candidate_no_coords', votedName: voted.name });
+        return { status: 200, body: { success: true, ignored: true, reason: 'candidate_no_coords' } };
       }
 
       logWebhook('poll_results_address_selected', {
-        conversationId: matchedConv.id,
-        phone: maskPhone(matchedConv.phone),
+        tripId: pollTrip.id,
+        phone: maskPhone(pollTrip.passenger_phone),
         selectedAddress: selectedCandidate.formattedAddress,
       });
 
-      const pendingExtracted = pollCtx?.pending_poll?.extracted || {};
-      const pollTripResult = await createTripFromConversation({
-        conversation: matchedConv,
-        extracted: {
-          ...pendingExtracted,
-          pickup_location: selectedCandidate.formattedAddress,
-          _preGeocodedPickup: {
-            formattedAddress: selectedCandidate.formattedAddress,
-            lat: selectedCandidate.lat,
-            lng: selectedCandidate.lng,
-          },
-        },
-      });
+      // Actualizar el viaje con la dirección confirmada y despachar
+      const { error: pollUpdateErr } = await getSupabase()
+        .from('trips')
+        .update({
+          destination_address: selectedCandidate.formattedAddress,
+          destination_lat: selectedCandidate.lat,
+          destination_lng: selectedCandidate.lng,
+          wa_context: null,
+        })
+        .eq('id', pollTrip.id)
+        .eq('status', 'queued');
 
-      await sendWhatsAppText(matchedConv.phone, pollTripResult.reply);
+      if (pollUpdateErr) {
+        logWebhook('poll_results_update_error', { tripId: pollTrip.id, error: summarizeDbError(pollUpdateErr) });
+        return { status: 500, body: { success: false, error: 'db_update_error' } };
+      }
 
-      await finalizeConversation(matchedConv.id, {
-        status: 'open',
-        context: pollTripResult.ok
-          ? { ...pollTripResult.context, pending_poll: null }
-          : { ...pollCtx, pending_poll: null },
-        last_trip_id: pollTripResult.trip?.id || null,
-        processing_started_at: null,
-        last_processed_at: new Date().toISOString(),
-      });
+      await sendWhatsAppText(
+        pollTrip.passenger_phone,
+        `Dirección confirmada: *${selectedCandidate.formattedAddress}*. Buscando el chofer más cercano...`
+      );
+      await dispatchQueuedPassengers();
 
-      logWebhook('poll_results_trip_result', {
-        conversationId: matchedConv.id,
-        tripId: pollTripResult.trip?.id || null,
-        ok: Boolean(pollTripResult.ok),
-        reason: pollTripResult.reason || null,
-      });
-
+      logWebhook('poll_results_trip_dispatched', { tripId: pollTrip.id });
       return {
         status: 200,
-        body: {
-          success: true,
-          event: 'poll.results',
-          tripId: pollTripResult.trip?.id || null,
-        },
+        body: { success: true, event: 'poll.results', tripId: pollTrip.id },
       };
     }
 
@@ -4678,39 +4573,31 @@ async function processWebhookBody(body, requestMeta = {}) {
       if (typeof gpsLat === 'number' && typeof gpsLng === 'number') {
         logWebhook('location_message_received', { phone: maskPhone(phone), lat: gpsLat, lng: gpsLng });
 
-        const { data: existingConv } = await getSupabase()
-          .from('whatsapp_conversations')
-          .select('id, status, context, push_name, last_trip_id')
-          .eq('phone', normalizePhone(phone))
+        // Buscar viaje en cola con awaiting_gps=true en trips.wa_context (arquitectura trips-only)
+        const { data: gpsTrip } = await getSupabase()
+          .from('trips')
+          .select('id, passenger_name, passenger_phone, wa_context, notes')
+          .eq('passenger_phone', normalizePhone(phone))
+          .eq('status', 'queued')
+          .not('wa_context', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
 
-        const convStatus = existingConv?.status || '';
-        const convCtx = safeJsonParse(existingConv?.context, {});
-        const wantsGps =
-          convCtx?.awaiting_gps === true ||
-          ['awaiting_address_selection', 'open'].includes(convStatus);
+        const gpsTripCtx = gpsTrip ? safeJsonParse(gpsTrip.wa_context, {}) : {};
+        const wantsGps = gpsTripCtx?.awaiting_gps === true;
 
-        if (existingConv?.id && wantsGps) {
-          // WhatsApp ya trae la dirección en el payload de la ubicación.
-          // Usarla directamente evita el reverse geocode y sus posibles errores de datos.
-          // Campos posibles: locMsg.name (lugar), locMsg.address (dirección de calle).
+        if (gpsTrip && wantsGps) {
+          // Resolver dirección: WhatsApp ya la trae en el payload, si no → reverse geocode
           const waName = String(locMsg.name || '').trim();
           const waAddress = String(locMsg.address || '').trim();
-          // Preferir address (más específico), luego name, luego reverse geocode como último recurso
           const waProvidedAddress = waAddress || waName || null;
 
           let reverseAddress;
           if (waProvidedAddress) {
-            // La dirección viene del payload de WhatsApp — es la misma que muestra el usuario en la preview
             reverseAddress = waProvidedAddress;
-            logWebhook('location_address_from_wa_payload', {
-              phone: maskPhone(phone),
-              waAddress: waProvidedAddress,
-              lat: gpsLat,
-              lng: gpsLng,
-            });
+            logWebhook('location_address_from_wa_payload', { phone: maskPhone(phone), waAddress: waProvidedAddress });
           } else {
-            // Fallback: reverse geocode con nuestro algoritmo de dos pasadas
             try {
               reverseAddress = await reverseGeocodeLatLng(gpsLat, gpsLng);
             } catch {
@@ -4718,49 +4605,38 @@ async function processWebhookBody(body, requestMeta = {}) {
             }
           }
 
-          const gpsTripResult = await createTripFromConversation({
-            conversation: { ...existingConv, phone, push_name: existingConv.push_name || pushName },
-            extracted: {
-              ...convCtx,
-              passenger_name: convCtx.passenger_name || pushName || null,
-              pickup_location: reverseAddress,
-              _preGeocodedPickup: {
-                formattedAddress: reverseAddress,
-                lat: gpsLat,
-                lng: gpsLng,
-              },
-              awaiting_gps: false,
-            },
-          });
+          // Actualizar el viaje en cola con la dirección confirmada por GPS
+          const { error: gpsUpdateErr } = await getSupabase()
+            .from('trips')
+            .update({
+              destination_address: reverseAddress,
+              destination_lat: gpsLat,
+              destination_lng: gpsLng,
+              wa_context: null,
+            })
+            .eq('id', gpsTrip.id)
+            .eq('status', 'queued');
 
-          await sendWhatsAppText(phone, gpsTripResult.reply);
-
-          await finalizeConversation(existingConv.id, {
-            status: 'open',
-            context: {
-              ...(gpsTripResult.context || convCtx),
-              awaiting_gps: false,
-            },
-            last_trip_id: gpsTripResult.trip?.id || existingConv.last_trip_id || null,
-            processing_started_at: null,
-            last_processed_at: new Date().toISOString(),
-          });
-
-          logWebhook('location_gps_trip_created', {
-            conversationId: existingConv.id,
-            phone: maskPhone(phone),
-            tripId: gpsTripResult.trip?.id || null,
-            ok: Boolean(gpsTripResult.ok),
-          });
-
-          return {
-            status: 200,
-            body: { success: true, gpsHandled: true, tripId: gpsTripResult.trip?.id || null },
-          };
+          if (!gpsUpdateErr) {
+            await sendWhatsAppText(
+              phone,
+              'Recibí tu ubicación. Buscando el chofer más cercano...'
+            ).catch(() => {});
+            await dispatchQueuedPassengers();
+            logWebhook('location_gps_trip_updated', {
+              tripId: gpsTrip.id,
+              phone: maskPhone(phone),
+              address: reverseAddress,
+            });
+            return {
+              status: 200,
+              body: { success: true, gpsHandled: true, tripId: gpsTrip.id },
+            };
+          }
         }
       }
 
-      // Si no hay conversación activa esperando GPS, dejar que fluya normal como mensaje
+      // Si no hay viaje en cola esperando GPS, dejar que fluya normal como mensaje
     }
 
     if (messageType === 'audio') {
