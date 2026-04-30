@@ -4466,11 +4466,12 @@ async function processWebhookBody(body, requestMeta = {}) {
       const ctxWithoutPoll = { ...pollConvCtx };
       delete ctxWithoutPoll.pending_poll;
       if (pollConv?.id) {
-        await getSupabase()
-          .from('whatsapp_conversations')
-          .update({ context: ctxWithoutPoll, status: 'open' })
-          .eq('id', pollConv.id)
-          .catch(() => {});
+        try {
+          await getSupabase()
+            .from('whatsapp_conversations')
+            .update({ context: ctxWithoutPoll, status: 'open' })
+            .eq('id', pollConv.id);
+        } catch (_) {}
       }
 
       // "Ninguna de estas opciones" → pedir GPS/calle directamente
@@ -4481,11 +4482,12 @@ async function processWebhookBody(body, requestMeta = {}) {
         );
         // Marcar awaiting_gps en conversación para el próximo mensaje
         if (pollConv?.id) {
-          await getSupabase()
-            .from('whatsapp_conversations')
-            .update({ context: { ...ctxWithoutPoll, awaiting_gps: true }, status: 'open' })
-            .eq('id', pollConv.id)
-            .catch(() => {});
+          try {
+            await getSupabase()
+              .from('whatsapp_conversations')
+              .update({ context: { ...ctxWithoutPoll, awaiting_gps: true }, status: 'open' })
+              .eq('id', pollConv.id);
+          } catch (_) {}
         }
         logWebhook('poll_results_none_selected', { convId: pollConv?.id || null, votedName: voted.name });
         return { status: 200, body: { success: true, event: 'poll.results', noneSelected: true } };
