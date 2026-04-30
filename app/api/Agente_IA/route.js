@@ -3364,6 +3364,30 @@ async function processClaimedConversation(batch) {
   // cualquier lógica de reset de contexto, porque el pending_poll vive en batch.context
   // y necesitamos preservarlo.
   if (batch.status === 'awaiting_address_selection') {
+    // Si el último trip ya se cerró (completed/cancelled), el poll quedó huérfano.
+    // Limpiar contexto y procesar como conversación nueva (fall-through al flujo normal).
+    const lastTripCheck = await getTripById(batch.last_trip_id);
+    const lastTripIsClosed = lastTripCheck && !isOpenTripStatus(lastTripCheck.status);
+    if (!lastTripCheck && batch.last_trip_id) {
+      // last_trip_id apunta a un trip que no existe — también limpiar
+    }
+    if (lastTripIsClosed || (!batch.last_trip_id && !lastTripCheck)) {
+      // Verificar por teléfono si hay algún trip abierto antes de limpiar
+      const openByPhone = await getLatestOpenTripByPhone(batch.phone);
+      if (!openByPhone) {
+        logWebhook('conversation_poll_cleared_trip_closed', {
+          conversationId: batch?.id || null,
+          tripId: lastTripCheck?.id || null,
+          tripStatus: lastTripCheck?.status || null,
+        });
+        batch.context = JSON.stringify({});
+        batch.status = 'open';
+        // fall-through al flujo normal con contexto limpio
+      }
+    }
+  }
+
+  if (batch.status === 'awaiting_address_selection') {
     const savedContext = safeJsonParse(batch.context, {});
     const pendingPoll = savedContext.pending_poll;
     const votedText = pendingMessages.map((m) => m?.contenido).filter(Boolean).join(' ').trim();
