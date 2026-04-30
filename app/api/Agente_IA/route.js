@@ -1571,7 +1571,7 @@ trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
   let completion;
   try {
     completion = await getOpenAI().chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-4o-mini',
       max_tokens: 400,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -3993,22 +3993,24 @@ async function processClaimedConversation(batch) {
         .limit(1)
         .maybeSingle();
       if (existingGpsTrip) {
-        await getSupabase()
-          .from('trips')
-          .update({ wa_context: { awaiting_gps: true, extracted: nextContext } })
-          .eq('id', existingGpsTrip.id)
-          .catch(() => {});
+        try {
+          await getSupabase()
+            .from('trips')
+            .update({ wa_context: { awaiting_gps: true, extracted: nextContext } })
+            .eq('id', existingGpsTrip.id);
+        } catch {}
       } else {
-        await getSupabase()
-          .from('trips')
-          .insert({
-            passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
-            passenger_phone: normalizePhone(batch.phone),
-            status: 'queued',
-            notes: '[APPROACH_ONLY] Esperando GPS del pasajero. Destino final: se define al subir el pasajero.',
-            wa_context: { awaiting_gps: true, extracted: nextContext },
-          })
-          .catch(() => {});
+        try {
+          await getSupabase()
+            .from('trips')
+            .insert({
+              passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
+              passenger_phone: normalizePhone(batch.phone),
+              status: 'queued',
+              notes: '[APPROACH_ONLY] Esperando GPS del pasajero. Destino final: se define al subir el pasajero.',
+              wa_context: { awaiting_gps: true, extracted: nextContext },
+            });
+        } catch {}
       }
     }
 
@@ -4156,15 +4158,19 @@ async function processClaimedConversation(batch) {
         .limit(1)
         .maybeSingle();
       if (existingPollTrip) {
-        await getSupabase().from('trips').update({ wa_context: pollWaContext }).eq('id', existingPollTrip.id).catch(() => {});
+        try {
+          await getSupabase().from('trips').update({ wa_context: pollWaContext }).eq('id', existingPollTrip.id);
+        } catch {}
       } else {
-        await getSupabase().from('trips').insert({
-          passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
-          passenger_phone: normalizePhone(batch.phone),
-          status: 'queued',
-          notes: '[APPROACH_ONLY] Esperando selección de dirección. Destino final: se define al subir el pasajero.',
-          wa_context: pollWaContext,
-        }).catch(() => {});
+        try {
+          await getSupabase().from('trips').insert({
+            passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
+            passenger_phone: normalizePhone(batch.phone),
+            status: 'queued',
+            notes: '[APPROACH_ONLY] Esperando selección de dirección. Destino final: se define al subir el pasajero.',
+            wa_context: pollWaContext,
+          });
+        } catch {}
       }
 
       return {
