@@ -3038,6 +3038,152 @@ async function expireTimedOutPendingTrips() {
   return { expired };
 }
 
+/**
+ * Re-despacha viajes cancelados (en los últimos 30 min) que no tienen aún un viaje
+ * de reemplazo activo para el mismo pasajero.
+ * Funciona leyendo `trips` por `passenger_phone`, independiente del estado de la
+ * conversación. Es el fallback robusto cuando `processTripLifecycleTransitions`
+ * no detecta el viaje cancelado por desincronía en `last_trip_id` o `status`.
+ */
+async function redispatchOrphanedCancelledTrips() {
+  logWebhook('redispatch_orphaned_start');
+
+  const lookback = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+
+  const { data: cancelledTrips, error } = await getSupabase()
+    .from('trips')
+    .select('id, driver_id, passenger_phone, passenger_name, cancel_reason, notes, destination_address, destination_lat, destination_lng, assigned_at')
+    .eq('status', 'cancelled')
+    .gte('assigned_at', lookback)
+    .not('assigned_at', 'is', null)
+    .order('assigned_at', { ascending: true });
+
+  if (error) {
+    logWebhook('redispatch_orphaned_db_error', { error: summarizeDbError(error) });
+    return { redispatched: 0 };
+  }
+
+  if (!cancelledTrips?.length) {
+    logWebhook('redispatch_orphaned_none');
+    return { redispatched: 0 };
+  }
+
+  let redispatched = 0;
+
+  for (const trip of cancelledTrips) {
+    if (!shouldReassignCancelledTrip(trip)) continue;
+
+    const phone = normalizePhone(trip.passenger_phone);
+    if (!phone) continue;
+
+    // Verificar si el pasajero ya tiene un viaje activo MÁS NUEVO que este
+    const { data: newerTrip } = await getSupabase()
+      .from('trips')
+      .select('id, status')
+      .eq('passenger_phone', phone)
+      .in('status', OPEN_TRIP_STATUSES)
+      .gt('created_at', trip.assigned_at)
+      .limit(1)
+      .maybeSingle();
+
+    if (newerTrip) {
+      logWebhook('redispatch_orphaned_skip_has_replacement', {
+        cancelledTripId: trip.id,
+        replacementTripId: newerTrip.id,
+        phone: maskPhone(phone),
+      });
+      continue;
+    }
+
+    logWebhook('redispatch_orphaned_found', {
+      tripId: trip.id,
+      phone: maskPhone(phone),
+      cancelReason: trip.cancel_reason || null,
+    });
+
+    const replacement = await createReplacementTripFromCancelledTrip(trip, {
+      excludedDriverIds: [trip.driver_id].filter(Boolean),
+    });
+
+    // Buscar la conversación del pasajero para notificarla y actualizar su estado
+    const { data: conv } = await getSupabase()
+      .from('whatsapp_conversations')
+      .select('id, status, context, last_trip_id')
+      .eq('phone', phone)
+      .maybeSingle();
+
+    if (replacement.ok) {
+      // Notificar al pasajero si existe conversación
+      if (conv?.id) {
+        const wasConfirmed = safeJsonParse(conv.context, {}).confirmed_trip_id === trip.id;
+        const msg = wasConfirmed
+          ? 'El chofer asignado no pudo tomar el viaje. Ya encontré otro móvil y te aviso cuando lo acepte.'
+          : 'Estoy buscando un chofer disponible, te aviso en cuanto quede confirmado.';
+        await sendWhatsAppText(phone, msg).catch(() => {});
+
+        await finalizeConversation(conv.id, {
+          status: 'awaiting_driver',
+          context: {
+            ...safeJsonParse(conv.context, {}),
+            confirmed_trip_id: null,
+            last_cancellation_notified_trip_id: trip.id,
+            excluded_driver_ids: [trip.driver_id].filter(Boolean),
+          },
+          last_trip_id: replacement.trip.id,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        }).catch(() => {});
+      }
+
+      logWebhook('redispatch_orphaned_ok', {
+        cancelledTripId: trip.id,
+        newTripId: replacement.trip.id,
+        newDriverId: replacement.driver?.id || null,
+        phone: maskPhone(phone),
+      });
+      redispatched++;
+    } else {
+      // Sin chofer disponible → cola de espera
+      if (conv?.id) {
+        const ctx = safeJsonParse(conv.context, {});
+        const wasConfirmed = ctx.confirmed_trip_id === trip.id;
+        const msg = wasConfirmed
+          ? 'El chofer no pudo tomar el viaje. Te agregué a la cola — en cuanto se libere uno, te mando el móvil automáticamente 🕐'
+          : 'Te agregué a la cola de espera. Apenas haya un chofer disponible, te mando el móvil 🕐';
+        await sendWhatsAppText(phone, msg).catch(() => {});
+
+        await finalizeConversation(conv.id, {
+          status: 'queued_no_driver',
+          context: {
+            ...ctx,
+            confirmed_trip_id: null,
+            last_cancellation_notified_trip_id: trip.id,
+            excluded_driver_ids: [],
+            pickup_lat: trip.destination_lat,
+            pickup_lng: trip.destination_lng,
+            pickup_formatted_address: trip.destination_address,
+            pickup_location: ctx.pickup_location || trip.destination_address,
+            passenger_name: trip.passenger_name || ctx.passenger_name,
+          },
+          last_trip_id: null,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        }).catch(() => {});
+      }
+
+      logWebhook('redispatch_orphaned_queued', {
+        cancelledTripId: trip.id,
+        reason: replacement.reason,
+        phone: maskPhone(phone),
+        hasConversation: Boolean(conv?.id),
+      });
+    }
+  }
+
+  logWebhook('redispatch_orphaned_done', { redispatched, checked: cancelledTrips.length });
+  return { redispatched };
+}
+
 async function processTripLifecycleTransitions() {
   logWebhook('trip_transition_scan_start');
 
@@ -4950,8 +5096,18 @@ async function processPendingConversationsRequest({ authHeader = '', userAgent =
     ensureServerConfig();
     const pendingResult = await processPendingConversations();
     const expireResult = await expireTimedOutPendingTrips();
+    const redispatchResult = await redispatchOrphanedCancelledTrips();
     const transitionResult = await processTripLifecycleTransitions();
-    return { status: 200, body: { success: true, ...pendingResult, expiredPending: expireResult.expired, tripTransitions: transitionResult } };
+    return {
+      status: 200,
+      body: {
+        success: true,
+        ...pendingResult,
+        expiredPending: expireResult.expired,
+        redispatchedOrphaned: redispatchResult.redispatched,
+        tripTransitions: transitionResult,
+      },
+    };
   } catch (error) {
     console.error('Error procesando pendientes:', error);
     return { status: 500, body: { success: false, error: error.message } };
