@@ -1324,7 +1324,7 @@ async function getOpenTripById(tripId) {
   if (!tripId) return null;
   const { data, error } = await getSupabase()
     .from('trips')
-    .select('id, status, passenger_phone, destination_address, created_at')
+    .select('id, status, passenger_phone, destination_address, created_at, wa_context')
     .eq('id', tripId)
     .maybeSingle();
   if (error) throw error;
@@ -1336,7 +1336,7 @@ async function getTripById(tripId) {
   if (!tripId) return null;
   const { data, error } = await getSupabase()
     .from('trips')
-    .select('id, status, passenger_phone, destination_address, created_at, completed_at')
+    .select('id, status, passenger_phone, destination_address, created_at, completed_at, wa_context')
     .eq('id', tripId)
     .maybeSingle();
   if (error) throw error;
@@ -1376,7 +1376,7 @@ async function getLatestOpenTripByPhone(phone) {
   if (!normalized) return null;
   const { data, error } = await getSupabase()
     .from('trips')
-    .select('id, status, passenger_phone, destination_address, created_at')
+    .select('id, status, passenger_phone, destination_address, created_at, wa_context')
     .eq('passenger_phone', normalized)
     .in('status', OPEN_TRIP_STATUSES)
     .order('created_at', { ascending: false })
@@ -3517,8 +3517,92 @@ async function processClaimedConversation(batch) {
   const openTripByLastId = lastTripById && isOpenTripStatus(lastTripById.status) ? lastTripById : null;
   const openTripByPhone = openTripByLastId || await getLatestOpenTripByPhone(batch.phone);
 
-  // Run AI intent extraction BEFORE the guard so we can use the detected intent to decide
-  // whether to bypass it — specifically when the passenger wants to cancel an active trip.
+  // ── Fast path: viaje activo/en cola/pendiente sin GPS/poll pendiente ──────────
+  // Si el pasajero ya tiene un viaje abierto y bloqueante, skip full AI classification.
+  // Solo se omite si el trip tiene wa_context (GPS o poll pendiente), en cuyo caso
+  // el flujo normal maneja la respuesta de texto del pasajero.
+  if (openTripByPhone && shouldBlockForOpenTrip(openTripByPhone) && !openTripByPhone.wa_context) {
+    const fastText = pendingMessages.map((m) => m?.contenido).filter(Boolean).join('\n');
+    const savedFastCtx = safeJsonParse(batch.context, {});
+
+    // ─ Confirmación de cancelación pendiente ─────────────────────────────────
+    if (savedFastCtx.pending_cancel_confirm) {
+      const confirmsCancel = /\b(s[ií]|si+|cancel[aá]|confirm[ao]|dale|ok)\b/i.test(fastText);
+      const deniesCancel = /\b(no|mantené?|conserv[aá]|dejá? (como está|así)|olvid[aá])\b/i.test(fastText);
+
+      if (confirmsCancel) {
+        const fullTripFast = await getConversationFlowTripById(openTripByPhone.id);
+        await getSupabase()
+          .from('trips')
+          .update({ status: 'cancelled', cancel_reason: 'Pasajero canceló por WhatsApp' })
+          .eq('id', openTripByPhone.id);
+        if (fullTripFast?.driver_id) {
+          const dFast = await getDriverById(fullTripFast.driver_id);
+          if (dFast) {
+            await notifyDriver(dFast, {
+              title: 'Viaje cancelado',
+              body: 'El pasajero canceló el viaje por WhatsApp.',
+              data: { type: 'trip_cancelled', tripId: openTripByPhone.id },
+            });
+          }
+        }
+        await sendWhatsAppText(batch.phone, 'Listo, cancelé el pedido. Avisame cuando necesites otro móvil.');
+        logWebhook('conversation_fast_path_cancel_confirmed', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
+        return {
+          handled: true,
+          updates: { status: 'open', context: {}, last_trip_id: null, processing_started_at: null, last_processed_at: new Date().toISOString() },
+        };
+      }
+
+      if (deniesCancel) {
+        await sendWhatsAppText(batch.phone, 'Bueno, tu viaje sigue activo. Avisame si necesitás algo más.');
+        logWebhook('conversation_fast_path_cancel_denied', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
+        return {
+          handled: true,
+          updates: { status: 'open', context: { ...savedFastCtx, pending_cancel_confirm: false }, last_trip_id: openTripByPhone.id, processing_started_at: null, last_processed_at: new Date().toISOString() },
+        };
+      }
+
+      // Respuesta ambigua → volver a pedir confirmación
+      await sendWhatsAppText(batch.phone, 'Respondé *sí* para confirmar la cancelación o *no* para mantener el viaje.');
+      logWebhook('conversation_fast_path_cancel_unclear', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
+      return {
+        handled: true,
+        updates: { status: 'open', context: savedFastCtx, last_trip_id: openTripByPhone.id, processing_started_at: null, last_processed_at: new Date().toISOString() },
+      };
+    }
+
+    // ─ Detección liviana de intent de cancelación ─────────────────────────────
+    const wantsCancelFast = /\b(cancel[aá][r]?|ya no (quiero|lo necesito)|no (lo )?mandes|olvid[aáo](lo)?|me surg[ióo]|para el remis|no necesito (el |)remis|no quiero (el |más |)remis)\b/i.test(fastText);
+
+    if (wantsCancelFast) {
+      await sendWhatsAppText(batch.phone, '¿Confirmás que querés cancelar el viaje? Respondé *sí* para cancelar o *no* para mantener.');
+      logWebhook('conversation_fast_path_cancel_requested', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
+      return {
+        handled: true,
+        updates: { status: 'open', context: { ...savedFastCtx, pending_cancel_confirm: true }, last_trip_id: openTripByPhone.id, processing_started_at: null, last_processed_at: new Date().toISOString() },
+      };
+    }
+
+    // ─ Responder con estado actual del viaje ─────────────────────────────────
+    const fastStatus = String(openTripByPhone.status || '').toLowerCase();
+    const fastStatusMsg =
+      fastStatus === 'queued'
+        ? 'Ya estás en la cola de espera. Te avisamos en cuanto haya un chofer disponible 🕐'
+        : fastStatus === 'pending'
+          ? `Tu pedido ya está tomado, esperando confirmación del chofer.${openTripByPhone.destination_address ? `\nRetiro: *${openTripByPhone.destination_address}*` : ''}`
+          : `Ya tenés un móvil asignado. Tu viaje sigue en curso.${openTripByPhone.destination_address ? `\nRetiro: *${openTripByPhone.destination_address}*` : ''}`;
+    await sendWhatsAppText(batch.phone, fastStatusMsg);
+    logWebhook('conversation_fast_path_status_sent', { conversationId: batch?.id || null, tripId: openTripByPhone.id, tripStatus: openTripByPhone.status });
+    return {
+      handled: true,
+      updates: { status: 'open', context: safeJsonParse(batch.context, {}), last_trip_id: openTripByPhone.id, processing_started_at: null, last_processed_at: new Date().toISOString() },
+    };
+  }
+  // ── Fin fast path ─────────────────────────────────────────────────────────────
+
+  // Clasificación AI: solo llega aquí si NO hay viaje activo/bloqueante (o si tiene
+  // wa_context pendiente que requiere el flujo completo para resolver GPS o poll).
   const combinedText = pendingMessages
     .map((item) => item?.contenido)
     .filter(Boolean)
@@ -3684,6 +3768,7 @@ async function processClaimedConversation(batch) {
     }
   }
 
+  // Trips en pending estancado (stale) que no bloquean: logear para debug y caer al flujo normal.
   if (openTripByPhone && !shouldBlockForOpenTrip(openTripByPhone)) {
     logWebhook('conversation_open_trip_guard_ignored_stale_pending', {
       conversationId: batch?.id || null,
@@ -3692,43 +3777,6 @@ async function processClaimedConversation(batch) {
       ageMinutes: getTripAgeMinutes(openTripByPhone),
       maxAgeMinutes: PENDING_GUARD_MAX_AGE_MINUTES,
       matchedBy: openTripByLastId ? 'last_trip_id' : 'phone',
-    });
-  }
-  if (openTripByPhone && shouldBlockForOpenTrip(openTripByPhone) && !passengerWantsToCancel) {
-    logWebhook('conversation_open_trip_guard', {
-      conversationId: batch?.id || null,
-      tripId: openTripByPhone.id,
-      tripStatus: openTripByPhone.status,
-      ageMinutes: getTripAgeMinutes(openTripByPhone),
-      matchedBy: openTripByLastId ? 'last_trip_id' : 'phone',
-    });
-
-    const openTripStatus = String(openTripByPhone.status || '').toLowerCase();
-    const alreadyAssignedMessage = openTripStatus === 'queued'
-      ? 'Ya estás en la cola de espera. Te avisamos en cuanto haya un chofer disponible 🕐'
-      : openTripStatus === 'pending'
-        ? `Tu pedido ya está tomado y estamos esperando que un chofer lo confirme.${openTripByPhone.destination_address ? `\nRetiro: *${openTripByPhone.destination_address}*` : ''}`
-        : `Ya tenés un móvil asignado para este pedido. Tu viaje sigue en curso.${openTripByPhone.destination_address ? `\nRetiro: *${openTripByPhone.destination_address}*` : ''}`;
-
-    await sendWhatsAppText(batch.phone, alreadyAssignedMessage);
-
-    return {
-      handled: true,
-      updates: {
-        status: 'open',
-        context: safeJsonParse(batch.context, {}),
-        last_trip_id: openTripByPhone.id,
-        processing_started_at: null,
-        last_processed_at: new Date().toISOString(),
-      },
-    };
-  }
-
-  if (openTripByPhone && shouldBlockForOpenTrip(openTripByPhone) && passengerWantsToCancel) {
-    logWebhook('conversation_open_trip_guard_bypassed_for_cancel', {
-      conversationId: batch?.id || null,
-      tripId: openTripByPhone.id,
-      tripStatus: openTripByPhone.status,
     });
   }
 
@@ -3868,10 +3916,10 @@ async function processClaimedConversation(batch) {
   }
 
   if (extracted.intent === 'other') {
-    if (extracted.reply) {
-      await sendWhatsAppText(batch.phone, extracted.reply);
-    }
-    logWebhook('conversation_intent_other', { conversationId: batch?.id || null });
+    // Sin interés en viajar y sin viaje activo → ignorar silenciosamente.
+    // No responder evita que el agente conteste mensajes de chat genéricos
+    // ("hola", "gracias", stickers, etc.) que no son pedidos de viaje.
+    logWebhook('conversation_intent_other_ignored', { conversationId: batch?.id || null });
     return {
       handled: true,
       updates: {
@@ -4294,13 +4342,18 @@ async function processPendingConversations() {
 
   let processed = 0;
   let skipped = 0;
-  for (const item of data || []) {
-    try {
-      const result = await processConversationById(item.id);
-      if (result.skipped) skipped += 1;
-      else processed += 1;
-    } catch (error) {
-      console.error(`Error procesando conversación ${item.id}:`, error);
+  // Procesamiento en paralelo: cada número de teléfono es independiente,
+  // permitiendo manejar múltiples pedidos simultáneos sin bloqueos.
+  const parallelResults = await Promise.allSettled(
+    (data || []).map((item) => processConversationById(item.id))
+  );
+  for (const r of parallelResults) {
+    if (r.status === 'rejected') {
+      console.error('Error procesando conversación:', r.reason?.message || r.reason);
+    } else if (r.value?.skipped) {
+      skipped += 1;
+    } else {
+      processed += 1;
     }
   }
 
