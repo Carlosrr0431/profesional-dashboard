@@ -3450,20 +3450,22 @@ async function processClaimedConversation(batch) {
         };
       }
 
-      // El texto votado no coincide con ningún candidato — limpiar el poll pero preservar
-      // el contexto del pasajero (nombre, dirección original) para el flujo normal
-      logWebhook('conversation_address_poll_no_match', {
+      // El texto no coincide con ningún candidato del poll (ej: "hola", sticker, etc.)
+      // → ignorar silenciosamente. El poll sigue vigente en whatsapp_conversations.context.
+      // El pasajero debe votar en la encuesta o elegir "Ninguna de estas opciones".
+      logWebhook('conversation_address_poll_no_match_ignored', {
         conversationId: batch?.id || null,
         votedText,
         candidateCount: pendingPoll.candidates.length,
       });
-      // Reescribir el contexto sin pending_poll y forzar estado 'open' para que el flujo
-      // normal procese el nuevo mensaje sin el bloqueo de awaiting_address_selection
-      const pollContextWithoutPoll = { ...savedContext };
-      delete pollContextWithoutPoll.pending_poll;
-      // Mutar las propiedades relevantes del batch para el resto del procesamiento
-      batch.context = JSON.stringify(pollContextWithoutPoll);
-      batch.status = 'open';
+      return {
+        handled: true,
+        updates: {
+          status: 'awaiting_address_selection', // mantener el poll abierto
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
+      };
     }
   }
 
