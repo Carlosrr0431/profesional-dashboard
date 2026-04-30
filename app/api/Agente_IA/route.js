@@ -3496,8 +3496,12 @@ async function processClaimedConversation(batch) {
       // No resetear si ya hay datos parciales acumulados en la conversación actual
       // (el pasajero está en medio de dar los datos de un nuevo viaje).
       const existingCtx = safeJsonParse(batch.context, {});
+      // passenger_name NO cuenta como contexto de viaje en curso —
+      // es dato de identidad que persiste entre sesiones.
+      // Solo destination o pickup_location indican que el pasajero está
+      // en medio de un nuevo pedido y no se debe resetear el historial.
       const hasMeaningfulContext = Boolean(
-        existingCtx.destination || existingCtx.pickup_location || existingCtx.passenger_name
+        existingCtx.destination || existingCtx.pickup_location
       );
       if (!hasMeaningfulContext) {
         shouldResetConversationState = true;
