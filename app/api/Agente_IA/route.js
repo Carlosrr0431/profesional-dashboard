@@ -4206,19 +4206,24 @@ async function processClaimedConversation(batch) {
         .limit(1)
         .maybeSingle();
       if (existingPollTrip) {
-        try {
-          await getSupabase().from('trips').update({ wa_context: pollWaContext }).eq('id', existingPollTrip.id);
-        } catch {}
+        const { error: pollCtxUpdateErr } = await getSupabase()
+          .from('trips')
+          .update({ wa_context: pollWaContext })
+          .eq('id', existingPollTrip.id);
+        if (pollCtxUpdateErr) {
+          logWebhook('poll_wa_context_update_error', { conversationId: batch?.id || null, tripId: existingPollTrip.id, error: summarizeDbError(pollCtxUpdateErr) });
+        }
       } else {
-        try {
-          await getSupabase().from('trips').insert({
-            passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
-            passenger_phone: normalizePhone(batch.phone),
-            status: 'queued',
-            notes: '[APPROACH_ONLY] Esperando selección de dirección. Destino final: se define al subir el pasajero.',
-            wa_context: pollWaContext,
-          });
-        } catch {}
+        const { error: pollTripInsertErr } = await getSupabase().from('trips').insert({
+          passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
+          passenger_phone: normalizePhone(batch.phone),
+          status: 'queued',
+          notes: '[APPROACH_ONLY] Esperando selección de dirección. Destino final: se define al subir el pasajero.',
+          wa_context: pollWaContext,
+        });
+        if (pollTripInsertErr) {
+          logWebhook('poll_wa_context_insert_error', { conversationId: batch?.id || null, error: summarizeDbError(pollTripInsertErr) });
+        }
       }
 
       return {
@@ -4445,22 +4450,23 @@ async function processWebhookBody(body, requestMeta = {}) {
         pollMsgId,
       });
 
-      // ── Búsqueda en trips.wa_context (arquitectura trips-only) ──────────────────
-      // Los viajes en cola con pending_poll guardan los candidatos en trips.wa_context.
-      // Esto elimina la dependencia de whatsapp_conversations.context para poll.results.
-      const { data: tripsWithPoll } = await getSupabase()
-        .from('trips')
-        .select('id, passenger_phone, wa_context')
-        .eq('status', 'queued')
-        .not('wa_context', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(20);
+      // ── Búsqueda del trip con pending_poll (tres estrategias en cascada) ─────────
 
       let pollTrip = null;
       let pollCandidates = [];
       let selectedCandidate = null;
+      // Datos de conversación para crear el trip si no existe (fallback 3)
+      let _fallbackConvForTrip = null;
 
-      // Primero: buscar por opción votada en candidatos del wa_context
+      // 1️⃣ Buscar en trips.wa_context de los últimos 20 trips en cola o pendientes
+      const { data: tripsWithPoll } = await getSupabase()
+        .from('trips')
+        .select('id, passenger_phone, wa_context')
+        .in('status', ['queued', 'pending'])
+        .not('wa_context', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
       for (const t of tripsWithPoll || []) {
         const ctx = safeJsonParse(t.wa_context, {});
         const cands = ctx?.pending_poll?.candidates || [];
@@ -4474,13 +4480,13 @@ async function processWebhookBody(body, requestMeta = {}) {
         }
       }
 
-      // Segundo fallback: buscar por teléfono del votante entre los viajes con poll pendiente
+      // 2️⃣ Fallback: buscar por teléfono del votante con wa_context (queued o pending)
       if (!pollTrip && voterPhone) {
         const { data: tripByPhone } = await getSupabase()
           .from('trips')
           .select('id, passenger_phone, wa_context')
           .eq('passenger_phone', normalizePhone(voterPhone))
-          .eq('status', 'queued')
+          .in('status', ['queued', 'pending'])
           .not('wa_context', 'is', null)
           .order('created_at', { ascending: false })
           .limit(1)
@@ -4496,25 +4502,85 @@ async function processWebhookBody(body, requestMeta = {}) {
         }
       }
 
-      if (!pollTrip) {
+      // 3️⃣ Fallback final: buscar en whatsapp_conversations.context
+      // Cubre el caso donde trips.wa_context es null (insert falló) o el status cambió.
+      if (!pollTrip && voterPhone) {
+        const { data: fallbackConv } = await getSupabase()
+          .from('whatsapp_conversations')
+          .select('id, phone, context, last_trip_id, push_name')
+          .eq('phone', normalizePhone(voterPhone))
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (fallbackConv) {
+          const fallbackCtx = safeJsonParse(fallbackConv.context, {});
+          const fallbackPoll = fallbackCtx?.pending_poll;
+          if (fallbackPoll?.candidates?.length > 0) {
+            const fbCands = fallbackPoll.candidates;
+            const fbMatch = fbCands.find((c) => c.label === voted.name || c.formattedAddress === voted.name);
+            if (fbMatch) {
+              pollCandidates = fbCands;
+              selectedCandidate = fbMatch;
+              _fallbackConvForTrip = { conv: fallbackConv, extracted: fallbackPoll.extracted || {} };
+
+              // Buscar trip asociado (por last_trip_id o phone, sin requerir wa_context)
+              let fbTrip = null;
+              if (fallbackConv.last_trip_id) {
+                const { data: lt } = await getSupabase()
+                  .from('trips')
+                  .select('id, passenger_phone, wa_context, status')
+                  .eq('id', fallbackConv.last_trip_id)
+                  .in('status', ['queued', 'pending'])
+                  .maybeSingle();
+                fbTrip = lt;
+              }
+              if (!fbTrip) {
+                const { data: lt } = await getSupabase()
+                  .from('trips')
+                  .select('id, passenger_phone, wa_context, status')
+                  .eq('passenger_phone', normalizePhone(voterPhone))
+                  .in('status', ['queued', 'pending'])
+                  .order('created_at', { ascending: false })
+                  .limit(1)
+                  .maybeSingle();
+                fbTrip = lt;
+              }
+              pollTrip = fbTrip; // puede ser null; se crea abajo si es necesario
+              logWebhook('poll_results_matched_by_conv_context', {
+                tripId: fbTrip?.id || null,
+                convId: fallbackConv.id,
+                votedName: voted.name,
+                hasTrip: Boolean(fbTrip),
+              });
+            }
+          }
+        }
+      }
+
+      // Si no encontramos ni trip ni candidatos → ignorar
+      if (!selectedCandidate) {
         logWebhook('poll_results_ignored', { reason: 'poll_trip_not_found', pollMsgId, votedName: voted.name });
         return { status: 200, body: { success: true, ignored: true, reason: 'poll_trip_not_found' } };
       }
 
-      const pollTripCtx = safeJsonParse(pollTrip.wa_context, {});
+      const pollTripCtx = safeJsonParse(pollTrip?.wa_context, {});
+      const pollPassengerPhone = pollTrip?.passenger_phone || normalizePhone(voterPhone);
 
-      // "Ninguna de estas opciones" → pedir GPS/calle directamente en el viaje
+      // "Ninguna de estas opciones" → pedir GPS/calle directamente
       if (normalizeForMatch(voted.name || '').startsWith('ninguna')) {
-        await getSupabase()
-          .from('trips')
-          .update({ wa_context: { ...pollTripCtx, pending_poll: null, awaiting_gps: true } })
-          .eq('id', pollTrip.id)
-          .eq('status', 'queued');
+        if (pollTrip?.id) {
+          await getSupabase()
+            .from('trips')
+            .update({ wa_context: { ...pollTripCtx, pending_poll: null, awaiting_gps: true } })
+            .eq('id', pollTrip.id)
+            .in('status', ['queued', 'pending']);
+        }
         await sendWhatsAppText(
-          pollTrip.passenger_phone,
+          pollPassengerPhone,
           'Entendido. Compartí tu *ubicación en tiempo real* desde WhatsApp (ícono de ubicación → "Ubicación en tiempo real"), o mandame la *calle y número exacto* y te mando el móvil enseguida.'
         );
-        logWebhook('poll_results_none_selected', { tripId: pollTrip.id, votedName: voted.name });
+        logWebhook('poll_results_none_selected', { tripId: pollTrip?.id || null, votedName: voted.name });
         return { status: 200, body: { success: true, event: 'poll.results', noneSelected: true } };
       }
 
@@ -4529,7 +4595,7 @@ async function processWebhookBody(body, requestMeta = {}) {
               lat: geo.lat,
               lng: geo.lng,
             };
-            logWebhook('poll_results_geocoded_candidate', { tripId: pollTrip.id, votedName: voted.name });
+            logWebhook('poll_results_geocoded_candidate', { tripId: pollTrip?.id || null, votedName: voted.name });
           } catch (geoErr) {
             logWebhook('poll_results_geocode_fail', { votedName: voted.name, error: geoErr?.message });
           }
@@ -4542,38 +4608,66 @@ async function processWebhookBody(body, requestMeta = {}) {
       }
 
       logWebhook('poll_results_address_selected', {
-        tripId: pollTrip.id,
-        phone: maskPhone(pollTrip.passenger_phone),
+        tripId: pollTrip?.id || null,
+        phone: maskPhone(pollPassengerPhone),
         selectedAddress: selectedCandidate.formattedAddress,
       });
 
-      // Actualizar el viaje con la dirección confirmada y despachar
-      const { error: pollUpdateErr } = await getSupabase()
-        .from('trips')
-        .update({
-          destination_address: selectedCandidate.formattedAddress,
-          destination_lat: selectedCandidate.lat,
-          destination_lng: selectedCandidate.lng,
-          wa_context: null,
-        })
-        .eq('id', pollTrip.id)
-        .eq('status', 'queued');
+      // ── Actualizar o crear el viaje con la dirección confirmada ───────────────────
+      let finalTripId;
+      if (pollTrip?.id) {
+        // Trip ya existe → actualizar coordenadas de retiro y limpiar wa_context
+        const { error: pollUpdateErr } = await getSupabase()
+          .from('trips')
+          .update({
+            destination_address: selectedCandidate.formattedAddress,
+            destination_lat: selectedCandidate.lat,
+            destination_lng: selectedCandidate.lng,
+            wa_context: null,
+          })
+          .eq('id', pollTrip.id)
+          .in('status', ['queued', 'pending']);
 
-      if (pollUpdateErr) {
-        logWebhook('poll_results_update_error', { tripId: pollTrip.id, error: summarizeDbError(pollUpdateErr) });
-        return { status: 500, body: { success: false, error: 'db_update_error' } };
+        if (pollUpdateErr) {
+          logWebhook('poll_results_update_error', { tripId: pollTrip.id, error: summarizeDbError(pollUpdateErr) });
+          return { status: 500, body: { success: false, error: 'db_update_error' } };
+        }
+        finalTripId = pollTrip.id;
+      } else {
+        // Sin trip en la tabla → crear uno con la dirección ya confirmada
+        const fbExtracted = _fallbackConvForTrip?.extracted || {};
+        const { data: newTrip, error: newTripErr } = await getSupabase()
+          .from('trips')
+          .insert({
+            passenger_name: fbExtracted.passenger_name || _fallbackConvForTrip?.conv?.push_name || 'Pasajero WhatsApp',
+            passenger_phone: normalizePhone(pollPassengerPhone),
+            status: 'queued',
+            destination_address: selectedCandidate.formattedAddress,
+            destination_lat: selectedCandidate.lat,
+            destination_lng: selectedCandidate.lng,
+            notes: ['[APPROACH_ONLY]', fbExtracted.notes || 'Destino final: se define al subir el pasajero.'].filter(Boolean).join('\n'),
+          })
+          .select()
+          .single();
+
+        if (newTripErr || !newTrip) {
+          logWebhook('poll_results_create_trip_error', { error: summarizeDbError(newTripErr) });
+          return { status: 500, body: { success: false, error: 'failed_to_create_trip' } };
+        }
+        finalTripId = newTrip.id;
+        logWebhook('poll_results_trip_created', { tripId: finalTripId, phone: maskPhone(pollPassengerPhone) });
       }
 
       await sendWhatsAppText(
-        pollTrip.passenger_phone,
+        pollPassengerPhone,
         `Dirección confirmada: *${selectedCandidate.formattedAddress}*. Buscando el chofer más cercano...`
       );
       await dispatchQueuedPassengers();
 
-      logWebhook('poll_results_trip_dispatched', { tripId: pollTrip.id });
+      logWebhook('poll_results_trip_dispatched', { tripId: finalTripId });
       return {
         status: 200,
-        body: { success: true, event: 'poll.results', tripId: pollTrip.id },
+        body: { success: true, event: 'poll.results', tripId: finalTripId },
       };
     }
 
