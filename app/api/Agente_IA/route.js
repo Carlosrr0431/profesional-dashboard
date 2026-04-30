@@ -2915,12 +2915,10 @@ async function dispatchQueuedPassengers() {
       data: { type: 'new_trip', tripId: trip.id },
     });
 
-    const driverLabel = [driver.vehicle_brand, driver.vehicle_model].filter(Boolean).join(' ');
-    const driverMeta = [driver.full_name, driverLabel, driver.vehicle_plate].filter(Boolean).join(' · ');
-    await sendWhatsAppText(
-      phone,
-      `¡Se liberó un chofer! Ya derivé tu viaje.\n\nChofer: *${driver.full_name || 'En camino'}*${driverMeta ? `\n${driverMeta}` : ''}\nRetiro: *${trip.destination_address}*`
-    );
+    // NO se notifica al pasajero aquí — el chofer aún no aceptó.
+    // La confirmación con ETA y datos del chofer se envía en
+    // processTripLifecycleTransitions (Parte A) cuando el status
+    // pasa a 'accepted', usando buildPassengerDriverConfirmationMessage.
 
     dispatched++;
     logWebhook('queue_dispatch_ok', { tripId: trip.id, phone: maskPhone(phone), driverId: driver.id });
