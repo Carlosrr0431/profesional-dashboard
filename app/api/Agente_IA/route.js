@@ -3100,7 +3100,7 @@ async function redispatchOrphanedCancelledTrips() {
 
   const { data: cancelledTrips, error } = await getSupabase()
     .from('trips')
-    .select('id, driver_id, passenger_phone, passenger_name, cancel_reason, notes, destination_address, destination_lat, destination_lng, assigned_at')
+    .select('id, driver_id, passenger_phone, passenger_name, cancel_reason, notes, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, assigned_at')
     .eq('status', 'cancelled')
     .gte('assigned_at', lookback)
     .not('assigned_at', 'is', null)
@@ -3216,34 +3216,68 @@ async function redispatchOrphanedCancelledTrips() {
       });
       redispatched++;
     } else {
-      // Sin chofer disponible → cola de espera
+      // Sin chofer disponible → verificar zona antes de encolar
       if (conv?.id) {
-        const wasConfirmed = ctx.confirmed_trip_id === trip.id;
-        const alreadyQueued = conv.status === 'queued_no_driver';
-        if (!alreadyQueued) {
-          const msg = wasConfirmed
-            ? 'El chofer no pudo tomar el viaje. Te agregué a la cola — en cuanto se libere uno, te mando el móvil automáticamente 🕐'
-            : 'Te agregué a la cola de espera. Apenas haya un chofer disponible, te mando el móvil 🕐';
-          await sendWhatsAppText(phone, msg).catch(() => {});
-        }
+        const pickupLat = trip.origin_lat ?? ctx.pickup_lat;
+        const pickupLng = trip.origin_lng ?? ctx.pickup_lng;
+        const inZone = pickupLat && pickupLng
+          ? await isPickupInServiceZone(pickupLat, pickupLng)
+          : false;
 
-        await finalizeConversation(conv.id, {
-          status: 'queued_no_driver',
-          context: {
-            ...ctx,
-            confirmed_trip_id: null,
-            last_cancellation_notified_trip_id: trip.id,
-            excluded_driver_ids: [],
-            pickup_lat: trip.destination_lat,
-            pickup_lng: trip.destination_lng,
-            pickup_formatted_address: trip.destination_address,
-            pickup_location: ctx.pickup_location || trip.destination_address,
-            passenger_name: trip.passenger_name || ctx.passenger_name,
-          },
-          last_trip_id: null,
-          processing_started_at: null,
-          last_processed_at: new Date().toISOString(),
-        }).catch(() => {});
+        if (!inZone) {
+          // Pickup fuera de zona → notificar una sola vez y cerrar la conversación
+          logWebhook('redispatch_orphaned_outside_zone', {
+            cancelledTripId: trip.id,
+            phone: maskPhone(phone),
+            pickupLat,
+            pickupLng,
+            alreadyNotified: ctx.last_cancellation_notified_trip_id === trip.id,
+          });
+          if (ctx.last_cancellation_notified_trip_id !== trip.id) {
+            await sendWhatsAppText(
+              phone,
+              'Lamentablemente no podemos atenderte porque tu dirección de retiro quedó fuera de nuestras zonas de cobertura. Si tenés otra dirección dentro de Salta Capital, con gusto te enviamos un chofer. 🙏'
+            ).catch(() => {});
+          }
+          await finalizeConversation(conv.id, {
+            status: 'open',
+            context: {
+              ...ctx,
+              confirmed_trip_id: null,
+              last_cancellation_notified_trip_id: trip.id,
+            },
+            last_trip_id: null,
+            processing_started_at: null,
+            last_processed_at: new Date().toISOString(),
+          }).catch(() => {});
+        } else {
+          const wasConfirmed = ctx.confirmed_trip_id === trip.id;
+          const alreadyQueued = conv.status === 'queued_no_driver';
+          if (!alreadyQueued) {
+            const msg = wasConfirmed
+              ? 'El chofer no pudo tomar el viaje. Te agregué a la cola — en cuanto se libere uno, te mando el móvil automáticamente 🕐'
+              : 'Te agregué a la cola de espera. Apenas haya un chofer disponible, te mando el móvil 🕐';
+            await sendWhatsAppText(phone, msg).catch(() => {});
+          }
+
+          await finalizeConversation(conv.id, {
+            status: 'queued_no_driver',
+            context: {
+              ...ctx,
+              confirmed_trip_id: null,
+              last_cancellation_notified_trip_id: trip.id,
+              excluded_driver_ids: [],
+              pickup_lat: pickupLat,
+              pickup_lng: pickupLng,
+              pickup_formatted_address: trip.origin_address || ctx.pickup_formatted_address,
+              pickup_location: ctx.pickup_location || trip.origin_address,
+              passenger_name: trip.passenger_name || ctx.passenger_name,
+            },
+            last_trip_id: null,
+            processing_started_at: null,
+            last_processed_at: new Date().toISOString(),
+          }).catch(() => {});
+        }
       }
 
       logWebhook('redispatch_orphaned_queued', {
