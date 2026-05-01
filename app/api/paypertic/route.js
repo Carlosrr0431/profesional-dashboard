@@ -53,7 +53,20 @@ async function getPayperticToken() {
   }
 
   const data = await res.json();
-  return data.access_token;
+  // Decodificar el JWT para extraer el collector_id del payload
+  // (está en el campo 'sub' o 'collector_id' del token de Paypertic)
+  let collectorId = process.env.PAYPERTIC_COLLECTOR_ID || null;
+  if (!collectorId) {
+    try {
+      const payloadB64 = data.access_token.split('.')[1];
+      const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+      console.log('Paypertic JWT payload:', JSON.stringify(payload));
+      collectorId = payload.collector_id || payload.sub || payload.entity_id || null;
+    } catch (e) {
+      console.warn('No se pudo decodificar el JWT de Paypertic:', e.message);
+    }
+  }
+  return { token: data.access_token, collectorId };
 }
 
 export async function POST(request) {
@@ -127,9 +140,9 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Código de seguridad inválido' }, { status: 400 });
   }
 
-  let payperticToken;
+  let payperticToken, collectorId;
   try {
-    payperticToken = await getPayperticToken();
+    ({ token: payperticToken, collectorId } = await getPayperticToken());
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 502 });
   }
@@ -184,8 +197,8 @@ export async function POST(request) {
     },
   };
 
-  if (PAYPERTIC_COLLECTOR_ID) {
-    paymentPayload.collector_id = PAYPERTIC_COLLECTOR_ID;
+  if (collectorId) {
+    paymentPayload.collector_id = collectorId;
   }
 
   const payRes = await fetch(PAYPERTIC_API_URL, {
