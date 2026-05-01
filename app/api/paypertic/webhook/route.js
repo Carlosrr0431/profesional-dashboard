@@ -40,15 +40,26 @@ export async function POST(request) {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-  const { error } = await supabase.from('commission_payments').insert({
+  const { error: insertError } = await supabase.from('commission_payments').insert({
     driver_id,
     amount,
     notes: `Pago online via Paypertic - ID: ${paypertic_id}`,
   });
 
-  if (error) {
-    console.error('Error al registrar pago de comisión:', error);
+  if (insertError) {
+    console.error('Error al registrar pago de comisión:', insertError);
     return NextResponse.json({ error: 'Error interno al registrar el pago' }, { status: 500 });
+  }
+
+  // Poner saldo de comisión pendiente en 0
+  const { error: updateError } = await supabase
+    .from('drivers')
+    .update({ pending_commission: 0, last_commission_payment_at: new Date().toISOString() })
+    .eq('id', driver_id);
+
+  if (updateError) {
+    console.error('Error al resetear pending_commission del conductor:', updateError);
+    // No devolvemos error — el pago ya quedó registrado
   }
 
   return NextResponse.json({ received: true });
