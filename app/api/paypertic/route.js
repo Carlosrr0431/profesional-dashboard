@@ -12,7 +12,6 @@ const PAYPERTIC_USERNAME = process.env.PAYPERTIC_USERNAME;
 const PAYPERTIC_PASSWORD = process.env.PAYPERTIC_PASSWORD;
 const PAYPERTIC_CLIENT_ID = process.env.PAYPERTIC_CLIENT_ID;
 const PAYPERTIC_CLIENT_SECRET = process.env.PAYPERTIC_CLIENT_SECRET;
-const PAYPERTIC_COLLECTOR_ID = process.env.PAYPERTIC_COLLECTOR_ID;
 const DASHBOARD_URL =
   process.env.NEXT_PUBLIC_APP_URL || 'https://profesional-dashboard.vercel.app';
 
@@ -53,26 +52,7 @@ async function getPayperticToken() {
   }
 
   const data = await res.json();
-  // Intentar extraer collector_id del JWT de Paypertic
-  let collectorId = process.env.PAYPERTIC_COLLECTOR_ID || null;
-  if (!collectorId) {
-    try {
-      const payloadB64 = data.access_token.split('.')[1];
-      const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
-      // Loguear TODOS los campos para diagnóstico — revisar en Vercel Function Logs
-      console.log('=== Paypertic JWT claims ===', JSON.stringify(payload, null, 2));
-      // NO usar payload.sub (es el UUID del usuario Keycloak, no el ID de entidad)
-      collectorId = payload.collector_id || payload.entity_id || null;
-      if (collectorId) {
-        console.log('collector_id extraído del JWT:', collectorId);
-      } else {
-        console.warn('collector_id NO encontrado en JWT. Campos disponibles:', Object.keys(payload).join(', '));
-      }
-    } catch (e) {
-      console.warn('No se pudo decodificar el JWT de Paypertic:', e.message);
-    }
-  }
-  return { token: data.access_token, collectorId };
+  return data.access_token;
 }
 
 export async function POST(request) {
@@ -146,9 +126,9 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Código de seguridad inválido' }, { status: 400 });
   }
 
-  let payperticToken, collectorId;
+  let payperticToken;
   try {
-    ({ token: payperticToken, collectorId } = await getPayperticToken());
+    payperticToken = await getPayperticToken();
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 502 });
   }
@@ -202,10 +182,6 @@ export async function POST(request) {
       type: 'commission',
     },
   };
-
-  if (collectorId) {
-    paymentPayload.collector_id = collectorId;
-  }
 
   const payRes = await fetch(PAYPERTIC_API_URL, {
     method: 'POST',
