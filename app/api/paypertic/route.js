@@ -53,15 +53,21 @@ async function getPayperticToken() {
   }
 
   const data = await res.json();
-  // Decodificar el JWT para extraer el collector_id del payload
-  // (está en el campo 'sub' o 'collector_id' del token de Paypertic)
+  // Intentar extraer collector_id del JWT de Paypertic
   let collectorId = process.env.PAYPERTIC_COLLECTOR_ID || null;
   if (!collectorId) {
     try {
       const payloadB64 = data.access_token.split('.')[1];
       const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
-      console.log('Paypertic JWT payload:', JSON.stringify(payload));
-      collectorId = payload.collector_id || payload.sub || payload.entity_id || null;
+      // Loguear TODOS los campos para diagnóstico — revisar en Vercel Function Logs
+      console.log('=== Paypertic JWT claims ===', JSON.stringify(payload, null, 2));
+      // NO usar payload.sub (es el UUID del usuario Keycloak, no el ID de entidad)
+      collectorId = payload.collector_id || payload.entity_id || null;
+      if (collectorId) {
+        console.log('collector_id extraído del JWT:', collectorId);
+      } else {
+        console.warn('collector_id NO encontrado en JWT. Campos disponibles:', Object.keys(payload).join(', '));
+      }
     } catch (e) {
       console.warn('No se pudo decodificar el JWT de Paypertic:', e.message);
     }
