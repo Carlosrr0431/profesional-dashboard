@@ -135,7 +135,7 @@ export async function POST(request) {
     payer: {
       external_reference: driver.id,
       name: driver.full_name || 'Conductor',
-      email: user.email || 'admin@profesionalremis.com.ar',
+      email: 'carlos.facundo.rr@gmail.com',
     },
     metadata: {
       driver_id: driver.id,
