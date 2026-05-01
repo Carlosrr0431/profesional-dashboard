@@ -28,7 +28,7 @@ function getMediaPaymentId(cardNumber) {
 
 const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://gnqewqtpvygnkxryyaij.supabase.co';
+  'https://xzabzbrolmkezljsyycr.supabase.co';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 async function getPayperticToken() {
