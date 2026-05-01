@@ -9,10 +9,13 @@ export const dynamic = 'force-dynamic';
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status') || 'unknown';
+  const ext = searchParams.get('ext') || 'none';
+  console.log('[paypertic/return] GET llamado - status:', status, '| ext:', ext, '| URL completa:', request.url);
   const isApproved = status === 'approved';
 
   // El payload que recibirá el onMessage del WebView
   const message = JSON.stringify({ type: 'paypertic_result', status });
+  console.log('[paypertic/return] Enviando postMessage al WebView:', message);
 
   return new NextResponse(
     `<!DOCTYPE html>
