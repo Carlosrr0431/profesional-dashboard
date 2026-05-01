@@ -79,7 +79,7 @@ export async function POST(request) {
   // Obtener datos del conductor
   const { data: driver, error: driverError } = await supabase
     .from('drivers')
-    .select('id, full_name, email')
+    .select('id, full_name')
     .eq('user_id', user.id)
     .single();
 
@@ -176,7 +176,6 @@ export async function POST(request) {
     payer: {
       external_reference: driver.id,
       name: driver.full_name || 'Conductor',
-      ...(driver.email ? { email: driver.email } : {}),
     },
     metadata: {
       driver_id: driver.id,
