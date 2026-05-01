@@ -25,9 +25,9 @@ export async function POST(request) {
   const { status, final_amount, metadata, id: paypertic_id } = body;
   console.log('[paypertic/webhook] status:', status, '| final_amount:', final_amount, '| paypertic_id:', paypertic_id, '| metadata:', JSON.stringify(metadata));
 
-  // Solo procesar pagos aprobados
-  if (status !== 'paid') {
-    console.log('[paypertic/webhook] Estado no es paid, ignorando. Estado recibido:', status);
+  // Solo procesar pagos aprobados (Paypertic envía "approved", no "paid")
+  if (status !== 'approved' && status !== 'paid') {
+    console.log('[paypertic/webhook] Estado no es approved/paid, ignorando. Estado recibido:', status);
     return NextResponse.json({ received: true });
   }
 
