@@ -55,7 +55,6 @@ async function getPayperticToken() {
   const data = await res.json();
   return data.access_token;
 }
-}
 
 export async function POST(request) {
   // Verificar Authorization header con token de Supabase del conductor
