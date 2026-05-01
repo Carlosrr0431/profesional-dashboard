@@ -46,6 +46,84 @@ async function getPayperticToken() {
   return data.access_token;
 }
 
+export async function GET(request) {
+  console.log('[paypertic] GET /api/paypertic - consultando estado de pago');
+
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    console.error('[paypertic] Error: Authorization header faltante o inválido en GET');
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
+
+  const userToken = authHeader.slice(7);
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser(userToken);
+
+  if (authError || !user) {
+    console.error('[paypertic] Token de Supabase inválido en GET:', authError?.message);
+    return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
+  }
+
+  const { data: driver, error: driverError } = await supabase
+    .from('drivers')
+    .select('id')
+    .eq('user_id', user.id)
+    .single();
+
+  if (driverError || !driver) {
+    console.error('[paypertic] Conductor no encontrado en GET para user_id:', user.id, driverError?.message);
+    return NextResponse.json({ error: 'Conductor no encontrado' }, { status: 404 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const paymentId = searchParams.get('payment_id') || searchParams.get('id');
+
+  if (!paymentId) {
+    return NextResponse.json({ error: 'Falta payment_id' }, { status: 400 });
+  }
+
+  let payperticToken;
+  try {
+    payperticToken = await getPayperticToken();
+  } catch (err) {
+    console.error('[paypertic] Error al obtener token para GET estado:', err.message);
+    return NextResponse.json({ error: err.message }, { status: 502 });
+  }
+
+  const payRes = await fetch(`${PAYPERTIC_API_URL}/${encodeURIComponent(paymentId)}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${payperticToken}`,
+    },
+  });
+
+  if (!payRes.ok) {
+    const errBody = await payRes.text();
+    console.error('[paypertic] Error al consultar pago en Paypertic:', payRes.status, errBody);
+    return NextResponse.json({ error: 'Error al consultar estado del pago.' }, { status: 502 });
+  }
+
+  const payData = await payRes.json();
+  const paymentDriverId = payData?.metadata?.driver_id;
+  if (paymentDriverId && paymentDriverId !== driver.id) {
+    console.error('[paypertic] Pago no pertenece al conductor autenticado:', paymentId, driver.id, paymentDriverId);
+    return NextResponse.json({ error: 'Acceso denegado al pago' }, { status: 403 });
+  }
+
+  return NextResponse.json({
+    id: payData.id,
+    status: payData.status,
+    status_detail: payData.status_detail || null,
+    final_amount: payData.final_amount || null,
+    process_date: payData.process_date || null,
+    paid_date: payData.paid_date || null,
+    external_transaction_id: payData.external_transaction_id || null,
+  });
+}
+
 export async function POST(request) {
   console.log('[paypertic] POST /api/paypertic - iniciando creación de sesión de pago');
   // Verificar Authorization header con token de Supabase del conductor
