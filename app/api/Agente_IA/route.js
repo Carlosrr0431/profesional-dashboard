@@ -2380,32 +2380,52 @@ async function chooseDriver(origin, { excludedDriverIds = [] } = {}) {
 }
 
 async function sendPushNotification(pushToken, payload) {
-  if (!pushToken) {
+  const token = String(pushToken || '').trim();
+  if (!token) {
     logWebhook('push_notification_skipped', { reason: 'no_push_token', title: payload.title });
-    return;
+    return { ok: false, reason: 'no_push_token' };
   }
+
+  const tokenLooksValid = /^Expo(nent)?PushToken\[[^\]]+\]$/.test(token);
+  if (!tokenLooksValid) {
+    logWebhook('push_notification_skipped', {
+      reason: 'invalid_push_token_format',
+      title: payload.title,
+      tokenPreview: token.slice(0, 24),
+    });
+    return { ok: false, reason: 'invalid_push_token_format' };
+  }
+
   logWebhook('push_notification_start', { title: payload.title, body: payload.body?.slice(0, 80) });
   try {
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
+    const response = await fetchWithRetry(
+      'https://exp.host/--/api/v2/push/send',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          to: token,
+          title: payload.title,
+          body: payload.body,
+          data: payload.data || {},
+          sound: 'default',
+          priority: 'high',
+          channelId: 'trips',
+          badge: 1,
+        }),
       },
-      body: JSON.stringify({
-        to: pushToken,
-        title: payload.title,
-        body: payload.body,
-        data: payload.data || {},
-        sound: 'default',
-        priority: 'high',
-        channelId: 'trips',
-        badge: 1,
-      }),
-    });
+      { retries: 1, delayMs: 500, label: 'expo_push_send' }
+    );
+
     const result = await response.json().catch(() => null);
-    const ticketStatus = result?.data?.status;
-    const ticketError = result?.data?.details?.error || result?.data?.message;
+    const ticket = Array.isArray(result?.data) ? result.data[0] : result?.data;
+    const ticketStatus = ticket?.status || null;
+    const ticketError = ticket?.details?.error || ticket?.message || null;
+    const deviceNotRegistered = ticketError === 'DeviceNotRegistered';
+
     if (!response.ok || ticketStatus === 'error') {
       logWebhook('push_notification_error', {
         httpStatus: response.status,
@@ -2413,11 +2433,22 @@ async function sendPushNotification(pushToken, payload) {
         ticketError: ticketError || null,
         raw: JSON.stringify(result || {}).slice(0, 200),
       });
-    } else {
-      logWebhook('push_notification_ok', { ticketStatus, ticketId: result?.data?.id || null });
+      return {
+        ok: false,
+        reason: deviceNotRegistered ? 'device_not_registered' : 'push_error',
+        ticketStatus,
+        ticketError,
+      };
     }
+
+    logWebhook('push_notification_ok', {
+      ticketStatus,
+      ticketId: ticket?.id || null,
+    });
+    return { ok: true, ticketStatus, ticketId: ticket?.id || null };
   } catch (err) {
     logWebhook('push_notification_exception', { error: err?.message || 'unknown' });
+    return { ok: false, reason: 'exception', error: err?.message || 'unknown' };
   }
 }
 
@@ -2426,14 +2457,39 @@ async function sendPushNotification(pushToken, payload) {
  * cae automáticamente a enviar un WhatsApp desde la cuenta de la empresa.
  */
 async function notifyDriver(driver, { title, body, data } = {}) {
+  let pushResult = { ok: false, reason: 'no_push_token' };
   if (driver?.push_token) {
-    await sendPushNotification(driver.push_token, { title, body, data });
-    return;
+    pushResult = await sendPushNotification(driver.push_token, { title, body, data });
   }
+
+  if (pushResult.ok) return;
+
+  if (driver?.id && pushResult.reason === 'device_not_registered') {
+    const { error: clearTokenError } = await getSupabase()
+      .from('drivers')
+      .update({ push_token: null })
+      .eq('id', driver.id);
+    if (clearTokenError) {
+      logWebhook('push_token_clear_failed', {
+        driverId: driver.id,
+        error: summarizeDbError(clearTokenError),
+      });
+    } else {
+      logWebhook('push_token_cleared', {
+        driverId: driver.id,
+        reason: 'device_not_registered',
+      });
+    }
+  }
+
   // Fallback: WhatsApp al número del chofer
   const driverPhone = normalizePhone(driver?.phone || '');
   if (!driverPhone) {
-    logWebhook('notify_driver_no_channel', { driverId: driver?.id || null, title });
+    logWebhook('notify_driver_no_channel', {
+      driverId: driver?.id || null,
+      title,
+      pushReason: pushResult.reason || 'unknown',
+    });
     return;
   }
   const trip = data?.trip;
@@ -2451,6 +2507,7 @@ async function notifyDriver(driver, { title, body, data } = {}) {
     driverId: driver?.id || null,
     phone: maskPhone(driverPhone),
     title,
+    pushReason: pushResult.reason || 'unknown',
   });
 }
 
