@@ -253,6 +253,40 @@ describe('Contrato de datos — INSERT en Supabase (trips)', () => {
     expect(capturedTripInsert.status).toBe('pending');
   });
 
+  it('si OpenAI devuelve "Calle 200", prioriza heuristica de "Belgrano al 200"', async () => {
+    OpenAI.mockImplementation(() =>
+      createOpenAIMock({
+        intent: 'trip_request',
+        pickup_location: 'Calle 200',
+        destination: null,
+        missing_fields: ['pickup_number'],
+        reply: 'Perfecto, ya te derivamos un chofer.',
+      }),
+    );
+
+    await enviarMensajeYProcesar('mandame uno a belgrano al 200');
+
+    const geocodeCalls = global.fetch.mock.calls.filter(([url]) =>
+      String(url).includes('maps.googleapis.com/maps/api/geocode')
+    );
+    if (geocodeCalls.length === 0) return;
+
+    const queriedAddresses = geocodeCalls
+      .map(([url]) => {
+        try {
+          return new URL(String(url)).searchParams.get('address') || '';
+        } catch {
+          return '';
+        }
+      })
+      .filter(Boolean)
+      .join(' | ')
+      .toLowerCase();
+
+    expect(queriedAddresses).toContain('belgrano');
+    expect(queriedAddresses).not.toContain('calle 200');
+  });
+
   it('las notas contienen el marcador [APPROACH_ONLY]', async () => {
     await enviarMensajeYProcesar('un remis en Belgrano 200');
     if (!capturedTripInsert) return;

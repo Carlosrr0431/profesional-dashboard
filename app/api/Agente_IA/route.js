@@ -178,6 +178,41 @@ function normalizeAddressKey(value) {
     .trim();
 }
 
+const GENERIC_ADDRESS_TOKENS = new Set([
+  'calle',
+  'avenida',
+  'av',
+  'avda',
+  'pasaje',
+  'pje',
+  'ruta',
+  'esquina',
+  'altura',
+  'salta',
+  'capital',
+  'argentina',
+]);
+
+function getAddressContentTokens(value) {
+  return normalizeForMatch(value || '')
+    .split(' ')
+    .filter((token) => token && /[a-z]/.test(token) && !GENERIC_ADDRESS_TOKENS.has(token));
+}
+
+function isSpecificStreetAddress(value) {
+  const normalized = normalizeForMatch(value || '');
+  if (!normalized) return false;
+  const hasNumber = /\b\d{1,5}\b/.test(normalized);
+  if (!hasNumber) return false;
+  return getAddressContentTokens(normalized).length > 0;
+}
+
+function isGenericStreetWithoutName(value) {
+  const normalized = normalizeForMatch(value || '');
+  if (!normalized) return false;
+  return /^(?:calle|av|avda|avenida|pasaje|pje|ruta)\s+\d{1,5}(?:\s*,?\s*salta(?:\s+capital)?(?:\s+argentina)?)?$/.test(normalized);
+}
+
 // --- Correcciones fonéticas para nombres de calles en Salta ---
 const SALTA_PHONETIC_CORRECTIONS = [
   [/\birig[uo]g[io]en\b/gi, 'Yrigoyen'],
@@ -598,7 +633,7 @@ function inferTripHeuristics(combinedText, context = {}) {
   const text = String(combinedText || '').trim();
   const normalized = normalizeForMatch(text);
 
-  const looksLikeTripRequest = /(remis|taxi|movil|m[oó]vil|\bauto\b|coche|viaje|pasame\s+a\s+buscar|busc[aá][sm]e?|me\s+busc[aá]s|llevame|llevarme|quiero\s+ir|mand[aá](?:me)?\s+(?:un|el)|ven[ií]\s+a\s+buscarme)/i.test(normalized);
+  const looksLikeTripRequest = /(remis|taxi|movil|m[oó]vil|\bauto\b|coche|viaje|pasame\s+a\s+buscar|busc[aá][sm]e?|me\s+busc[aá]s|llevame|llevarme|quiero\s+ir|mand[aá](?:me)?\s+(?:un|una|uno|el|la|m[oó]vil|movil|remis|taxi|auto)|ven[ií]\s+a\s+buscarme)/i.test(normalized);
 
   // Casos de ruta completa en una sola oración.
   // Ej: "un remis para belgrano al 200, voy para mitre al 300"
@@ -607,6 +642,20 @@ function inferTripHeuristics(combinedText, context = {}) {
     return {
       pickup: fullTrip.pickup,
       destination: fullTrip.destination,
+      looksLikeTripRequest,
+    };
+  }
+
+  // "mandame uno a Belgrano al 200" / "necesito un remis para ..."
+  // Tomamos explícitamente lo que sigue después de "a/para/en" como pickup.
+  const directRequestPickupMatch = splitAddressFromIntentPhrase(
+    text,
+    /(?:mand[aá](?:me)?|necesito|quiero|pedido)\s+(?:un|una|uno|el|la)?\s*(?:remis|m[oó]vil|movil|taxi|auto|coche|viaje)?\s*(?:para|a|en)\s+/i
+  );
+  if (directRequestPickupMatch && looksLikeTripRequest) {
+    return {
+      pickup: sanitizeAddressInput(directRequestPickupMatch),
+      destination: sanitizeAddressInput(context.destination || ''),
       looksLikeTripRequest,
     };
   }
@@ -1518,7 +1567,8 @@ async function extractTripIntent({
 - Orden invertido: "llevame a X desde Y" → pickup=Y, destino=X.
 
 ## REGLAS DE PICKUP POR TIPO
-1. Solo número ("351", "al 200"): pickup=null, missing_fields=["pickup_location"], preguntá la calle.
+1. Solo número real ("351", "al 200" SIN calle): pickup=null, missing_fields=["pickup_location"], preguntá la calle.
+1.b Si viene calle + "al" + número (ej: "Belgrano al 200"), es dirección válida: pickup_location="Belgrano 200, Salta" y NO missing_fields.
 2. Solo calle sin número: ponela en pickup, missing_fields=["pickup_number"], preguntá altura.
 3. "Acá/aquí/donde estoy/en mi casa": pickup=null, pedí GPS o dirección.
 4. "Mismo lugar de siempre": pickup=null (el sistema busca en historial).
@@ -3728,13 +3778,30 @@ async function processClaimedConversation(batch) {
     extracted.intent = 'trip_request';
   }
 
-  const pickupLocation =
-    extracted.pickup_location ||
-    heuristics.pickup ||
+  const extractedPickupRaw = sanitizeAddressInput(extracted.pickup_location || extracted.origin || '');
+  const heuristicPickupRaw = sanitizeAddressInput(heuristics.pickup || '');
+
+  let pickupLocation =
+    extractedPickupRaw ||
+    heuristicPickupRaw ||
     extractDirectAddressCandidate(combinedText) ||
-    extracted.origin ||
     context.pickup_location ||
     null;
+
+  if (
+    extractedPickupRaw &&
+    heuristicPickupRaw &&
+    isGenericStreetWithoutName(extractedPickupRaw) &&
+    isSpecificStreetAddress(heuristicPickupRaw)
+  ) {
+    pickupLocation = heuristicPickupRaw;
+    logWebhook('pickup_override_heuristics', {
+      conversationId: batch?.id || null,
+      extractedPickup: extractedPickupRaw,
+      heuristicPickup: heuristicPickupRaw,
+      reason: 'generic_extracted_pickup',
+    });
+  }
 
   const destinationHint =
     extracted.destination ||
@@ -4156,18 +4223,24 @@ async function processClaimedConversation(batch) {
     };
   }
 
-  // --- Caso 1: solo número sin calle ---
+  // --- Caso 1: solo número o "calle 200" sin nombre real de calle ---
   // normalizeAddressPhrase convierte "altura 500" → "500". Si el resultado es solo
   // dígitos (sin nombre de calle), no tiene sentido geocodificar ni mandar poll;
   // hay que pedir la calle al pasajero.
-  if (/^\d{1,5}$/.test((nextContext.pickup_location || '').trim())) {
-    const bareNumberReply = `¿En qué calle es el número *${nextContext.pickup_location}*? Mandame calle y número (por ejemplo "Mitre ${nextContext.pickup_location}") o compartí tu *ubicación en tiempo real* desde WhatsApp.`;
+  const pickupForValidation = (nextContext.pickup_location || '').trim();
+  const isBareNumberOnly = /^\d{1,5}$/.test(pickupForValidation);
+  const isGenericStreetOnly = isGenericStreetWithoutName(pickupForValidation);
+  if (isBareNumberOnly || isGenericStreetOnly) {
+    const detectedNumber = (pickupForValidation.match(/\b\d{1,5}\b/) || [null])[0];
+    const askNumber = detectedNumber || 'ese número';
+    const bareNumberReply = `¿En qué calle es el número *${askNumber}*? Mandame calle y número (por ejemplo "Mitre ${askNumber}") o compartí tu *ubicación en tiempo real* desde WhatsApp.`;
     await sendWhatsAppText(batch.phone, bareNumberReply);
     logWebhook('conversation_missing_fields', {
       conversationId: batch?.id || null,
       missingPickupLocation: true,
-      reason: 'bare_number_without_street',
-      bareNumber: nextContext.pickup_location,
+      reason: isBareNumberOnly ? 'bare_number_without_street' : 'generic_street_without_name',
+      bareNumber: detectedNumber,
+      rawPickup: nextContext.pickup_location,
     });
     return {
       handled: true,
