@@ -14,7 +14,7 @@ import BroadcastVoiceChat from './components/BroadcastVoiceChat';
 import QueuePanel from './components/QueuePanel';
 
 export default function App() {
-  const { drivers, loading, refetch } = useDrivers();
+  const { drivers, loading } = useDrivers();
   const pendingPassengers = usePendingPassengers();
   const queueData = useQueuedPassengers();
   const {
@@ -64,11 +64,6 @@ export default function App() {
     const timer = setInterval(() => setClock(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    const timer = setInterval(() => refetch(), 30000);
-    return () => clearInterval(timer);
-  }, [refetch]);
 
   const handleCenterDriver = useCallback((driver) => {
     if (mapRef.current && driver.lat && driver.lng) {

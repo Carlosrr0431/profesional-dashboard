@@ -8,6 +8,7 @@ import {
   Polyline,
   OverlayView,
 } from '@react-google-maps/api';
+import { supabase } from '../../../src/lib/supabase';
 
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -82,7 +83,7 @@ export default function TrackingView({ token }) {
     return p.data;
   }, []);
 
-  const extractPos = (data) => {
+  const extractPos = useCallback((data) => {
     const tLat = parseFloat(data?.lastTrack?.lat);
     const tLng = parseFloat(data?.lastTrack?.lng);
     if (Number.isFinite(tLat) && Number.isFinite(tLng)) return { lat: tLat, lng: tLng };
@@ -90,7 +91,14 @@ export default function TrackingView({ token }) {
     const lng = parseFloat(data?.driver?.current_lng);
     if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
     return null;
-  };
+  }, []);
+
+  const applySnapshot = useCallback((data) => {
+    setTrip(data?.trip || null);
+    setDriver(data?.driver || null);
+    setDriverPos(extractPos(data));
+    setLastUpdated(new Date());
+  }, [extractPos]);
 
   useEffect(() => {
     if (!token) { setPageState('not_found'); return; }
@@ -99,32 +107,103 @@ export default function TrackingView({ token }) {
       try {
         const d = await fetchSnapshot(token);
         if (dead) return;
-        setTrip(d?.trip || null);
-        setDriver(d?.driver || null);
-        setDriverPos(extractPos(d));
-        setLastUpdated(new Date());
+        applySnapshot(d);
         setPageState('ready');
       } catch { if (!dead) setPageState('not_found'); }
     })();
     return () => { dead = true; };
-  }, [fetchSnapshot, token]);
+  }, [fetchSnapshot, token, applySnapshot]);
 
   useEffect(() => {
-    if (!token || pageState !== 'ready' || !trip?.id) return;
-    let dead = false;
-    const id = setInterval(async () => {
-      try {
-        const d = await fetchSnapshot(token);
-        if (dead) return;
-        setTrip(d?.trip || null);
-        setDriver(d?.driver || null);
-        const pos = extractPos(d);
-        if (pos) setDriverPos(pos);
-        setLastUpdated(new Date());
-      } catch { /* keep state */ }
-    }, 3000);
-    return () => { dead = true; clearInterval(id); };
-  }, [fetchSnapshot, pageState, token, trip?.id]);
+    if (pageState !== 'ready' || !trip?.id) return;
+
+    const channels = [];
+    const touch = () => setLastUpdated(new Date());
+
+    const tripChannel = supabase
+      .channel(`public-tracking-trip-${trip.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'trips', filter: `id=eq.${trip.id}` },
+        (payload) => {
+          const nextTrip = payload?.new;
+          if (!nextTrip) return;
+          setTrip((prev) => ({ ...(prev || {}), ...nextTrip }));
+          touch();
+        }
+      )
+      .subscribe();
+    channels.push(tripChannel);
+
+    const trackingChannel = supabase
+      .channel(`public-tracking-track-${trip.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'trip_tracking', filter: `trip_id=eq.${trip.id}` },
+        (payload) => {
+          const point = payload?.new;
+          if (!point) return;
+          const lat = Number.parseFloat(point.lat);
+          const lng = Number.parseFloat(point.lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          setDriverPos({ lat, lng });
+          touch();
+        }
+      )
+      .subscribe();
+    channels.push(trackingChannel);
+
+    if (trip?.driver_id) {
+      const driverId = trip.driver_id;
+
+      const driverChannel = supabase
+        .channel(`public-tracking-driver-${driverId}`)
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'drivers', filter: `id=eq.${driverId}` },
+          (payload) => {
+            const nextDriver = payload?.new;
+            if (!nextDriver) return;
+
+            setDriver((prev) => ({ ...(prev || {}), ...nextDriver }));
+
+            const lat = Number.parseFloat(nextDriver.current_lat);
+            const lng = Number.parseFloat(nextDriver.current_lng);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+              setDriverPos({ lat, lng });
+            }
+
+            touch();
+          }
+        )
+        .subscribe();
+      channels.push(driverChannel);
+
+      const driverLocationChannel = supabase
+        .channel(`public-tracking-driver-location-${driverId}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'driver_locations', filter: `driver_id=eq.${driverId}` },
+          (payload) => {
+            const location = payload?.new;
+            if (!location) return;
+            const lat = Number.parseFloat(location.lat);
+            const lng = Number.parseFloat(location.lng);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+            setDriverPos({ lat, lng });
+            touch();
+          }
+        )
+        .subscribe();
+      channels.push(driverLocationChannel);
+    }
+
+    return () => {
+      channels.forEach((channel) => {
+        supabase.removeChannel(channel);
+      });
+    };
+  }, [pageState, trip?.id, trip?.driver_id]);
 
   useEffect(() => {
     if (!driverPos || !trip || !isLoaded) return;

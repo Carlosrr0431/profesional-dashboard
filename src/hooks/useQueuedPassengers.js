@@ -1,16 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 
-function waitMinutes(dateStr) {
+function waitMinutes(dateStr, nowMs = Date.now()) {
   if (!dateStr) return 0;
-  return Math.max(0, Math.round((Date.now() - new Date(dateStr).getTime()) / 60000));
+  return Math.max(0, Math.round((nowMs - new Date(dateStr).getTime()) / 60000));
 }
 
 export function useQueuedPassengers() {
-  const [queuedList, setQueuedList] = useState([]);      // active queue
+  const [queuedRaw, setQueuedRaw] = useState([]);        // active queue raw rows
   const [dispatchLog, setDispatchLog] = useState([]);    // recent dispatches
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [waitTick, setWaitTick] = useState(() => Date.now());
   const channelRef = useRef(null);
 
   const fetchAll = useCallback(async () => {
@@ -31,12 +32,7 @@ export function useQueuedPassengers() {
       const queue = payload?.data?.queue || [];
       const log = payload?.data?.log || [];
 
-      setQueuedList(
-        queue.map((item) => ({
-          ...item,
-          waitMinutes: waitMinutes(item.queuedAt),
-        }))
-      );
+      setQueuedRaw(queue);
       setDispatchLog(log);
       setLastUpdated(new Date());
       setLoading(false);
@@ -61,14 +57,27 @@ export function useQueuedPassengers() {
 
     channelRef.current = channel;
 
-    // Refresh wait times every 30 seconds even without DB changes
-    const ticker = setInterval(fetchAll, 30000);
-
     return () => {
-      channel.unsubscribe();
-      clearInterval(ticker);
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
     };
   }, [fetchAll]);
+
+  // Actualiza solo el tiempo de espera visual sin pegarle a la API.
+  useEffect(() => {
+    const ticker = setInterval(() => {
+      setWaitTick(Date.now());
+    }, 30000);
+    return () => clearInterval(ticker);
+  }, []);
+
+  const queuedList = useMemo(() => {
+    return queuedRaw.map((item) => ({
+      ...item,
+      waitMinutes: waitMinutes(item.queuedAt, waitTick),
+    }));
+  }, [queuedRaw, waitTick]);
 
   // Derive stats
   const stats = {
