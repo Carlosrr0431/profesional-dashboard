@@ -2446,6 +2446,69 @@ async function sendPushNotification(pushToken, payload) {
     return { ok: false, reason: 'invalid_push_token_format' };
   }
 
+  const compactTripForPush = (trip) => {
+    if (!trip || typeof trip !== 'object') return null;
+    const compact = {
+      id: trip.id || null,
+      driver_id: trip.driver_id || null,
+      passenger_name: trip.passenger_name || null,
+      passenger_phone: trip.passenger_phone || null,
+      origin_address: trip.origin_address || null,
+      destination_address: trip.destination_address || null,
+      destination_lat: Number.isFinite(Number(trip.destination_lat)) ? Number(trip.destination_lat) : null,
+      destination_lng: Number.isFinite(Number(trip.destination_lng)) ? Number(trip.destination_lng) : null,
+      status: trip.status || 'pending',
+      notes: typeof trip.notes === 'string' ? trip.notes.slice(0, 280) : null,
+      created_at: trip.created_at || null,
+    };
+    return compact.id ? compact : null;
+  };
+
+  const buildPushData = (rawData) => {
+    const data = rawData && typeof rawData === 'object' ? { ...rawData } : {};
+    const compactTrip = compactTripForPush(data.trip);
+
+    let notesTrimmed = false;
+    let tripRemoved = false;
+
+    if (compactTrip) {
+      data.trip = compactTrip;
+      data.tripId = data.tripId || compactTrip.id;
+    }
+
+    let serialized = JSON.stringify(data);
+    if (serialized.length > 3300 && data.trip?.notes) {
+      data.trip = { ...data.trip, notes: null };
+      notesTrimmed = true;
+      serialized = JSON.stringify(data);
+    }
+
+    if (serialized.length > 3300 && data.trip) {
+      delete data.trip;
+      tripRemoved = true;
+      serialized = JSON.stringify(data);
+    }
+
+    return {
+      data,
+      meta: {
+        bytes: serialized.length,
+        notesTrimmed,
+        tripRemoved,
+      },
+    };
+  };
+
+  const { data: pushData, meta: pushDataMeta } = buildPushData(payload.data || {});
+  if (pushDataMeta.notesTrimmed || pushDataMeta.tripRemoved) {
+    logWebhook('push_notification_data_compacted', {
+      title: payload.title,
+      bytes: pushDataMeta.bytes,
+      notesTrimmed: pushDataMeta.notesTrimmed,
+      tripRemoved: pushDataMeta.tripRemoved,
+    });
+  }
+
   logWebhook('push_notification_start', { title: payload.title, body: payload.body?.slice(0, 80) });
   try {
     const response = await fetchWithRetry(
@@ -2460,7 +2523,7 @@ async function sendPushNotification(pushToken, payload) {
           to: token,
           title: payload.title,
           body: payload.body,
-          data: payload.data || {},
+          data: pushData,
           sound: 'default',
           priority: 'high',
           channelId: 'trips',

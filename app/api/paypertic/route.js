@@ -113,6 +113,22 @@ export async function GET(request) {
     return NextResponse.json({ error: 'Acceso denegado al pago' }, { status: 403 });
   }
 
+  const receiptCandidates = [
+    payData?.receipt_url,
+    payData?.receipt?.url,
+    payData?.receipt?.download_url,
+    payData?.voucher_url,
+    payData?.ticket_url,
+    payData?.pdf_url,
+    payData?.download_url,
+    payData?.links?.receipt,
+    payData?.links?.download,
+  ];
+  const receiptUrl =
+    receiptCandidates.find(
+      (value) => typeof value === 'string' && value.trim().toLowerCase().startsWith('http'),
+    ) || null;
+
   return NextResponse.json({
     id: payData.id,
     status: payData.status,
@@ -121,6 +137,7 @@ export async function GET(request) {
     process_date: payData.process_date || null,
     paid_date: payData.paid_date || null,
     external_transaction_id: payData.external_transaction_id || null,
+    receipt_url: receiptUrl,
   });
 }
 
