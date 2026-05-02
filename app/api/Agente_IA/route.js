@@ -47,6 +47,39 @@ const GLOBAL_KNOWLEDGE_TTL_MS = 5 * 60 * 1000;
 const MAX_GLOBAL_KNOWLEDGE_MESSAGES = 1500;
 const MAX_PHONE_KNOWLEDGE_MESSAGES = 300;
 const MAX_KNOWLEDGE_ADDRESSES = 18;
+const SALTA_STREETS_SOURCE_URL = 'https://codigo-postal.co/argentina/salta/calles-de-salta/';
+const SALTA_STREETS_TTL_MS = 24 * 60 * 60 * 1000;
+
+const SALTA_STREETS_FALLBACK = [
+  'Calle Alvarado',
+  'Calle Caseros',
+  'Calle Balcarce',
+  'Calle Buenos Aires',
+  'Calle Ituzaingo',
+  'Calle Santiago del Estero',
+  'Calle Dean Funes',
+  'Calle Zuviria',
+  'Calle Leguizamon',
+  'Calle Urquiza',
+  'Calle Mitre',
+  'Calle Espana',
+  'Calle Juramento',
+  'Avenida Belgrano',
+  'Avenida San Martin',
+  'Avenida Entre Rios',
+  'Avenida Bolivia',
+  'Avenida Paraguay',
+  'Avenida Bicentenario',
+  'Pasaje Zorrilla',
+  'Pasaje Santa Rosa',
+];
+
+let saltaStreetCatalogCache = {
+  expiresAt: 0,
+  streets: [],
+  tokenIndex: new Map(),
+  loadingPromise: null,
+};
 
 function normalizePhone(phone) {
   return String(phone || '').replace(/\D/g, '');
@@ -211,6 +244,261 @@ function isGenericStreetWithoutName(value) {
   const normalized = normalizeForMatch(value || '');
   if (!normalized) return false;
   return /^(?:calle|av|avda|avenida|pasaje|pje|ruta)\s+\d{1,5}(?:\s*,?\s*salta(?:\s+capital)?(?:\s+argentina)?)?$/.test(normalized);
+}
+
+const STREET_TYPE_LABELS = {
+  calle: 'Calle',
+  avenida: 'Avenida',
+  pasaje: 'Pasaje',
+  diagonal: 'Diagonal',
+  ruta: 'Ruta',
+  camino: 'Camino',
+  paseo: 'Paseo',
+};
+
+function decodeHtmlEntities(value) {
+  return String(value || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&ntilde;/gi, 'ñ')
+    .replace(/&Ntilde;/g, 'Ñ')
+    .replace(/&aacute;/gi, 'á')
+    .replace(/&eacute;/gi, 'é')
+    .replace(/&iacute;/gi, 'í')
+    .replace(/&oacute;/gi, 'ó')
+    .replace(/&uacute;/gi, 'ú')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+function normalizeStreetType(value) {
+  const type = normalizeForMatch(value || '').replace(/\./g, '');
+  if (type === 'av' || type === 'avda') return 'avenida';
+  if (type === 'pje') return 'pasaje';
+  return type;
+}
+
+function parseSaltaStreetCatalogEntry(label) {
+  const cleanLabel = sanitizeAddressInput(decodeHtmlEntities(label));
+  if (!cleanLabel) return null;
+
+  const match = cleanLabel.match(/^(calle|avenida|avda|av\.?|pasaje|pje\.?|diagonal|ruta|camino|paseo)\s+(.+)$/i);
+  if (!match) return null;
+
+  const type = normalizeStreetType(match[1]);
+  const name = sanitizeAddressInput(match[2]);
+  if (!name) return null;
+
+  const nameKey = normalizeAddressKey(name);
+  if (!nameKey) return null;
+  if (nameKey === 's c' || nameKey === 'sc') return null;
+  if (/^[a-z]$/.test(nameKey)) return null;
+
+  const tokens = tokenizeAddress(nameKey)
+    .filter((token) => token && token.length >= 2 && !GENERIC_ADDRESS_TOKENS.has(token));
+  if (tokens.length === 0) return null;
+
+  const normalizedType = STREET_TYPE_LABELS[type] ? type : 'calle';
+  const fullLabel = `${STREET_TYPE_LABELS[normalizedType]} ${name}`;
+
+  return {
+    type: normalizedType,
+    name,
+    nameKey,
+    tokens,
+    fullLabel,
+  };
+}
+
+function buildSaltaStreetTokenIndex(streets) {
+  const tokenIndex = new Map();
+  for (const street of streets || []) {
+    const seenTokens = new Set();
+    for (const token of street.tokens || []) {
+      if (!token || token.length < 3 || seenTokens.has(token)) continue;
+      seenTokens.add(token);
+      if (!tokenIndex.has(token)) tokenIndex.set(token, []);
+      tokenIndex.get(token).push(street);
+    }
+  }
+  return tokenIndex;
+}
+
+function parseSaltaStreetCatalogHtml(html) {
+  const entries = [];
+  const seen = new Set();
+  const linkRegex = /<a[^>]+href=["'][^"']*\/argentina\/salta\/salta\/[^"']*["'][^>]*>([^<]+)<\/a>/gi;
+  let match;
+
+  while ((match = linkRegex.exec(String(html || '')))) {
+    const parsed = parseSaltaStreetCatalogEntry(match[1]);
+    if (!parsed) continue;
+    const key = `${parsed.type}|${parsed.nameKey}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entries.push(parsed);
+  }
+
+  return entries;
+}
+
+function getFallbackSaltaStreetEntries() {
+  const parsed = SALTA_STREETS_FALLBACK
+    .map((item) => parseSaltaStreetCatalogEntry(item))
+    .filter(Boolean);
+  const seen = new Set();
+  return parsed.filter((item) => {
+    const key = `${item.type}|${item.nameKey}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function loadSaltaStreetCatalog(force = false) {
+  const now = Date.now();
+  if (!force && saltaStreetCatalogCache.expiresAt > now && saltaStreetCatalogCache.streets.length > 0) {
+    return saltaStreetCatalogCache;
+  }
+
+  if (saltaStreetCatalogCache.loadingPromise) {
+    return saltaStreetCatalogCache.loadingPromise;
+  }
+
+  saltaStreetCatalogCache.loadingPromise = (async () => {
+    try {
+      if (process.env.NODE_ENV === 'test') {
+        const fallback = getFallbackSaltaStreetEntries();
+        saltaStreetCatalogCache = {
+          expiresAt: Date.now() + SALTA_STREETS_TTL_MS,
+          streets: fallback,
+          tokenIndex: buildSaltaStreetTokenIndex(fallback),
+          loadingPromise: null,
+        };
+        return saltaStreetCatalogCache;
+      }
+
+      const response = await fetchWithRetry(
+        SALTA_STREETS_SOURCE_URL,
+        {
+          headers: {
+            'User-Agent': 'ProfesionalApp/1.0 (salta-street-catalog)',
+          },
+        },
+        { retries: 1, delayMs: 700, label: 'salta_street_catalog' }
+      );
+
+      const html = await response.text();
+      const parsed = parseSaltaStreetCatalogHtml(html);
+      const streets = parsed.length > 0 ? parsed : getFallbackSaltaStreetEntries();
+
+      saltaStreetCatalogCache = {
+        expiresAt: Date.now() + SALTA_STREETS_TTL_MS,
+        streets,
+        tokenIndex: buildSaltaStreetTokenIndex(streets),
+        loadingPromise: null,
+      };
+
+      logWebhook('salta_street_catalog_loaded', {
+        source: SALTA_STREETS_SOURCE_URL,
+        streets: streets.length,
+      });
+      return saltaStreetCatalogCache;
+    } catch (error) {
+      const fallback = saltaStreetCatalogCache.streets.length > 0
+        ? saltaStreetCatalogCache.streets
+        : getFallbackSaltaStreetEntries();
+
+      saltaStreetCatalogCache = {
+        expiresAt: Date.now() + 30 * 60 * 1000,
+        streets: fallback,
+        tokenIndex: buildSaltaStreetTokenIndex(fallback),
+        loadingPromise: null,
+      };
+
+      logWebhook('salta_street_catalog_load_error', {
+        error: error?.message || 'unknown_error',
+        fallbackCount: fallback.length,
+      });
+
+      return saltaStreetCatalogCache;
+    }
+  })();
+
+  return saltaStreetCatalogCache.loadingPromise;
+}
+
+function getCatalogAddressVariants(address, maxResults = 4) {
+  const input = sanitizeAddressInput(address || '');
+  if (!input) return [];
+  if (!Array.isArray(saltaStreetCatalogCache.streets) || saltaStreetCatalogCache.streets.length === 0) {
+    return [];
+  }
+
+  const normalizedInput = normalizeForMatch(input)
+    .replace(/\b(?:salta|capital|argentina)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalizedInput) return [];
+
+  const houseNumber = (normalizedInput.match(/\b\d{1,5}[a-z]?\b/i) || [null])[0];
+  const streetSegment = normalizedInput
+    .replace(/\bal\s+\d{1,5}[a-z]?\b/gi, ' ')
+    .replace(/\b(?:altura|nro|numero|n)\s*\d{1,5}[a-z]?\b/gi, ' ')
+    .replace(/\b\d{1,5}[a-z]?\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const queryTokens = tokenizeAddress(streetSegment)
+    .filter((token) => token && token.length >= 3 && !GENERIC_ADDRESS_TOKENS.has(token));
+  if (queryTokens.length === 0) return [];
+
+  const candidateMap = new Map();
+  for (const token of queryTokens) {
+    const tokenMatches = saltaStreetCatalogCache.tokenIndex.get(token) || [];
+    for (const street of tokenMatches) {
+      const key = `${street.type}|${street.nameKey}`;
+      if (!candidateMap.has(key)) {
+        candidateMap.set(key, { street, overlap: 0 });
+      }
+      candidateMap.get(key).overlap += 1;
+    }
+  }
+
+  const ranked = [...candidateMap.values()]
+    .map(({ street, overlap }) => {
+      const overlapScore = overlap / queryTokens.length;
+      let score = overlapScore;
+      if (/\b(?:pasaje|pje)\b/i.test(normalizedInput) && street.type === 'pasaje') score += 0.2;
+      if (/\b(?:avenida|avda|av)\b/i.test(normalizedInput) && street.type === 'avenida') score += 0.2;
+      if (houseNumber) score += 0.05;
+      return { street, score };
+    })
+    .filter((item) => item.score >= 0.6)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxResults);
+
+  const variants = [];
+  const seenVariants = new Set();
+  for (const item of ranked) {
+    const withType = houseNumber
+      ? `${item.street.fullLabel} ${houseNumber}, Salta`
+      : `${item.street.fullLabel}, Salta`;
+    const withoutType = houseNumber
+      ? `${item.street.name} ${houseNumber}, Salta`
+      : `${item.street.name}, Salta`;
+
+    for (const candidate of [withType, withoutType]) {
+      const key = normalizeAddressKey(candidate);
+      if (!key || seenVariants.has(key)) continue;
+      seenVariants.add(key);
+      variants.push(candidate);
+    }
+  }
+
+  return variants;
 }
 
 // --- Correcciones fonéticas para nombres de calles en Salta ---
@@ -527,6 +815,13 @@ function buildAddressVariants(address) {
   if (noBarrioPrefix !== withSalta) pushVariant(noBarrioPrefix);
   pushVariant(withSalta.replace(/\besquina\s+con\b/gi, 'y'));
 
+  // Si el texto coincide con una calle/pasaje conocido de Salta, agregamos variantes
+  // canónicas para mejorar geocodificación y reducir falsas calles similares.
+  const catalogVariants = getCatalogAddressVariants(withSalta, 4);
+  for (const variant of catalogVariants) {
+    pushVariant(variant);
+  }
+
   const normalized = normalizeForMatch(withSalta);
   const unique = new Set();
   const result = [];
@@ -541,7 +836,7 @@ function buildAddressVariants(address) {
     result.push(`${base}, Salta`);
   }
 
-  return result.slice(0, 5);
+  return result.slice(0, 9);
 }
 
 function scoreGeocodeResult(result, query) {
@@ -953,17 +1248,35 @@ async function loadPhoneAddressKnowledge(phone) {
 
 async function getAddressKnowledgeContext({ phone, combinedText, pickupHint }) {
   try {
+    await loadSaltaStreetCatalog().catch(() => null);
+
     const [globalAddresses, phoneAddresses] = await Promise.all([
       loadGlobalAddressKnowledge(),
       loadPhoneAddressKnowledge(phone),
     ]);
 
-    const candidateAddresses = mergeKnowledgeCandidates({
+    const mergedKnowledgeCandidates = mergeKnowledgeCandidates({
       pickupHint,
       combinedText,
       phoneAddresses,
       globalAddresses,
     });
+
+    const catalogCandidates = getCatalogAddressVariants(
+      `${pickupHint || ''} ${combinedText || ''}`,
+      6
+    );
+
+    const candidateAddresses = [];
+    const seen = new Set();
+    for (const candidate of [...mergedKnowledgeCandidates, ...catalogCandidates]) {
+      const clean = sanitizeAddressInput(candidate || '');
+      const key = normalizeAddressKey(clean);
+      if (!clean || !key || seen.has(key)) continue;
+      seen.add(key);
+      candidateAddresses.push(clean);
+      if (candidateAddresses.length >= 12) break;
+    }
 
     return {
       owner: LEGACY_CHAT_OWNER,
@@ -1716,6 +2029,7 @@ trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
 }
 
 async function geocodeAddress(address) {
+  await loadSaltaStreetCatalog().catch(() => null);
   const variants = buildAddressVariants(address);
   if (variants.length === 0) {
     throw new Error(`No se pudo geocodificar: ${address}`);
@@ -1790,6 +2104,7 @@ async function geocodeAddress(address) {
 }
 
 async function geocodeAddressMultiple(address, maxResults = 5) {
+  await loadSaltaStreetCatalog().catch(() => null);
   const variants = buildAddressVariants(address);
   if (variants.length === 0) return [];
 
@@ -5080,6 +5395,12 @@ async function ensureWarm() {
     await warmPendingTimers();
   } catch (error) {
     console.error('No se pudieron rehidratar timers pendientes:', error.message);
+  }
+
+  try {
+    await loadSaltaStreetCatalog();
+  } catch (error) {
+    console.warn('No se pudo precargar catálogo de calles de Salta:', error?.message || 'unknown');
   }
 }
 
