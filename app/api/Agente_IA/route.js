@@ -3634,8 +3634,10 @@ async function extractTripIntent({
   });
 
   const passengerName = context?.passenger_name || pushName || null;
-  const hasPickupInContext = Boolean(sanitizeAddressInput(context?.pickup_location || ''));
   const awaitingGps = Boolean(context?.awaiting_gps);
+  // Si awaiting_gps=true el pickup anterior falló en geocodificación → no mostrarlo a GPT
+  // como "registrado", para que extraiga la nueva dirección del mensaje actual en lugar de reusar el fallido.
+  const hasPickupInContext = Boolean(sanitizeAddressInput(context?.pickup_location || '')) && !awaitingGps;
   const pendingCancelConfirm = Boolean(context?.pending_cancel_confirm);
   const phoneKnowledgeList = (addressKnowledge?.phoneAddresses || [])
     .slice(0, 5)
