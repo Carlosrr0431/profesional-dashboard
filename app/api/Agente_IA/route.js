@@ -3660,7 +3660,7 @@ async function extractTripIntent({
 - Estado: ${stateDescription}
 - Pasajero: ${passengerName || 'desconocido'}
 - Retiro registrado: ${hasPickupInContext ? `"${context.pickup_location}"` : 'ninguno'}
-- Esperando GPS: ${awaitingGps ? 'SÍ — no pedir dirección de texto' : 'no'}
+- Esperando GPS: ${awaitingGps ? 'SÍ — si el mensaje actual contiene una dirección concreta, extraela como nuevo pickup_location y no pidas más nada. Solo si el mensaje NO contiene dirección, no insistas en texto y esperá GPS.' : 'no'}
 - Esperando confirmación cancelación: ${pendingCancelConfirm ? 'SÍ' : 'no'}
 - Último mensaje tuyo: ${lastBotReply ? `"${lastBotReply}"` : 'ninguno'}
 
@@ -3703,8 +3703,9 @@ trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
 {"intent":"...","passenger_name":null,"pickup_location":null,"origin":null,"destination":null,"notes":null,"reply":null,"confidence":0,"missing_fields":[],"cancel_confirmed":false,"schedule_time":null}
 
 ## REGLAS FINALES
-1. awaiting_gps=true → NO pedir dirección de texto.
-2. Pickup ya en contexto → no pedirlo de nuevo.
+1. awaiting_gps=true → si el mensaje contiene una dirección, extraela como nuevo pickup_location (reemplaza el contexto). Solo si no hay dirección en el mensaje, no pedir texto.
+2. Pickup ya en contexto → no pedirlo de nuevo, SALVO que el mensaje actual contenga una dirección diferente: en ese caso la nueva dirección REEMPLAZA la del contexto.
+2.b Si el mensaje contiene palabras clave de pedido de transporte (remis, móvil, taxi, etc.) junto a una dirección, el intent es SIEMPRE trip_request, aunque haya contexto previo.
 3. cancel_confirmed=true si el mensaje es claro: "cancelá/ya no/no quiero más/me surgió algo". Solo pedir confirmación si hay ambigüedad real.
 4. Estado "trip_created" + cancelación clara → cancel_confirmed=true directo.
 5. No uses ask_human por falta de datos del viaje. Solo para situaciones humanas graves.
@@ -6194,6 +6195,14 @@ async function processClaimedConversation(batch) {
       reason: 'heuristics_detected_trip_request',
     });
     extracted.intent = 'trip_request';
+    // Cuando GPT clasificó como "other", pudo haber re-usado la dirección del contexto
+    // en lugar de extraer la nueva del mensaje actual. Si las heurísticas encontraron
+    // un pickup en el texto del mensaje, descartamos el pickup de GPT (contaminado por contexto)
+    // y dejamos que el pickup de heurísticas tome prioridad.
+    if (heuristics.pickup) {
+      extracted.pickup_location = null;
+      extracted.origin = null;
+    }
   }
 
   const extractedPickupRaw = sanitizeAddressInput(extracted.pickup_location || extracted.origin || '');
