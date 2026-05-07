@@ -2055,19 +2055,51 @@ async function normalizeAddressWithAI(rawAddress, conversationText = '') {
   if (!rawAddress) return null;
   try {
     const prompt = [
-      'Sos un experto en calles y barrios de Salta Capital, Argentina.',
-      'Tu tarea es corregir la siguiente dirección que fue dictada por voz o escrita con errores tipográficos/fonéticos,',
-      'y devolver la forma canónica en la que aparecería en Google Maps.',
+      'Sos un experto en calles, barrios y puntos de interés de Salta Capital, Argentina.',
+      'Tu tarea es normalizar la siguiente dirección para que Google Maps pueda geocodificarla con precisión.',
+      'La dirección puede haber sido dictada por voz, escrita con errores, o usar formas abreviadas.',
       '',
-      'Reglas:',
-      '- Devolvé SOLO la dirección corregida, sin explicaciones ni puntos finales.',
-      '- Formato: "Nombre Calle NúmeroAltura, Salta" o "Calle1 y Calle2, Salta".',
-      '- Si la dirección ya es correcta, devolvela igual.',
-      '- Si no podés corregirla con confianza, respondé exactamente: null',
-      '- Nunca inventes calles. Solo corregí ortografía/fonética de calles reales de Salta.',
+      '## Expansiones de nombres de calles (apellido → nombre completo del prócer)',
+      '- "Mitre" → "Bartolomé Mitre"',
+      '- "Belgrano" → "Manuel Belgrano"',
+      '- "Sarmiento" → "Domingo F. Sarmiento"',
+      '- "Rivadavia" → "Bernardino Rivadavia"',
+      '- "Alberdi" → "Juan Bautista Alberdi"',
+      '- "Urquiza" → "Justo José de Urquiza"',
+      '- "Arenales" → "Juan Antonio Álvarez de Arenales"',
+      '- "Caseros" → "Batalla de Caseros"',
+      '- "Pueyrredón" → "Mariano Pueyrredón"',
+      '- "Pellegrini" → "Carlos Pellegrini"',
+      '- "Dean Funes" → "Deán Gregorio Funes"',
+      '- "Necochea" → "Coronel Necochea"',
       '',
-      `Dirección a corregir: "${rawAddress}"`,
-      conversationText ? `Contexto del mensaje original: "${conversationText.slice(0, 120)}"` : '',
+      '## Puntos de interés (POIs) conocidos en Salta',
+      '- "el hospital", "hospital" → "Hospital San Bernardo, Salta"',
+      '- "la terminal", "terminal de ómnibus", "terminal" → "Terminal de Ómnibus de Salta"',
+      '- "el shopping", "shopping salta" → "Shopping Salta"',
+      '- "el aeropuerto", "aeropuerto" → "Aeropuerto Internacional Martín Miguel de Güemes, Salta"',
+      '- "la catedral", "plaza principal", "plaza 9 de julio" → "Plaza 9 de Julio, Salta"',
+      '- "el casino", "casino salta" → "Casino Club Salta"',
+      '- "el tren", "estación de tren" → "Estación de Tren Salta"',
+      '- "APASS", "sanatorio apass" → "APASS, Salta"',
+      '- "el cementerio", "cementerio" → "Cementerio de la Santa Cruz, Salta"',
+      '',
+      '## Barrios',
+      '- "tres cerr", "3 cerros" → "Tres Cerritos, Salta"',
+      '- "grand bourg", "gran bourg" → "Grand Bourg, Salta"',
+      '- "castañares", "castanares" → "Castañares, Salta"',
+      '- "limache" → "Limache, Salta"',
+      '- "portezuelo" → "Portezuelo, Salta"',
+      '',
+      '## Reglas de salida',
+      '- Devolvé SOLO la dirección normalizada, sin explicaciones ni puntos finales.',
+      '- Formato: "Nombre Completo NúmeroAltura, Salta" | "Calle1 y Calle2, Salta" | "Nombre del POI, Salta"',
+      '- Si la dirección ya es correcta y completa, devolvela igual.',
+      '- Si no podés normalizarla con confianza, respondé exactamente: null',
+      '- Nunca inventes calles ni lugares que no existan en Salta Capital.',
+      '',
+      `Dirección a normalizar: "${rawAddress}"`,
+      conversationText ? `Contexto del mensaje original: "${conversationText.slice(0, 150)}"` : '',
     ].filter(Boolean).join('\n');
 
     const completion = await getOpenAI().chat.completions.create({
@@ -4928,8 +4960,13 @@ async function createTripFromConversation({ conversation, extracted }) {
     };
     logWebhook('trip_create_pickup_pre_geocoded', { formattedAddress: pickupLocation.formattedAddress });
   } else {
+  // Arrancar normalización por IA en paralelo con el primer geocoding para no agregar latencia.
+  const conversationText = extracted?._conversationText || '';
+  const aiNormPromise = normalizeAddressWithAI(normalizedPickupQuery || pickupQuery, conversationText);
+
   try {
     pickupLocation = await geocodeAddress(normalizedPickupQuery || pickupQuery);
+    // Éxito inmediato — AI sigue corriendo en background, cancelarla implícitamente (no se usa)
   } catch (error) {
     // Fallback: intentar variantes aprendidas desde la base de conocimiento legacy.
     for (const candidate of pickupKnowledgeCandidates) {
@@ -4950,10 +4987,8 @@ async function createTripFromConversation({ conversation, extracted }) {
     if (pickupLocation) {
       // resolved by knowledge fallback; continue normal flow
     } else {
-    // Último recurso: normalización por IA para corregir errores fonéticos/ortográficos
-    // que las reglas estáticas no pudieron resolver.
-    const conversationText = extracted?._conversationText || '';
-    const aiCorrected = await normalizeAddressWithAI(normalizedPickupQuery || pickupQuery, conversationText);
+    // Normalización por IA: ya estaba corriendo en paralelo, solo esperamos el resultado.
+    const aiCorrected = await aiNormPromise;
     if (aiCorrected) {
       try {
         pickupLocation = await geocodeAddress(aiCorrected);
