@@ -3771,15 +3771,21 @@ trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
       content: String(item.transcription || item.content || '').slice(0, 200),
     }));
 
+  const contextForModel = Object.fromEntries(
+    Object.entries(context || {}).filter(([k]) => !['last_bot_reply', 'pending_poll'].includes(k))
+  );
+
+  // Si waiting_gps está activo, ocultar pickup/origin previo para que GPT no lo reutilice.
+  if (awaitingGps) {
+    delete contextForModel.pickup_location;
+    delete contextForModel.origin;
+  }
+
   // Mensaje de contexto actual para el modelo
   const contextParts = [
     passengerName ? `Nombre del pasajero: ${passengerName}` : null,
-    Object.keys(context || {}).filter((k) => !['last_bot_reply', 'pending_poll'].includes(k)).length > 0
-      ? `Contexto del viaje: ${JSON.stringify(
-          Object.fromEntries(
-            Object.entries(context).filter(([k]) => !['last_bot_reply', 'pending_poll'].includes(k))
-          )
-        )}`
+    Object.keys(contextForModel).length > 0
+      ? `Contexto del viaje: ${JSON.stringify(contextForModel)}`
       : null,
     `Mensajes del pasajero:\n${combinedText}`,
   ].filter(Boolean).join('\n\n');
@@ -6215,17 +6221,20 @@ async function processClaimedConversation(batch) {
     .filter(Boolean)
     .join('\n');
 
-  const addressKnowledge = await getAddressKnowledgeContext({
-    phone: batch.phone,
-    combinedText,
-    pickupHint: sanitizeAddressInput(safeJsonParse(batch.context, {})?.pickup_location || ''),
-  });
+  const persistedContext = safeJsonParse(batch.context, {});
 
   // El historial de mensajes NO se usa para clasificar intención.
   // La fuente de verdad es el estado del último trip del pasajero.
   // Si el último trip está cerrado (completed/cancelled) → contexto limpio.
   // Si está abierto → el fast path ya lo maneja antes de llegar aquí.
-  const context = shouldResetConversationState ? {} : safeJsonParse(batch.context, {});
+  const context = shouldResetConversationState ? {} : persistedContext;
+
+  const addressKnowledge = await getAddressKnowledgeContext({
+    phone: batch.phone,
+    combinedText,
+    // Si estamos esperando GPS, no inyectar el pickup previo en conocimiento candidato.
+    pickupHint: context.awaiting_gps ? '' : sanitizeAddressInput(context.pickup_location || ''),
+  });
   const history = []; // siempre vacío — evita que mensajes previos contaminen la clasificación
 
   const lastBotReply = null; // sin historial, no hay último reply del bot
@@ -6260,26 +6269,54 @@ async function processClaimedConversation(batch) {
 
   const extractedPickupRaw = sanitizeAddressInput(extracted.pickup_location || extracted.origin || '');
   const heuristicPickupRaw = sanitizeAddressInput(heuristics.pickup || '');
+  const directPickupRaw = sanitizeAddressInput(extractDirectAddressCandidate(combinedText) || '');
+  const contextPickupRaw = sanitizeAddressInput(context.pickup_location || '');
+  const isAwaitingGps = Boolean(context.awaiting_gps);
 
   let pickupLocation =
     extractedPickupRaw ||
     heuristicPickupRaw ||
-    extractDirectAddressCandidate(combinedText) ||
-    context.pickup_location ||
+    directPickupRaw ||
+    (!isAwaitingGps ? contextPickupRaw : null) ||
     null;
+
+  const extractedIsLessSpecific =
+    extractedPickupRaw &&
+    !isSpecificStreetAddress(extractedPickupRaw) &&
+    isSpecificStreetAddress(heuristicPickupRaw);
 
   if (
     extractedPickupRaw &&
     heuristicPickupRaw &&
-    isGenericStreetWithoutName(extractedPickupRaw) &&
-    isSpecificStreetAddress(heuristicPickupRaw)
+    (isGenericStreetWithoutName(extractedPickupRaw) || extractedIsLessSpecific)
   ) {
     pickupLocation = heuristicPickupRaw;
     logWebhook('pickup_override_heuristics', {
       conversationId: batch?.id || null,
       extractedPickup: extractedPickupRaw,
       heuristicPickup: heuristicPickupRaw,
-      reason: 'generic_extracted_pickup',
+      reason: extractedIsLessSpecific ? 'extracted_less_specific_than_heuristic' : 'generic_extracted_pickup',
+    });
+  }
+
+  const extractedMatchesContext =
+    extractedPickupRaw &&
+    contextPickupRaw &&
+    normalizeAddressKey(extractedPickupRaw) === normalizeAddressKey(contextPickupRaw);
+  const freshPickupCandidate = heuristicPickupRaw || directPickupRaw;
+
+  if (
+    extractedMatchesContext &&
+    freshPickupCandidate &&
+    normalizeAddressKey(freshPickupCandidate) !== normalizeAddressKey(contextPickupRaw)
+  ) {
+    pickupLocation = freshPickupCandidate;
+    logWebhook('pickup_override_context_contamination', {
+      conversationId: batch?.id || null,
+      extractedPickup: extractedPickupRaw,
+      contextPickup: contextPickupRaw,
+      freshPickupCandidate,
+      awaitingGps: isAwaitingGps,
     });
   }
 

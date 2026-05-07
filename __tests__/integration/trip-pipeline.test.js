@@ -287,6 +287,40 @@ describe('Contrato de datos — INSERT en Supabase (trips)', () => {
     expect(queriedAddresses).not.toContain('calle 200');
   });
 
+  it('si GPT arrastra un pickup viejo, prioriza "mitre al 200" del mensaje actual', async () => {
+    OpenAI.mockImplementation(() =>
+      createOpenAIMock({
+        intent: 'trip_request',
+        pickup_location: 'Calle Rápido, Salta',
+        destination: 'Mitre 200, Salta',
+        missing_fields: [],
+        reply: 'Perfecto, ya te derivamos un chofer.',
+      }),
+    );
+
+    await enviarMensajeYProcesar('hola, me mandas un remis a mitre al 200');
+
+    const geocodeCalls = global.fetch.mock.calls.filter(([url]) =>
+      String(url).includes('maps.googleapis.com/maps/api/geocode')
+    );
+    if (geocodeCalls.length === 0) return;
+
+    const queriedAddresses = geocodeCalls
+      .map(([url]) => {
+        try {
+          return new URL(String(url)).searchParams.get('address') || '';
+        } catch {
+          return '';
+        }
+      })
+      .filter(Boolean)
+      .join(' | ')
+      .toLowerCase();
+
+    expect(queriedAddresses).toMatch(/mitre|bartolom/);
+    expect(queriedAddresses).not.toMatch(/calle\s+r[aá]pido/);
+  });
+
   it('las notas contienen el marcador [APPROACH_ONLY]', async () => {
     await enviarMensajeYProcesar('un remis en Belgrano 200');
     if (!capturedTripInsert) return;
