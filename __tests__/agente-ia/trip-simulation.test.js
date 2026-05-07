@@ -9,7 +9,7 @@
  *   1. Pedido directo con dirección completa   → viaje creado
  *   2. Pasajero comparte pin GPS               → viaje creado con coords
  *   3. Dirección incompleta (solo calle)       → agente pide el número
- *   4. "Mismo lugar de siempre" con historial  → poll enviado
+ *   4. "Mismo lugar de siempre"               → exige dirección fresca o GPS
  *   5. Poll resuelto → viaje creado
  *
  * Cómo agregar un nuevo escenario:
@@ -176,10 +176,10 @@ describe('Escenario 3 — Solo calle sin número', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Escenario 4 — "Mismo lugar de siempre" con historial
+// Escenario 4 — "Mismo lugar de siempre" sin historial
 // ─────────────────────────────────────────────────────────────────────────────
-describe('Escenario 4 — Mismo lugar de siempre con historial', () => {
-  it('envía un poll con los últimos puntos conocidos y responde 200', async () => {
+describe('Escenario 4 — Mismo lugar de siempre sin historial', () => {
+  it('exige dirección actual o GPS y responde 200', async () => {
     const evento = makeTextMessageEvent(PHONE, 'pasame a buscar al mismo lugar de siempre');
 
     OpenAI.mockImplementation(() =>

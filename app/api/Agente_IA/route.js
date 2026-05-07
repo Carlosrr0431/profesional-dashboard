@@ -2547,7 +2547,7 @@ function requiresGpsForAddress(address) {
   return { required: false, reason: null };
 }
 
-function inferTripHeuristics(combinedText, context = {}) {
+function inferTripHeuristics(combinedText) {
   const text = String(combinedText || '').trim();
   const normalized = normalizeForMatch(text);
 
@@ -2573,7 +2573,7 @@ function inferTripHeuristics(combinedText, context = {}) {
   if (directRequestPickupMatch && looksLikeTripRequest) {
     return {
       pickup: sanitizeAddressInput(directRequestPickupMatch),
-      destination: sanitizeAddressInput(context.destination || ''),
+      destination: null,
       looksLikeTripRequest,
     };
   }
@@ -2587,7 +2587,7 @@ function inferTripHeuristics(combinedText, context = {}) {
   if (movilParaMatch && looksLikeTripRequest) {
     return {
       pickup: sanitizeAddressInput(movilParaMatch),
-      destination: sanitizeAddressInput(context.destination || ''),
+      destination: null,
       looksLikeTripRequest,
     };
   }
@@ -2601,8 +2601,8 @@ function inferTripHeuristics(combinedText, context = {}) {
     /(?:destino(?:\s+es)?|hacia|hasta|llevame\s+a|quiero\s+ir\s+a|voy\s+para|voy\s+a)\s*/i
   );
 
-  let pickup = sanitizeAddressInput(pickupMatch || context.pickup_location || '');
-  let destination = sanitizeAddressInput(destinationMatch || context.destination || '');
+  let pickup = sanitizeAddressInput(pickupMatch || '');
+  let destination = sanitizeAddressInput(destinationMatch || '');
 
   // Si el mensaje parece un pedido de viaje y tiene forma de intersección/dirección pero sin
   // keywords de destino, tratar el texto completo como pickup
@@ -3669,7 +3669,6 @@ async function extractTripIntent({
   history,
   conversationStatus = 'open',
   lastBotReply = null,
-  addressKnowledge = null,
 }) {
   logWebhook('ai_extract_intent_start', {
     phone: maskPhone(phone),
@@ -3683,18 +3682,7 @@ async function extractTripIntent({
 
   const passengerName = context?.passenger_name || pushName || null;
   const awaitingGps = Boolean(context?.awaiting_gps);
-  // Si awaiting_gps=true el pickup anterior falló en geocodificación → no mostrarlo a GPT
-  // como "registrado", para que extraiga la nueva dirección del mensaje actual en lugar de reusar el fallido.
-  const hasPickupInContext = Boolean(sanitizeAddressInput(context?.pickup_location || '')) && !awaitingGps;
   const pendingCancelConfirm = Boolean(context?.pending_cancel_confirm);
-  const phoneKnowledgeList = (addressKnowledge?.phoneAddresses || [])
-    .slice(0, 5)
-    .map((item) => item.address);
-  const globalKnowledgeList = (addressKnowledge?.globalAddresses || [])
-    .slice(0, 5)
-    .map((item) => item.address);
-  const candidateKnowledgeList = (addressKnowledge?.candidateAddresses || [])
-    .slice(0, 5);
 
   const stateDescription = {
     open: awaitingGps
@@ -3709,7 +3697,7 @@ async function extractTripIntent({
 ## ESTADO ACTUAL
 - Estado: ${stateDescription}
 - Pasajero: ${passengerName || 'desconocido'}
-- Retiro registrado: ${hasPickupInContext ? `"${context.pickup_location}"` : 'ninguno'}
+- Retiro registrado: ninguno (siempre se toma del mensaje actual)
 - Esperando GPS: ${awaitingGps ? 'SÍ — si el mensaje actual contiene una dirección concreta, extraela como nuevo pickup_location y no pidas más nada. Solo si el mensaje NO contiene dirección, no insistas en texto y esperá GPS.' : 'no'}
 - Esperando confirmación cancelación: ${pendingCancelConfirm ? 'SÍ' : 'no'}
 - Último mensaje tuyo: ${lastBotReply ? `"${lastBotReply}"` : 'ninguno'}
@@ -3730,17 +3718,11 @@ async function extractTripIntent({
 1.b Si viene calle + "al" + número (ej: "Belgrano al 200"), es dirección válida: pickup_location="Belgrano 200, Salta" y NO missing_fields.
 2. Solo calle sin número: ponela en pickup, missing_fields=["pickup_number"], preguntá altura.
 3. "Acá/aquí/donde estoy/en mi casa": pickup=null, pedí GPS o dirección.
-4. "Mismo lugar de siempre": pickup=null (el sistema busca en historial).
+4. "Mismo lugar de siempre": pickup=null y pedí dirección actual o GPS (NO usar historial).
 5. "Frente a / al lado de [X]": pickup=null, pedí dirección exacta o GPS.
 6. Pasaje/callejón ("pasaje X", "pje X", "callejón X"): pickup=texto completo. NO missing_fields. El sistema pedirá GPS.
 7. Manzana/Lote ("manzana 14 lote 6", "mz 3 lt 2 barrio inta"): pickup=texto completo. NO missing_fields. El sistema pedirá GPS.
 8. Edificio/empresa ("edificio Suizo", "oficina de Arcor"): pickup="Nombre, Salta". El sistema mostrará opciones.
-
-## CONOCIMIENTO DE DIRECCIONES
-- Historial pasajero: ${JSON.stringify(phoneKnowledgeList)}
-- Global frecuentes: ${JSON.stringify(globalKnowledgeList)}
-- Candidatos mensaje: ${JSON.stringify(candidateKnowledgeList)}
-Usá solo para desambiguar/completar. No inventes direcciones.
 
 ## INTENTS
 trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
@@ -3754,8 +3736,8 @@ trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
 
 ## REGLAS FINALES
 1. awaiting_gps=true → si el mensaje contiene una dirección, extraela como nuevo pickup_location (reemplaza el contexto). Solo si no hay dirección en el mensaje, no pedir texto.
-2. Pickup ya en contexto → no pedirlo de nuevo, SALVO que el mensaje actual contenga una dirección diferente: en ese caso la nueva dirección REEMPLAZA la del contexto.
-2.b Si el mensaje contiene palabras clave de pedido de transporte (remis, móvil, taxi, etc.) junto a una dirección, el intent es SIEMPRE trip_request, aunque haya contexto previo.
+2. NO reutilices pickup de contexto ni historial: pickup_location siempre debe salir del mensaje actual.
+2.b Si el mensaje contiene palabras clave de pedido de transporte (remis, móvil, taxi, etc.) junto a una dirección, el intent es SIEMPRE trip_request.
 3. cancel_confirmed=true si el mensaje es claro: "cancelá/ya no/no quiero más/me surgió algo". Solo pedir confirmación si hay ambigüedad real.
 4. Estado "trip_created" + cancelación clara → cancel_confirmed=true directo.
 5. No uses ask_human por falta de datos del viaje. Solo para situaciones humanas graves.
@@ -3772,14 +3754,8 @@ trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
     }));
 
   const contextForModel = Object.fromEntries(
-    Object.entries(context || {}).filter(([k]) => !['last_bot_reply', 'pending_poll'].includes(k))
+    Object.entries(context || {}).filter(([k]) => !['last_bot_reply', 'pending_poll', 'pickup_location', 'origin'].includes(k))
   );
-
-  // Si waiting_gps está activo, ocultar pickup/origin previo para que GPT no lo reutilice.
-  if (awaitingGps) {
-    delete contextForModel.pickup_location;
-    delete contextForModel.origin;
-  }
 
   // Mensaje de contexto actual para el modelo
   const contextParts = [
@@ -3828,15 +3804,13 @@ trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
     return {
       intent: 'other',
       passenger_name: passengerName,
-      pickup_location: hasPickupInContext ? sanitizeAddressInput(context?.pickup_location || '') : null,
+      pickup_location: null,
       origin: null,
       destination: sanitizeAddressInput(context?.destination || ''),
       notes: null,
-      reply: hasPickupInContext
-        ? 'Gracias, estamos procesando tu pedido. En un momento te confirmo el móvil.'
-        : 'Perdón, estoy con mucha demanda ahora. ¿Me pasás la dirección exacta desde donde te busco?',
+      reply: 'Perdón, estoy con mucha demanda ahora. ¿Me pasás la dirección exacta desde donde te busco?',
       confidence: 0,
-      missing_fields: hasPickupInContext ? [] : ['pickup_location'],
+      missing_fields: ['pickup_location'],
       cancel_confirmed: false,
       schedule_time: null,
     };
@@ -3853,9 +3827,9 @@ trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
       origin: null,
       destination: null,
       notes: null,
-      reply: hasPickupInContext ? null : '¿Desde dónde te buscamos?',
+      reply: '¿Desde dónde te buscamos?',
       confidence: 0,
-      missing_fields: hasPickupInContext ? [] : ['pickup_location'],
+      missing_fields: ['pickup_location'],
       cancel_confirmed: false,
       schedule_time: null,
     };
@@ -4592,9 +4566,31 @@ async function chooseDriver(origin, { excludedDriverIds = [], searchElapsedMs = 
   }
 
   const excludedDriverIdSet = new Set((excludedDriverIds || []).filter(Boolean));
-  const candidateDrivers = availableDrivers.filter(
-    (driver) => !busyDriverIds.has(driver.id) && !excludedDriverIdSet.has(driver.id)
-  );
+  const nonBusyDrivers = availableDrivers.filter((driver) => !busyDriverIds.has(driver.id));
+  let candidateDrivers = nonBusyDrivers.filter((driver) => !excludedDriverIdSet.has(driver.id));
+  let exclusionsRelaxed = false;
+
+  // Si todos los candidatos no ocupados quedaron filtrados solo por exclusiones,
+  // relajamos la exclusión para evitar deadlocks (ej: 1 chofer disponible excluido).
+  if (
+    candidateDrivers.length === 0 &&
+    nonBusyDrivers.length > 0 &&
+    excludedDriverIdSet.size > 0
+  ) {
+    const excludedNonBusyCount = nonBusyDrivers.filter((driver) => excludedDriverIdSet.has(driver.id)).length;
+    const allNonBusyExcluded = excludedNonBusyCount === nonBusyDrivers.length;
+
+    if (allNonBusyExcluded) {
+      candidateDrivers = nonBusyDrivers;
+      exclusionsRelaxed = true;
+      logWebhook('driver_select_exclusions_relaxed', {
+        availableWithCoords: availableDrivers.length,
+        nonBusyCount: nonBusyDrivers.length,
+        excludedCount: excludedDriverIdSet.size,
+      });
+    }
+  }
+
   if (candidateDrivers.length === 0) {
     logWebhook('driver_select_all_busy', {
       availableWithCoords: availableDrivers.length,
@@ -4674,6 +4670,7 @@ async function chooseDriver(origin, { excludedDriverIds = [], searchElapsedMs = 
         selectedCancelled: selected.reliabilityCancelled || 0,
         selectedPushPenaltyKm: Math.round((selected.pushPenaltyKm || 0) * 100) / 100,
         hasPushToken: Boolean(selected.push_token),
+        exclusionsRelaxed,
       });
       return { ...selected, searchRadiusKm: radiusKm };
     }
@@ -4699,6 +4696,7 @@ async function chooseDriver(origin, { excludedDriverIds = [], searchElapsedMs = 
     closestDriverScoreKm: withDistance[0]?.dispatchScoreKm
       ? Math.round(withDistance[0].dispatchScoreKm * 100) / 100
       : null,
+    exclusionsRelaxed,
   });
   return null;
 }
@@ -4967,11 +4965,7 @@ async function createTripFromConversation({ conversation, extracted }) {
     };
   }
 
-  const knowledgeCandidates = Array.isArray(extracted?._knowledgeAddressCandidates)
-    ? extracted._knowledgeAddressCandidates
-    : [];
   const normalizedPickupQuery = normalizeAddressPhrase(pickupQuery);
-  const pickupKnowledgeCandidates = getKnowledgeCandidatesForHint(normalizedPickupQuery, knowledgeCandidates, 8);
 
   let pickupLocation;
   if (extracted._preGeocodedPickup?.lat && extracted._preGeocodedPickup?.lng) {
@@ -4990,25 +4984,6 @@ async function createTripFromConversation({ conversation, extracted }) {
     pickupLocation = await geocodeAddress(normalizedPickupQuery || pickupQuery);
     // Éxito inmediato — AI sigue corriendo en background, cancelarla implícitamente (no se usa)
   } catch (error) {
-    // Fallback: intentar variantes aprendidas desde la base de conocimiento legacy.
-    for (const candidate of pickupKnowledgeCandidates) {
-      try {
-        pickupLocation = await geocodeAddress(candidate);
-        logWebhook('trip_create_geocode_fallback_knowledge_ok', {
-          conversationId: conversation?.id || null,
-          originalQuery: pickupQuery,
-          candidate,
-          formattedAddress: pickupLocation.formattedAddress,
-        });
-        break;
-      } catch {
-        // probar siguiente candidato
-      }
-    }
-
-    if (pickupLocation) {
-      // resolved by knowledge fallback; continue normal flow
-    } else {
     // Normalización por IA: ya estaba corriendo en paralelo, solo esperamos el resultado.
     const aiCorrected = await aiNormPromise;
     if (aiCorrected) {
@@ -5024,14 +4999,13 @@ async function createTripFromConversation({ conversation, extracted }) {
         // AI tampoco pudo resolver la dirección → falla definitiva
       }
     }
-    }
 
     if (!pickupLocation) {
     logWebhook('trip_create_geocode_error', {
       conversationId: conversation?.id || null,
       error: error?.message || 'geocode_error',
       pickupQuery,
-      knowledgeCandidatesTried: pickupKnowledgeCandidates.length,
+      knowledgeCandidatesTried: 0,
     });
     return {
       ok: false,
@@ -5677,8 +5651,10 @@ async function processTripLifecycleTransitions() {
 
       const systemFailure = isSystemFailureCancellation(trip);
       const excludedDriverIdSet = new Set(systemFailure ? [] : [trip.driver_id].filter(Boolean));
-      for (const timeoutDriverId of reassignmentContext.timeoutCancelledDriverIds || []) {
-        excludedDriverIdSet.add(timeoutDriverId);
+      if (!systemFailure) {
+        for (const timeoutDriverId of reassignmentContext.timeoutCancelledDriverIds || []) {
+          excludedDriverIdSet.add(timeoutDriverId);
+        }
       }
 
       const excludedDriverIds = [...excludedDriverIdSet];
@@ -5841,8 +5817,10 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
 
     const systemFailure = isSystemFailureCancellation(trip);
     const excludedDriverIdSet = new Set(systemFailure ? [] : [trip.driver_id].filter(Boolean));
-    for (const timeoutDriverId of reassignmentContext.timeoutCancelledDriverIds || []) {
-      excludedDriverIdSet.add(timeoutDriverId);
+    if (!systemFailure) {
+      for (const timeoutDriverId of reassignmentContext.timeoutCancelledDriverIds || []) {
+        excludedDriverIdSet.add(timeoutDriverId);
+      }
     }
     const excludedDriverIds = [...excludedDriverIdSet];
     const driver = Number.isFinite(pickup.lat) && Number.isFinite(pickup.lng)
@@ -6228,13 +6206,6 @@ async function processClaimedConversation(batch) {
   // Si el último trip está cerrado (completed/cancelled) → contexto limpio.
   // Si está abierto → el fast path ya lo maneja antes de llegar aquí.
   const context = shouldResetConversationState ? {} : persistedContext;
-
-  const addressKnowledge = await getAddressKnowledgeContext({
-    phone: batch.phone,
-    combinedText,
-    // Si estamos esperando GPS, no inyectar el pickup previo en conocimiento candidato.
-    pickupHint: context.awaiting_gps ? '' : sanitizeAddressInput(context.pickup_location || ''),
-  });
   const history = []; // siempre vacío — evita que mensajes previos contaminen la clasificación
 
   const lastBotReply = null; // sin historial, no hay último reply del bot
@@ -6247,10 +6218,9 @@ async function processClaimedConversation(batch) {
     history,
     conversationStatus: batch.status || 'open',
     lastBotReply,
-    addressKnowledge,
   });
 
-  const heuristics = inferTripHeuristics(combinedText, context);
+  const heuristics = inferTripHeuristics(combinedText);
   if (extracted.intent === 'other' && heuristics.looksLikeTripRequest) {
     logWebhook('conversation_override_other_to_trip_request', {
       conversationId: batch?.id || null,
@@ -6270,14 +6240,11 @@ async function processClaimedConversation(batch) {
   const extractedPickupRaw = sanitizeAddressInput(extracted.pickup_location || extracted.origin || '');
   const heuristicPickupRaw = sanitizeAddressInput(heuristics.pickup || '');
   const directPickupRaw = sanitizeAddressInput(extractDirectAddressCandidate(combinedText) || '');
-  const contextPickupRaw = sanitizeAddressInput(context.pickup_location || '');
-  const isAwaitingGps = Boolean(context.awaiting_gps);
 
   let pickupLocation =
     extractedPickupRaw ||
     heuristicPickupRaw ||
     directPickupRaw ||
-    (!isAwaitingGps ? contextPickupRaw : null) ||
     null;
 
   const extractedIsLessSpecific =
@@ -6299,27 +6266,6 @@ async function processClaimedConversation(batch) {
     });
   }
 
-  const extractedMatchesContext =
-    extractedPickupRaw &&
-    contextPickupRaw &&
-    normalizeAddressKey(extractedPickupRaw) === normalizeAddressKey(contextPickupRaw);
-  const freshPickupCandidate = heuristicPickupRaw || directPickupRaw;
-
-  if (
-    extractedMatchesContext &&
-    freshPickupCandidate &&
-    normalizeAddressKey(freshPickupCandidate) !== normalizeAddressKey(contextPickupRaw)
-  ) {
-    pickupLocation = freshPickupCandidate;
-    logWebhook('pickup_override_context_contamination', {
-      conversationId: batch?.id || null,
-      extractedPickup: extractedPickupRaw,
-      contextPickup: contextPickupRaw,
-      freshPickupCandidate,
-      awaitingGps: isAwaitingGps,
-    });
-  }
-
   const destinationHint =
     extracted.destination ||
     heuristics.destination ||
@@ -6329,7 +6275,7 @@ async function processClaimedConversation(batch) {
   const nextContext = {
     passenger_name: extracted.passenger_name || context.passenger_name || batch.push_name || null,
     // Pickup should map to passenger origin. Destination remains only as final-destination hint.
-    pickup_location: hydratePickupFromKnowledge(sanitizeAddressInput(pickupLocation), addressKnowledge),
+    pickup_location: sanitizeAddressInput(pickupLocation),
     origin: sanitizeAddressInput(extracted.origin || heuristics.pickup || ''),
     destination: sanitizeAddressInput(destinationHint),
     notes: extracted.notes || context.notes || null,
@@ -6338,7 +6284,6 @@ async function processClaimedConversation(batch) {
 
   const tripExtracted = {
     ...nextContext,
-    _knowledgeAddressCandidates: addressKnowledge.candidateAddresses,
     // Últimos mensajes del pasajero (hasta 500 caracteres) para incluirlos como
     // indicaciones del viaje visibles para el chofer.
     _conversationText: combinedText ? combinedText.slice(0, 500) : null,
@@ -6624,60 +6569,6 @@ async function processClaimedConversation(batch) {
         },
       };
     }
-  }
-
-  // --- Caso 24: "mismo lugar de siempre" / "en mi casa" → ofrecer historial del pasajero ---
-  // Si el pasajero dice algo que implica "la dirección conocida" pero no da la dirección concreta,
-  // mostramos un poll con sus últimas ubicaciones conocidas.
-  const isMismoLugar =
-    !nextContext.pickup_location &&
-    /\b(mismo\s+lugar|la\s+de\s+siempre|mi\s+cas[ao]|la\s+direcci[oó]n\s+de\s+siempre|el\s+mismo\s+lugar|como\s+siempre|desde\s+mi\s+casa)\b/i.test(combinedText) &&
-    !looksLikeAddressText(combinedText);
-
-  if (isMismoLugar && addressKnowledge.phoneAddresses.length > 0) {
-    const historyOptions = addressKnowledge.phoneAddresses.slice(0, 3).map((a) => a.address);
-    const histPollOptions = [...historyOptions, 'Ninguna de estas opciones'];
-    let histPollMsgId = null;
-    try {
-      const histPollResult = await sendWhatsAppPoll(batch.phone, '¿Cuál es tu punto de retiro?', histPollOptions);
-      histPollMsgId = histPollResult.msgId;
-    } catch (pollErr) {
-      logWebhook('mismo_lugar_poll_error', { conversationId: batch?.id || null, error: pollErr?.message });
-    }
-    if (histPollMsgId) {
-      logWebhook('mismo_lugar_poll_sent', {
-        conversationId: batch?.id || null,
-        pollMsgId: histPollMsgId,
-        optionCount: histPollOptions.length,
-      });
-      return {
-        handled: true,
-        updates: {
-          status: 'awaiting_address_selection',
-          context: {
-            ...nextContext,
-            pending_poll: {
-              msg_id: histPollMsgId,
-              phone: batch.phone,
-              candidates: [
-                ...historyOptions.map((addr) => ({
-                  label: addr,
-                  formattedAddress: addr, // se re-geocodificará cuando el pasajero lo elija
-                  lat: null,
-                  lng: null,
-                })),
-                { label: 'Ninguna de estas opciones', formattedAddress: 'Ninguna de estas opciones', lat: null, lng: null },
-              ],
-              extracted: nextContext,
-            },
-          },
-          last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
-          processing_started_at: null,
-          last_processed_at: new Date().toISOString(),
-        },
-      };
-    }
-    // Si el poll falló, caemos al flujo normal de missing_pickup_location
   }
 
   if (!nextContext.pickup_location) {
