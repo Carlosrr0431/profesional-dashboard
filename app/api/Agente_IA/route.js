@@ -2054,9 +2054,9 @@ function applyStreetNameExpansions(text) {
 async function normalizeAddressWithAI(rawAddress, conversationText = '') {
   if (!rawAddress) return null;
   try {
-    const prompt = [
+    const systemInstructions = [
       'Sos un experto en calles, barrios y puntos de interés de Salta Capital, Argentina.',
-      'Tu tarea es normalizar la siguiente dirección para que Google Maps pueda geocodificarla con precisión.',
+      'Tu tarea es normalizar una dirección para que Google Maps pueda geocodificarla con precisión.',
       'La dirección puede haber sido dictada por voz, escrita con errores, o usar formas abreviadas.',
       '',
       '## Expansiones de nombres de calles (apellido → nombre completo del prócer)',
@@ -2091,31 +2091,47 @@ async function normalizeAddressWithAI(rawAddress, conversationText = '') {
       '- "limache" → "Limache, Salta"',
       '- "portezuelo" → "Portezuelo, Salta"',
       '',
-      '## Reglas de salida',
-      '- Devolvé SOLO la dirección normalizada, sin explicaciones ni puntos finales.',
-      '- Formato: "Nombre Completo NúmeroAltura, Salta" | "Calle1 y Calle2, Salta" | "Nombre del POI, Salta"',
-      '- Si la dirección ya es correcta y completa, devolvela igual.',
-      '- Si no podés normalizarla con confianza, respondé exactamente: null',
-      '- Nunca inventes calles ni lugares que no existan en Salta Capital.',
+      '## Formato de salida — JSON estricto',
+      'Respondé SIEMPRE con un JSON con este formato exacto:',
+      '{"address": "Dirección normalizada, Salta"} o {"address": null} si no podés normalizarla con confianza.',
       '',
+      'Reglas:',
+      '- Formato de address: "Nombre Completo NúmeroAltura, Salta" | "Calle1 y Calle2, Salta" | "Nombre del POI, Salta"',
+      '- Si la dirección ya es correcta y completa, devolvela igual en el JSON.',
+      '- Nunca inventes calles ni lugares que no existan en Salta Capital.',
+    ].join('\n');
+
+    const userContent = [
       `Dirección a normalizar: "${rawAddress}"`,
-      conversationText ? `Contexto del mensaje original: "${conversationText.slice(0, 150)}"` : '',
+      conversationText ? `Contexto del mensaje original (para mayor precisión): "${conversationText.slice(0, 200)}"` : '',
     ].filter(Boolean).join('\n');
 
     const completion = await getOpenAI().chat.completions.create({
-      model: 'gpt-4o-mini',
-      max_tokens: 60,
-      temperature: 0,
-      messages: [{ role: 'user', content: prompt }],
+      model: 'gpt-5-nano',
+      max_completion_tokens: 80,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: systemInstructions },
+        { role: 'user', content: userContent },
+      ],
     });
 
-    const result = completion.choices[0]?.message?.content?.trim();
-    if (!result || result === 'null' || result.toLowerCase() === 'null') return null;
-    // Sanity check: debe tener al menos una palabra de calle y no ser demasiado largo
-    if (result.length < 4 || result.length > 120) return null;
-    const sanitized = sanitizeAddressInput(result);
+    const raw = completion.choices[0]?.message?.content?.trim();
+    if (!raw) return null;
+    // Parsear JSON estructurado devuelto por gpt-5.4-nano
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // Fallback: si por alguna razón devuelve texto plano, usarlo directamente
+      parsed = { address: raw };
+    }
+    const result = parsed?.address;
+    if (!result || result === 'null' || String(result).toLowerCase() === 'null') return null;
+    if (result.length < 4 || result.length > 150) return null;
+    const sanitized = sanitizeAddressInput(String(result));
     if (!sanitized) return null;
-    logWebhook('ai_address_normalize_ok', { original: rawAddress, corrected: sanitized });
+    logWebhook('ai_address_normalize_ok', { model: 'gpt-5-nano', original: rawAddress, corrected: sanitized });
     return sanitized;
   } catch (err) {
     logWebhook('ai_address_normalize_error', { original: rawAddress, error: err?.message || 'unknown' });
