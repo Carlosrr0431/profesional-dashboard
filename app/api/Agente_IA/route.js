@@ -33,6 +33,7 @@ const DRIVER_PENDING_BUSY_MAX_AGE_MINUTES = Number(process.env.WHATSAPP_DRIVER_P
 const processingTimers = new Map();
 const pendingTimeoutTimers = new Map();
 const passengerLifecycleFollowupMemory = new Map();
+const driverWhatsappNotifyMemory = new Map();
 const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !== 'false';
 // Perfil de expansión progresiva inspirado en marketplaces de movilidad.
 // Mantiene 1km/2km al inicio y luego abre anillos cada 15s.
@@ -54,6 +55,14 @@ const PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS = Math.max(
     process.env.WHATSAPP_PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS ||
       DEFAULT_PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS
   ) || DEFAULT_PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS
+);
+const DEFAULT_DRIVER_WHATSAPP_NOTIFY_MIN_INTERVAL_MS = 5 * 60 * 1000;
+const DRIVER_WHATSAPP_NOTIFY_MIN_INTERVAL_MS = Math.max(
+  30 * 1000,
+  Number(
+    process.env.WHATSAPP_DRIVER_NOTIFY_MIN_INTERVAL_MS ||
+      DEFAULT_DRIVER_WHATSAPP_NOTIFY_MIN_INTERVAL_MS
+  ) || DEFAULT_DRIVER_WHATSAPP_NOTIFY_MIN_INTERVAL_MS
 );
 const ENABLE_PENDING_TIMEOUT_TIMER =
   process.env.NODE_ENV !== 'test' &&
@@ -4518,7 +4527,10 @@ async function getDriverReliabilityPenaltyMap(driverIds) {
   return penalties;
 }
 
-async function chooseDriver(origin, { excludedDriverIds = [], searchElapsedMs = 0 } = {}) {
+async function chooseDriver(
+  origin,
+  { excludedDriverIds = [], searchElapsedMs = 0, allowExclusionRelaxation = true } = {}
+) {
   const searchPlan = buildDynamicSearchRadii(searchElapsedMs);
   logWebhook('driver_select_start', {
     originLat: origin?.lat,
@@ -4526,6 +4538,7 @@ async function chooseDriver(origin, { excludedDriverIds = [], searchElapsedMs = 
     searchElapsedMs: Math.max(0, Math.round(Number(searchElapsedMs) || 0)),
     expansionStep: searchPlan.expansionStep,
     allowedRadiiKm: searchPlan.allowedRadiiKm,
+    allowExclusionRelaxation,
   });
   const { data: drivers, error } = await getSupabase()
     .from('drivers')
@@ -4573,6 +4586,7 @@ async function chooseDriver(origin, { excludedDriverIds = [], searchElapsedMs = 
   // Si todos los candidatos no ocupados quedaron filtrados solo por exclusiones,
   // relajamos la exclusión para evitar deadlocks (ej: 1 chofer disponible excluido).
   if (
+    allowExclusionRelaxation &&
     candidateDrivers.length === 0 &&
     nonBusyDrivers.length > 0 &&
     excludedDriverIdSet.size > 0
@@ -4589,6 +4603,19 @@ async function chooseDriver(origin, { excludedDriverIds = [], searchElapsedMs = 
         excludedCount: excludedDriverIdSet.size,
       });
     }
+  }
+
+  if (
+    !allowExclusionRelaxation &&
+    candidateDrivers.length === 0 &&
+    nonBusyDrivers.length > 0 &&
+    excludedDriverIdSet.size > 0
+  ) {
+    logWebhook('driver_select_exclusions_kept', {
+      availableWithCoords: availableDrivers.length,
+      nonBusyCount: nonBusyDrivers.length,
+      excludedCount: excludedDriverIdSet.size,
+    });
   }
 
   if (candidateDrivers.length === 0) {
@@ -4888,6 +4915,52 @@ async function notifyDriver(driver, { title, body, data } = {}) {
       pushReason: pushResult.reason || 'unknown',
     };
   }
+  const notifyType = String(data?.type || '').toLowerCase();
+  const passengerPhone = normalizePhone(data?.passengerPhone || data?.trip?.passenger_phone || '');
+  if (notifyType === 'new_trip' && passengerPhone && passengerPhone === driverPhone) {
+    logWebhook('notify_driver_whatsapp_skipped_same_phone', {
+      driverId: driver?.id || null,
+      phone: maskPhone(driverPhone),
+      title,
+      pushReason: pushResult.reason || 'unknown',
+    });
+    return {
+      ok: false,
+      channel: 'whatsapp',
+      reason: 'driver_phone_matches_passenger',
+      pushReason: pushResult.reason || 'unknown',
+    };
+  }
+  let notifyThrottleKey = null;
+  if (notifyType === 'new_trip') {
+    const dedupePassengerPhone = passengerPhone || 'unknown';
+    const dedupeDestination = String(data?.trip?.destination_address || body || '')
+      .trim()
+      .toLowerCase()
+      .slice(0, 160);
+    const dedupeDriver = String(driver?.id || driverPhone || 'unknown');
+    const now = Date.now();
+    notifyThrottleKey = `${dedupeDriver}|${dedupePassengerPhone}|${dedupeDestination}`;
+    const lastSentAt = Number(driverWhatsappNotifyMemory.get(notifyThrottleKey) || 0);
+
+    if (now - lastSentAt < DRIVER_WHATSAPP_NOTIFY_MIN_INTERVAL_MS) {
+      logWebhook('notify_driver_whatsapp_rate_limited', {
+        driverId: driver?.id || null,
+        phone: maskPhone(driverPhone),
+        title,
+        pushReason: pushResult.reason || 'unknown',
+        retryInMs: DRIVER_WHATSAPP_NOTIFY_MIN_INTERVAL_MS - (now - lastSentAt),
+      });
+      return {
+        ok: false,
+        channel: 'whatsapp',
+        reason: 'whatsapp_rate_limited',
+        pushReason: pushResult.reason || 'unknown',
+      };
+    }
+
+    driverWhatsappNotifyMemory.set(notifyThrottleKey, now);
+  }
   const trip = data?.trip;
   const waMsg = [
     `🚖 *${title || 'Nuevo viaje asignado'}*`,
@@ -4901,6 +4974,9 @@ async function notifyDriver(driver, { title, body, data } = {}) {
   await sendWhatsAppText(driverPhone, waMsg).catch((err) => {
     whatsappOk = false;
     whatsappError = err?.message || 'unknown';
+    if (notifyThrottleKey) {
+      driverWhatsappNotifyMemory.delete(notifyThrottleKey);
+    }
     logWebhook('notify_driver_whatsapp_error', { driverId: driver?.id || null, error: whatsappError });
   });
   logWebhook('notify_driver_whatsapp_fallback', {
@@ -5441,7 +5517,7 @@ async function dispatchQueuedPassengers() {
     const inZone = await isPickupInServiceZone(pickupLat, pickupLng);
     if (!inZone) {
       logWebhook('queue_dispatch_outside_zone', { tripId: trip.id, pickupLat, pickupLng });
-      await getSupabase()
+      const { data: cancelledRows, error: outsideZoneUpdateErr } = await getSupabase()
         .from('trips')
         .update({
           status: 'cancelled',
@@ -5449,7 +5525,22 @@ async function dispatchQueuedPassengers() {
           wa_notified_at: new Date().toISOString(),
         })
         .eq('id', trip.id)
-        .eq('status', 'queued');
+        .eq('status', 'queued')
+        .select('id');
+
+      if (outsideZoneUpdateErr) {
+        logWebhook('queue_dispatch_outside_zone_update_error', {
+          tripId: trip.id,
+          error: summarizeDbError(outsideZoneUpdateErr),
+        });
+        continue;
+      }
+
+      if (!cancelledRows?.length) {
+        logWebhook('queue_dispatch_outside_zone_claim_lost', { tripId: trip.id });
+        continue;
+      }
+
       await sendWhatsAppText(
         phone,
         'Disculpá, tu dirección de retiro está fuera de nuestras zonas de cobertura. Si tenés otra dirección dentro de Salta Capital, avisanos. 🙏'
@@ -5470,6 +5561,7 @@ async function dispatchQueuedPassengers() {
       {
         excludedDriverIds: reassignmentContext.timeoutCancelledDriverIds || [],
         searchElapsedMs,
+        allowExclusionRelaxation: false,
       }
     );
     if (!driver) {
@@ -5484,7 +5576,8 @@ async function dispatchQueuedPassengers() {
     );
 
     // Actualizar el viaje en cola con el chofer — la fila persiste, solo cambia el estado
-    const { error: updateErr } = await getSupabase()
+    const assignedAt = new Date().toISOString();
+    const { data: claimedRows, error: updateErr } = await getSupabase()
       .from('trips')
       .update({
         driver_id: driver.id,
@@ -5492,20 +5585,36 @@ async function dispatchQueuedPassengers() {
         origin_lat: driverLat,
         origin_lng: driverLng,
         status: 'pending',
-        assigned_at: new Date().toISOString(),
+        assigned_at: assignedAt,
       })
       .eq('id', trip.id)
-      .eq('status', 'queued'); // guard contra race condition
+      .eq('status', 'queued')
+      .select('id'); // guard contra race condition
 
     if (updateErr) {
       logWebhook('queue_dispatch_update_error', { tripId: trip.id, error: summarizeDbError(updateErr) });
       continue;
     }
 
+    if (!claimedRows?.length) {
+      logWebhook('queue_dispatch_claim_lost', { tripId: trip.id, driverId: driver.id });
+      continue;
+    }
+
     const notifyResult = await notifyDriver(driver, {
       title: 'Nuevo viaje asignado',
       body: `${trip.passenger_name} → ${trip.destination_address}`,
-      data: { type: 'new_trip', tripId: trip.id },
+      data: {
+        type: 'new_trip',
+        tripId: trip.id,
+        passengerPhone: trip.passenger_phone || phone,
+        trip: {
+          id: trip.id,
+          passenger_name: trip.passenger_name,
+          passenger_phone: trip.passenger_phone || phone,
+          destination_address: trip.destination_address,
+        },
+      },
     });
 
     if (!notifyResult?.ok) {
@@ -5808,7 +5917,11 @@ async function processTripLifecycleTransitions() {
       const excludedDriverIds = [...excludedDriverIdSet];
       const driver = await chooseDriver(
         { lat: pickup.lat, lng: pickup.lng },
-        { excludedDriverIds, searchElapsedMs }
+        {
+          excludedDriverIds,
+          searchElapsedMs,
+          allowExclusionRelaxation: false,
+        }
       );
 
       if (driver) {
@@ -5839,7 +5952,12 @@ async function processTripLifecycleTransitions() {
           const notifyResult = await notifyDriver(driver, {
             title: 'Nuevo viaje asignado',
             body: `${trip.passenger_name} → ${pickup.address}`,
-            data: { type: 'new_trip', tripId: newTrip.id },
+            data: {
+              type: 'new_trip',
+              tripId: newTrip.id,
+              passengerPhone: newTrip?.passenger_phone || trip.passenger_phone,
+              trip: newTrip,
+            },
           });
 
           if (!notifyResult?.ok) {
@@ -5996,7 +6114,14 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
     }
     const excludedDriverIds = [...excludedDriverIdSet];
     const driver = Number.isFinite(pickup.lat) && Number.isFinite(pickup.lng)
-      ? await chooseDriver({ lat: pickup.lat, lng: pickup.lng }, { excludedDriverIds, searchElapsedMs })
+      ? await chooseDriver(
+        { lat: pickup.lat, lng: pickup.lng },
+        {
+          excludedDriverIds,
+          searchElapsedMs,
+          allowExclusionRelaxation: false,
+        }
+      )
       : null;
 
     if (driver) {
@@ -6027,7 +6152,12 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
         const notifyResult = await notifyDriver(driver, {
           title: 'Nuevo viaje asignado',
           body: `${trip.passenger_name} → ${pickup.address}`,
-          data: { type: 'new_trip', tripId: newTrip.id },
+          data: {
+            type: 'new_trip',
+            tripId: newTrip.id,
+            passengerPhone: newTrip?.passenger_phone || trip.passenger_phone,
+            trip: newTrip,
+          },
         });
 
         if (!notifyResult?.ok) {
@@ -7435,7 +7565,7 @@ async function processWebhookBody(body, requestMeta = {}) {
           }
 
           // Actualizar el viaje en cola con la dirección confirmada por GPS
-          const { error: gpsUpdateErr } = await getSupabase()
+          const { data: gpsUpdatedRows, error: gpsUpdateErr } = await getSupabase()
             .from('trips')
             .update({
               destination_address: reverseAddress,
@@ -7444,9 +7574,18 @@ async function processWebhookBody(body, requestMeta = {}) {
               wa_context: null,
             })
             .eq('id', gpsTrip.id)
-            .eq('status', 'queued');
+            .eq('status', 'queued')
+            .select('id');
 
-          if (!gpsUpdateErr) {
+          if (gpsUpdateErr) {
+            logWebhook('location_gps_update_error', {
+              tripId: gpsTrip.id,
+              phone: maskPhone(phone),
+              error: summarizeDbError(gpsUpdateErr),
+            });
+          }
+
+          if (gpsUpdatedRows?.length) {
             await sendWhatsAppText(
               phone,
               'Recibí tu ubicación. Buscando el chofer más cercano...'
@@ -7461,6 +7600,13 @@ async function processWebhookBody(body, requestMeta = {}) {
               status: 200,
               body: { success: true, gpsHandled: true, tripId: gpsTrip.id },
             };
+          }
+
+          if (!gpsUpdateErr && !gpsUpdatedRows?.length) {
+            logWebhook('location_gps_update_claim_lost', {
+              tripId: gpsTrip.id,
+              phone: maskPhone(phone),
+            });
           }
         }
       }
