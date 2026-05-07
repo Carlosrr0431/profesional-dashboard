@@ -4847,7 +4847,13 @@ async function notifyDriver(driver, { title, body, data } = {}) {
     pushResult = await sendPushNotification(driver.push_token, { title, body, data });
   }
 
-  if (pushResult.ok) return;
+  if (pushResult.ok) {
+    return {
+      ok: true,
+      channel: 'push',
+      reason: 'push_ok',
+    };
+  }
 
   if (driver?.id && pushResult.reason === 'device_not_registered') {
     const { error: clearTokenError } = await getSupabase()
@@ -4875,7 +4881,12 @@ async function notifyDriver(driver, { title, body, data } = {}) {
       title,
       pushReason: pushResult.reason || 'unknown',
     });
-    return;
+    return {
+      ok: false,
+      channel: null,
+      reason: 'no_driver_channel',
+      pushReason: pushResult.reason || 'unknown',
+    };
   }
   const trip = data?.trip;
   const waMsg = [
@@ -4885,15 +4896,91 @@ async function notifyDriver(driver, { title, body, data } = {}) {
     ``,
     `Abrí la app para verlo.`,
   ].filter((l) => l !== null).join('\n');
+  let whatsappOk = true;
+  let whatsappError = null;
   await sendWhatsAppText(driverPhone, waMsg).catch((err) => {
-    logWebhook('notify_driver_whatsapp_error', { driverId: driver?.id || null, error: err?.message });
+    whatsappOk = false;
+    whatsappError = err?.message || 'unknown';
+    logWebhook('notify_driver_whatsapp_error', { driverId: driver?.id || null, error: whatsappError });
   });
   logWebhook('notify_driver_whatsapp_fallback', {
     driverId: driver?.id || null,
     phone: maskPhone(driverPhone),
     title,
     pushReason: pushResult.reason || 'unknown',
+    whatsappOk,
   });
+
+  if (!whatsappOk) {
+    return {
+      ok: false,
+      channel: 'whatsapp',
+      reason: 'whatsapp_send_error',
+      pushReason: pushResult.reason || 'unknown',
+      error: whatsappError,
+    };
+  }
+
+  return {
+    ok: true,
+    channel: 'whatsapp',
+    reason: pushResult.reason || 'push_failed_whatsapp_ok',
+  };
+}
+
+async function requeuePendingTripAfterNotifyFailure(
+  tripId,
+  { source = 'unknown', driverId = null, notifyReason = 'unknown' } = {}
+) {
+  if (!tripId) return { ok: false, reason: 'missing_trip_id' };
+
+  const { data: requeuedTrip, error } = await getSupabase()
+    .from('trips')
+    .update({
+      driver_id: null,
+      origin_address: null,
+      origin_lat: null,
+      origin_lng: null,
+      status: 'queued',
+      assigned_at: null,
+      accepted_at: null,
+    })
+    .eq('id', tripId)
+    .eq('status', 'pending')
+    .select('id')
+    .maybeSingle();
+
+  if (error) {
+    logWebhook('trip_requeue_notify_fail_error', {
+      tripId,
+      source,
+      driverId,
+      notifyReason,
+      error: summarizeDbError(error),
+    });
+    return { ok: false, reason: 'db_error' };
+  }
+
+  if (!requeuedTrip) {
+    logWebhook('trip_requeue_notify_fail_skipped', {
+      tripId,
+      source,
+      driverId,
+      notifyReason,
+      reason: 'trip_not_pending',
+    });
+    return { ok: false, reason: 'trip_not_pending' };
+  }
+
+  clearPendingTimeoutTimer(tripId, `notify_failed_${source}`);
+  logWebhook('trip_requeued_after_notify_fail', {
+    tripId,
+    source,
+    driverId,
+    notifyReason,
+  });
+
+  return { ok: true };
 }
 
 // ── Zonas de servicio ─────────────────────────────────────────────────────────
@@ -5024,6 +5111,9 @@ async function createTripFromConversation({ conversation, extracted }) {
   } // end pre-geocoded else
 
   const finalDestinationHint = normalizeAddressPhrase(extracted?.destination || '');
+  const knowledgeCandidates = Array.isArray(extracted?._knowledgeAddressCandidates)
+    ? extracted._knowledgeAddressCandidates
+    : [];
 
   // Validar que el punto de retiro esté dentro de una zona de servicio activa.
   // Si no hay zonas configuradas, se acepta cualquier dirección.
@@ -5218,7 +5308,7 @@ async function createTripFromConversation({ conversation, extracted }) {
     distanceKm: trip?.distance_km ?? null,
   });
 
-  await notifyDriver(driver, {
+  const notifyResult = await notifyDriver(driver, {
     title: 'Nuevo viaje asignado',
     body: `${trip.passenger_name} → ${trip.destination_address}`,
     data: {
@@ -5227,6 +5317,48 @@ async function createTripFromConversation({ conversation, extracted }) {
       trip,
     },
   });
+
+  if (!notifyResult?.ok) {
+    await requeuePendingTripAfterNotifyFailure(trip.id, {
+      source: 'trip_create_pending',
+      driverId: driver.id,
+      notifyReason: notifyResult?.reason || 'unknown',
+    });
+
+    logWebhook('trip_create_notify_failed_requeued', {
+      tripId: trip.id,
+      driverId: driver.id,
+      notifyReason: notifyResult?.reason || 'unknown',
+      channel: notifyResult?.channel || null,
+    });
+
+    return {
+      ok: true,
+      queued: true,
+      trip: {
+        ...trip,
+        driver_id: null,
+        origin_address: null,
+        origin_lat: null,
+        origin_lng: null,
+        status: 'queued',
+        assigned_at: null,
+        accepted_at: null,
+      },
+      driver: null,
+      reply:
+        'Encontré un chofer, pero no pude contactarlo en este momento. Te dejé en cola y te aviso apenas uno reciba la asignación.',
+      context: {
+        passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
+        pickup_location: normalizedPickupQuery || pickupQuery,
+        destination: finalDestinationHint || null,
+        notes: extracted.notes || null,
+        awaiting_destination_gps: destinationNeedsGps,
+        confirmed_trip_id: null,
+        last_cancellation_notified_trip_id: null,
+      },
+    };
+  }
 
   schedulePendingTimeoutTimer(trip.id, { source: 'trip_create_pending' });
 
@@ -5370,11 +5502,27 @@ async function dispatchQueuedPassengers() {
       continue;
     }
 
-    await notifyDriver(driver, {
+    const notifyResult = await notifyDriver(driver, {
       title: 'Nuevo viaje asignado',
       body: `${trip.passenger_name} → ${trip.destination_address}`,
       data: { type: 'new_trip', tripId: trip.id },
     });
+
+    if (!notifyResult?.ok) {
+      await requeuePendingTripAfterNotifyFailure(trip.id, {
+        source: 'queue_dispatch_pending',
+        driverId: driver.id,
+        notifyReason: notifyResult?.reason || 'unknown',
+      });
+      logWebhook('queue_dispatch_notify_failed_requeued', {
+        tripId: trip.id,
+        phone: maskPhone(phone),
+        driverId: driver.id,
+        notifyReason: notifyResult?.reason || 'unknown',
+        channel: notifyResult?.channel || null,
+      });
+      continue;
+    }
 
     schedulePendingTimeoutTimer(trip.id, { source: 'queue_dispatch_pending' });
 
@@ -5688,11 +5836,35 @@ async function processTripLifecycleTransitions() {
           .select().single();
 
         if (!insertErr) {
-          await notifyDriver(driver, {
+          const notifyResult = await notifyDriver(driver, {
             title: 'Nuevo viaje asignado',
             body: `${trip.passenger_name} → ${pickup.address}`,
             data: { type: 'new_trip', tripId: newTrip.id },
           });
+
+          if (!notifyResult?.ok) {
+            await requeuePendingTripAfterNotifyFailure(newTrip.id, {
+              source: 'transition_reassign_pending',
+              driverId: driver.id,
+              notifyReason: notifyResult?.reason || 'unknown',
+            });
+            await sendPassengerLifecycleFollowup({
+              phone: trip.passenger_phone,
+              text: 'No pudimos contactar al chofer asignado. Seguís en cola y te avisamos apenas se confirme uno.',
+              noticeType: 'queued_no_driver',
+              relatedTripId: newTrip.id,
+            });
+            queued++;
+            logWebhook('trip_transition_reassign_notify_failed_requeued', {
+              cancelledTripId: trip.id,
+              newTripId: newTrip.id,
+              driverId: driver.id,
+              notifyReason: notifyResult?.reason || 'unknown',
+              channel: notifyResult?.channel || null,
+            });
+            continue;
+          }
+
           schedulePendingTimeoutTimer(newTrip.id, { source: 'transition_reassign_pending' });
           await sendPassengerLifecycleFollowup({
             phone: trip.passenger_phone,
@@ -5852,11 +6024,35 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
         .select().single();
 
       if (!insertErr) {
-        await notifyDriver(driver, {
+        const notifyResult = await notifyDriver(driver, {
           title: 'Nuevo viaje asignado',
           body: `${trip.passenger_name} → ${pickup.address}`,
           data: { type: 'new_trip', tripId: newTrip.id },
         });
+
+        if (!notifyResult?.ok) {
+          await requeuePendingTripAfterNotifyFailure(newTrip.id, {
+            source: 'transition_trip_reassign_pending',
+            driverId: driver.id,
+            notifyReason: notifyResult?.reason || 'unknown',
+          });
+          await sendPassengerLifecycleFollowup({
+            phone: trip.passenger_phone,
+            text: 'No pudimos contactar al chofer asignado. Seguís en cola y te avisamos apenas se confirme uno.',
+            noticeType: 'queued_no_driver',
+            relatedTripId: newTrip.id,
+          });
+          logWebhook('trip_transition_reassign_notify_failed_requeued', {
+            cancelledTripId: tripId,
+            newTripId: newTrip.id,
+            driverId: driver.id,
+            notifyReason: notifyResult?.reason || 'unknown',
+            channel: notifyResult?.channel || null,
+          });
+          const queueResult = await dispatchQueuedPassengers();
+          return { confirmed: 0, reassigned: 0, queued: queueResult.dispatched };
+        }
+
         schedulePendingTimeoutTimer(newTrip.id, { source: 'transition_trip_reassign_pending' });
         await sendPassengerLifecycleFollowup({
           phone: trip.passenger_phone,
