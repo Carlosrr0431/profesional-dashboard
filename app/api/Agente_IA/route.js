@@ -31,8 +31,33 @@ const DRIVER_BUSY_TRIP_STATUSES = ['pending', ...ACTIVE_TRIP_STATUSES];
 const PENDING_GUARD_MAX_AGE_MINUTES = Number(process.env.WHATSAPP_PENDING_GUARD_MAX_AGE_MINUTES || 5);
 const DRIVER_PENDING_BUSY_MAX_AGE_MINUTES = Number(process.env.WHATSAPP_DRIVER_PENDING_BUSY_MAX_AGE_MINUTES || 5);
 const processingTimers = new Map();
+const pendingTimeoutTimers = new Map();
+const passengerLifecycleFollowupMemory = new Map();
 const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !== 'false';
-const SEARCH_RADII_KM = [1, 2, 5, 10, 15, 20];
+// Perfil de expansión progresiva inspirado en marketplaces de movilidad.
+// Mantiene 1km/2km al inicio y luego abre anillos cada 15s.
+const SEARCH_RADII_KM = [1, 2, 3, 4.5, 6, 8, 10, 12, 15, 20];
+
+const PENDING_ACCEPT_TIMEOUT_MS = 15 * 1000; // 15 segundos
+const PENDING_TIMEOUT_CANCEL_REASON = '[AUTO_TIMEOUT] Chofer no aceptó en tiempo (auto-reasignación)';
+const DRIVER_SEARCH_EXPANSION_INTERVAL_MS = 15 * 1000;
+const REASSIGNMENT_LOOKBACK_HOURS = 2;
+const DRIVER_RELIABILITY_LOOKBACK_HOURS = 6;
+const AUTO_TIMEOUT_SCORE_PENALTY_KM = 0.9;
+const CANCEL_SCORE_PENALTY_KM = 0.25;
+const NO_PUSH_TOKEN_SCORE_PENALTY_KM = 0.35;
+const MAX_RELIABILITY_SCORE_PENALTY_KM = 3.5;
+const DEFAULT_PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS = 8 * 60 * 1000;
+const PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS = Math.max(
+  60 * 1000,
+  Number(
+    process.env.WHATSAPP_PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS ||
+      DEFAULT_PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS
+  ) || DEFAULT_PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS
+);
+const ENABLE_PENDING_TIMEOUT_TIMER =
+  process.env.NODE_ENV !== 'test' &&
+  (process.env.WHATSAPP_ENABLE_PENDING_TIMEOUT_TIMER || 'true').toLowerCase() !== 'false';
 
 let warmed = false;
 let supabaseClient = null;
@@ -51,27 +76,1484 @@ const SALTA_STREETS_SOURCE_URL = 'https://codigo-postal.co/argentina/salta/calle
 const SALTA_STREETS_TTL_MS = 24 * 60 * 60 * 1000;
 
 const SALTA_STREETS_FALLBACK = [
+  // Fechas patrias y números
+  'Calle 1 de Marzo',
+  'Calle 10 de Octubre',
+  'Calle 12 de Octubre',
+  'Avenida 13 de Julio',
+  'Avenida 16 de Septiembre',
+  'Calle 17 de Agosto',
+  'Avenida 17 de Junio',
+  'Calle 2 de Abril',
+  'Calle 20 de Febrero',
+  'Avenida 20 de Junio',
+  'Calle 25 de Mayo',
+  'Pasaje 3 de Febrero',
+  'Calle 7 de Noviembre',
+  'Diagonal 9 de Julio',
+  'Calle 9 de Julio',
+  // A
+  'Calle A Boutel',
+  'Calle A Choque',
+  'Calle A Lincoln',
+  'Calle A M de Nievas',
+  'Calle Aaron de Anchorena',
+  'Calle Abel Gomez Rincon',
+  'Calle Abel Pereyra',
+  'Calle Abraham Cornejo',
+  'Calle Acambuco',
+  'Pasaje Acheral',
+  'Calle Acuña',
+  'Calle Adan Quiroga',
+  'Pasaje Adolfo Angel Basso',
+  'Pasaje Aguaray',
+  'Calle Aguas Blancas',
+  'Calle Agustin Magaldi',
+  'Calle Agustin Usandivaras',
+  'Calle Alaska',
+  'Calle Alberdi',
+  'Avenida Albert Einstein',
+  'Calle Alberto Ascari',
+  'Calle Alberto Logulo',
+  'Calle Alcides Juares Telles',
+  'Calle Alejandro Benitez',
+  'Calle Alejandro Fabregas',
+  'Calle Alejandro Gallardo',
+  'Calle Alejandro Graham Bell',
+  'Pasaje Alejandro M de Aguado',
+  'Calle Alexander Fleming',
+  'Pasaje Almafuerte',
+  'Calle Alte Emilio Berisso',
+  'Calle Alte Francisco Segui',
+  'Calle Alte G Brown',
+  'Calle Alte Manuel D Garcia',
+  'Calle Alte Onofre Betbeder',
   'Calle Alvarado',
-  'Calle Caseros',
+  'Calle Alvarez Condarco',
+  'Calle Alvarez Thomas',
+  'Calle Amadeo Sirolli',
+  'Calle Amalia Aybar',
+  'Calle Ana Albeza',
+  'Calle Andres de Mestre',
+  'Calle Andres Mendieta',
+  'Calle Andres Paz',
+  'Pasaje Angastaco',
+  'Calle Angel de Rosa',
+  'Calle Angel Lovalvo',
+  'Diagonal Angel Maria Figueroa',
+  'Calle Angel Vargas',
+  'Calle Angelica Cresseri de Correa',
+  'Pasaje Anta',
+  'Pasaje Antartida Argentina',
+  'Calle Antonio Alice',
+  'Calle Antonio Alvarez Jonte',
+  'Calle Antonio M Feijoo',
+  'Pasaje Apolinario Echeverria',
+  'Pasaje Apolinario Figueroa',
+  'Calle Apolinario Saravia',
+  'Calle Araoz Castellanos',
+  'Calle Argentino Medina',
+  'Calle Arias Velazquez',
+  'Avenida Armada Argentina',
+  'Calle Arteaga Serapion',
+  'Pasaje Arturo Capdevila',
+  'Calle Arturo Gambolini',
+  'Pasaje Arturo Gambolini',
+  'Calle Arturo Peñaloza',
+  'Pasaje Aurelio Arevalo',
+  'Avenida Autodromo',
+  'Calle Avelino Araoz',
+  'Pasaje Avelino Figueroa',
+  'Calle Ayacucho',
+  'Pasaje Ayohuma',
+  'Calle Ayuntamiento Albox',
+  'Calle Azopardo',
+  'Calle Azufre',
+  // B
+  'Calle Bahia Blanca',
+  'Calle Balbino Zaporta',
   'Calle Balcarce',
-  'Calle Buenos Aires',
-  'Calle Ituzaingo',
-  'Calle Santiago del Estero',
-  'Calle Dean Funes',
-  'Calle Zuviria',
-  'Calle Leguizamon',
-  'Calle Urquiza',
-  'Calle Mitre',
-  'Calle Espana',
-  'Calle Juramento',
+  'Pasaje Baldomero Castro',
+  'Calle Bariloche',
+  'Calle Bartolome Valero',
+  'Pasaje Bat de Cancha Rayada',
+  'Calle Bat de Pavon',
+  'Avenida Bat de Salta',
+  'Calle Bat Vuelta de Obligado',
+  'Calle Bdier Antonio Balcarce',
+  'Calle Bdier Facundo Quiroga',
+  'Pasaje Bdier Felipe Heredia',
+  'Avenida Bdier J M de Rosas',
+  'Avenida Belgica',
   'Avenida Belgrano',
-  'Avenida San Martin',
-  'Avenida Entre Rios',
-  'Avenida Bolivia',
-  'Avenida Paraguay',
+  'Pasaje Benedicto Campos',
+  'Pasaje Benita Campos',
+  'Calle Benito Perez Galdos',
+  'Calle Benjamin Araoz',
+  'Calle Bernardino Oliveres',
+  'Calle Bernardino Rivadavia',
+  'Pasaje Bernardo Frias',
+  'Calle Betania',
   'Avenida Bicentenario',
-  'Pasaje Zorrilla',
+  'Pasaje Blanco Encalada',
+  'Calle Blanco Gabino',
+  'Pasaje Bolivia',
+  'Avenida Bolivia',
+  'Avenida Boulogne Sur Mer',
+  'Calle Brasil',
+  'Pasaje Brealito',
+  'Calle Brillante',
+  'Calle Bucci Clemar',
+  'Calle Buenos Aires',
+  // C
+  'Calle C Barbaran Alvarado',
+  'Calle C Gardel',
+  'Calle C Gollins',
+  'Calle C Matorras Cornejo',
+  'Calle C P Segura',
+  'Pasaje Cabildo',
+  'Calle Cabo 1Ro P Guanca',
+  'Calle Cabo 2Do Jose F Chaile',
+  'Calle Cabo 2Do Luis Flores',
+  'Pasaje Cabo Ppal Alancay',
+  'Pasaje Cachi',
+  'Calle Cachi',
+  'Calle Cadena de Hessling',
+  'Pasaje Cafayate',
+  'Pasaje Caipe',
+  'Pasaje Calchaqui',
+  'Calle Calcuta',
+  'Pasaje Calderon de la Barca',
+  'Calle Calicuchina',
+  'Pasaje Calixto Gauna',
+  'Calle Calixto Linares Fowlis',
+  'Camino A Atocha',
+  'Calle Campos',
+  'Avenida Canada',
+  'Pasaje Cañada de la Horqueta',
+  'Calle Canonigo Gorriti',
+  'Calle Canonigo Hinojosa',
+  'Calle Cantores del Alba',
+  'Pasaje Cap Chanchorra',
+  'Calle Cap de Fgta P Giachino',
+  'Calle Cap H Viola',
+  'Pasaje Cap Jose Antonio Ruiz',
+  'Pasaje Cap Justo G Bermudez',
+  'Calle Cap Luis C Candelaria',
+  'Calle Cap Marcelino Cornejo',
+  'Calle Cap Miguel A Keller',
+  'Calle Cap Miguel Angel Paiva',
+  'Calle Cap Valentin Cordoba',
+  'Calle Capital Federal',
+  'Calle Capitan Gonzalez',
+  'Calle Carlos A Casafoust',
+  'Calle Carlos Belgrano',
+  'Calle Carlos del Castillo',
+  'Calle Carlos H Scarcella',
+  'Pasaje Carlos Maria Saravia',
+  'Calle Carlos Menditegui',
+  'Calle Carlos Pellegrini',
+  'Calle Carlos Xamena',
+  'Calle Carlos Zatucek',
+  'Calle Carmelo Bevacqua',
+  'Calle Carmen Niño',
+  'Calle Carmen Puch de Guemes',
+  'Calle Carmen Salas',
+  'Calle Carmen Toribia Torena',
+  'Calle Cartero Bruno Ramirez',
+  'Calle Caseros',
+  'Pasaje Casiano Hoyos',
+  'Calle Catamarca',
+  'Calle Cbo 1Ro Jose Maldonado',
+  'Pasaje Cbo Farina',
+  'Calle Cbo Orlando A Moya',
+  'Calle Cbo Ppal Luis Ramirez',
+  'Avenida Cdad de Asuncion',
+  'Calle Cdad de Rosario',
+  'Calle Cdad de Rosas',
+  'Pasaje Celedonio Molina',
+  'Pasaje Cerrillos',
+  'Calle Cerro Acay',
+  'Calle Cerro Aracan',
+  'Calle Cerro Bola',
+  'Calle Cerro Creston',
+  'Calle Cerro Minero',
+  'Calle Cerro Negro',
+  'Calle Cerro Queval',
+  'Calle Cerro Rincon',
+  'Calle Cerro San Bernardo',
+  'Calle Cerro Soyano',
+  'Pasaje Cesar Diaz Peralta',
+  'Calle Cesar F Perdiguero',
+  'Calle Chacabuco',
+  'Calle Chacho Peñaloza',
+  'Pasaje Chaco',
+  'Calle Chaco',
+  'Calle Chalchaleros',
+  'Pasaje Chasquis de la Patria',
+  'Calle Chazarreta',
+  'Calle Checoslovaquia',
+  'Pasaje Chicoana',
+  'Avenida Chile',
+  'Calle Chubut',
+  'Avenida Circunvalacion',
+  'Pasaje Clase 63',
+  'Calle Clase 63',
+  'Pasaje Cmte Juan M Cabot',
+  'Calle Cmte Luis Piedrabuena',
+  'Calle Cmte Melecio Frias',
+  'Calle Cnel A Carpani Costa',
+  'Calle Cnel Alvarez Prado',
+  'Calle Cnel Angel M Zerda',
+  'Pasaje Cnel Antonio Saravia',
+  'Calle Cnel Borja Diaz',
+  'Calle Cnel Carlos Forest',
+  'Calle Cnel de Marina Rosales',
+  'Calle Cnel Federico Brandsen',
+  'Calle Cnel Fernandez Cornejo',
+  'Pasaje Cnel Francisco Velarde',
+  'Calle Cnel Ibazeta',
+  'Calle Cnel Ignacio Pedriel',
+  'Avenida Cnel Jorge Vidt',
+  'Calle Cnel Jose A Rojas',
+  'Calle Cnel Jose E Mendez',
+  'Pasaje Cnel Jose F Bogado',
+  'Calle Cnel Jose Moldes',
+  'Calle Cnel Jose Superi',
+  'Calle Cnel Juan E Dalla Fontana',
+  'Calle Cnel Juan Jose Cornejo',
+  'Calle Cnel Juan Pringles',
+  'Calle Cnel Juan Quesada',
+  'Calle Cnel Juan Sola',
+  'Calle Cnel Luis Burela',
+  'Calle Cnel Luis Fabregas',
+  'Calle Cnel M Freyre',
+  'Calle Cnel Manuel Dorrego',
+  'Calle Cnel Manuel Rojas',
+  'Pasaje Cnel Mateo Rios',
+  'Calle Cnel Miguel Di Pasquo',
+  'Pasaje Cnel Nicanor Arias',
+  'Calle Cnel Olascoaga',
+  'Calle Cnel Pachi Gorriti',
+  'Pasaje Cnel Pedro Conde',
+  'Calle Cnel Pedro J Saravia',
+  'Pasaje Cnel Ramon Castillo',
+  'Calle Cnel Ricardo Ibazeta',
+  'Calle Cnel Roberto Echegoyen',
+  'Calle Cnel Suarez',
+  'Avenida Cnel Suarez',
+  'Pasaje Cnel Toribio Tedin',
+  'Pasaje Cnel Vicente Torino',
+  'Calle Cnel Vidt',
+  'Pasaje Cnel Zelaya',
+  'Calle Colombia',
+  'Pasaje Comb de las Piedras',
+  'Calle Combate de los Pozos',
+  'Calle Comodoro Rivadavia',
+  'Calle Congreso',
+  'Calle Constancio C Vigil',
+  'Calle Constitucion',
+  'Avenida Constitucion Nacional',
+  'Pasaje Constituyentes',
+  'Calle Cordoba',
+  'Calle Corina Lona',
+  'Calle Corina Martinez',
+  'Calle Cornejo',
+  'Calle Corrientes',
+  'Calle Cortez',
+  'Pasaje Cosquin',
+  'Calle Costa Rica',
+  'Avenida Costanera',
+  'Calle Cresseri de Correa',
+  'Calle Cristobal Colon',
+  'Calle Cuba',
+  'Calle Cuellar Davalos',
+  // D
+  'Calle D el Independiente',
+  'Calle D el Litoral Santa Fe',
+  'Calle D el Territ Misiones',
+  'Calle D la Nueva Provincia',
+  'Calle D la Voz del Interior',
+  'Calle D Oro Ansansa',
+  'Calle Daimo Bojanich',
+  'Calle Damaso Uriburo',
+  'Calle Damian M Torino',
+  'Pasaje Daniel Frias',
+  'Calle Davalos',
+  'Calle David Lezcano',
+  'Calle David Saravia Castro',
+  'Calle David Zambrano',
+  'Avenida De la Libertad',
+  'Avenida De la Paz',
+  'Calle De la Quintana',
+  'Avenida De las Americas',
+  'Pasaje De las Artes',
+  'Calle De las Tuscas',
+  'Pasaje De los Arrieros',
+  'Pasaje De los Artesanos',
+  'Pasaje De los Baqueanos',
+  'Calle De los Decididos',
+  'Avenida De los Incas',
+  'Pasaje De los Jesuitas',
+  'Avenida De los Jockey',
+  'Calle De los Partidarios',
+  'Calle Dean Funes',
+  'Avenida Del Golf',
+  'Avenida Del Libertador',
+  'Calle Del Milagro',
+  'Pasaje Del Sol',
+  'Pasaje Del Temple',
+  'Avenida Del Trabajo',
+  'Avenida Del Turista',
+  'Diagonal Del Valle Larragure',
+  'Calle Delfin Huergo',
+  'Calle Delfin Leguizamon',
+  'Calle Dennys Ruiz',
+  'Calle Diamante',
+  'Calle Diario Cronica',
+  'Calle Diario Cuyo',
+  'Calle Diario el Clarin',
+  'Calle Diario el Dia',
+  'Calle Diario el Fueguino',
+  'Calle Diario el Liberal',
+  'Calle Diario el Litoral',
+  'Calle Diario el Pregon',
+  'Calle Diario el Territorio',
+  'Calle Diario Esquel',
+  'Calle Diario General Roca',
+  'Calle Diario la Arena',
+  'Calle Diario la Capital',
+  'Calle Diario la Gaceta',
+  'Calle Diario la Nacion',
+  'Avenida Diario la Opinion',
+  'Calle Diario la Opinion',
+  'Calle Diario la Union',
+  'Calle Diario los Andes',
+  'Calle Diario los Principios',
+  'Pasaje Diego de Rojas',
+  'Calle Diego Diez Gomez',
+  'Calle Dinamarca',
+  'Pasaje Dique Itiyuro',
+  'Calle Domingo D Isasmendi',
+  'Pasaje Domingo de Basavilbaso',
+  'Avenida Domingo F Sarmiento',
+  'Calle Domingo Guemes',
+  'Calle Domingo Marimon',
+  'Pasaje Domingo Matheu',
+  // Dr
+  'Calle Dr A Alsina',
+  'Pasaje Dr Aaron Castellanos',
+  'Calle Dr Abraham Fernandez',
+  'Calle Dr Adolfo Guemes',
+  'Calle Dr Alfredo Palacios',
+  'Calle Dr Amancio Pardo',
+  'Calle Dr Amaro Moron Jimenez',
+  'Calle Dr Aniceto Latorre',
+  'Calle Dr Antonio Ortelli',
+  'Calle Dr Apolonio Ormachea',
+  'Calle Dr Arturo Jauretche',
+  'Calle Dr Arturo L Davalos',
+  'Calle Dr Arturo Oñativia',
+  'Pasaje Dr Augusto Cortazar',
+  'Calle Dr Benito Graña',
+  'Pasaje Dr Benjamin N Figueroa',
+  'Pasaje Dr Benjamin Zorrilla',
+  'Pasaje Dr Bernabe Lopez',
+  'Avenida Dr Bernardo Houssay',
+  'Pasaje Dr Carlos Costas',
+  'Pasaje Dr Carlos Ibarguren',
+  'Calle Dr Carlos Serrey',
+  'Pasaje Dr Cleto Aguirre',
+  'Calle Dr Danilo Bonari',
+  'Calle Dr Dionisio Ramos',
+  'Calle Dr Eduardo Wilde',
+  'Calle Dr Elio Alderete',
+  'Calle Dr F Ameghino',
+  'Avenida Dr F de Gurruchaga',
+  'Calle Dr Facundo de Zuviria',
+  'Calle Dr Federico Ibarguren',
+  'Calle Dr Francisco Arias',
+  'Calle Dr Francisco Cabrera',
+  'Calle Dr Francisco Muñiz',
+  'Pasaje Dr Gabriel Pulo',
+  'Calle Dr Gregorio Marañon',
+  'Calle Dr Humberto Canepa',
+  'Calle Dr Indalecio Gomez',
+  'Calle Dr Joaquin Perez',
+  'Calle Dr Jose Astigueta',
+  'Calle Dr Jose E Uriburu',
+  'Calle Dr Jose Hilario Tedin',
+  'Calle Dr Jose Vicente Sola',
+  'Calle Dr Jose W Tobias',
+  'Calle Dr Juan A Fernandez',
+  'Pasaje Dr Juan B Peñalva',
+  'Avenida Dr Juan Bautista Justo',
+  'Calle Dr Juan Brigido Teran',
+  'Calle Dr Juan Jose Paso',
+  'Calle Dr Juan Monge y Ortega',
+  'Avenida Dr Juan Usandivaras',
+  'Pasaje Dr Julio Cintioni',
+  'Pasaje Dr Lisandro de la Torre',
+  'Avenida Dr Lisandro de la Torre',
+  'Calle Dr Luis Agote',
+  'Avenida Dr Luis Guemes',
+  'Calle Dr Luis Linares',
+  'Pasaje Dr M Silvester',
+  'Calle Dr Manuel Anzoategui',
+  'Calle Dr Manuel de Acevedo',
+  'Calle Dr Mariano Boedo',
+  'Calle Dr Mariano Moreno',
+  'Avenida Dr Mariano Moreno',
+  'Calle Dr Martin G Guemes',
+  'Calle Dr Miguel s Ortiz',
+  'Calle Dr Miguel Sola',
+  'Calle Dr Moises Gonorazky',
+  'Calle Dr Nicolas Avellaneda',
+  'Pasaje Dr Papi Aristene',
+  'Calle Dr Patricio Fleming',
+  'Calle Dr Pedro Antonio Pardo',
+  'Avenida Dr R Patron Costas',
+  'Avenida Dr Ricardo Balbin',
+  'Pasaje Dr Ricardo Rojas',
+  'Calle Dr Ricardo San Millan',
+  'Pasaje Dr Sidney Tamayo',
+  'Calle Dr Tomas Godoy Cruz',
+  'Avenida Dr V de la Plaza',
+  'Avenida Dr Velez Sarsfield',
+  // E
+  'Calle E Arana',
+  'Calle E Cornejo Saravia',
+  'Calle E Diaz Saenz Valiente',
+  'Calle E Janin',
+  'Calle E Juncosa',
+  'Calle E Martinez Estrada',
+  'Calle E Santos Discepolo',
+  'Avenida E Santos Discepolo',
+  'Calle Ecuador',
+  'Pasaje Edelmiro Avellaneda',
+  'Calle Eduardo Gauna',
+  'Calle Eduardo Paz Chain Dr',
+  'Avenida Ejercito Argentino',
+  'Avenida Ejercito de los Andes',
+  'Avenida Ejercito del Norte',
+  'Calle El Aybal de San Luis',
+  'Pasaje El Carmen',
+  'Calle El Chaja',
+  'Calle El Comercio',
+  'Calle El Condor',
+  'Calle El Creston',
+  'Calle El Diario',
+  'Calle El Diario San Luis',
+  'Pasaje El Inca',
+  'Pasaje El Jardin',
+  'Calle El Mirador',
+  'Calle El Ñandu',
+  'Calle El Norte',
+  'Calle El Pavo Real',
+  'Calle El Tronador',
+  'Calle El Tunal',
+  'Calle Elisa Lopez del Val',
+  'Calle Eliseo Outes',
+  'Calle Emilia Wierna',
+  'Calle Emilio Maroco',
+  'Calle Emma Sola de Sola',
+  'Avenida Eneida Delgadillo',
+  'Pasaje Enrique Torino',
+  'Avenida Entre Rios',
+  'Calle Entre Rios',
+  'Calle Eric Bonan',
+  'Calle Ernesto Clerico',
+  'Calle Ernesto Diaz Villalba',
+  'Calle Ernesto H Blanco',
+  'Pasaje Ernesto Sola',
+  'Pasaje Esc de los Infernales',
+  'Avenida Escalada de San Martin',
+  'Pasaje Escuadr de los Gauchos',
+  'Calle Esmeralda',
+  'Calle España',
+  'Calle Estados Unidos',
+  'Calle Estanislao Lopez',
+  'Calle Esteban de Luca',
+  'Calle Esteban Echeverria',
+  'Avenida Esteban Sokol',
+  'Avenida Esteco',
+  'Calle Estefano Nasif',
+  'Pasaje Eugenio Caballero',
+  'Calle Eusebio Marcilla',
+  'Avenida Ex Combat de Malvinas',
+  'Calle Ezeiza',
+  // F
+  'Calle F C de San Millan',
+  'Calle F Gomez de Vidaurre',
+  'Calle F Marquez Miranda',
+  'Calle F Toledo y Pimentel',
+  'Pasaje Falucho',
+  'Calle Farat Sire Salim',
+  'Calle Fausto Burgos',
+  'Calle Fca la Vervena',
+  'Pasaje Federico Gauffin',
+  'Avenida Federico Lacroze',
+  'Calle Feliciano Chiclana',
+  'Pasaje Felipe Lopez',
+  'Calle Felipe Vallese',
+  'Calle Felipe Varela',
+  'Calle Fernandez de la Cruz',
+  'Calle Fgta Libertad',
+  'Calle Fgta Pte Sarmiento',
+  'Calle Figueroa',
+  'Calle Figueroa de Sola',
+  'Calle Filiberto Meneses',
+  'Pasaje Flavio Garcia',
+  'Calle Florentino Serrey',
+  'Calle Florida',
+  'Calle Formosa',
+  'Calle Francia',
+  'Calle Francisco Beiro',
+  'Calle Francisco Canaro',
+  'Calle Francisco Castro',
+  'Calle Francisco Centeno',
+  'Calle Francisco de Aguirre',
+  'Calle Francisco de Miranda',
+  'Calle Francisco Fernandez',
+  'Calle Francisco G Arias',
+  'Pasaje Francisco Javier Ortiz',
+  'Pasaje Francisco Peralta',
+  'Calle Francisco Uriburu',
+  'Calle Fray J de Collalunga',
+  'Calle Fray J Puig Dengolas',
+  'Calle Fray Juan de la Zerda',
+  'Avenida Fray Luis Beltran',
+  'Calle Fray Luis Beltran',
+  'Calle Fray Mamerto Esquiu',
+  'Calle Fray Pistoia',
+  'Pasaje Fray Sta Maria de Oro',
+  'Avenida Fuerza Aerea',
+  // G
+  'Calle G Cornejo de Medeiro',
+  'Pasaje Gabino Sardina',
+  'Calle Gabriel Gomez Recio',
+  'Calle Garcia Lorca',
+  'Calle Gato y Mancha',
+  'Avenida Gaucho Mendez',
+  'Calle Gaufin Decabada',
+  'Pasaje Gdero Baigorria',
+  'Calle Gdor Gregores',
+  'Avenida Gdor Roberto Romero',
+  'Pasaje Gdor Sixto Ovejero',
+  'Calle Gelly Obes',
+  'Calle Gendarmeria Nacional',
+  'Calle George Washington',
+  'Calle German Buch',
+  'Pasaje Geronimo Lopez',
+  'Pasaje Getulio Vargas',
+  'Calle Gimenez Zapiola',
+  'Pasaje Gonzalo de Abreu',
+  'Calle Gral A C Costas',
+  'Calle Gral Angel Pacheco',
+  'Calle Gral Anselmo Rojo',
+  'Calle Gral Antonio Parodi',
+  'Avenida Gral Arenales',
+  'Calle Gral Arenales',
+  'Calle Gral Arias Rengel',
+  'Calle Gral Brig C Cardozo',
+  'Calle Gral Cornelio Saavedra',
+  'Calle Gral Diaz Velez',
+  'Avenida Gral Dionisio Puch',
+  'Pasaje Gral E Mosconi',
+  'Calle Gral Enrique Martinez',
+  'Calle Gral Eustaquio Frias',
+  'Pasaje Gral F de Uriondo',
+  'Calle Gral F de Uriondo',
+  'Calle Gral Federico Rauch',
+  'Calle Gral Francisco Ramirez',
+  'Calle Gral Francisco Velez',
+  'Pasaje Gral Gregorio Velez',
+  'Avenida Gral Guemes',
+  'Calle Gral Guemes',
+  'Calle Gral J J de Urquiza',
+  'Calle Gral Jorge Grassi',
+  'Calle Gral Jose F Uriburu',
+  'Avenida Gral Jose G Artigas',
+  'Calle Gral Jose I Gorriti',
+  'Calle Gral Jose Maria Paz',
+  'Calle Gral Juan C Sanchez',
+  'Pasaje Gral Juan Cornejo',
+  'Calle Gral Juan Gregorio Lemos',
+  'Calle Gral Juan Lavalle',
+  'Calle Gral Lamadrid',
+  'Calle Gral las Heras',
+  'Pasaje Gral Lorenzo Vintter',
+  'Calle Gral Luis Maria Campos',
+  'Calle Gral M de Azcuenaga',
+  'Calle Gral M Soler',
+  'Avenida Gral Manuel Belgrano',
+  'Calle Gral Manuel N Savio',
+  'Calle Gral Mitre',
+  'Pasaje Gral Napoleon Uriburu',
+  'Calle Gral O Higgins',
+  'Calle Gral Ortiz de Ocampo',
+  'Pasaje Gral Pablo Latorre',
+  'Pasaje Gral Paez',
+  'Calle Gral R Alvarado',
+  'Calle Gral Ricardo Sola',
+  'Calle Gral Roman A Deheza',
+  'Calle Gral Rondeau',
+  'Avenida Gral San Martin',
+  'Calle Gral Sequeira Segura',
+  'Calle Gral Simon Bolivar',
+  'Calle Gral Tomas de Iriarte',
+  'Pasaje Gral Tomas Guido',
+  'Pasaje Granaderos',
+  'Calle Gregoria Matorras',
+  'Pasaje Gregorio Beeche',
+  'Pasaje Guachipas',
+  'Calle Guaipos',
+  'Calle Guanca',
+  'Calle Guardia M C M Moyano',
+  'Calle Guayaquil',
+  'Pasaje Guillermo Ormachea',
+  'Calle Guillermo Usandivaras',
+  'Calle Guillermo Villegas',
+  // H
+  'Calle Hector Gonzalez',
+  'Calle Hector Supice Sede',
+  'Calle Hermenegildo Diez',
+  'Calle Hernan Arancibia',
+  'Calle Hernan Figueroa Reyes',
+  'Calle Hernando de Lerma',
+  'Avenida Heroes de la Patria',
+  'Pasaje Higinio Falcon',
+  'Pasaje Hilario Ascasubi',
+  'Calle Hilario Ascasubi',
+  'Calle Hincanchos',
+  'Calle Hipolito Bouchard',
+  'Calle Homero Manzi',
+  'Pasaje Huaytiquina',
+  'Calle Hugo Alarcon',
+  'Calle Hugo C Ramon Espeche',
+  'Calle Hugo Wast',
+  'Calle Humahuaca',
+  // I
+  'Calle Incahuasi',
+  'Avenida Independencia',
+  'Calle Ing Abel A Goytia',
+  'Calle Ing Abel Cornejo',
+  'Calle Ing Enrique Clement',
+  'Pasaje Ing Fernando Sola',
+  'Calle Ing Francisco Host',
+  'Calle Ing Guillermo Marconi',
+  'Calle Ing H Anasagasti',
+  'Pasaje Ing Klein',
+  'Calle Ing Manuel Tedin',
+  'Calle Ing Miguel Araoz',
+  'Calle Ing Pedro Cornejo',
+  'Pasaje Ing Ramon Castro',
+  'Calle Inte Alberto San Miguel',
+  'Calle Inte Carlos Gotling',
+  'Calle Inte Carlos Outes',
+  'Calle Inte Carlos Saravia Cornejo',
+  'Pasaje Inte Ernesto Zenteno Boedo',
+  'Calle Inte Felix Usandivaras',
+  'Pasaje Inte Gerardo E Cuellar',
+  'Calle Inte Jose M Ovejero',
+  'Pasaje Inte Julio J Paz',
+  'Calle Inte Langou',
+  'Pasaje Inte Luis Diez',
+  'Pasaje Inte Michel Benjamin Davalos',
+  'Calle Inte R P Sosa Zenteno',
+  'Calle Inte San Roman Vicente',
+  'Pasaje Iruya',
+  'Calle Isaac Jira',
+  'Calle Islas Malvinas',
+  'Avenida Italia',
+  'Calle Ituzaingo',
+  // J
+  'Pasaje J Azurduy de Padilla',
+  'Calle J Buttinelli',
+  'Calle J Lali',
+  'Calle J Villagra',
+  'Calle Jaime Davalos',
+  'Calle Jaime Durand',
+  'Calle Jasimana',
+  'Calle Javier Pantaleon',
+  'Calle Jeronimo Matorras',
+  'Calle Joaquin Castellanos',
+  'Calle Joaquin Corbalan',
+  'Calle Joaquin Diaz de Bedoya',
+  'Calle Joaquin Lopez Figueroa',
+  'Calle Joaquin Ramos',
+  'Calle Joaquin V Gonzalez',
+  'Avenida John Kennedy',
+  'Calle Jorge Cisterna',
+  'Calle Jorge Gutierrez',
+  'Calle Jorge Luis Borges',
+  'Calle Jorge Manrique',
+  'Calle Jorge Newbery',
+  'Calle Jorge Sly',
+  'Pasaje Jose A de Alberro',
+  'Calle Jose Cirilo Sosa',
+  'Calle Jose Daniel Gomez',
+  'Calle Jose de Gurruchaga',
+  'Calle Jose de Medeiros',
+  'Pasaje Jose E Alderete',
+  'Calle Jose E Contreras',
+  'Pasaje Jose Echenique',
+  'Calle Jose Francisco Lopez',
+  'Calle Jose Gomez',
+  'Pasaje Jose Hernandez',
+  'Calle Jose Leon Cabezon',
+  'Pasaje Jose M Lahora',
+  'Calle Jose M Ojeda',
+  'Calle Jose Manuel Baca',
+  'Pasaje Jose Manuel Estrada',
+  'Calle Jose Maria Chavez',
+  'Calle Jose Maria Chocano',
+  'Pasaje Jose Maria Decavi',
+  'Pasaje Jose Maria Gallo Mendoza',
+  'Calle Jose Maria Mirau',
+  'Pasaje Jose Maria Todd',
+  'Calle Jose Marmol',
+  'Calle Jose Palermo Riviello',
+  'Calle Juan A Avellaneda',
+  'Calle Juan Adolfo Romero',
+  'Calle Juan B Ambrosetti',
+  'Calle Juan C Usandivaras',
+  'Avenida Juan Carlos Davalos',
+  'Calle Juan D Arienzo',
+  'Calle Juan de Matienzo',
+  'Calle Juan Esteban Tamayo',
+  'Pasaje Juan Francisco M de Echauri',
+  'Calle Juan Francisco Pastor',
+  'Calle Juan Galvez',
+  'Calle Juan Gutenberg',
+  'Pasaje Juan J Campero',
+  'Calle Juan Jose Castelli',
+  'Pasaje Juan Larrea',
+  'Calle Juan Leguizamon',
+  'Calle Juan Manuel Castilla',
+  'Calle Juan Manuel Guemes',
+  'Calle Juan Muñoz Cabrera',
+  'Calle Juan Ramon Boedo',
+  'Calle Juan s Bulloc',
+  'Calle Juan Vucetich',
+  'Pasaje Juana E Velarde',
+  'Pasaje Juana Fowlis',
+  'Calle Juana Hernandez',
+  'Pasaje Juana Lopez de Vila',
+  'Pasaje Juana Manuela Gorriti',
+  'Calle Juana Moro de Lopez',
+  'Calle Juez Jose Maria Zuviria',
+  'Calle Jujuy',
+  'Calle Julia Alderete',
+  'Calle Julio Aramburu',
+  'Pasaje Junin',
+  'Calle Junin',
+  'Calle Juramento',
+  'Calle Juventud',
+  // L
+  'Calle L Guzman',
+  'Calle L N Alem',
+  'Calle La Banca',
+  'Pasaje La Caldera',
+  'Pasaje La Candelaria',
+  'Calle La Capital de Rosario',
+  'Calle La Cultura',
+  'Avenida La Cumbre',
+  'Calle La Gauchada',
+  'Calle La Guerra Gaucha',
+  'Calle La Inteligencia',
+  'Calle La Lealtad',
+  'Calle La Mañana Diario',
+  'Calle La Pampa',
+  'Calle La Plata',
+  'Pasaje La Poma',
+  'Calle La Prensa Diario',
+  'Calle La Razon Diario',
+  'Calle La Rioja',
+  'Pasaje La Rural',
+  'Pasaje La Tablada',
+  'Calle La Tacunga',
+  'Pasaje La Victoria',
+  'Pasaje La Viña',
+  'Calle Laprida',
+  'Calle Las Acacias',
+  'Calle Las Achiras',
+  'Calle Las Aguilas',
+  'Calle Las Amapolas',
+  'Calle Las Araucarias',
+  'Calle Las Azaleas',
+  'Calle Las Azucenas',
+  'Calle Las Breñas',
+  'Calle Las Bumbunas',
+  'Pasaje Las Calandrias',
+  'Calle Las Calas',
+  'Calle Las Camelias',
+  'Calle Las Capuchinas',
+  'Calle Las Casuarinas',
+  'Calle Las Charatas',
+  'Calle Las Charcas',
+  'Calle Las Chirimoyas',
+  'Calle Las Cigueñas',
+  'Calle Las Clivias',
+  'Calle Las Dalias',
+  'Calle Las Diamelas',
+  'Calle Las Encinas',
+  'Calle Las Garzas',
+  'Calle Las Gaviotas',
+  'Calle Las Glicinas',
+  'Calle Las Golondrinas',
+  'Calle Las Guindas',
+  'Calle Las Guineas',
+  'Calle Las Hayas',
+  'Pasaje Las Higueras',
+  'Calle Las Hortensias',
+  'Calle Las Industrias',
+  'Calle Las Madreselvas',
+  'Calle Las Magnolias',
+  'Calle Las Margaritas',
+  'Calle Las Moreras',
+  'Calle Las Orquideas',
+  'Calle Las Palmas',
+  'Calle Las Palmeras',
+  'Calle Las Palomas',
+  'Calle Las Paltas',
+  'Calle Las Papayas',
+  'Pasaje Las Perdices',
+  'Calle Las Quinas',
+  'Pasaje Las Reinamoras',
+  'Calle Las Retamas',
+  'Calle Las Rosas',
+  'Pasaje Las Sachas',
+  'Calle Las Talas',
+  'Calle Las Tijeretas',
+  'Calle Las Tipas',
+  'Calle Las Tuscas',
+  'Calle Las Violetas',
+  'Calle Las Zarzamoras',
+  'Pasaje Lasgallaretas',
+  'Calle Lasserre Cdoro Juan Maria',
+  'Pasaje Leopoldo Lugones',
+  'Calle Leguizamon',
+  'Calle Libertad',
+  'Calle Libertador Gral San Martin',
+  'Pasaje Liborio Matos',
+  'Pasaje Limache',
+  'Calle Lola Mora',
+  'Calle Lope de Vega',
+  'Calle Lopez de Fernandez',
+  'Pasaje Lopez Jordan',
+  'Calle Lorenza de la Camara',
+  'Pasaje Lorenzo Maurin',
+  'Pasaje Loreto Caro',
+  'Calle Loreto Caro',
+  'Calle Los Abedules',
+  'Calle Los Abetos',
+  'Calle Los Aceres',
+  'Calle Los Aguaribayes',
+  'Calle Los Alamos',
+  'Avenida Los Albatros',
+  'Calle Los Alelies',
+  'Calle Los Alerces',
+  'Calle Los Algarrobos',
+  'Calle Los Alisos',
+  'Calle Los Almendros',
+  'Calle Los Amancay',
+  'Pasaje Los Andes',
+  'Calle Los Angeles',
+  'Calle Los Arces',
+  'Calle Los Aristocratas',
+  'Calle Los Aromos',
+  'Calle Los Avellanos',
+  'Calle Los Azahares',
+  'Calle Los Bambues',
+  'Calle Los Bardos',
+  'Calle Los Bejucos',
+  'Calle Los Blancos',
+  'Calle Los Braquiquitos',
+  'Calle Los Cactus',
+  'Calle Los Canelos',
+  'Calle Los Cardenales',
+  'Calle Los Cardones',
+  'Calle Los Carolinos',
+  'Calle Los Castaños',
+  'Calle Los Cebiles',
+  'Calle Los Cedros',
+  'Calle Los Ceibos',
+  'Calle Los Chalchaleros',
+  'Calle Los Chañares',
+  'Calle Los Cipreses',
+  'Calle Los Ciruelos',
+  'Calle Los Cisnes',
+  'Calle Los Claveles',
+  'Calle Los Condores',
+  'Pasaje Los Constituyentes',
+  'Calle Los Crespones',
+  'Calle Los Crisantemos',
+  'Calle Los Curupayes',
+  'Calle Los Damascos',
+  'Calle Los de Salta',
+  'Calle Los Durazneros',
+  'Pasaje Los Ebanos',
+  'Calle Los Eucaliptus',
+  'Calle Los Federales',
+  'Calle Los Flamencos',
+  'Calle Los Fresnos',
+  'Calle Los Fronterizos',
+  'Calle Los Gavilanes',
+  'Calle Los Geranios',
+  'Calle Los Gladiolos',
+  'Calle Los Guayacanes',
+  'Calle Los Guaypos',
+  'Calle Los Halcones',
+  'Calle Los Horneros',
+  'Calle Los Inciensos',
+  'Calle Los Jazmines',
+  'Calle Los Juncaros',
+  'Calle Los Juncos',
+  'Calle Los Junquillos',
+  'Pasaje Los Labradores',
+  'Calle Los Lanceros',
+  'Calle Los Lapachos',
+  'Calle Los Laureles',
+  'Calle Los Ligustros',
+  'Avenida Los Lirios',
+  'Calle Los Mandarinos',
+  'Calle Los Manzanos',
+  'Pasaje Los Medanos',
+  'Calle Los Membrillos',
+  'Calle Los Mirlos',
+  'Calle Los Mistoles',
+  'Avenida Los Molles',
+  'Calle Los Naranjos',
+  'Calle Los Nardos',
+  'Calle Los Nisperos',
+  'Calle Los Nogales',
+  'Calle Los Olivos',
+  'Calle Los Olmos',
+  'Calle Los Ombues',
+  'Calle Los Pacaras',
+  'Avenida Los Papagayos',
+  'Calle Los Paraisos',
+  'Calle Los Parrales',
+  'Calle Los Peatones',
+  'Calle Los Pelicanos',
+  'Calle Los Pensamientos',
+  'Calle Los Perales',
+  'Calle Los Petiribies',
+  'Calle Los Pinguinos',
+  'Calle Los Pinos',
+  'Calle Los Piquillines',
+  'Calle Los Platanos',
+  'Calle Los Pomelos',
+  'Calle Los Quebrachos',
+  'Calle Los Quimiles',
+  'Calle Los Quitupies',
+  'Calle Los Raulies',
+  'Calle Los Robles',
+  'Calle Los Sauces',
+  'Calle Los Saucos',
+  'Calle Los Tarcos',
+  'Calle Los Teros',
+  'Calle Los Tiatines',
+  'Calle Los Tilos',
+  'Calle Los Timboes',
+  'Calle Los Tres Zorritos',
+  'Calle Los Tucanes',
+  'Calle Los Tulipanes',
+  'Calle Los Unitarios',
+  'Calle Los Yuchanes',
+  'Calle Los Zorzales',
+  'Calle Lostarcos',
+  'Calle Loteo San Bernardo',
+  'Calle Lucio V Mansilla',
+  'Calle Luis Alberto Gonzalez',
+  'Calle Luis Angel de Dios',
+  'Calle Luis Angel Firpo',
+  'Calle Luis Braille',
+  'Calle Luis Brozzuti',
+  'Avenida Luis de los Rios',
+  'Calle Luis Patron Costas',
+  'Pasaje Luis Peña',
+  'Pasaje Luis Peralta',
+  'Pasaje Lumbreras',
+  // M
+  'Calle M Cayo',
+  'Calle M Serrey Condarco',
+  'Calle M Silva de Gurruchaga',
+  'Calle M Zabala',
+  'Calle Macapillo',
+  'Calle Maestra Benigna Saravia',
+  'Calle Maestra Jacoba B Saravia',
+  'Pasaje Magdalena Goyechea',
+  'Calle Magdalena Guemes de Tejada',
+  'Calle Maipu',
+  'Calle Mamerto Villagran',
+  'Calle Manantial',
+  'Pasaje Manuel Antonio Castro',
+  'Calle Manuel Castilla',
+  'Calle Manuel s Sola',
+  'Calle Manuela Gonzalez de Tood',
+  'Calle Manuela Martinez de Tineo',
+  'Calle Mar Adriatico',
+  'Calle Mar Antartico',
+  'Calle Mar Arabigo',
+  'Calle Mar Argentino',
+  'Calle Mar Artico',
+  'Calle Mar Baltico',
+  'Calle Mar Blanco',
+  'Calle Mar Caspio',
+  'Calle Mar Chiquita',
+  'Calle Mar de Behring',
+  'Calle Mar de las Antillas',
+  'Calle Mar del Plata',
+  'Calle Mar Egeo',
+  'Calle Mar Jonico',
+  'Calle Mar Mediterraneo',
+  'Avenida Mar Rojo',
+  'Calle Mar Tirreno',
+  'Pasaje Marcos Paz',
+  'Calle Maria A de la Paz Lezcano',
+  'Calle Maria Ines Jandula',
+  'Calle Maria Torres Frias',
+  'Calle Mariano Benitez',
+  'Pasaje Mariano Cabezon',
+  'Avenida Mariano Saravia',
+  'Pasaje Mariano Zorreguieta',
+  'Calle Marimon Onofre',
+  'Calle Marinero 1Ro J L Villegas',
+  'Pasaje Marinero 1Ro M A Lamas',
+  'Calle Mario Condori',
+  'Calle Mario Guevara',
+  'Pasaje Marta Saravia',
+  'Calle Martin Cornejo',
+  'Calle Martin Fierro',
+  'Calle Martin Guerrico',
+  'Calle Martinez de Lezama',
+  'Calle Matias Patron',
+  'Pasaje Matias Patron Costas',
+  'Calle Mayor Fco de Arteaga',
+  'Calle Mayor Gustavo Garcia Cuevas',
+  'Calle Mayor H Palaver del Valle',
+  'Calle Mayor Marcelo Pedro Lotufo',
+  'Calle Mejias',
+  'Calle Mendoza',
+  'Calle Mercedes Arancibia',
+  'Pasaje Metan',
+  'Calle Mexico',
+  'Pasaje Michel Torino',
+  'Calle Miguel Angel Martinez Saravia',
+  'Calle Miguel Cane',
+  'Pasaje Miguel David Torino',
+  'Avenida Miguel de Cervantes',
+  'Pasaje Miguel Otero',
+  'Calle Miguel Ragone',
+  'Avenida Miguel Rodriguez Durañona',
+  'Paseo Miramar',
+  'Pasaje Misiones',
+  'Calle Misiones',
+  'Calle Mitre',
+  'Pasaje Moises Oliva',
+  'Calle Moises Racedo',
+  'Pasaje Molinos',
+  'Pasaje Mollinedo',
+  'Calle Mons J Campero y Araoz',
+  'Avenida Mons Jose R Tavella',
+  'Calle Mons Miguel A Vergara',
+  'Pasaje Montevideo',
+  'Calle Mtro R Alvarado',
+  // N
+  'Pasaje N B Saravia',
+  'Calle N Ojeda',
+  'Calle Napoleon Peña',
+  'Pasaje Natalio Roldan',
+  'Calle Necochea',
+  'Calle Nelson Christian',
+  'Pasaje Neo Machi',
+  'Calle Nestor Patron Costas',
+  'Calle Neuquen',
+  'Calle Nevado de Llullaillaco',
+  'Calle Nicaragua',
+  'Calle Nicolas Isasmendi Lopez',
+  'Calle Nicolas Medina',
+  'Calle Ntra Señora de Talavera',
+  'Calle Nueva Zelandia',
+  // O
+  'Pasaje Obispo Linares',
+  'Calle Obispo Romero',
+  'Calle Obispo Victoria',
+  'Calle Oficial Aux Mario Duarte',
+  'Calle Olavarria',
+  'Calle Olegario V Andrade',
+  'Calle Omar Madrid',
+  'Calle Omar Vargas',
+  'Calle Oran',
+  'Pasaje Oruro',
+  'Calle Oscar Cabalen',
+  'Calle Oscar H Blas',
+  'Calle Osvaldo Dell Aqua',
+  // P
+  'Calle Pablo Aleman',
+  'Calle Pablo Saravia',
+  'Pasaje Pablo Soria',
+  'Calle Pacheco de Melo',
+  'Pasaje Pacheco de Melo',
+  'Calle Padre A de Castañares',
+  'Calle Padre Antonio Salinas',
+  'Calle Padre Jose Carrion',
+  'Pasaje Padre L Giorgi Silvester',
+  'Pasaje Padre Luis Giorgi',
+  'Calle Padre Miguel Martin',
+  'Diagonal Padre Miguel Martin',
+  'Calle Padre Rafael Aduaga',
+  'Pasaje Padre Rafael Gobelli',
+  'Calle Palermo',
+  'Avda Circunvalacion Papa Juan XXIII',
+  'Avenida Paraguay',
+  'Calle Paraiso',
+  'Calle Parana',
+  'Calle Parque Patricios',
+  'Calle Paso de los Patos',
+  'Pasaje Paso de los Patos',
+  'Pasaje Pastor Padilla',
+  'Calle Pastore Wiliar',
+  'Pasaje Patagonia',
+  'Pasaje Patricias Argentinas',
+  'Calle Pbto M Alberti',
+  'Calle Pedernera',
+  'Calle Pedro A Perez',
+  'Calle Pedro de Valdivia',
+  'Pasaje Pedro Ferroni',
+  'Pasaje Pedro H Buitrago',
+  'Pasaje Pedro Nolasco Lopez',
+  'Pasaje Pedro Pastore',
+  'Pasaje Pedro Solivarez',
+  'Pasaje Pedro Uriburu',
+  'Calle Perez',
+  'Calle Perito F P Moreno',
+  'Calle Peru',
+  'Calle Pichanal',
+  'Pasaje Pintor R Usandivaras',
+  'Pasaje Pje 22',
+  'Pasaje Pje 23',
+  'Pasaje Pje 9',
+  'Calle Plaza',
+  'Calle Polo Sur',
+  'Calle Polonia',
+  'Calle Pompilio Guzman',
+  'Diagonal Portugal',
+  'Calle Posadas',
+  'Calle Posta de Yatasto',
+  'Calle Ppal 1Ro Ricardo Gallardo',
+  'Calle Pres Gral J A Roca',
+  'Calle Pres J Figueroa Alcorta',
+  'Pasaje Primera Junta',
+  'Calle Prof Dr Mariano Castex',
+  'Pasaje Prof Fausto Torres',
+  'Calle Prof Fernando Ramos',
+  'Calle Provisor Fernandez',
+  'Avenida Pte H Yrigoyen',
+  'Avenida Pte J D Peron',
+  'Calle Pte M T de Alvear',
+  'Pasaje Puerto Montt',
+  'Calle Puerto Rico',
+  'Calle Pueyrredon',
+  'Pasaje Punta del Este',
+  // Q-R
+  'Calle Quisque',
+  'Avenida R J Durand',
+  'Calle R Saenz Peña',
+  'Calle Radio Belgrano',
+  'Calle Radio Cerealista',
+  'Calle Radio Chaco',
+  'Calle Radio Colon',
+  'Calle Radio del Plata',
+  'Calle Radio el Mundo',
+  'Calle Radio Fortin Yunka',
+  'Calle Radio General Paz',
+  'Calle Radio General Pico',
+  'Calle Radio General Urquiza',
+  'Calle Radio Gonzalez',
+  'Calle Radio Granaderos Puntanos',
+  'Calle Radio Guarani de Curuzu Cuati',
+  'Calle Radio Independencia',
+  'Calle Radio la Voz del Comahue',
+  'Calle Radio Nacional',
+  'Calle Radio Neuquen',
+  'Calle Radio Nihuil Mendoza',
+  'Calle Radio Obera',
+  'Calle Radio Patagonia Argentina',
+  'Calle Radio Rio Gallegos',
+  'Calle Radio Rivadavia',
+  'Calle Radio San Salvador de Jujuy',
+  'Calle Radio Santiago del Estero',
+  'Calle Radio Splendid',
+  'Calle Radio Sur Argentino',
+  'Calle Rafael de la Luz',
+  'Calle Rafael Obligado',
+  'Calle Ramiro Cañabera',
+  'Pasaje Ramiro Canavares',
+  'Calle Ramon Diaz',
+  'Calle Ramon Garcia Pizarro',
+  'Calle Ramon Lista',
+  'Calle Ramon Valle',
+  'Calle Raul Alejo Medrano',
+  'Calle Raul Riganti',
+  'Pasaje Read Head',
+  'Calle Reconquista',
+  'Pasaje Reina Margarita',
+  'Calle Rep de Siria',
+  'Pasaje Repetti',
+  'Calle Republica de Israel',
+  'Avenida Republica del Libano',
+  'Calle Retamoso de Iñiguez',
+  'Calle Rey Bentarcur',
+  'Avenida Reyes Catolicos',
+  'Avenida Reymundin',
+  'Calle Ricardo Durand',
+  'Calle Ricardo Guiraldes',
+  'Calle Ricardo Gutierrez',
+  'Calle Ricardo Levenne',
+  'Calle Ricardo Maury',
+  'Calle Ricardo Reimundin',
+  'Calle Ricardo Rizzati',
+  'Calle Ricardo Serenata Saavedra',
+  'Calle Ricardo Torres',
+  'Calle Rio Ancho',
+  'Calle Rio Arenales',
+  'Pasaje Rio Bermejo',
+  'Calle Rio Blanco',
+  'Calle Rio Cachi',
+  'Calle Rio Carapari',
+  'Calle Rio Chicoana',
+  'Calle Rio de la Plata',
+  'Calle Rio del Valle',
+  'Calle Rio Gallegos',
+  'Calle Rio Juramento',
+  'Calle Rio la Viña',
+  'Calle Rio Lavallen',
+  'Calle Rio Lorohuasi',
+  'Calle Rio Medina',
+  'Calle Rio Mojotoro',
+  'Calle Rio Negro',
+  'Calle Rio Piedras',
+  'Calle Rio Rosario de Lerma',
+  'Calle Rio San Carlos',
+  'Calle Rio Santa Ana',
+  'Calle Rio Santa Barbara',
+  'Calle Rio Talavera',
+  'Calle Rio Toro',
+  'Calle Rio Wierna',
+  'Calle Riobamba',
+  'Calle Rita Torena',
+  'Ruta Nacional Rn 51',
+  'Ruta Nacional Rn 9',
+  'Calle Roberto Corbalan',
+  'Calle Roberto Etchegoyen',
+  'Avenida Roberto H Sanson',
+  'Avenida Roberto Leviller',
+  'Calle Rodolfo Frumento',
+  'Calle Rodrigo Pereyra',
+  'Calle Roque Chippoloni',
+  'Pasaje Rosario de la Frontera',
+  'Pasaje Rosario de Lerma',
+  'Calle Rosario Vera Peñaloza',
+  'Ruta Provincial Rp 26',
+  'Ruta Provincial Rp 28',
+  'Calle Ruben Dario',
+  'Calle Rubi',
+  'Pasaje Rugby',
+  'Pasaje Ruiz de los Llanos',
+  'Calle Ruminagui',
+  'Avenida Ruta Nacional 68',
+  'Avenida Ruta Prov 21',
+  'Calle Ruy Diaz de Guzman',
+  // S
+  'Calle S Sola de Castellanos',
+  'Calle Sagrada Familia',
+  'Calle Saldeño',
+  'Avenida Salvador Allende',
+  'Calle Salvador Debenedetti',
+  'Calle Salvador Mazza',
+  'Calle Salvador Ramos',
+  'Calle Samuel Lafone Quevedo',
+  'Avenida San Bernardo',
+  'Calle San Agustin',
+  'Pasaje San Andres',
+  'Calle San Andres',
+  'Calle San Antonio',
+  'Calle San Antonio de los Cobres',
+  'Calle San Benito',
+  'Calle San C de la Nueva Sevil',
+  'Pasaje San Carlos',
+  'Pasaje San Cayetano',
+  'Calle San Clemente de la N Sevilla',
+  'Calle San Felipe',
+  'Calle San Felipe y Santiago',
+  'Calle San Isidro',
+  'Calle San Jose',
+  'Calle San Juan',
+  'Calle San Justo',
+  'Calle San Lorenzo',
+  'Calle San Lucas',
+  'Calle San Luis',
+  'Calle San Marco',
+  'Calle San Marcos',
+  'Pasaje San Martin',
+  'Avenida San Martin',
+  'Calle San Mateo',
+  'Calle San Nicolas',
+  'Pasaje San Pablo',
+  'Calle San Pablo',
+  'Calle San Pedro',
+  'Calle San Ramon',
+  'Calle San Roque',
+  'Calle San Santiago',
+  'Calle Sanchez',
+  'Calle Sanchez Frias Loreto',
+  'Calle Santa Ana',
+  'Calle Santa Barbara',
+  'Calle Santa Catalina',
+  'Calle Santa Cecilia',
+  'Avenida Santa Cruz',
+  'Calle Santa Cruz',
+  'Calle Santa Elena',
+  'Calle Santa Fe',
+  'Calle Santa Gabriela',
+  'Calle Santa Gertrudis',
+  'Calle Santa Ines',
+  'Calle Santa Isabel',
+  'Pasaje Santa Laura',
+  'Pasaje Santa Lucia',
+  'Calle Santa Magdalena',
+  'Calle Santa Maria',
+  'Calle Santa Marta',
+  'Calle Santa Monica',
+  'Calle Santa Oliva',
+  'Calle Santa Rita',
   'Pasaje Santa Rosa',
+  'Calle Santa Silvana',
+  'Calle Santa Teresita',
+  'Calle Santa Victoria',
+  'Calle Santiago de Liniers',
+  'Calle Santiago del Estero',
+  'Calle Santiago Saravia',
+  'Calle Saravia Toledo',
+  'Calle Scalabrini Ortiz',
+  'Calle Sebastian Elcano',
+  'Pasaje Senador D Avellaneda',
+  'Pasaje Sgto Ayte Acosta',
+  'Calle Sgto 1Ro Mateo A Sbert',
+  'Calle Sgto Juan B Cabral',
+  'Calle Sgto Mayor Jose L Lemos',
+  'Pasaje Socompa',
+  'Calle Sold Carlos Alberto Viscarra',
+  'Calle Sold Eleuterio Ramos',
+  'Calle Sold Ramon Gutierrez',
+  'Calle Sold Ramon Salazar',
+  'Pasaje Sold Roque Sanchez',
+  'Calle Soldado Argentino',
+  'Diagonal Solis Pizarro',
+  'Avenida Solis Pizarro',
+  'Calle Sor Maria de los Angeles',
+  'Calle Subcial Ppal Albelos',
+  'Calle Subof 2Do Carlos H Medina',
+  'Calle Subof 2Do Ignacio Gonzalez',
+  'Calle Subof 2Do Jorge Luis Velez',
+  'Calle Subof 2Do Jose Rodriguez',
+  'Calle Subof Francisco Luna',
+  'Calle Subof Mayor Julio Lastra',
+  'Calle Subtte Jose Daldini',
+  'Diagonal Sucre',
+  'Calle Suecia',
+  'Avenida Suipacha',
+  'Calle Suipacha',
+  'Avenida Suiza',
+  'Avda Circunvalacion Sur',
+  // T
+  'Calle Tadia Tadeo',
+  'Pasaje Talapampa',
+  'Calle Talcahuano',
+  'Calle Tarija',
+  'Calle Tellez',
+  'Calle Teniente Diego Barcelo',
+  'Pasaje Teniente Eduardo Racedo',
+  'Calle Teniente Hector Volponi',
+  'Avenida Teniente Jose Luis Fuentes',
+  'Calle Teniente Mario Azua',
+  'Pasaje Teodoro Fels',
+  'Calle Tierra del Fuego',
+  'Calle Tincunaco',
+  'Pasaje Tineo',
+  'Pasaje Toledo Welindo',
+  'Calle Tomas Arias',
+  'Calle Tomas Cabrera',
+  'Calle Tomas de Allende',
+  'Calle Tomas de Archondo',
+  'Pasaje Tomas E Oliver',
+  'Calle Tomas Espora',
+  'Pasaje Tomas Zapata',
+  'Calle Topacio',
+  'Calle Torino de Viana',
+  'Calle Toscano Vicario',
+  'Pasaje Triunvirato',
+  'Calle Tte 1Ro Ruben E Marquez',
+  'Pasaje Tte Benjamin Matienzo',
+  'Calle Tte Cnel G Espejo',
+  'Calle Tte Cnel Manuel F Prado',
+  'Calle Tte Cnel Santiago Morales',
+  'Calle Tte de Navio Jorge Mayol',
+  'Calle Tte Ernesto E Espinoza',
+  'Calle Tte Gral Donato Alvarez',
+  'Calle Tte Gral Pablo Ricchieri',
+  'Pasaje Tte Jose L Ardiles',
+  'Calle Tte Juan C Gabande',
+  'Calle Tte Roberto M Fiorito',
+  'Calle Tucuman',
+  'Pasaje Turquia',
+  // U
+  'Calle Universidad Catolica',
+  'Calle Uriburu Garcia',
+  'Calle Urquiza',
+  'Avenida Uruguay',
+  'Pasaje Uspallata',
+  // V
+  'Calle V Aban',
+  'Calle V Juarez',
+  'Calle Valparaiso',
+  'Calle Venezuela',
+  'Calle Vicalte Quijada Hermes',
+  'Pasaje Vicario Pedro Chavez y Abrehu',
+  'Calle Vicario Simon Diez Zambrano',
+  'Calle Vicente Hector Gonzalez',
+  'Calle Vicente Lopez',
+  'Pasaje Vicente Maravialla',
+  'Pasaje Vicente Panana',
+  'Calle Vicente Ramos',
+  'Pasaje Victor Arias',
+  'Calle Victor Garino',
+  'Calle Victor Sola Zambrano',
+  'Calle Villa el Sol',
+  'Calle Villa Maria Esther',
+  'Calle Villoresi Luiggi',
+  'Calle Virgen del Rosario',
+  'Calle Virgilio Figueroa',
+  'Calle Virgilio Tedin',
+  'Calle Virginio L Canova',
+  'Pasaje Virrey P de Cevallos',
+  'Avenida Virrey Toledo',
+  'Calle Vito Dumas',
+  // W-Z
+  'Calle Washington Alvarez',
+  'Avenida Y P F',
+  'Pasaje Yapeyu',
+  'Calle Yatasto',
+  'Calle Ypf Destileria',
+  'Calle Zabala',
+  'Avenida Zacarias Yanci',
+  'Calle Zafiro',
+  'Calle Zorrigueta Rauch',
+  'Pasaje Zorrilla',
+  'Calle Zuviria',
 ];
 
 let saltaStreetCatalogCache = {
@@ -514,6 +1996,25 @@ const SALTA_PHONETIC_CORRECTIONS = [
   [/\bzub[i]r[ia][ao]?\b/gi, 'Zuviría'],
   [/\bespana\b/gi, 'España'],
   [/\bsantiag[ou]\s+del?\s+ester[ou]\b/gi, 'Santiago del Estero'],
+  // Correcciones adicionales para errores de transcripción de voz (Whisper)
+  [/\bmitra\b/gi, 'Mitre'],
+  [/\balverdi\b/gi, 'Alberdi'],
+  [/\balverdy\b/gi, 'Alberdi'],
+  [/\brivadabia\b/gi, 'Rivadavia'],
+  [/\bribadavia\b/gi, 'Rivadavia'],
+  [/\bpelegrini\b/gi, 'Pellegrini'],
+  [/\bpelegr[ií]ni\b/gi, 'Pellegrini'],
+  [/\bcaseiro[s]?\b/gi, 'Caseros'],
+  [/\bnecochia\b/gi, 'Necochea'],
+  [/\bvalgrano\b/gi, 'Belgrano'],
+  [/\bbalgrano\b/gi, 'Belgrano'],
+  [/\bsanmartin\b/gi, 'San Martín'],
+  [/\bpuerred[oó]n\b/gi, 'Pueyrredón'],
+  [/\bdean\s+funez\b/gi, 'Dean Funes'],
+  [/\bde[aá]n\s+funes\b/gi, 'Dean Funes'],
+  [/\bguardias\s+nacionales\b/gi, 'Guardias Nacionales'],
+  [/\bsarmient[ou]\b/gi, 'Sarmiento'],
+  [/\bjujuy\b/gi, 'Jujuy'],
 ];
 
 function applyPhoneticCorrections(text) {
@@ -522,6 +2023,72 @@ function applyPhoneticCorrections(text) {
     result = result.replace(pattern, replacement);
   }
   return result;
+}
+
+// Expansiones de apellido → nombre completo de calles conocidas en Salta.
+// Se usan SOLO para generar variantes de geocodificación más precisas; nunca modifican
+// la dirección canónica almacenada en BD.
+const SALTA_STREET_EXPANSIONS = [
+  [/\bmitre\b/gi, 'Bartolomé Mitre'],
+  [/\balberdi\b/gi, 'Juan Bautista Alberdi'],
+  [/\brivadavia\b/gi, 'Bernardino Rivadavia'],
+  [/\bpellegrini\b/gi, 'Carlos Pellegrini'],
+  [/\bpueyrred[oó]n\b/gi, 'Mariano Pueyrredón'],
+  [/\bsarmiento\b/gi, 'Domingo F. Sarmiento'],
+  [/\byrigoyen\b/gi, 'Hipólito Yrigoyen'],
+];
+
+function applyStreetNameExpansions(text) {
+  let result = String(text || '');
+  for (const [pattern, replacement] of SALTA_STREET_EXPANSIONS) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
+}
+
+/**
+ * Usa IA para corregir y normalizar una dirección de Salta que no pudo geocodificarse.
+ * Se llama SOLO como fallback cuando geocodeAddress() falla, para no agregar latencia al flujo normal.
+ * Retorna la dirección corregida como string, o null si no puede mejorarla.
+ */
+async function normalizeAddressWithAI(rawAddress, conversationText = '') {
+  if (!rawAddress) return null;
+  try {
+    const prompt = [
+      'Sos un experto en calles y barrios de Salta Capital, Argentina.',
+      'Tu tarea es corregir la siguiente dirección que fue dictada por voz o escrita con errores tipográficos/fonéticos,',
+      'y devolver la forma canónica en la que aparecería en Google Maps.',
+      '',
+      'Reglas:',
+      '- Devolvé SOLO la dirección corregida, sin explicaciones ni puntos finales.',
+      '- Formato: "Nombre Calle NúmeroAltura, Salta" o "Calle1 y Calle2, Salta".',
+      '- Si la dirección ya es correcta, devolvela igual.',
+      '- Si no podés corregirla con confianza, respondé exactamente: null',
+      '- Nunca inventes calles. Solo corregí ortografía/fonética de calles reales de Salta.',
+      '',
+      `Dirección a corregir: "${rawAddress}"`,
+      conversationText ? `Contexto del mensaje original: "${conversationText.slice(0, 120)}"` : '',
+    ].filter(Boolean).join('\n');
+
+    const completion = await getOpenAI().chat.completions.create({
+      model: 'gpt-4o-mini',
+      max_tokens: 60,
+      temperature: 0,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const result = completion.choices[0]?.message?.content?.trim();
+    if (!result || result === 'null' || result.toLowerCase() === 'null') return null;
+    // Sanity check: debe tener al menos una palabra de calle y no ser demasiado largo
+    if (result.length < 4 || result.length > 120) return null;
+    const sanitized = sanitizeAddressInput(result);
+    if (!sanitized) return null;
+    logWebhook('ai_address_normalize_ok', { original: rawAddress, corrected: sanitized });
+    return sanitized;
+  } catch (err) {
+    logWebhook('ai_address_normalize_error', { original: rawAddress, error: err?.message || 'unknown' });
+    return null;
+  }
 }
 
 /**
@@ -820,6 +2387,14 @@ function buildAddressVariants(address) {
   const catalogVariants = getCatalogAddressVariants(withSalta, 4);
   for (const variant of catalogVariants) {
     pushVariant(variant);
+  }
+
+  // Si el query usa solo el apellido, probar también el nombre completo del prócer.
+  // Ej: "Mitre 200, Salta" → también intenta "Bartolomé Mitre 200, Salta".
+  // Esto ayuda cuando Google Maps devuelve partial_match para la forma corta.
+  const expandedBase = applyStreetNameExpansions(withSalta);
+  if (expandedBase !== withSalta) {
+    pushVariant(expandedBase);
   }
 
   const normalized = normalizeForMatch(withSalta);
@@ -1144,14 +2719,13 @@ async function loadGlobalAddressKnowledge() {
     return globalAddressKnowledgeCache.addresses;
   }
 
-  const { data, error } = await getKnowledgeSupabase()
-    .from('messages')
-    .select('content, message_timestamp')
-    .eq('propietario', LEGACY_CHAT_OWNER)
+  const { data, error } = await getSupabase()
+    .from('whatsapp_messages')
+    .select('content, created_at')
     .eq('direction', 'incoming')
-    .eq('type', 'text')
+    .eq('message_type', 'text')
     .not('content', 'is', null)
-    .order('message_timestamp', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(MAX_GLOBAL_KNOWLEDGE_MESSAGES);
 
   if (error) {
@@ -1163,7 +2737,7 @@ async function loadGlobalAddressKnowledge() {
   for (const row of data || []) {
     const snippets = extractAddressSnippetsFromText(row.content);
     for (const snippet of snippets) {
-      entries.push({ address: snippet, count: 1, lastSeenAt: row.message_timestamp || null });
+      entries.push({ address: snippet, count: 1, lastSeenAt: row.created_at || null });
     }
   }
 
@@ -1174,7 +2748,6 @@ async function loadGlobalAddressKnowledge() {
   };
 
   logWebhook('knowledge_global_loaded', {
-    owner: LEGACY_CHAT_OWNER,
     messagesAnalyzed: (data || []).length,
     addressesRanked: ranked.length,
   });
@@ -1186,41 +2759,37 @@ async function loadPhoneAddressKnowledge(phone) {
   const normalizedPhone = normalizePhone(phone);
   if (!normalizedPhone) return [];
 
-  const { data: chats, error: chatsError } = await getKnowledgeSupabase()
-    .from('chats')
-    .select('id, telefono, contact_name, updated_at')
-    .eq('propietario', LEGACY_CHAT_OWNER)
-    .eq('telefono', normalizedPhone)
+  const { data: conversations, error: convsError } = await getSupabase()
+    .from('whatsapp_conversations')
+    .select('id, updated_at')
+    .eq('phone', normalizedPhone)
     .order('updated_at', { ascending: false })
     .limit(10);
 
-  if (chatsError) {
+  if (convsError) {
     logWebhook('knowledge_phone_chats_error', {
       phone: maskPhone(phone),
-      owner: LEGACY_CHAT_OWNER,
-      error: summarizeDbError(chatsError),
+      error: summarizeDbError(convsError),
     });
     return [];
   }
 
-  const chatIds = (chats || []).map((chat) => chat.id).filter(Boolean);
-  if (chatIds.length === 0) return [];
+  const conversationIds = (conversations || []).map((c) => c.id).filter(Boolean);
+  if (conversationIds.length === 0) return [];
 
-  const { data: messages, error: messagesError } = await getKnowledgeSupabase()
-    .from('messages')
-    .select('chat_id, content, message_timestamp')
-    .eq('propietario', LEGACY_CHAT_OWNER)
+  const { data: messages, error: messagesError } = await getSupabase()
+    .from('whatsapp_messages')
+    .select('conversation_id, content, created_at')
     .eq('direction', 'incoming')
-    .eq('type', 'text')
-    .in('chat_id', chatIds)
+    .eq('message_type', 'text')
+    .in('conversation_id', conversationIds)
     .not('content', 'is', null)
-    .order('message_timestamp', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(MAX_PHONE_KNOWLEDGE_MESSAGES);
 
   if (messagesError) {
     logWebhook('knowledge_phone_messages_error', {
       phone: maskPhone(phone),
-      owner: LEGACY_CHAT_OWNER,
       error: summarizeDbError(messagesError),
     });
     return [];
@@ -1230,15 +2799,14 @@ async function loadPhoneAddressKnowledge(phone) {
   for (const row of messages || []) {
     const snippets = extractAddressSnippetsFromText(row.content);
     for (const snippet of snippets) {
-      entries.push({ address: snippet, count: 1, lastSeenAt: row.message_timestamp || null });
+      entries.push({ address: snippet, count: 1, lastSeenAt: row.created_at || null });
     }
   }
 
   const ranked = rankAddresses(entries, MAX_KNOWLEDGE_ADDRESSES);
   logWebhook('knowledge_phone_loaded', {
     phone: maskPhone(phone),
-    owner: LEGACY_CHAT_OWNER,
-    chatsFound: chatIds.length,
+    conversationsFound: conversationIds.length,
     messagesAnalyzed: (messages || []).length,
     addressesRanked: ranked.length,
   });
@@ -1748,6 +3316,234 @@ async function getLatestOpenTripByPhone(phone) {
   return data || null;
 }
 
+async function getLatestConversationByPhone(phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return null;
+
+  const { data, error } = await getSupabase()
+    .from('whatsapp_conversations')
+    .select('id, phone, context, updated_at')
+    .eq('phone', normalized)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+function readPassengerLifecycleFollowupState(context = {}) {
+  const rawState = context?.passenger_lifecycle_followup;
+  if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) {
+    return {
+      lastSentAtMs: null,
+      lastType: null,
+      lastTripId: null,
+    };
+  }
+
+  const lastSentAtMs = new Date(rawState.last_sent_at || 0).getTime();
+  return {
+    lastSentAtMs: Number.isFinite(lastSentAtMs) && lastSentAtMs > 0 ? lastSentAtMs : null,
+    lastType: typeof rawState.last_type === 'string' ? rawState.last_type : null,
+    lastTripId: rawState.last_trip_id ? String(rawState.last_trip_id) : null,
+  };
+}
+
+async function sendPassengerLifecycleFollowup({
+  phone,
+  text,
+  noticeType,
+  relatedTripId = null,
+} = {}) {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone || !text) {
+    return { sent: false, reason: 'invalid_input' };
+  }
+
+  let conversation = null;
+  let conversationContext = {};
+  try {
+    conversation = await getLatestConversationByPhone(normalizedPhone);
+    conversationContext = safeJsonParse(conversation?.context, {});
+  } catch (error) {
+    logWebhook('passenger_lifecycle_followup_lookup_error', {
+      phone: maskPhone(normalizedPhone),
+      error: error?.message || 'unknown_error',
+    });
+  }
+
+  const nowMs = Date.now();
+  const persistentState = readPassengerLifecycleFollowupState(conversationContext);
+  const memoryState = passengerLifecycleFollowupMemory.get(normalizedPhone) || {};
+  const lastSentAtMs = Math.max(
+    persistentState.lastSentAtMs || 0,
+    Number(memoryState.lastSentAtMs) || 0
+  );
+
+  if (
+    lastSentAtMs > 0 &&
+    nowMs - lastSentAtMs < PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS
+  ) {
+    logWebhook('passenger_lifecycle_followup_throttled', {
+      phone: maskPhone(normalizedPhone),
+      noticeType: noticeType || null,
+      relatedTripId: relatedTripId || null,
+      lastNoticeType: persistentState.lastType || memoryState.lastType || null,
+      secondsSinceLast: Math.round((nowMs - lastSentAtMs) / 1000),
+      minIntervalSeconds: Math.round(PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS / 1000),
+    });
+    return { sent: false, reason: 'throttled' };
+  }
+
+  try {
+    await sendWhatsAppText(normalizedPhone, text);
+  } catch (error) {
+    logWebhook('passenger_lifecycle_followup_send_error', {
+      phone: maskPhone(normalizedPhone),
+      noticeType: noticeType || null,
+      relatedTripId: relatedTripId || null,
+      error: error?.message || 'unknown_error',
+    });
+    return { sent: false, reason: 'send_error' };
+  }
+
+  const sentAtIso = new Date(nowMs).toISOString();
+  passengerLifecycleFollowupMemory.set(normalizedPhone, {
+    lastSentAtMs: nowMs,
+    lastType: noticeType || null,
+    lastTripId: relatedTripId ? String(relatedTripId) : null,
+  });
+
+  if (conversation?.id) {
+    const updatedContext = {
+      ...conversationContext,
+      passenger_lifecycle_followup: {
+        last_sent_at: sentAtIso,
+        last_type: noticeType || null,
+        last_trip_id: relatedTripId ? String(relatedTripId) : null,
+      },
+    };
+
+    const { error } = await getSupabase()
+      .from('whatsapp_conversations')
+      .update({
+        context: updatedContext,
+        updated_at: sentAtIso,
+      })
+      .eq('id', conversation.id);
+
+    if (error) {
+      logWebhook('passenger_lifecycle_followup_context_error', {
+        conversationId: conversation.id,
+        phone: maskPhone(normalizedPhone),
+        error: summarizeDbError(error),
+      });
+    }
+  }
+
+  logWebhook('passenger_lifecycle_followup_sent', {
+    phone: maskPhone(normalizedPhone),
+    noticeType: noticeType || null,
+    relatedTripId: relatedTripId || null,
+  });
+
+  return { sent: true };
+}
+
+function buildDynamicSearchRadii(searchElapsedMs = 0) {
+  const normalizedRadii = (SEARCH_RADII_KM || [])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b)
+    .filter((value, index, arr) => index === 0 || value !== arr[index - 1]);
+
+  if (!normalizedRadii.length) {
+    return {
+      allowedRadiiKm: [1, 2],
+      expansionStep: 0,
+      maxRadiusKm: 2,
+    };
+  }
+
+  const baseIndex = Math.min(1, normalizedRadii.length - 1); // Siempre iniciar con 1km y 2km si existen
+  const safeElapsedMs = Math.max(0, Number(searchElapsedMs) || 0);
+  const expansionStep = Math.max(0, Math.floor(safeElapsedMs / DRIVER_SEARCH_EXPANSION_INTERVAL_MS));
+  const maxRadiusIndex = Math.min(normalizedRadii.length - 1, baseIndex + expansionStep);
+
+  return {
+    allowedRadiiKm: normalizedRadii.slice(0, maxRadiusIndex + 1),
+    expansionStep,
+    maxRadiusKm: normalizedRadii[maxRadiusIndex],
+  };
+}
+
+function isAutomaticTimeoutCancellationReason(reasonValue) {
+  const reason = normalizeReason(reasonValue);
+  if (!reason) return false;
+  return reason.includes('auto timeout') || (reason.includes('no acept') && reason.includes('tiempo'));
+}
+
+async function getPassengerReassignmentContext(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) {
+    return {
+      timeoutCancelledDriverIds: [],
+      timeoutAttempts: 0,
+      timeoutElapsedMs: 0,
+    };
+  }
+
+  const recentCutoff = new Date(Date.now() - REASSIGNMENT_LOOKBACK_HOURS * 60 * 60 * 1000).toISOString();
+  const { data, error } = await getSupabase()
+    .from('trips')
+    .select('driver_id, cancel_reason, created_at')
+    .eq('passenger_phone', normalizedPhone)
+    .eq('status', 'cancelled')
+    .gte('created_at', recentCutoff)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    logWebhook('reassign_context_error', {
+      phone: maskPhone(normalizedPhone),
+      error: summarizeDbError(error),
+    });
+    return {
+      timeoutCancelledDriverIds: [],
+      timeoutAttempts: 0,
+      timeoutElapsedMs: 0,
+    };
+  }
+
+  const timeoutCancelledDriverIdSet = new Set();
+  let timeoutAttempts = 0;
+  let oldestTimeoutCreatedAtMs = null;
+
+  for (const row of data || []) {
+    if (!isAutomaticTimeoutCancellationReason(row?.cancel_reason)) continue;
+    timeoutAttempts += 1;
+
+    if (row?.driver_id) timeoutCancelledDriverIdSet.add(row.driver_id);
+
+    const createdAtMs = new Date(row?.created_at || 0).getTime();
+    if (Number.isFinite(createdAtMs) && createdAtMs > 0) {
+      if (oldestTimeoutCreatedAtMs == null || createdAtMs < oldestTimeoutCreatedAtMs) {
+        oldestTimeoutCreatedAtMs = createdAtMs;
+      }
+    }
+  }
+
+  const timeoutElapsedMs = oldestTimeoutCreatedAtMs != null
+    ? Math.max(0, Date.now() - oldestTimeoutCreatedAtMs)
+    : timeoutAttempts * PENDING_ACCEPT_TIMEOUT_MS;
+
+  return {
+    timeoutCancelledDriverIds: [...timeoutCancelledDriverIdSet],
+    timeoutAttempts,
+    timeoutElapsedMs,
+  };
+}
+
 function getTripPickupPoint(trip) {
   return {
     address: trip?.destination_address || null,
@@ -1899,6 +3695,10 @@ Usá solo para desambiguar/completar. No inventes direcciones.
 ## INTENTS
 trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
 
+### Cuándo usar cada intent
+- **trip_request**: SOLO si el pasajero pide explícitamente un remis/móvil/taxi/auto/viaje, o usa verbos como "buscame", "llevame", "mandame uno", "necesito que me busquen", etc. Mencionar lugares, estar yendo a algún lado, o hablar de colectivos/transporte en general NO es suficiente.
+- **other**: Cualquier mensaje de chat que NO sea un pedido explícito de servicio de remis. Incluye: charla cotidiana, agradecimientos, mencionar que van en colectivo o a pie, coordinación de otra cosa, mensajes enviados por error, stickers, etc. En caso de duda, usar **other**.
+
 ## RESPUESTA — solo JSON válido:
 {"intent":"...","passenger_name":null,"pickup_location":null,"origin":null,"destination":null,"notes":null,"reply":null,"confidence":0,"missing_fields":[],"cancel_confirmed":false,"schedule_time":null}
 
@@ -1908,7 +3708,9 @@ trip_request | status_query | cancel_trip | schedule_trip | ask_human | other
 3. cancel_confirmed=true si el mensaje es claro: "cancelá/ya no/no quiero más/me surgió algo". Solo pedir confirmación si hay ambigüedad real.
 4. Estado "trip_created" + cancelación clara → cancel_confirmed=true directo.
 5. No uses ask_human por falta de datos del viaje. Solo para situaciones humanas graves.
-6. Variá el vocabulario. Nunca mandés el mismo texto del lastBotReply.`;
+6. Variá el vocabulario. Nunca mandés el mismo texto del lastBotReply.
+7. Si no hay palabra clave explícita de pedido de transporte (remis, móvil, taxi, auto, viaje, buscame, llevame, etc.), el intent es SIEMPRE **other**.
+8. Si "pickup_location" tiene un valor no nulo en tu respuesta JSON, NUNCA lo incluyas en "missing_fields". Solo ponés un campo en "missing_fields" si realmente no pudiste extraer su valor.`;
 
   // Formateamos el historial como turns reales de conversación para que el modelo entienda el contexto nativo
   const historyMessages = history
@@ -2629,8 +4431,71 @@ async function getBlockedDriverIds(driverIds) {
   return blocked;
 }
 
-async function chooseDriver(origin, { excludedDriverIds = [] } = {}) {
-  logWebhook('driver_select_start', { originLat: origin?.lat, originLng: origin?.lng });
+async function getDriverReliabilityPenaltyMap(driverIds) {
+  const penalties = new Map();
+  const validDriverIds = (driverIds || []).filter(Boolean);
+  if (!validDriverIds.length) return penalties;
+
+  const cutoff = new Date(Date.now() - DRIVER_RELIABILITY_LOOKBACK_HOURS * 60 * 60 * 1000).toISOString();
+  const { data, error } = await getSupabase()
+    .from('trips')
+    .select('driver_id, cancel_reason, created_at')
+    .in('driver_id', validDriverIds)
+    .eq('status', 'cancelled')
+    .gte('created_at', cutoff);
+
+  if (error) {
+    logWebhook('driver_reliability_penalty_error', {
+      driverCandidates: validDriverIds.length,
+      error: summarizeDbError(error),
+    });
+    return penalties;
+  }
+
+  const byDriver = new Map();
+  for (const row of data || []) {
+    const driverId = row?.driver_id;
+    if (!driverId) continue;
+
+    const current = byDriver.get(driverId) || { cancelled: 0, autoTimeouts: 0 };
+    current.cancelled += 1;
+    if (isAutomaticTimeoutCancellationReason(row?.cancel_reason)) {
+      current.autoTimeouts += 1;
+    }
+    byDriver.set(driverId, current);
+  }
+
+  for (const driverId of validDriverIds) {
+    const stats = byDriver.get(driverId) || { cancelled: 0, autoTimeouts: 0 };
+    const normalCancels = Math.max(0, stats.cancelled - stats.autoTimeouts);
+    const reliabilityPenaltyKm = Math.min(
+      MAX_RELIABILITY_SCORE_PENALTY_KM,
+      stats.autoTimeouts * AUTO_TIMEOUT_SCORE_PENALTY_KM + normalCancels * CANCEL_SCORE_PENALTY_KM
+    );
+    penalties.set(driverId, {
+      reliabilityPenaltyKm,
+      autoTimeouts: stats.autoTimeouts,
+      cancelled: stats.cancelled,
+    });
+  }
+
+  logWebhook('driver_reliability_penalty_ok', {
+    driverCandidates: validDriverIds.length,
+    cancelledRows: (data || []).length,
+  });
+
+  return penalties;
+}
+
+async function chooseDriver(origin, { excludedDriverIds = [], searchElapsedMs = 0 } = {}) {
+  const searchPlan = buildDynamicSearchRadii(searchElapsedMs);
+  logWebhook('driver_select_start', {
+    originLat: origin?.lat,
+    originLng: origin?.lng,
+    searchElapsedMs: Math.max(0, Math.round(Number(searchElapsedMs) || 0)),
+    expansionStep: searchPlan.expansionStep,
+    allowedRadiiKm: searchPlan.allowedRadiiKm,
+  });
   const { data: drivers, error } = await getSupabase()
     .from('drivers')
     .select('id, full_name, phone, push_token, current_lat, current_lng, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, is_available')
@@ -2693,26 +4558,51 @@ async function chooseDriver(origin, { excludedDriverIds = [] } = {}) {
     return null;
   }
 
+  const reliabilityPenaltyMap = await getDriverReliabilityPenaltyMap(finalCandidates.map((driver) => driver.id));
+
   // Calculate distance from each candidate to the passenger's pickup location
   const withDistance = finalCandidates
-    .map((driver) => ({
-      ...driver,
-      distanceToOriginKm: haversineKm(
+    .map((driver) => {
+      const distanceToOriginKm = haversineKm(
         Number(driver.current_lat),
         Number(driver.current_lng),
         origin.lat,
         origin.lng
-      ),
-    }))
-    .sort((a, b) => a.distanceToOriginKm - b.distanceToOriginKm);
+      );
 
-  // Expanding radius search: start at 1km, widen progressively (like Uber)
-  for (const radiusKm of SEARCH_RADII_KM) {
+      const reliability = reliabilityPenaltyMap.get(driver.id) || {
+        reliabilityPenaltyKm: 0,
+        autoTimeouts: 0,
+        cancelled: 0,
+      };
+      const pushPenaltyKm = driver.push_token ? 0 : NO_PUSH_TOKEN_SCORE_PENALTY_KM;
+      const dispatchScoreKm = distanceToOriginKm + reliability.reliabilityPenaltyKm + pushPenaltyKm;
+
+      return {
+        ...driver,
+        distanceToOriginKm,
+        reliabilityPenaltyKm: reliability.reliabilityPenaltyKm,
+        reliabilityAutoTimeouts: reliability.autoTimeouts,
+        reliabilityCancelled: reliability.cancelled,
+        pushPenaltyKm,
+        dispatchScoreKm,
+      };
+    })
+    .sort((a, b) => {
+      if (a.dispatchScoreKm !== b.dispatchScoreKm) return a.dispatchScoreKm - b.dispatchScoreKm;
+      return a.distanceToOriginKm - b.distanceToOriginKm;
+    });
+
+  // Expanding radius search: always starts at 1km/2km and widens every 15s.
+  for (const radiusKm of searchPlan.allowedRadiiKm) {
     const inRadius = withDistance.filter((d) => d.distanceToOriginKm <= radiusKm);
     if (inRadius.length > 0) {
       const selected = inRadius[0];
       logWebhook('driver_select_ok', {
         searchRadiusKm: radiusKm,
+        searchElapsedMs: Math.max(0, Math.round(Number(searchElapsedMs) || 0)),
+        expansionStep: searchPlan.expansionStep,
+        allowedRadiiKm: searchPlan.allowedRadiiKm,
         totalAvailable: (drivers || []).length,
         availableWithCoords: availableDrivers.length,
         busyCount: busyDriverIds.size,
@@ -2721,6 +4611,11 @@ async function chooseDriver(origin, { excludedDriverIds = [] } = {}) {
         driversInRadius: inRadius.length,
         selectedDriverId: selected.id,
         selectedDistanceKm: Math.round(selected.distanceToOriginKm * 10) / 10,
+        selectedScoreKm: Math.round(selected.dispatchScoreKm * 100) / 100,
+        selectedReliabilityPenaltyKm: Math.round((selected.reliabilityPenaltyKm || 0) * 100) / 100,
+        selectedAutoTimeouts: selected.reliabilityAutoTimeouts || 0,
+        selectedCancelled: selected.reliabilityCancelled || 0,
+        selectedPushPenaltyKm: Math.round((selected.pushPenaltyKm || 0) * 100) / 100,
         hasPushToken: Boolean(selected.push_token),
       });
       return { ...selected, searchRadiusKm: radiusKm };
@@ -2728,17 +4623,24 @@ async function chooseDriver(origin, { excludedDriverIds = [] } = {}) {
     logWebhook('driver_radius_expand', {
       currentRadiusKm: radiusKm,
       driversInRadius: 0,
-      nextRadiusKm: SEARCH_RADII_KM[SEARCH_RADII_KM.indexOf(radiusKm) + 1] || null,
+      nextRadiusKm: searchPlan.allowedRadiiKm[searchPlan.allowedRadiiKm.indexOf(radiusKm) + 1] || null,
+      expansionStep: searchPlan.expansionStep,
     });
   }
 
-  // No driver found within maximum search radius
+  // No driver found within the currently allowed radius window.
   logWebhook('driver_select_none_in_max_radius', {
-    maxRadiusKm: SEARCH_RADII_KM[SEARCH_RADII_KM.length - 1],
+    maxRadiusKm: searchPlan.maxRadiusKm,
+    searchElapsedMs: Math.max(0, Math.round(Number(searchElapsedMs) || 0)),
+    expansionStep: searchPlan.expansionStep,
+    allowedRadiiKm: searchPlan.allowedRadiiKm,
     totalAvailable: (drivers || []).length,
     finalCandidates: finalCandidates.length,
     closestDriverKm: withDistance[0]?.distanceToOriginKm
       ? Math.round(withDistance[0].distanceToOriginKm * 10) / 10
+      : null,
+    closestDriverScoreKm: withDistance[0]?.dispatchScoreKm
+      ? Math.round(withDistance[0].dispatchScoreKm * 100) / 100
       : null,
   });
   return null;
@@ -3045,6 +4947,26 @@ async function createTripFromConversation({ conversation, extracted }) {
     if (pickupLocation) {
       // resolved by knowledge fallback; continue normal flow
     } else {
+    // Último recurso: normalización por IA para corregir errores fonéticos/ortográficos
+    // que las reglas estáticas no pudieron resolver.
+    const conversationText = extracted?._conversationText || '';
+    const aiCorrected = await normalizeAddressWithAI(normalizedPickupQuery || pickupQuery, conversationText);
+    if (aiCorrected) {
+      try {
+        pickupLocation = await geocodeAddress(aiCorrected);
+        logWebhook('trip_create_geocode_ai_correction_ok', {
+          conversationId: conversation?.id || null,
+          originalQuery: pickupQuery,
+          aiCorrected,
+          formattedAddress: pickupLocation.formattedAddress,
+        });
+      } catch {
+        // AI tampoco pudo resolver la dirección → falla definitiva
+      }
+    }
+    }
+
+    if (!pickupLocation) {
     logWebhook('trip_create_geocode_error', {
       conversationId: conversation?.id || null,
       error: error?.message || 'geocode_error',
@@ -3093,7 +5015,10 @@ async function createTripFromConversation({ conversation, extracted }) {
     };
   }
 
-  const driver = await chooseDriver({ lat: pickupLocation.lat, lng: pickupLocation.lng });
+  const driver = await chooseDriver(
+    { lat: pickupLocation.lat, lng: pickupLocation.lng },
+    { searchElapsedMs: 0 }
+  );
   if (!driver) {
     logWebhook('trip_create_no_driver', {
       conversationId: conversation?.id || null,
@@ -3225,6 +5150,7 @@ async function createTripFromConversation({ conversation, extracted }) {
     destination_lat: pickupLocation.lat,
     destination_lng: pickupLocation.lng,
     status: 'pending',
+    assigned_at: new Date().toISOString(),
     price: null,
     commission_amount: null,
     distance_km: null,
@@ -3267,6 +5193,8 @@ async function createTripFromConversation({ conversation, extracted }) {
       trip,
     },
   });
+
+  schedulePendingTimeoutTimer(trip.id, { source: 'trip_create_pending' });
 
   const driverLabel = [driver.vehicle_brand, driver.vehicle_model].filter(Boolean).join(' ');
   const driverMeta = [driver.full_name, driverLabel, driver.vehicle_plate].filter(Boolean).join(' · ');
@@ -3363,7 +5291,21 @@ async function dispatchQueuedPassengers() {
       continue;
     }
 
-    const driver = await chooseDriver({ lat: pickupLat, lng: pickupLng });
+    const queueCreatedAtMs = new Date(trip.created_at || 0).getTime();
+    const queueElapsedMs = Number.isFinite(queueCreatedAtMs) && queueCreatedAtMs > 0
+      ? Math.max(0, Date.now() - queueCreatedAtMs)
+      : 0;
+
+    const reassignmentContext = await getPassengerReassignmentContext(phone);
+    const searchElapsedMs = Math.max(queueElapsedMs, reassignmentContext.timeoutElapsedMs || 0);
+
+    const driver = await chooseDriver(
+      { lat: pickupLat, lng: pickupLng },
+      {
+        excludedDriverIds: reassignmentContext.timeoutCancelledDriverIds || [],
+        searchElapsedMs,
+      }
+    );
     if (!driver) {
       logWebhook('queue_dispatch_no_driver', { tripId: trip.id });
       continue; // sigue en cola
@@ -3400,6 +5342,8 @@ async function dispatchQueuedPassengers() {
       data: { type: 'new_trip', tripId: trip.id },
     });
 
+    schedulePendingTimeoutTimer(trip.id, { source: 'queue_dispatch_pending' });
+
     // NO se notifica al pasajero aquí — el chofer aún no aceptó.
     // La confirmación con ETA y datos del chofer se envía en
     // processTripLifecycleTransitions (Parte A) cuando el status
@@ -3413,14 +5357,140 @@ async function dispatchQueuedPassengers() {
   return { dispatched };
 }
 
-// Tiempo máximo que tiene un chofer para aceptar un viaje pending
-// antes de que el sistema lo re-encole automáticamente.
-const PENDING_ACCEPT_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutos
+function clearPendingTimeoutTimer(tripId, reason = 'unknown') {
+  if (!tripId) return;
+  const timer = pendingTimeoutTimers.get(tripId);
+  if (!timer) return;
+  clearTimeout(timer);
+  pendingTimeoutTimers.delete(tripId);
+  logWebhook('pending_timeout_timer_cleared', { tripId, reason });
+}
+
+function schedulePendingTimeoutTimer(
+  tripId,
+  { delayMs = PENDING_ACCEPT_TIMEOUT_MS, source = 'unknown' } = {}
+) {
+  if (!tripId) return;
+
+  if (!ENABLE_PENDING_TIMEOUT_TIMER) {
+    logWebhook('pending_timeout_timer_skipped', {
+      tripId,
+      source,
+      reason: 'timer_disabled',
+    });
+    return;
+  }
+
+  clearPendingTimeoutTimer(tripId, 'rescheduled');
+  const safeDelayMs = Math.max(250, Math.round(Number(delayMs) || PENDING_ACCEPT_TIMEOUT_MS));
+
+  const timer = setTimeout(async () => {
+    pendingTimeoutTimers.delete(tripId);
+    try {
+      await cancelTimedOutPendingTripAndRedispatch(tripId, {
+        source: `timer:${source}`,
+      });
+    } catch (error) {
+      logWebhook('pending_timeout_timer_error', {
+        tripId,
+        source,
+        error: error?.message || 'unknown',
+      });
+    }
+  }, safeDelayMs);
+
+  pendingTimeoutTimers.set(tripId, timer);
+  logWebhook('pending_timeout_timer_scheduled', {
+    tripId,
+    source,
+    delayMs: safeDelayMs,
+  });
+}
+
+async function cancelTimedOutPendingTripAndRedispatch(tripId, { source = 'unknown' } = {}) {
+  if (!tripId) return { cancelled: false, reason: 'missing_trip_id' };
+
+  let trip;
+  try {
+    trip = await getConversationFlowTripById(tripId);
+  } catch (error) {
+    logWebhook('pending_timeout_trip_fetch_error', {
+      tripId,
+      source,
+      error: error?.message || 'unknown',
+    });
+    return { cancelled: false, reason: 'fetch_error' };
+  }
+
+  if (!trip) {
+    clearPendingTimeoutTimer(tripId, 'trip_not_found');
+    return { cancelled: false, reason: 'trip_not_found' };
+  }
+
+  const status = String(trip.status || '').toLowerCase();
+  if (status !== 'pending') {
+    clearPendingTimeoutTimer(tripId, `status_${status || 'unknown'}`);
+    return { cancelled: false, reason: 'status_not_pending' };
+  }
+
+  const assignedAtMs = new Date(trip.assigned_at || trip.created_at || 0).getTime();
+  const hasAssignedAt = Number.isFinite(assignedAtMs) && assignedAtMs > 0;
+  const remainingMs = hasAssignedAt
+    ? assignedAtMs + PENDING_ACCEPT_TIMEOUT_MS - Date.now()
+    : 0;
+
+  if (remainingMs > 250) {
+    schedulePendingTimeoutTimer(tripId, {
+      delayMs: remainingMs,
+      source: `${source}:reschedule`,
+    });
+    return { cancelled: false, reason: 'not_expired_yet', remainingMs };
+  }
+
+  const { data: cancelledTrip, error: cancelError } = await getSupabase()
+    .from('trips')
+    .update({
+      status: 'cancelled',
+      cancel_reason: PENDING_TIMEOUT_CANCEL_REASON,
+    })
+    .eq('id', tripId)
+    .eq('status', 'pending')
+    .select('id')
+    .maybeSingle();
+
+  if (cancelError) {
+    logWebhook('pending_timeout_cancel_error', {
+      tripId,
+      source,
+      error: summarizeDbError(cancelError),
+    });
+    return { cancelled: false, reason: 'cancel_error' };
+  }
+
+  if (!cancelledTrip) {
+    clearPendingTimeoutTimer(tripId, 'already_moved');
+    return { cancelled: false, reason: 'already_moved' };
+  }
+
+  clearPendingTimeoutTimer(tripId, 'auto_cancelled');
+  const secondsPending = hasAssignedAt
+    ? Math.max(0, Math.round((Date.now() - assignedAtMs) / 1000))
+    : null;
+
+  logWebhook('pending_timeout_cancelled', {
+    tripId,
+    source,
+    secondsPending,
+  });
+
+  const transitions = await processTripLifecycleTransitionsForTripId(tripId);
+  return { cancelled: true, transitions };
+}
 
 /**
- * Cancela los viajes en estado `pending` que superaron el tiempo límite de aceptación.
- * El ciclo normal de `processTripLifecycleTransitions` los detectará como cancelados
- * y los reasignará o pondrá en cola automáticamente.
+ * Fallback por cron: cancela viajes `pending` vencidos y dispara la
+ * reasignación inmediata. Se mantiene como red de seguridad si el timer
+ * en memoria no llegó a ejecutarse.
  */
 async function expireTimedOutPendingTrips() {
   logWebhook('expire_pending_start');
@@ -3429,7 +5499,7 @@ async function expireTimedOutPendingTrips() {
 
   const { data: timedOut, error } = await getSupabase()
     .from('trips')
-    .select('id, driver_id, passenger_name, passenger_phone, assigned_at')
+    .select('id')
     .eq('status', 'pending')
     .not('assigned_at', 'is', null)
     .lt('assigned_at', cutoff);
@@ -3448,40 +5518,10 @@ async function expireTimedOutPendingTrips() {
 
   let expired = 0;
   for (const trip of timedOut) {
-    const minutesPending = Math.round((Date.now() - new Date(trip.assigned_at).getTime()) / 60000);
-
-    const { error: requeueError } = await getSupabase()
-      .from('trips')
-      .update({
-        status: 'queued',
-        driver_id: null,
-        origin_address: null,
-        origin_lat: null,
-        origin_lng: null,
-        assigned_at: null,
-      })
-      .eq('id', trip.id)
-      .eq('status', 'pending'); // guard contra race condition
-
-    if (requeueError) {
-      logWebhook('expire_pending_requeue_error', {
-        tripId: trip.id,
-        error: summarizeDbError(requeueError),
-      });
-      continue;
-    }
-
-    await sendWhatsAppText(
-      trip.passenger_phone,
-      'El chofer no respondió a tiempo. Te mantuve en la cola — te avisamos en cuanto se libere uno 🕐'
-    ).catch(() => {});
-
-    logWebhook('expire_pending_requeued', {
-      tripId: trip.id,
-      driverId: trip.driver_id,
-      minutesPending,
+    const result = await cancelTimedOutPendingTripAndRedispatch(trip.id, {
+      source: 'cron_fallback',
     });
-    expired++;
+    if (result?.cancelled) expired += 1;
   }
 
   logWebhook('expire_pending_done', { expired });
@@ -3565,34 +5605,27 @@ async function processTripLifecycleTransitions() {
         continue;
       }
 
-      // Limitar reasignaciones automáticas para evitar bucles infinitos
-      // (conductor que nunca acepta → loop eterno de nuevos viajes)
-      const recentCutoff2h = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-      const { count: recentCancelledCount } = await getSupabase()
-        .from('trips')
-        .select('id', { count: 'exact', head: true })
-        .eq('passenger_phone', trip.passenger_phone)
-        .eq('status', 'cancelled')
-        .gte('created_at', recentCutoff2h);
-      if ((recentCancelledCount || 0) >= 3) {
-        await sendWhatsAppText(
-          trip.passenger_phone,
-          'No pudimos asignarte un chofer después de varios intentos. Intentá de nuevo en unos minutos 🙏'
-        ).catch(() => {});
-        logWebhook('trip_transition_max_reassignments', {
-          tripId: trip.id,
-          phone: maskPhone(trip.passenger_phone),
-          count: recentCancelledCount,
-        });
-        continue;
-      }
-
       const pickup = getTripPickupPoint(trip);
       if (!Number.isFinite(pickup.lat) || !Number.isFinite(pickup.lng)) continue;
 
+      const reassignmentContext = await getPassengerReassignmentContext(trip.passenger_phone);
+      const tripCreatedAtMs = new Date(trip.created_at || 0).getTime();
+      const tripElapsedMs = Number.isFinite(tripCreatedAtMs) && tripCreatedAtMs > 0
+        ? Math.max(0, Date.now() - tripCreatedAtMs)
+        : 0;
+      const searchElapsedMs = Math.max(tripElapsedMs, reassignmentContext.timeoutElapsedMs || 0);
+
       const systemFailure = isSystemFailureCancellation(trip);
-      const excludedDriverIds = systemFailure ? [] : [trip.driver_id].filter(Boolean);
-      const driver = await chooseDriver({ lat: pickup.lat, lng: pickup.lng }, { excludedDriverIds });
+      const excludedDriverIdSet = new Set(systemFailure ? [] : [trip.driver_id].filter(Boolean));
+      for (const timeoutDriverId of reassignmentContext.timeoutCancelledDriverIds || []) {
+        excludedDriverIdSet.add(timeoutDriverId);
+      }
+
+      const excludedDriverIds = [...excludedDriverIdSet];
+      const driver = await chooseDriver(
+        { lat: pickup.lat, lng: pickup.lng },
+        { excludedDriverIds, searchElapsedMs }
+      );
 
       if (driver) {
         const driverLat = Number(driver.current_lat);
@@ -3613,6 +5646,7 @@ async function processTripLifecycleTransitions() {
             destination_lat: pickup.lat,
             destination_lng: pickup.lng,
             status: 'pending',
+            assigned_at: new Date().toISOString(),
             notes: trip.notes || '[APPROACH_ONLY] Reasignado automáticamente.',
           })
           .select().single();
@@ -3623,10 +5657,13 @@ async function processTripLifecycleTransitions() {
             body: `${trip.passenger_name} → ${pickup.address}`,
             data: { type: 'new_trip', tripId: newTrip.id },
           });
-          await sendWhatsAppText(
-            trip.passenger_phone,
-            'El chofer no pudo tomar el viaje. Ya encontré otro y te aviso cuando lo acepte.'
-          ).catch(() => {});
+          schedulePendingTimeoutTimer(newTrip.id, { source: 'transition_reassign_pending' });
+          await sendPassengerLifecycleFollowup({
+            phone: trip.passenger_phone,
+            text: 'El chofer no pudo tomar el viaje. Ya encontré otro y te aviso cuando lo acepte.',
+            noticeType: 'reassigned_pending',
+            relatedTripId: newTrip.id,
+          });
           reassigned++;
           logWebhook('trip_transition_reassigned', { cancelledTripId: trip.id, newTripId: newTrip.id });
         }
@@ -3649,10 +5686,12 @@ async function processTripLifecycleTransitions() {
           })
           .select().single();
 
-        await sendWhatsAppText(
-          trip.passenger_phone,
-          'No hay choferes disponibles ahora. Te agregué a la cola — te avisamos en cuanto se libere uno 🕐'
-        ).catch(() => {});
+        await sendPassengerLifecycleFollowup({
+          phone: trip.passenger_phone,
+          text: 'No hay choferes disponibles ahora. Te agregué a la cola — te avisamos en cuanto se libere uno 🕐',
+          noticeType: 'queued_no_driver',
+          relatedTripId: queuedTrip?.id || trip.id,
+        });
         queued++;
         logWebhook('trip_transition_queued', { cancelledTripId: trip.id, newTripId: queuedTrip?.id });
       }
@@ -3676,6 +5715,12 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
   }
 
   const tripStatus = String(trip.status || '').toLowerCase();
+
+  if (tripStatus === 'pending') {
+    schedulePendingTimeoutTimer(tripId, { source: 'trip_scan_pending' });
+  } else {
+    clearPendingTimeoutTimer(tripId, `trip_scan_${tripStatus || 'unknown'}`);
+  }
 
   // Notificar pasajero cuando chofer acepta
   if (ACTIVE_TRIP_STATUSES.includes(tripStatus) && !trip.wa_notified_at) {
@@ -3726,33 +5771,22 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
       return { confirmed: 0, reassigned: 0, queued: queueResult.dispatched };
     }
 
-    // Limitar reasignaciones automáticas para evitar bucles infinitos
-    const recentCutoff2h = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-    const { count: recentCancelledCount } = await getSupabase()
-      .from('trips')
-      .select('id', { count: 'exact', head: true })
-      .eq('passenger_phone', trip.passenger_phone)
-      .eq('status', 'cancelled')
-      .gte('created_at', recentCutoff2h);
-    if ((recentCancelledCount || 0) >= 3) {
-      await sendWhatsAppText(
-        trip.passenger_phone,
-        'No pudimos asignarte un chofer después de varios intentos. Intentá de nuevo en unos minutos 🙏'
-      ).catch(() => {});
-      logWebhook('trip_transition_max_reassignments', {
-        tripId,
-        phone: maskPhone(trip.passenger_phone),
-        count: recentCancelledCount,
-      });
-      const queueResult = await dispatchQueuedPassengers();
-      return { confirmed: 0, reassigned: 0, queued: queueResult.dispatched };
-    }
-
     const pickup = getTripPickupPoint(trip);
+    const reassignmentContext = await getPassengerReassignmentContext(trip.passenger_phone);
+    const tripCreatedAtMs = new Date(trip.created_at || 0).getTime();
+    const tripElapsedMs = Number.isFinite(tripCreatedAtMs) && tripCreatedAtMs > 0
+      ? Math.max(0, Date.now() - tripCreatedAtMs)
+      : 0;
+    const searchElapsedMs = Math.max(tripElapsedMs, reassignmentContext.timeoutElapsedMs || 0);
+
     const systemFailure = isSystemFailureCancellation(trip);
-    const excludedDriverIds = systemFailure ? [] : [trip.driver_id].filter(Boolean);
+    const excludedDriverIdSet = new Set(systemFailure ? [] : [trip.driver_id].filter(Boolean));
+    for (const timeoutDriverId of reassignmentContext.timeoutCancelledDriverIds || []) {
+      excludedDriverIdSet.add(timeoutDriverId);
+    }
+    const excludedDriverIds = [...excludedDriverIdSet];
     const driver = Number.isFinite(pickup.lat) && Number.isFinite(pickup.lng)
-      ? await chooseDriver({ lat: pickup.lat, lng: pickup.lng }, { excludedDriverIds })
+      ? await chooseDriver({ lat: pickup.lat, lng: pickup.lng }, { excludedDriverIds, searchElapsedMs })
       : null;
 
     if (driver) {
@@ -3774,6 +5808,7 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
           destination_lat: pickup.lat,
           destination_lng: pickup.lng,
           status: 'pending',
+          assigned_at: new Date().toISOString(),
           notes: trip.notes || '[APPROACH_ONLY] Reasignado automáticamente.',
         })
         .select().single();
@@ -3784,10 +5819,13 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
           body: `${trip.passenger_name} → ${pickup.address}`,
           data: { type: 'new_trip', tripId: newTrip.id },
         });
-        await sendWhatsAppText(
-          trip.passenger_phone,
-          'El chofer no pudo tomar el viaje. Ya encontré otro y te aviso cuando lo acepte.'
-        ).catch(() => {});
+        schedulePendingTimeoutTimer(newTrip.id, { source: 'transition_trip_reassign_pending' });
+        await sendPassengerLifecycleFollowup({
+          phone: trip.passenger_phone,
+          text: 'El chofer no pudo tomar el viaje. Ya encontré otro y te aviso cuando lo acepte.',
+          noticeType: 'reassigned_pending',
+          relatedTripId: newTrip.id,
+        });
         logWebhook('trip_transition_reassigned', { cancelledTripId: tripId, newTripId: newTrip.id });
         const queueResult = await dispatchQueuedPassengers();
         return { confirmed: 0, reassigned: 1, queued: queueResult.dispatched };
@@ -3812,10 +5850,12 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
       })
       .select().single();
 
-    await sendWhatsAppText(
-      trip.passenger_phone,
-      'No hay choferes ahora. Te agregué a la cola — te avisamos en cuanto se libere uno 🕐'
-    ).catch(() => {});
+    await sendPassengerLifecycleFollowup({
+      phone: trip.passenger_phone,
+      text: 'No hay choferes ahora. Te agregué a la cola — te avisamos en cuanto se libere uno 🕐',
+      noticeType: 'queued_no_driver',
+      relatedTripId: queuedTrip?.id || trip.id,
+    });
     logWebhook('trip_transition_queued', { cancelledTripId: tripId, newTripId: queuedTrip?.id });
     const queueResult = await dispatchQueuedPassengers();
     return { confirmed: 0, reassigned: 0, queued: queueResult.dispatched };
@@ -4896,6 +6936,13 @@ async function processWebhookBody(body, requestMeta = {}) {
         return { status: 400, body: { success: false, error: 'tripId is required' } };
       }
 
+      const transitionStatus = normalizeText(payloadBody.status || '');
+      if (transitionStatus === 'pending') {
+        schedulePendingTimeoutTimer(tripId, { source: 'trip_transition_event' });
+      } else if (transitionStatus) {
+        clearPendingTimeoutTimer(tripId, `trip_transition_${transitionStatus}`);
+      }
+
       ensureServerConfig();
       const transitions = await processTripLifecycleTransitionsForTripId(tripId);
       return {
@@ -5343,8 +7390,8 @@ async function processPendingConversationsRequest({ authHeader = '', userAgent =
     });
 
     ensureServerConfig();
-    const pendingResult = await processPendingConversations();
     const expireResult = await expireTimedOutPendingTrips();
+    const pendingResult = await processPendingConversations();
     const transitionResult = await processTripLifecycleTransitions();
     return {
       status: 200,
@@ -5362,7 +7409,7 @@ async function processPendingConversationsRequest({ authHeader = '', userAgent =
 }
 
 function getHealthPayload() {
-  return { success: true, accumulationMs: ACCUMULATION_MS };
+  return { success: true, status: 'ok', accumulationMs: ACCUMULATION_MS };
 }
 
 async function warmPendingTimers() {
