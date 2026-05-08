@@ -24,6 +24,8 @@ const ALLOWED_PHONES = new Set(['5493878630173']);
 const IS_SERVERLESS = Boolean(process.env.VERCEL);
 const IMMEDIATE_PROCESSING =
   (process.env.WHATSAPP_IMMEDIATE_PROCESSING || '').toLowerCase() === 'true';
+const SUPABASE_DISPATCH_ONLY =
+  (process.env.WHATSAPP_SUPABASE_DISPATCH_ONLY || 'true').toLowerCase() !== 'false';
 
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 const OPEN_TRIP_STATUSES = ['queued', 'pending', ...ACTIVE_TRIP_STATUSES];
@@ -67,11 +69,36 @@ const DRIVER_WHATSAPP_NOTIFY_MIN_INTERVAL_MS = Math.max(
 const ENABLE_PENDING_TIMEOUT_TIMER =
   process.env.NODE_ENV !== 'test' &&
   (process.env.WHATSAPP_ENABLE_PENDING_TIMEOUT_TIMER || 'true').toLowerCase() !== 'false';
+const PUSH_NOTIFICATIONS_ENABLED =
+  (process.env.WHATSAPP_PUSH_ENABLED || 'true').toLowerCase() !== 'false';
+const QUEUE_DISPATCH_LOCK_SECONDS = Math.max(
+  10,
+  Number(process.env.WHATSAPP_QUEUE_LOCK_SECONDS || 25) || 25
+);
+const QUEUE_DISPATCH_RETRY_SECONDS = Math.max(
+  3,
+  Number(process.env.WHATSAPP_QUEUE_RETRY_SECONDS || 12) || 12
+);
+const QUEUE_DISPATCH_NOTIFY_FAIL_RETRY_SECONDS = Math.max(
+  QUEUE_DISPATCH_RETRY_SECONDS,
+  Number(process.env.WHATSAPP_QUEUE_NOTIFY_FAIL_RETRY_SECONDS || 45) || 45
+);
+const PUSH_PROVIDER_BACKOFF_MS = Math.max(
+  60 * 1000,
+  Number(process.env.WHATSAPP_PUSH_PROVIDER_BACKOFF_MS || 10 * 60 * 1000) || 10 * 60 * 1000
+);
+const QUEUE_DISPATCH_WORKER_ID = [
+  process.env.VERCEL_REGION || 'local',
+  process.env.VERCEL_ENV || process.env.NODE_ENV || 'dev',
+  process.pid || 'pid',
+].join(':');
 
 let warmed = false;
 let supabaseClient = null;
 let openaiClient = null;
 let knowledgeSupabaseClient = null;
+let queueDispatchRpcAvailable = null;
+let pushProviderBackoffUntil = 0;
 let globalAddressKnowledgeCache = {
   expiresAt: 0,
   addresses: [],
@@ -1599,6 +1626,192 @@ function summarizeDbError(error) {
     details: error.details || null,
     hint: error.hint || null,
   };
+}
+
+function isMissingRpcFunctionError(error) {
+  const code = String(error?.code || '').toUpperCase();
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    code === 'PGRST202' ||
+    message.includes('could not find the function') ||
+    message.includes('claim_trip_queue_item') ||
+    message.includes('release_trip_queue_item')
+  );
+}
+
+async function claimTripQueueLock(trip) {
+  const tripId = trip?.id;
+  if (!tripId) {
+    return { claimed: false, lockToken: null, reason: 'missing_trip_id' };
+  }
+
+  if (queueDispatchRpcAvailable === false) {
+    return { claimed: true, lockToken: null, reason: 'fallback_rpc_disabled' };
+  }
+
+  const { data, error } = await getSupabase().rpc('claim_trip_queue_item', {
+    p_trip_id: tripId,
+    p_worker: QUEUE_DISPATCH_WORKER_ID,
+    p_lock_seconds: QUEUE_DISPATCH_LOCK_SECONDS,
+  });
+
+  if (error) {
+    if (isMissingRpcFunctionError(error)) {
+      queueDispatchRpcAvailable = false;
+      logWebhook('queue_dispatch_lock_rpc_missing', {
+        tripId,
+        error: summarizeDbError(error),
+      });
+      return { claimed: true, lockToken: null, reason: 'fallback_rpc_missing' };
+    }
+
+    logWebhook('queue_dispatch_lock_error', {
+      tripId,
+      error: summarizeDbError(error),
+    });
+    return { claimed: true, lockToken: null, reason: 'fallback_rpc_error' };
+  }
+
+  queueDispatchRpcAvailable = true;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || typeof row.claimed !== 'boolean') {
+    logWebhook('queue_dispatch_lock_rpc_unexpected', { tripId });
+    return { claimed: true, lockToken: null, reason: 'fallback_rpc_unexpected' };
+  }
+
+  return {
+    claimed: Boolean(row.claimed),
+    lockToken: row.lock_token || null,
+    reason: row.reason || (row.claimed ? 'claimed' : 'not_available'),
+  };
+}
+
+async function releaseTripQueueLock(
+  tripId,
+  lockToken,
+  { result = 'retry', retrySeconds = QUEUE_DISPATCH_RETRY_SECONDS, errorMessage = null } = {}
+) {
+  if (!tripId || !lockToken) return false;
+  if (queueDispatchRpcAvailable === false) return false;
+
+  const normalizedResult = ['retry', 'done', 'drop'].includes(String(result || '').toLowerCase())
+    ? String(result || '').toLowerCase()
+    : 'retry';
+  const safeRetrySeconds = Math.max(1, Math.round(Number(retrySeconds) || QUEUE_DISPATCH_RETRY_SECONDS));
+
+  const { data, error } = await getSupabase().rpc('release_trip_queue_item', {
+    p_trip_id: tripId,
+    p_lock_token: lockToken,
+    p_result: normalizedResult,
+    p_retry_seconds: safeRetrySeconds,
+    p_error: errorMessage ? String(errorMessage).slice(0, 400) : null,
+  });
+
+  if (error) {
+    if (isMissingRpcFunctionError(error)) {
+      queueDispatchRpcAvailable = false;
+      logWebhook('queue_dispatch_release_rpc_missing', {
+        tripId,
+        error: summarizeDbError(error),
+      });
+      return false;
+    }
+
+    logWebhook('queue_dispatch_release_error', {
+      tripId,
+      result: normalizedResult,
+      error: summarizeDbError(error),
+    });
+    return false;
+  }
+
+  queueDispatchRpcAvailable = true;
+  return Boolean(data);
+}
+
+async function postponeTripQueueRetry(tripId, retrySeconds, reason = 'retry') {
+  if (!tripId) return false;
+
+  const safeRetrySeconds = Math.max(1, Math.round(Number(retrySeconds) || QUEUE_DISPATCH_RETRY_SECONDS));
+  const retryAt = new Date(Date.now() + safeRetrySeconds * 1000).toISOString();
+  const queueTableConfigs = [
+    {
+      tableName: 'dispatch_queue',
+      payload: {
+        queue_status: 'queued',
+        lock_token: null,
+        lock_owner: null,
+        lock_acquired_at: null,
+        lock_expires_at: null,
+        next_attempt_at: retryAt,
+        last_error: String(reason || 'retry').slice(0, 400),
+      },
+    },
+    {
+      tableName: 'trip_dispatch_queue',
+      payload: {
+        queue_status: 'queued',
+        lock_token: null,
+        locked_by: null,
+        locked_at: null,
+        lock_expires_at: null,
+        next_attempt_at: retryAt,
+        last_error: String(reason || 'retry').slice(0, 400),
+      },
+    },
+  ];
+
+  let missingTableCount = 0;
+  for (const config of queueTableConfigs) {
+    const { tableName, payload } = config;
+    const { data, error } = await getSupabase()
+      .from(tableName)
+      .update(payload)
+      .eq('trip_id', tripId)
+      .select('trip_id');
+
+    if (error) {
+      const message = String(error?.message || '').toLowerCase();
+      const tableMissing = message.includes(tableName) && message.includes('does not exist');
+      if (tableMissing) {
+        missingTableCount += 1;
+        continue;
+      }
+
+      // Si la estructura no coincide (rolling deploy), probamos la siguiente tabla de compatibilidad.
+      const schemaMismatch =
+        message.includes('column') &&
+        (message.includes('lock_owner') || message.includes('lock_acquired_at') || message.includes('locked_by') || message.includes('locked_at'));
+      if (schemaMismatch) {
+        continue;
+      }
+
+      logWebhook('queue_dispatch_postpone_error', {
+        tripId,
+        tableName,
+        retrySeconds: safeRetrySeconds,
+        reason,
+        error: summarizeDbError(error),
+      });
+      return false;
+    }
+
+    if (data?.length) {
+      logWebhook('queue_dispatch_postponed', {
+        tripId,
+        tableName,
+        retrySeconds: safeRetrySeconds,
+        reason,
+      });
+    }
+    return Boolean(data?.length);
+  }
+
+  if (missingTableCount === queueTableConfigs.length) {
+    return false;
+  }
+
+  return false;
 }
 
 function isAuthorizedPhone(phone) {
@@ -3601,6 +3814,77 @@ async function getPassengerReassignmentContext(phone) {
   };
 }
 
+function getTripDispatchExcludedDriverIds(waContext) {
+  const context = safeJsonParse(waContext, {});
+  const excluded = Array.isArray(context?.dispatch_excluded_driver_ids)
+    ? context.dispatch_excluded_driver_ids
+    : [];
+  const normalized = [];
+  for (const value of excluded) {
+    const id = String(value || '').trim();
+    if (!id || normalized.includes(id)) continue;
+    normalized.push(id);
+  }
+  return normalized;
+}
+
+async function addTripDispatchExcludedDriverId(tripId, driverId, reason = 'unknown') {
+  if (!tripId || !driverId) return false;
+
+  const { data: tripRow, error: readError } = await getSupabase()
+    .from('trips')
+    .select('wa_context')
+    .eq('id', tripId)
+    .maybeSingle();
+
+  if (readError) {
+    logWebhook('trip_dispatch_excluded_driver_read_error', {
+      tripId,
+      driverId,
+      reason,
+      error: summarizeDbError(readError),
+    });
+    return false;
+  }
+
+  const waContext = safeJsonParse(tripRow?.wa_context, {});
+  const previousExcluded = getTripDispatchExcludedDriverIds(waContext);
+  if (previousExcluded.includes(driverId)) {
+    return true;
+  }
+
+  const updatedExcluded = [...previousExcluded, driverId];
+  const updatedContext = {
+    ...waContext,
+    dispatch_excluded_driver_ids: updatedExcluded,
+    dispatch_last_notify_fail_reason: String(reason || 'unknown').slice(0, 140),
+    dispatch_last_excluded_at: new Date().toISOString(),
+  };
+
+  const { error: updateError } = await getSupabase()
+    .from('trips')
+    .update({ wa_context: updatedContext })
+    .eq('id', tripId);
+
+  if (updateError) {
+    logWebhook('trip_dispatch_excluded_driver_update_error', {
+      tripId,
+      driverId,
+      reason,
+      error: summarizeDbError(updateError),
+    });
+    return false;
+  }
+
+  logWebhook('trip_dispatch_excluded_driver_added', {
+    tripId,
+    driverId,
+    reason,
+    excludedCount: updatedExcluded.length,
+  });
+  return true;
+}
+
 function getTripPickupPoint(trip) {
   return {
     address: trip?.destination_address || null,
@@ -4529,8 +4813,14 @@ async function getDriverReliabilityPenaltyMap(driverIds) {
 
 async function chooseDriver(
   origin,
-  { excludedDriverIds = [], searchElapsedMs = 0, allowExclusionRelaxation = true } = {}
+  {
+    excludedDriverIds = [],
+    searchElapsedMs = 0,
+    allowExclusionRelaxation = true,
+    passengerPhone = null,
+  } = {}
 ) {
+  const passengerPhoneNormalized = normalizePhone(passengerPhone || '');
   const searchPlan = buildDynamicSearchRadii(searchElapsedMs);
   logWebhook('driver_select_start', {
     originLat: origin?.lat,
@@ -4539,6 +4829,7 @@ async function chooseDriver(
     expansionStep: searchPlan.expansionStep,
     allowedRadiiKm: searchPlan.allowedRadiiKm,
     allowExclusionRelaxation,
+    passengerPhone: passengerPhoneNormalized ? maskPhone(passengerPhoneNormalized) : null,
   });
   const { data: drivers, error } = await getSupabase()
     .from('drivers')
@@ -4549,6 +4840,29 @@ async function chooseDriver(
   const availableDrivers = (drivers || []).filter((driver) => driver.current_lat && driver.current_lng);
   if (availableDrivers.length === 0) {
     logWebhook('driver_select_no_available_coords', { totalAvailableFlagged: (drivers || []).length });
+    return null;
+  }
+
+  const samePhoneFilteredDrivers = passengerPhoneNormalized
+    ? availableDrivers.filter((driver) => normalizePhone(driver?.phone || '') === passengerPhoneNormalized)
+    : [];
+  const availableDriversForDispatch = passengerPhoneNormalized
+    ? availableDrivers.filter((driver) => normalizePhone(driver?.phone || '') !== passengerPhoneNormalized)
+    : availableDrivers;
+
+  if (samePhoneFilteredDrivers.length > 0) {
+    logWebhook('driver_select_skip_same_phone', {
+      passengerPhone: maskPhone(passengerPhoneNormalized),
+      skippedDrivers: samePhoneFilteredDrivers.length,
+    });
+  }
+
+  if (availableDriversForDispatch.length === 0) {
+    logWebhook('driver_select_no_available_after_same_phone_filter', {
+      totalAvailableFlagged: (drivers || []).length,
+      availableWithCoords: availableDrivers.length,
+      samePhoneSkipped: samePhoneFilteredDrivers.length,
+    });
     return null;
   }
 
@@ -4579,7 +4893,7 @@ async function chooseDriver(
   }
 
   const excludedDriverIdSet = new Set((excludedDriverIds || []).filter(Boolean));
-  const nonBusyDrivers = availableDrivers.filter((driver) => !busyDriverIds.has(driver.id));
+  const nonBusyDrivers = availableDriversForDispatch.filter((driver) => !busyDriverIds.has(driver.id));
   let candidateDrivers = nonBusyDrivers.filter((driver) => !excludedDriverIdSet.has(driver.id));
   let exclusionsRelaxed = false;
 
@@ -4598,7 +4912,8 @@ async function chooseDriver(
       candidateDrivers = nonBusyDrivers;
       exclusionsRelaxed = true;
       logWebhook('driver_select_exclusions_relaxed', {
-        availableWithCoords: availableDrivers.length,
+        availableWithCoords: availableDriversForDispatch.length,
+        samePhoneSkipped: samePhoneFilteredDrivers.length,
         nonBusyCount: nonBusyDrivers.length,
         excludedCount: excludedDriverIdSet.size,
       });
@@ -4612,7 +4927,8 @@ async function chooseDriver(
     excludedDriverIdSet.size > 0
   ) {
     logWebhook('driver_select_exclusions_kept', {
-      availableWithCoords: availableDrivers.length,
+      availableWithCoords: availableDriversForDispatch.length,
+      samePhoneSkipped: samePhoneFilteredDrivers.length,
       nonBusyCount: nonBusyDrivers.length,
       excludedCount: excludedDriverIdSet.size,
     });
@@ -4620,7 +4936,8 @@ async function chooseDriver(
 
   if (candidateDrivers.length === 0) {
     logWebhook('driver_select_all_busy', {
-      availableWithCoords: availableDrivers.length,
+      availableWithCoords: availableDriversForDispatch.length,
+      samePhoneSkipped: samePhoneFilteredDrivers.length,
       busyCount: busyDriverIds.size,
       stalePendingIgnored: ignoredStalePending,
       excludedCount: excludedDriverIdSet.size,
@@ -4684,7 +5001,8 @@ async function chooseDriver(
         expansionStep: searchPlan.expansionStep,
         allowedRadiiKm: searchPlan.allowedRadiiKm,
         totalAvailable: (drivers || []).length,
-        availableWithCoords: availableDrivers.length,
+        availableWithCoords: availableDriversForDispatch.length,
+        samePhoneSkipped: samePhoneFilteredDrivers.length,
         busyCount: busyDriverIds.size,
         blockedCount: blockedDriverIds.size,
         finalCandidates: finalCandidates.length,
@@ -4716,6 +5034,8 @@ async function chooseDriver(
     expansionStep: searchPlan.expansionStep,
     allowedRadiiKm: searchPlan.allowedRadiiKm,
     totalAvailable: (drivers || []).length,
+    availableWithCoords: availableDriversForDispatch.length,
+    samePhoneSkipped: samePhoneFilteredDrivers.length,
     finalCandidates: finalCandidates.length,
     closestDriverKm: withDistance[0]?.distanceToOriginKm
       ? Math.round(withDistance[0].distanceToOriginKm * 10) / 10
@@ -4729,6 +5049,16 @@ async function chooseDriver(
 }
 
 async function sendPushNotification(pushToken, payload) {
+  if (pushProviderBackoffUntil > Date.now()) {
+    const retryAfterMs = Math.max(0, pushProviderBackoffUntil - Date.now());
+    logWebhook('push_notification_skipped', {
+      reason: 'push_provider_backoff',
+      title: payload?.title,
+      retryAfterMs,
+    });
+    return { ok: false, reason: 'push_provider_backoff', retryAfterMs };
+  }
+
   const token = String(pushToken || '').trim();
   if (!token) {
     logWebhook('push_notification_skipped', { reason: 'no_push_token', title: payload.title });
@@ -4836,9 +5166,33 @@ async function sendPushNotification(pushToken, payload) {
     const ticket = Array.isArray(result?.data) ? result.data[0] : result?.data;
     const ticketStatus = ticket?.status || null;
     const ticketError = ticket?.details?.error || ticket?.message || null;
+    const ticketErrorNormalized = String(ticketError || '').toLowerCase();
+    const rawResultText = JSON.stringify(result || {}).toLowerCase();
     const deviceNotRegistered = ticketError === 'DeviceNotRegistered';
+    const invalidCredentials =
+      ticketErrorNormalized.includes('invalidcredentials') ||
+      ticketErrorNormalized.includes('invalid_credentials') ||
+      rawResultText.includes('unable to retrieve the fcm server key') ||
+      rawResultText.includes('fcm server key');
 
     if (!response.ok || ticketStatus === 'error') {
+      if (invalidCredentials) {
+        pushProviderBackoffUntil = Date.now() + PUSH_PROVIDER_BACKOFF_MS;
+        logWebhook('push_notification_provider_invalid_credentials', {
+          httpStatus: response.status,
+          ticketStatus,
+          ticketError: ticketError || null,
+          backoffMs: PUSH_PROVIDER_BACKOFF_MS,
+        });
+        return {
+          ok: false,
+          reason: 'push_invalid_credentials',
+          ticketStatus,
+          ticketError,
+          backoffMs: PUSH_PROVIDER_BACKOFF_MS,
+        };
+      }
+
       logWebhook('push_notification_error', {
         httpStatus: response.status,
         ticketStatus,
@@ -4869,8 +5223,16 @@ async function sendPushNotification(pushToken, payload) {
  * cae automáticamente a enviar un WhatsApp desde la cuenta de la empresa.
  */
 async function notifyDriver(driver, { title, body, data } = {}) {
-  let pushResult = { ok: false, reason: 'no_push_token' };
-  if (driver?.push_token) {
+  let pushResult = { ok: false, reason: PUSH_NOTIFICATIONS_ENABLED ? 'no_push_token' : 'push_disabled' };
+  if (!PUSH_NOTIFICATIONS_ENABLED && driver?.push_token) {
+    logWebhook('push_notification_skipped', {
+      reason: 'push_disabled_env',
+      driverId: driver?.id || null,
+      title,
+    });
+  }
+
+  if (PUSH_NOTIFICATIONS_ENABLED && driver?.push_token) {
     pushResult = await sendPushNotification(driver.push_token, { title, body, data });
   }
 
@@ -5217,7 +5579,10 @@ async function createTripFromConversation({ conversation, extracted }) {
 
   const driver = await chooseDriver(
     { lat: pickupLocation.lat, lng: pickupLocation.lng },
-    { searchElapsedMs: 0 }
+    {
+      searchElapsedMs: 0,
+      passengerPhone: conversation?.phone || null,
+    }
   );
   if (!driver) {
     logWebhook('trip_create_no_driver', {
@@ -5475,11 +5840,18 @@ async function createTripFromConversation({ conversation, extracted }) {
  * Orden: FIFO (el pasajero que lleva más tiempo esperando tiene prioridad).
  */
 async function dispatchQueuedPassengers() {
+  if (SUPABASE_DISPATCH_ONLY) {
+    logWebhook('queue_dispatch_skipped', {
+      reason: 'supabase_dispatch_only',
+    });
+    return { dispatched: 0, skipped: true };
+  }
+
   logWebhook('queue_dispatch_start');
 
   const { data: queuedTrips, error } = await getSupabase()
     .from('trips')
-    .select('id, passenger_name, passenger_phone, destination_address, destination_lat, destination_lng, notes, created_at')
+    .select('id, passenger_name, passenger_phone, destination_address, destination_lat, destination_lng, notes, wa_context, created_at')
     .eq('status', 'queued')
     .order('created_at', { ascending: true }); // FIFO: el más antiguo primero
 
@@ -5505,143 +5877,229 @@ async function dispatchQueuedPassengers() {
   let dispatched = 0;
 
   for (const [phone, trip] of oldestByPhone) {
-    const pickupLat = Number(trip.destination_lat);
-    const pickupLng = Number(trip.destination_lng);
-
-    if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) {
-      logWebhook('queue_dispatch_skip_no_coords', { tripId: trip.id, phone: maskPhone(phone) });
+    const lockClaim = await claimTripQueueLock(trip);
+    if (!lockClaim?.claimed) {
+      logWebhook('queue_dispatch_lock_skipped', {
+        tripId: trip.id,
+        phone: maskPhone(phone),
+        reason: lockClaim?.reason || 'not_claimed',
+      });
       continue;
     }
 
-    // Verificar zona de servicio
-    const inZone = await isPickupInServiceZone(pickupLat, pickupLng);
-    if (!inZone) {
-      logWebhook('queue_dispatch_outside_zone', { tripId: trip.id, pickupLat, pickupLng });
-      const { data: cancelledRows, error: outsideZoneUpdateErr } = await getSupabase()
-        .from('trips')
-        .update({
-          status: 'cancelled',
-          cancel_reason: 'Zona sin cobertura',
-          wa_notified_at: new Date().toISOString(),
-        })
-        .eq('id', trip.id)
-        .eq('status', 'queued')
-        .select('id');
+    const queueLockToken = lockClaim?.lockToken || null;
+    const releaseQueueLock = async (
+      { result = 'retry', retrySeconds = QUEUE_DISPATCH_RETRY_SECONDS, errorMessage = null } = {}
+    ) => {
+      if (queueLockToken) {
+        await releaseTripQueueLock(trip.id, queueLockToken, {
+          result,
+          retrySeconds,
+          errorMessage,
+        });
+        return;
+      }
 
-      if (outsideZoneUpdateErr) {
-        logWebhook('queue_dispatch_outside_zone_update_error', {
-          tripId: trip.id,
-          error: summarizeDbError(outsideZoneUpdateErr),
+      if (String(result || '').toLowerCase() === 'retry') {
+        await postponeTripQueueRetry(trip.id, retrySeconds, errorMessage || 'retry');
+      }
+    };
+
+    try {
+      const pickupLat = Number(trip.destination_lat);
+      const pickupLng = Number(trip.destination_lng);
+
+      if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) {
+        logWebhook('queue_dispatch_skip_no_coords', { tripId: trip.id, phone: maskPhone(phone) });
+        await releaseQueueLock({
+          result: 'retry',
+          retrySeconds: 90,
+          errorMessage: 'missing_pickup_coordinates',
         });
         continue;
       }
 
-      if (!cancelledRows?.length) {
-        logWebhook('queue_dispatch_outside_zone_claim_lost', { tripId: trip.id });
+      // Verificar zona de servicio
+      const inZone = await isPickupInServiceZone(pickupLat, pickupLng);
+      if (!inZone) {
+        logWebhook('queue_dispatch_outside_zone', { tripId: trip.id, pickupLat, pickupLng });
+        const { data: cancelledRows, error: outsideZoneUpdateErr } = await getSupabase()
+          .from('trips')
+          .update({
+            status: 'cancelled',
+            cancel_reason: 'Zona sin cobertura',
+            wa_notified_at: new Date().toISOString(),
+          })
+          .eq('id', trip.id)
+          .eq('status', 'queued')
+          .select('id');
+
+        if (outsideZoneUpdateErr) {
+          logWebhook('queue_dispatch_outside_zone_update_error', {
+            tripId: trip.id,
+            error: summarizeDbError(outsideZoneUpdateErr),
+          });
+          await releaseQueueLock({
+            result: 'retry',
+            retrySeconds: 60,
+            errorMessage: 'outside_zone_update_error',
+          });
+          continue;
+        }
+
+        if (!cancelledRows?.length) {
+          logWebhook('queue_dispatch_outside_zone_claim_lost', { tripId: trip.id });
+          await releaseQueueLock({ result: 'done', errorMessage: 'outside_zone_claim_lost' });
+          continue;
+        }
+
+        await sendWhatsAppText(
+          phone,
+          'Disculpá, tu dirección de retiro está fuera de nuestras zonas de cobertura. Si tenés otra dirección dentro de Salta Capital, avisanos. 🙏'
+        ).catch(() => {});
+
+        await releaseQueueLock({ result: 'done', errorMessage: 'outside_zone_cancelled' });
         continue;
       }
 
-      await sendWhatsAppText(
-        phone,
-        'Disculpá, tu dirección de retiro está fuera de nuestras zonas de cobertura. Si tenés otra dirección dentro de Salta Capital, avisanos. 🙏'
+      const queueCreatedAtMs = new Date(trip.created_at || 0).getTime();
+      const queueElapsedMs = Number.isFinite(queueCreatedAtMs) && queueCreatedAtMs > 0
+        ? Math.max(0, Date.now() - queueCreatedAtMs)
+        : 0;
+
+      const reassignmentContext = await getPassengerReassignmentContext(phone);
+      const contextExcludedDriverIds = getTripDispatchExcludedDriverIds(trip?.wa_context);
+      const excludedDriverIdSet = new Set([
+        ...(reassignmentContext.timeoutCancelledDriverIds || []),
+        ...contextExcludedDriverIds,
+      ]);
+      const searchElapsedMs = Math.max(queueElapsedMs, reassignmentContext.timeoutElapsedMs || 0);
+
+      const driver = await chooseDriver(
+        { lat: pickupLat, lng: pickupLng },
+        {
+          excludedDriverIds: [...excludedDriverIdSet],
+          searchElapsedMs,
+          allowExclusionRelaxation: false,
+          passengerPhone: trip.passenger_phone || phone,
+        }
       );
-      continue;
-    }
-
-    const queueCreatedAtMs = new Date(trip.created_at || 0).getTime();
-    const queueElapsedMs = Number.isFinite(queueCreatedAtMs) && queueCreatedAtMs > 0
-      ? Math.max(0, Date.now() - queueCreatedAtMs)
-      : 0;
-
-    const reassignmentContext = await getPassengerReassignmentContext(phone);
-    const searchElapsedMs = Math.max(queueElapsedMs, reassignmentContext.timeoutElapsedMs || 0);
-
-    const driver = await chooseDriver(
-      { lat: pickupLat, lng: pickupLng },
-      {
-        excludedDriverIds: reassignmentContext.timeoutCancelledDriverIds || [],
-        searchElapsedMs,
-        allowExclusionRelaxation: false,
+      if (!driver) {
+        logWebhook('queue_dispatch_no_driver', { tripId: trip.id });
+        await releaseQueueLock({
+          result: 'retry',
+          retrySeconds: QUEUE_DISPATCH_RETRY_SECONDS,
+          errorMessage: 'no_driver_available',
+        });
+        continue; // sigue en cola
       }
-    );
-    if (!driver) {
-      logWebhook('queue_dispatch_no_driver', { tripId: trip.id });
-      continue; // sigue en cola
-    }
 
-    const driverLat = Number(driver.current_lat);
-    const driverLng = Number(driver.current_lng);
-    const driverOriginAddress = await reverseGeocodeLatLng(driverLat, driverLng).catch(
-      () => `${driverLat.toFixed(5)}, ${driverLng.toFixed(5)}`
-    );
+      const driverLat = Number(driver.current_lat);
+      const driverLng = Number(driver.current_lng);
+      const driverOriginAddress = await reverseGeocodeLatLng(driverLat, driverLng).catch(
+        () => `${driverLat.toFixed(5)}, ${driverLng.toFixed(5)}`
+      );
 
-    // Actualizar el viaje en cola con el chofer — la fila persiste, solo cambia el estado
-    const assignedAt = new Date().toISOString();
-    const { data: claimedRows, error: updateErr } = await getSupabase()
-      .from('trips')
-      .update({
-        driver_id: driver.id,
-        origin_address: driverOriginAddress,
-        origin_lat: driverLat,
-        origin_lng: driverLng,
-        status: 'pending',
-        assigned_at: assignedAt,
-      })
-      .eq('id', trip.id)
-      .eq('status', 'queued')
-      .select('id'); // guard contra race condition
+      // Actualizar el viaje en cola con el chofer — la fila persiste, solo cambia el estado
+      const assignedAt = new Date().toISOString();
+      const { data: claimedRows, error: updateErr } = await getSupabase()
+        .from('trips')
+        .update({
+          driver_id: driver.id,
+          origin_address: driverOriginAddress,
+          origin_lat: driverLat,
+          origin_lng: driverLng,
+          status: 'pending',
+          assigned_at: assignedAt,
+        })
+        .eq('id', trip.id)
+        .eq('status', 'queued')
+        .select('id'); // guard contra race condition
 
-    if (updateErr) {
-      logWebhook('queue_dispatch_update_error', { tripId: trip.id, error: summarizeDbError(updateErr) });
-      continue;
-    }
+      if (updateErr) {
+        logWebhook('queue_dispatch_update_error', { tripId: trip.id, error: summarizeDbError(updateErr) });
+        await releaseQueueLock({
+          result: 'retry',
+          retrySeconds: QUEUE_DISPATCH_RETRY_SECONDS,
+          errorMessage: 'trip_update_error',
+        });
+        continue;
+      }
 
-    if (!claimedRows?.length) {
-      logWebhook('queue_dispatch_claim_lost', { tripId: trip.id, driverId: driver.id });
-      continue;
-    }
+      if (!claimedRows?.length) {
+        logWebhook('queue_dispatch_claim_lost', { tripId: trip.id, driverId: driver.id });
+        await releaseQueueLock({ result: 'done', errorMessage: 'trip_claim_lost' });
+        continue;
+      }
 
-    const notifyResult = await notifyDriver(driver, {
-      title: 'Nuevo viaje asignado',
-      body: `${trip.passenger_name} → ${trip.destination_address}`,
-      data: {
-        type: 'new_trip',
-        tripId: trip.id,
-        passengerPhone: trip.passenger_phone || phone,
-        trip: {
-          id: trip.id,
-          passenger_name: trip.passenger_name,
-          passenger_phone: trip.passenger_phone || phone,
-          destination_address: trip.destination_address,
+      const notifyResult = await notifyDriver(driver, {
+        title: 'Nuevo viaje asignado',
+        body: `${trip.passenger_name} → ${trip.destination_address}`,
+        data: {
+          type: 'new_trip',
+          tripId: trip.id,
+          passengerPhone: trip.passenger_phone || phone,
+          trip: {
+            id: trip.id,
+            passenger_name: trip.passenger_name,
+            passenger_phone: trip.passenger_phone || phone,
+            destination_address: trip.destination_address,
+          },
         },
-      },
-    });
-
-    if (!notifyResult?.ok) {
-      await requeuePendingTripAfterNotifyFailure(trip.id, {
-        source: 'queue_dispatch_pending',
-        driverId: driver.id,
-        notifyReason: notifyResult?.reason || 'unknown',
       });
-      logWebhook('queue_dispatch_notify_failed_requeued', {
+
+      if (!notifyResult?.ok) {
+        const notifyReason = String(notifyResult?.reason || 'unknown');
+        const shouldExcludeDriver =
+          Boolean(driver?.id) &&
+          (notifyReason === 'driver_phone_matches_passenger' || notifyReason === 'no_driver_channel');
+
+        if (shouldExcludeDriver) {
+          await addTripDispatchExcludedDriverId(trip.id, driver.id, `notify_fail:${notifyReason}`);
+        }
+
+        await requeuePendingTripAfterNotifyFailure(trip.id, {
+          source: 'queue_dispatch_pending',
+          driverId: driver.id,
+          notifyReason,
+        });
+        logWebhook('queue_dispatch_notify_failed_requeued', {
+          tripId: trip.id,
+          phone: maskPhone(phone),
+          driverId: driver.id,
+          notifyReason,
+          channel: notifyResult?.channel || null,
+        });
+        await releaseQueueLock({
+          result: 'retry',
+          retrySeconds: QUEUE_DISPATCH_NOTIFY_FAIL_RETRY_SECONDS,
+          errorMessage: `notify_failed:${notifyReason}`,
+        });
+        continue;
+      }
+
+      schedulePendingTimeoutTimer(trip.id, { source: 'queue_dispatch_pending' });
+
+      // NO se notifica al pasajero aquí — el chofer aún no aceptó.
+      // La confirmación con ETA y datos del chofer se envía en
+      // processTripLifecycleTransitions (Parte A) cuando el status
+      // pasa a 'accepted', usando buildPassengerDriverConfirmationMessage.
+
+      dispatched++;
+      logWebhook('queue_dispatch_ok', { tripId: trip.id, phone: maskPhone(phone), driverId: driver.id });
+      await releaseQueueLock({ result: 'done', errorMessage: null });
+    } catch (error) {
+      logWebhook('queue_dispatch_trip_error', {
         tripId: trip.id,
         phone: maskPhone(phone),
-        driverId: driver.id,
-        notifyReason: notifyResult?.reason || 'unknown',
-        channel: notifyResult?.channel || null,
+        error: error?.message || 'unknown',
       });
-      continue;
+      await releaseQueueLock({
+        result: 'retry',
+        retrySeconds: QUEUE_DISPATCH_RETRY_SECONDS,
+        errorMessage: error?.message || 'unexpected_queue_dispatch_error',
+      });
     }
-
-    schedulePendingTimeoutTimer(trip.id, { source: 'queue_dispatch_pending' });
-
-    // NO se notifica al pasajero aquí — el chofer aún no aceptó.
-    // La confirmación con ETA y datos del chofer se envía en
-    // processTripLifecycleTransitions (Parte A) cuando el status
-    // pasa a 'accepted', usando buildPassengerDriverConfirmationMessage.
-
-    dispatched++;
-    logWebhook('queue_dispatch_ok', { tripId: trip.id, phone: maskPhone(phone), driverId: driver.id });
   }
 
   logWebhook('queue_dispatch_done', { dispatched, total: oldestByPhone.size });
@@ -5921,6 +6379,7 @@ async function processTripLifecycleTransitions() {
           excludedDriverIds,
           searchElapsedMs,
           allowExclusionRelaxation: false,
+          passengerPhone: trip.passenger_phone || null,
         }
       );
 
@@ -6120,6 +6579,7 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
           excludedDriverIds,
           searchElapsedMs,
           allowExclusionRelaxation: false,
+          passengerPhone: trip.passenger_phone || null,
         }
       )
       : null;
@@ -7253,6 +7713,25 @@ async function processWebhookBody(body, requestMeta = {}) {
       }
 
       const transitionStatus = normalizeText(payloadBody.status || '');
+
+      if (SUPABASE_DISPATCH_ONLY) {
+        logWebhook('trip_transition_ignored', {
+          tripId,
+          status: transitionStatus || null,
+          reason: 'supabase_dispatch_only',
+        });
+        return {
+          status: 200,
+          body: {
+            success: true,
+            ignored: true,
+            reason: 'supabase_dispatch_only',
+            event: 'trip.transition',
+            tripId,
+          },
+        };
+      }
+
       if (transitionStatus === 'pending') {
         schedulePendingTimeoutTimer(tripId, { source: 'trip_transition_event' });
       } else if (transitionStatus) {
@@ -7722,9 +8201,19 @@ async function processPendingConversationsRequest({ authHeader = '', userAgent =
     });
 
     ensureServerConfig();
-    const expireResult = await expireTimedOutPendingTrips();
+    const expireResult = SUPABASE_DISPATCH_ONLY
+      ? { expired: 0, skipped: true, reason: 'supabase_dispatch_only' }
+      : await expireTimedOutPendingTrips();
     const pendingResult = await processPendingConversations();
-    const transitionResult = await processTripLifecycleTransitions();
+    const transitionResult = SUPABASE_DISPATCH_ONLY
+      ? {
+        confirmed: 0,
+        reassigned: 0,
+        queued: 0,
+        skipped: true,
+        reason: 'supabase_dispatch_only',
+      }
+      : await processTripLifecycleTransitions();
     return {
       status: 200,
       body: {

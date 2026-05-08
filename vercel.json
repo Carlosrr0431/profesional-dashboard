@@ -6,6 +6,10 @@
     {
       "path": "/api/Agente_IA",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/dispatch-worker",
+      "schedule": "* * * * *"
     }
   ]
 }
