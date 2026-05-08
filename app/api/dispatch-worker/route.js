@@ -28,9 +28,13 @@ const DISPATCH_NOTIFY_FAIL_RETRY_SECONDS = Math.max(
   DISPATCH_RETRY_SECONDS,
   Math.round(Number(process.env.DISPATCH_WORKER_NOTIFY_FAIL_RETRY_SECONDS || 45) || 45)
 );
+const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 180 * 1000;
 const PENDING_ACCEPT_TIMEOUT_MS = Math.max(
   10 * 1000,
-  Math.round(Number(process.env.WHATSAPP_PENDING_ACCEPT_TIMEOUT_MS || 15 * 1000) || 15 * 1000)
+  Math.round(
+    Number(process.env.WHATSAPP_PENDING_ACCEPT_TIMEOUT_MS || DEFAULT_PENDING_ACCEPT_TIMEOUT_MS)
+      || DEFAULT_PENDING_ACCEPT_TIMEOUT_MS
+  )
 );
 
 const DRIVER_BUSY_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
@@ -45,6 +49,7 @@ const DISPATCH_VERBOSE_LOGS =
   (process.env.DISPATCH_WORKER_VERBOSE_LOGS || 'true').toLowerCase() !== 'false';
 
 let supabaseAdmin = null;
+let pushCredentialsInvalid = false;
 
 function logWorker(stage, meta = {}) {
   try {
@@ -67,6 +72,15 @@ function summarizeDbError(error) {
     details: error.details || null,
     hint: error.hint || null,
   };
+}
+
+function isPushCredentialsIssue(reason) {
+  const normalized = String(reason || '').toLowerCase();
+  return (
+    normalized.includes('invalidcredentials') ||
+    normalized.includes('invalid_credentials') ||
+    normalized.includes('mismatchsenderid')
+  );
 }
 
 function normalizePhone(phone) {
@@ -507,24 +521,45 @@ async function sendWhatsAppText(phone, text) {
   if (!normalized) return { ok: false, reason: 'invalid_driver_phone' };
   if (!WASENDER_API_KEY) return { ok: false, reason: 'missing_wasender_api_key' };
 
+  const to = `${normalized}@s.whatsapp.net`;
+
   const response = await fetch(`${WASENDER_BASE_URL}/send-message`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${WASENDER_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ to: `${normalized}@s.whatsapp.net`, text }),
+    body: JSON.stringify({ to, text }),
   });
 
+  const rawBody = await response.text().catch(() => '');
+  let payload = null;
+  try {
+    payload = rawBody ? JSON.parse(rawBody) : null;
+  } catch {
+    payload = null;
+  }
+
   if (!response.ok) {
-    const body = await response.text().catch(() => '');
     return {
       ok: false,
-      reason: `whatsapp_send_error:${body.slice(0, 120) || response.status}`,
+      reason: `whatsapp_send_error:http_${response.status}:${rawBody.slice(0, 120) || 'no_body'}`,
     };
   }
 
-  return { ok: true };
+  const apiError = payload?.error || payload?.errors || (payload?.success === false ? payload?.message : null);
+  if (apiError) {
+    return {
+      ok: false,
+      reason: `whatsapp_send_error:${String(apiError).slice(0, 120)}`,
+    };
+  }
+
+  return {
+    ok: true,
+    to,
+    msgId: payload?.data?.msgId ? String(payload.data.msgId) : null,
+  };
 }
 
 async function notifyDriver(driver, trip) {
@@ -552,7 +587,7 @@ async function notifyDriver(driver, trip) {
     return { ok: false, reason: 'driver_phone_matches_passenger' };
   }
 
-  if (PUSH_NOTIFICATIONS_ENABLED && driver?.push_token) {
+  if (PUSH_NOTIFICATIONS_ENABLED && driver?.push_token && !pushCredentialsInvalid) {
     const pushResult = await sendPushNotification(driver.push_token, {
       title: 'Nuevo viaje asignado',
       body: `${trip.passenger_name || 'Pasajero'} -> ${trip.destination_address || 'Retiro'}`,
@@ -576,6 +611,18 @@ async function notifyDriver(driver, trip) {
       tripId: trip?.id || null,
       driverId: driver?.id || null,
       reason: pushResult?.reason || 'unknown',
+    });
+
+    if (isPushCredentialsIssue(pushResult?.reason)) {
+      pushCredentialsInvalid = true;
+      logWorker('notify_push_credentials_invalid', {
+        reason: pushResult?.reason || 'unknown',
+      });
+    }
+  } else if (PUSH_NOTIFICATIONS_ENABLED && pushCredentialsInvalid) {
+    logWorkerVerbose('notify_push_skipped_invalid_credentials', {
+      tripId: trip?.id || null,
+      driverId: driver?.id || null,
     });
   }
 
@@ -613,6 +660,8 @@ async function notifyDriver(driver, trip) {
   logWorker('notify_whatsapp_ok', {
     tripId: trip?.id || null,
     driverId: driver?.id || null,
+    to: whatsappResult.to || null,
+    msgId: whatsappResult.msgId || null,
   });
 
   return { ok: true, channel: 'whatsapp', reason: 'push_failed_whatsapp_ok' };
