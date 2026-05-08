@@ -40,6 +40,11 @@ const PENDING_ACCEPT_TIMEOUT_MS = Number.isFinite(configuredPendingAcceptTimeout
 const DRIVER_BUSY_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
 const SEARCH_RADII_KM = [1, 2, 3, 4.5, 6, 8, 10, 12, 15, 20];
 const NO_PUSH_TOKEN_SCORE_PENALTY_KM = 0.35;
+const SALTA_CAPITAL_CENTER = { lat: -24.78, lng: -65.42 };
+const DISPATCH_MAX_PICKUP_DISTANCE_FROM_CENTER_KM = Math.max(
+  10,
+  Math.round(Number(process.env.DISPATCH_MAX_PICKUP_DISTANCE_FROM_CENTER_KM || 80) || 80)
+);
 const WORKER_ID = [
   process.env.VERCEL_REGION || 'local',
   process.env.VERCEL_ENV || process.env.NODE_ENV || 'dev',
@@ -104,6 +109,16 @@ function haversineKm(lat1, lng1, lat2, lng2) {
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return earthRadiusKm * c;
+}
+
+function getPickupDistanceFromOperationCenterKm(lat, lng) {
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
+  return haversineKm(
+    Number(lat),
+    Number(lng),
+    SALTA_CAPITAL_CENTER.lat,
+    SALTA_CAPITAL_CENTER.lng
+  );
 }
 
 function isVercelCronInvocation({ userAgent = '', xVercelCron = '' } = {}) {
@@ -830,6 +845,44 @@ async function processDispatchClaim(claim) {
         destinationLng: trip.destination_lng ?? null,
       });
       return { status: 'missing_pickup_coordinates' };
+    }
+
+    const pickupDistanceFromCenterKm = getPickupDistanceFromOperationCenterKm(pickupLat, pickupLng);
+    if (
+      Number.isFinite(Number(pickupDistanceFromCenterKm))
+      && pickupDistanceFromCenterKm > DISPATCH_MAX_PICKUP_DISTANCE_FROM_CENTER_KM
+    ) {
+      const retrySeconds = Math.max(180, DISPATCH_NOTIFY_FAIL_RETRY_SECONDS);
+      const distanceText = Number(pickupDistanceFromCenterKm).toFixed(3);
+
+      await setDispatchQueueRetry(
+        tripId,
+        retrySeconds,
+        `pickup_out_of_operational_area:${distanceText}km_from_center`
+      );
+      await releaseDispatchClaim({
+        tripId,
+        lockToken,
+        result: 'retry',
+        retrySeconds,
+        errorCode: 'pickup_out_of_operational_area',
+        errorText: `pickup_distance_from_center_km=${distanceText};max_allowed_km=${DISPATCH_MAX_PICKUP_DISTANCE_FROM_CENTER_KM}`,
+      });
+
+      logWorker('claim_pickup_out_of_operational_area', {
+        tripId,
+        attemptNo,
+        pickupLat,
+        pickupLng,
+        pickupDistanceFromCenterKm: Number(distanceText),
+        maxAllowedKm: DISPATCH_MAX_PICKUP_DISTANCE_FROM_CENTER_KM,
+      });
+
+      return {
+        status: 'pickup_out_of_operational_area',
+        pickupDistanceFromCenterKm: Number(distanceText),
+        maxAllowedKm: DISPATCH_MAX_PICKUP_DISTANCE_FROM_CENTER_KM,
+      };
     }
 
     const driverSelection = await chooseDriverForClaim(trip, { attemptNo });
