@@ -246,8 +246,60 @@ async function setDispatchQueueRetry(tripId, retrySeconds, reason = 'retry') {
 
 async function expireTimedOutPendingTrips() {
   const cutoff = new Date(Date.now() - PENDING_ACCEPT_TIMEOUT_MS).toISOString();
+  const supabase = getSupabaseAdmin();
 
-  const { data, error } = await getSupabaseAdmin()
+  // Caso normal: viajes pending con assigned_at vencido y sin aceptación.
+  const { data: staleAssigned, error: staleAssignedError } = await supabase
+    .from('trips')
+    .select('id, assigned_at')
+    .eq('status', 'pending')
+    .is('accepted_at', null)
+    .not('assigned_at', 'is', null)
+    .lt('assigned_at', cutoff);
+
+  if (staleAssignedError) {
+    logWorker('expire_pending_candidates_error', {
+      scope: 'assigned_at',
+      error: summarizeDbError(staleAssignedError),
+    });
+    return { expired: 0, error: true };
+  }
+
+  // Fail-safe: pending sin assigned_at (no debería pasar) y viejo por status_updated_at.
+  const { data: staleWithoutAssigned, error: staleWithoutAssignedError } = await supabase
+    .from('trips')
+    .select('id, status_updated_at')
+    .eq('status', 'pending')
+    .is('accepted_at', null)
+    .is('assigned_at', null)
+    .lt('status_updated_at', cutoff);
+
+  if (staleWithoutAssignedError) {
+    logWorker('expire_pending_candidates_error', {
+      scope: 'status_updated_at',
+      error: summarizeDbError(staleWithoutAssignedError),
+    });
+    return { expired: 0, error: true };
+  }
+
+  const candidateIds = [
+    ...(staleAssigned || []).map((row) => row?.id).filter(Boolean),
+    ...(staleWithoutAssigned || []).map((row) => row?.id).filter(Boolean),
+  ].filter((id, index, arr) => arr.indexOf(id) === index);
+
+  logWorkerVerbose('expire_pending_candidates', {
+    cutoff,
+    withAssignedCount: (staleAssigned || []).length,
+    withoutAssignedCount: (staleWithoutAssigned || []).length,
+    candidateCount: candidateIds.length,
+    candidateTripIds: candidateIds,
+  });
+
+  if (!candidateIds.length) {
+    return { expired: 0, error: false };
+  }
+
+  const { data: expiredRows, error: expireError } = await supabase
     .from('trips')
     .update({
       driver_id: null,
@@ -258,19 +310,30 @@ async function expireTimedOutPendingTrips() {
       assigned_at: null,
       accepted_at: null,
     })
+    .in('id', candidateIds)
     .eq('status', 'pending')
-    .not('assigned_at', 'is', null)
-    .lt('assigned_at', cutoff)
+    .is('accepted_at', null)
     .select('id');
 
-  if (error) {
-    logWorker('expire_pending_error', { error: summarizeDbError(error) });
+  if (expireError) {
+    logWorker('expire_pending_error', {
+      candidateCount: candidateIds.length,
+      error: summarizeDbError(expireError),
+    });
     return { expired: 0, error: true };
   }
 
-  const expired = Array.isArray(data) ? data.length : 0;
-  if (expired > 0) {
-    logWorker('expire_pending_done', { expired });
+  const expired = Array.isArray(expiredRows) ? expiredRows.length : 0;
+  logWorker('expire_pending_done', {
+    expired,
+    candidateCount: candidateIds.length,
+  });
+
+  if (expired < candidateIds.length) {
+    logWorkerVerbose('expire_pending_partial', {
+      candidateCount: candidateIds.length,
+      expired,
+    });
   }
 
   return { expired, error: false };
