@@ -40,6 +40,11 @@ const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !
 // Perfil de expansión progresiva inspirado en marketplaces de movilidad.
 // Mantiene 1km/2km al inicio y luego abre anillos cada 15s.
 const SEARCH_RADII_KM = [1, 2, 3, 4.5, 6, 8, 10, 12, 15, 20];
+const SALTA_CAPITAL_CENTER = { lat: -24.7829, lng: -65.4122 };
+const SALTA_CAPITAL_PRIORITY_RADIUS_KM = Math.max(
+  6,
+  Number(process.env.WHATSAPP_SALTA_CAPITAL_PRIORITY_RADIUS_KM || 18) || 18
+);
 
 const PENDING_ACCEPT_TIMEOUT_MS = 15 * 1000; // 15 segundos
 const PENDING_TIMEOUT_CANCEL_REASON = '[AUTO_TIMEOUT] Chofer no aceptó en tiempo (auto-reasignación)';
@@ -1914,6 +1919,64 @@ function haversineKm(lat1, lng1, lat2, lng2) {
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return earthRadiusKm * c;
+}
+
+function stripPostalCodePrefix(value) {
+  return normalizeForMatch(value)
+    .replace(/\ba\d{4}\b/gi, ' ')
+    .replace(/\b\d{4}\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function inferSaltaCapitalFromFormattedAddress(formattedAddress) {
+  const clean = sanitizeAddressInput(formattedAddress || '');
+  if (!clean) return null;
+
+  const parts = clean
+    .split(',')
+    .map((part) => sanitizeAddressInput(part))
+    .filter(Boolean);
+
+  if (parts.length < 2) return null;
+
+  const normalizedParts = parts.map((part) => normalizeForMatch(part)).filter(Boolean);
+  if (normalizedParts.length < 2) return null;
+
+  const country = normalizedParts[normalizedParts.length - 1];
+  if (country !== 'argentina') return null;
+
+  // Formato corto: "Belgrano 1200, Salta, Argentina"
+  if (normalizedParts.length === 3) {
+    return stripPostalCodePrefix(normalizedParts[normalizedParts.length - 2]) === 'salta';
+  }
+
+  // Formato largo: "Belgrano 1200, A4400 Salta, Salta, Argentina"
+  const province = stripPostalCodePrefix(normalizedParts[normalizedParts.length - 2]);
+  if (province !== 'salta') return null;
+
+  const locality = stripPostalCodePrefix(normalizedParts[normalizedParts.length - 3]);
+  if (!locality) return null;
+
+  return locality === 'salta';
+}
+
+function isSaltaCapitalCandidate(candidate) {
+  const byAddress = inferSaltaCapitalFromFormattedAddress(candidate?.formattedAddress || '');
+  if (typeof byAddress === 'boolean') return byAddress;
+
+  const lat = Number(candidate?.lat);
+  const lng = Number(candidate?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+
+  const distanceFromCenterKm = haversineKm(
+    lat,
+    lng,
+    SALTA_CAPITAL_CENTER.lat,
+    SALTA_CAPITAL_CENTER.lng
+  );
+
+  return distanceFromCenterKm <= SALTA_CAPITAL_PRIORITY_RADIUS_KM;
 }
 
 function normalizeText(value) {
@@ -7556,9 +7619,26 @@ async function processClaimedConversation(batch) {
     distinctCandidates.length >= 2 &&
     distinctCandidates[0].score - (distinctCandidates[1]?.score ?? 0) < 0.40
   ) {
+    const orderedPollCandidates = [...distinctCandidates].sort((a, b) => {
+      const aIsSaltaCapital = isSaltaCapitalCandidate(a);
+      const bIsSaltaCapital = isSaltaCapitalCandidate(b);
+
+      if (aIsSaltaCapital !== bIsSaltaCapital) return aIsSaltaCapital ? -1 : 1;
+
+      const scoreDiff = Number(b?.score || 0) - Number(a?.score || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+
+      return String(a?.formattedAddress || '').localeCompare(String(b?.formattedAddress || ''));
+    });
+
+    const pollTopCandidates = orderedPollCandidates.slice(0, 4);
+    const saltaCapitalOptionsCount = pollTopCandidates.filter((candidate) =>
+      isSaltaCapitalCandidate(candidate)
+    ).length;
+
     // Limitar a 4 opciones reales + "Ninguna de estas opciones" siempre al final
     const pollOptions = [
-      ...distinctCandidates.slice(0, 4).map((c) => c.formattedAddress),
+      ...pollTopCandidates.map((c) => c.formattedAddress),
       'Ninguna de estas opciones',
     ];
     let pollMsgId = null;
@@ -7578,10 +7658,11 @@ async function processClaimedConversation(batch) {
         conversationId: batch?.id || null,
         pollMsgId,
         optionCount: pollOptions.length,
+        saltaCapitalOptionsCount,
       });
 
       const pollCandidatesForTrip = [
-        ...distinctCandidates.slice(0, 4).map((c) => ({
+        ...pollTopCandidates.map((c) => ({
           label: c.formattedAddress,
           formattedAddress: c.formattedAddress,
           lat: c.lat,
