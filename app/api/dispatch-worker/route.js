@@ -8,6 +8,7 @@ export const runtime = 'nodejs';
 const CRON_SECRET = process.env.CRON_SECRET || '';
 const WASENDER_API_KEY = process.env.WASENDER_API_KEY || '';
 const WASENDER_BASE_URL = process.env.WASENDER_BASE_URL || 'https://www.wasenderapi.com/api';
+const DRIVER_APP_DEEPLINK_BASE = process.env.DRIVER_APP_DEEPLINK_BASE || 'exp+driver-app://open';
 const PUSH_NOTIFICATIONS_ENABLED =
   (process.env.WHATSAPP_PUSH_ENABLED || 'true').toLowerCase() !== 'false';
 
@@ -40,6 +41,8 @@ const WORKER_ID = [
   process.env.VERCEL_ENV || process.env.NODE_ENV || 'dev',
   process.pid || 'pid',
 ].join(':');
+const DISPATCH_VERBOSE_LOGS =
+  (process.env.DISPATCH_WORKER_VERBOSE_LOGS || 'true').toLowerCase() !== 'false';
 
 let supabaseAdmin = null;
 
@@ -49,6 +52,11 @@ function logWorker(stage, meta = {}) {
   } catch {
     // noop
   }
+}
+
+function logWorkerVerbose(stage, meta = {}) {
+  if (!DISPATCH_VERBOSE_LOGS) return;
+  logWorker(stage, meta);
 }
 
 function summarizeDbError(error) {
@@ -128,6 +136,35 @@ function getAllowedRadiiKm(attemptNo) {
   const normalizedAttempt = Math.max(1, Math.round(Number(attemptNo) || 1));
   const maxIndex = Math.min(SEARCH_RADII_KM.length - 1, normalizedAttempt);
   return SEARCH_RADII_KM.slice(0, maxIndex + 1);
+}
+
+function isValidExpoPushToken(pushToken) {
+  return /^Expo(nent)?PushToken\[[^\]]+\]$/.test(String(pushToken || '').trim());
+}
+
+function hasDriverNotificationChannel(driver) {
+  const hasPush = PUSH_NOTIFICATIONS_ENABLED && isValidExpoPushToken(driver?.push_token);
+  const hasWhatsApp = normalizePhone(driver?.phone || '').length >= 8;
+  return hasPush || hasWhatsApp;
+}
+
+function buildDriverAppDeepLink(tripId) {
+  const base = String(DRIVER_APP_DEEPLINK_BASE || '').trim();
+  if (!base) return null;
+
+  const safeTripId = String(tripId || '').trim();
+  if (!safeTripId) return base;
+
+  if (base.includes('{tripId}')) {
+    return base.replace('{tripId}', encodeURIComponent(safeTripId));
+  }
+
+  if (/[?&]tripId=/.test(base)) {
+    return base;
+  }
+
+  const joiner = base.includes('?') ? '&' : '?';
+  return `${base}${joiner}tripId=${encodeURIComponent(safeTripId)}`;
 }
 
 async function releaseDispatchClaim({
@@ -237,13 +274,28 @@ async function claimDispatchBatch() {
     throw error;
   }
 
-  return Array.isArray(data) ? data : [];
+  const claimedItems = Array.isArray(data) ? data : [];
+  logWorkerVerbose('claim_batch_done', {
+    claimed: claimedItems.length,
+    claims: claimedItems.map((item) => ({
+      tripId: item?.trip_id || null,
+      attemptNo: Number(item?.attempt_no || 0) || null,
+    })),
+  });
+
+  return claimedItems;
 }
 
 async function chooseDriverForClaim(trip, { attemptNo = 1 } = {}) {
   const pickupLat = Number(trip.destination_lat);
   const pickupLng = Number(trip.destination_lng);
   if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) {
+    logWorker('driver_select_missing_coords', {
+      tripId: trip?.id || null,
+      attemptNo,
+      destinationLat: trip?.destination_lat ?? null,
+      destinationLng: trip?.destination_lng ?? null,
+    });
     return null;
   }
 
@@ -264,7 +316,27 @@ async function chooseDriverForClaim(trip, { attemptNo = 1 } = {}) {
     ? withCoords.filter((driver) => normalizePhone(driver.phone || '') !== passengerPhone)
     : withCoords;
 
-  if (!withoutSamePhone.length) return null;
+  const samePhoneFilteredCount = Math.max(0, withCoords.length - withoutSamePhone.length);
+  if (samePhoneFilteredCount > 0) {
+    logWorker('driver_same_phone_filtered', {
+      tripId: trip?.id || null,
+      passengerPhone: maskPhone(passengerPhone),
+      filtered: samePhoneFilteredCount,
+    });
+  }
+
+  if (!withoutSamePhone.length) {
+    logWorker('driver_select_no_candidate', {
+      tripId: trip?.id || null,
+      attemptNo,
+      availableDrivers: (drivers || []).length,
+      withCoords: withCoords.length,
+      samePhoneFiltered: samePhoneFilteredCount,
+      busyFiltered: 0,
+      allowedRadiiKm: getAllowedRadiiKm(attemptNo),
+    });
+    return null;
+  }
 
   const driverIds = withoutSamePhone.map((driver) => driver.id).filter(Boolean);
   if (!driverIds.length) return null;
@@ -279,9 +351,47 @@ async function chooseDriverForClaim(trip, { attemptNo = 1 } = {}) {
 
   const busyDriverIds = new Set((activeTrips || []).map((item) => item.driver_id).filter(Boolean));
   const candidateDrivers = withoutSamePhone.filter((driver) => !busyDriverIds.has(driver.id));
-  if (!candidateDrivers.length) return null;
+  const busyFilteredCount = Math.max(0, withoutSamePhone.length - candidateDrivers.length);
+  const allowedRadiiKm = getAllowedRadiiKm(attemptNo);
+  if (!candidateDrivers.length) {
+    logWorker('driver_select_no_candidate', {
+      tripId: trip?.id || null,
+      attemptNo,
+      availableDrivers: (drivers || []).length,
+      withCoords: withCoords.length,
+      samePhoneFiltered: samePhoneFilteredCount,
+      busyFiltered: busyFilteredCount,
+      allowedRadiiKm,
+    });
+    return null;
+  }
 
-  const scored = candidateDrivers
+  const reachableDrivers = candidateDrivers.filter((driver) => hasDriverNotificationChannel(driver));
+  const noChannelFilteredCount = Math.max(0, candidateDrivers.length - reachableDrivers.length);
+  logWorkerVerbose('driver_select_pool', {
+    tripId: trip?.id || null,
+    attemptNo,
+    availableDrivers: (drivers || []).length,
+    withCoords: withCoords.length,
+    samePhoneFiltered: samePhoneFilteredCount,
+    busyFiltered: busyFilteredCount,
+    noChannelFiltered: noChannelFilteredCount,
+    reachable: reachableDrivers.length,
+    allowedRadiiKm,
+  });
+
+  if (!reachableDrivers.length) {
+    logWorker('driver_select_no_reachable_channel', {
+      tripId: trip?.id || null,
+      attemptNo,
+      candidates: candidateDrivers.length,
+      noChannelFiltered: noChannelFilteredCount,
+      allowedRadiiKm,
+    });
+    return null;
+  }
+
+  const scored = reachableDrivers
     .map((driver) => {
       const distanceKm = haversineKm(
         Number(driver.current_lat),
@@ -302,17 +412,49 @@ async function chooseDriverForClaim(trip, { attemptNo = 1 } = {}) {
       return a.distanceKm - b.distanceKm;
     });
 
-  const allowedRadiiKm = getAllowedRadiiKm(attemptNo);
+  const ringDistribution = allowedRadiiKm.map((radiusKm) => ({
+    radiusKm,
+    candidates: scored.filter((item) => item.distanceKm <= radiusKm).length,
+  }));
+  logWorkerVerbose('driver_ring_scan', {
+    tripId: trip?.id || null,
+    attemptNo,
+    allowedRadiiKm,
+    nearestDistanceKm: scored[0] ? Number(scored[0].distanceKm.toFixed(3)) : null,
+    ringDistribution,
+  });
+
   for (const radiusKm of allowedRadiiKm) {
     const inRadius = scored.filter((item) => item.distanceKm <= radiusKm);
     if (inRadius.length > 0) {
-      return {
+      const selected = {
         ...inRadius[0],
         radiusKm,
         allowedRadiiKm,
       };
+
+      logWorker('driver_selected', {
+        tripId: trip?.id || null,
+        attemptNo,
+        driverId: selected?.driver?.id || null,
+        distanceKm: Number(selected.distanceKm.toFixed(3)),
+        scoreKm: Number(selected.scoreKm.toFixed(3)),
+        selectedRadiusKm: radiusKm,
+        allowedRadiiKm,
+        hasPushToken: isValidExpoPushToken(selected?.driver?.push_token),
+        hasWhatsApp: normalizePhone(selected?.driver?.phone || '').length >= 8,
+      });
+
+      return selected;
     }
   }
+
+  logWorker('driver_select_no_match_in_allowed_rings', {
+    tripId: trip?.id || null,
+    attemptNo,
+    allowedRadiiKm,
+    nearestDistanceKm: scored[0] ? Number(scored[0].distanceKm.toFixed(3)) : null,
+  });
 
   return null;
 }
@@ -321,7 +463,7 @@ async function sendPushNotification(pushToken, payload) {
   const token = String(pushToken || '').trim();
   if (!token) return { ok: false, reason: 'no_push_token' };
 
-  const tokenLooksValid = /^Expo(nent)?PushToken\[[^\]]+\]$/.test(token);
+  const tokenLooksValid = isValidExpoPushToken(token);
   if (!tokenLooksValid) {
     return { ok: false, reason: 'invalid_push_token_format' };
   }
@@ -388,8 +530,25 @@ async function sendWhatsAppText(phone, text) {
 async function notifyDriver(driver, trip) {
   const passengerPhone = normalizePhone(trip?.passenger_phone || '');
   const driverPhone = normalizePhone(driver?.phone || '');
+  const driverAppDeepLink = buildDriverAppDeepLink(trip?.id);
+
+  logWorkerVerbose('notify_start', {
+    tripId: trip?.id || null,
+    driverId: driver?.id || null,
+    passengerPhone: maskPhone(passengerPhone),
+    driverPhone: maskPhone(driverPhone),
+    pushEnabled: PUSH_NOTIFICATIONS_ENABLED,
+    hasPushToken: isValidExpoPushToken(driver?.push_token),
+    hasWhatsApp: driverPhone.length >= 8,
+    hasDeepLink: Boolean(driverAppDeepLink),
+  });
 
   if (passengerPhone && driverPhone && passengerPhone === driverPhone) {
+    logWorker('notify_skipped_same_phone', {
+      tripId: trip?.id || null,
+      driverId: driver?.id || null,
+      driverPhone: maskPhone(driverPhone),
+    });
     return { ok: false, reason: 'driver_phone_matches_passenger' };
   }
 
@@ -401,15 +560,31 @@ async function notifyDriver(driver, trip) {
         type: 'new_trip',
         tripId: trip.id,
         passengerPhone,
+        deepLink: driverAppDeepLink || undefined,
       },
     });
 
     if (pushResult.ok) {
+      logWorker('notify_push_ok', {
+        tripId: trip?.id || null,
+        driverId: driver?.id || null,
+      });
       return { ok: true, channel: 'push', reason: 'push_ok' };
     }
+
+    logWorker('notify_push_failed', {
+      tripId: trip?.id || null,
+      driverId: driver?.id || null,
+      reason: pushResult?.reason || 'unknown',
+    });
   }
 
   if (!driverPhone) {
+    logWorker('notify_no_channel', {
+      tripId: trip?.id || null,
+      driverId: driver?.id || null,
+      reason: 'no_driver_channel',
+    });
     return { ok: false, reason: 'no_driver_channel' };
   }
 
@@ -420,15 +595,25 @@ async function notifyDriver(driver, trip) {
       trip.passenger_name ? `Pasajero: *${trip.passenger_name}*` : null,
       trip.destination_address ? `Retiro: *${trip.destination_address}*` : null,
       '',
-      'Abrí la app para verlo.',
+      driverAppDeepLink ? `Abrí directo la app: ${driverAppDeepLink}` : 'Abrí la app para verlo.',
     ]
       .filter(Boolean)
       .join('\n')
   );
 
   if (!whatsappResult.ok) {
+    logWorker('notify_whatsapp_failed', {
+      tripId: trip?.id || null,
+      driverId: driver?.id || null,
+      reason: whatsappResult.reason || 'whatsapp_send_error',
+    });
     return { ok: false, reason: whatsappResult.reason || 'whatsapp_send_error' };
   }
+
+  logWorker('notify_whatsapp_ok', {
+    tripId: trip?.id || null,
+    driverId: driver?.id || null,
+  });
 
   return { ok: true, channel: 'whatsapp', reason: 'push_failed_whatsapp_ok' };
 }
@@ -468,7 +653,16 @@ async function processDispatchClaim(claim) {
   const lockToken = claim?.lock_token;
   const attemptNo = Math.max(1, Math.round(Number(claim?.attempt_no) || 1));
 
+  logWorker('claim_process_start', {
+    tripId: tripId || null,
+    attemptNo,
+  });
+
   if (!tripId || !lockToken) {
+    logWorker('claim_process_invalid', {
+      tripId: tripId || null,
+      hasLockToken: Boolean(lockToken),
+    });
     return { status: 'invalid_claim' };
   }
 
@@ -500,6 +694,10 @@ async function processDispatchClaim(claim) {
         result: 'done',
         errorCode: `trip_status_${trip.status || 'unknown'}`,
       });
+      logWorkerVerbose('claim_trip_not_queued', {
+        tripId,
+        status: trip.status || null,
+      });
       return { status: 'trip_not_queued' };
     }
 
@@ -513,6 +711,12 @@ async function processDispatchClaim(claim) {
         retrySeconds: 90,
         errorCode: 'missing_pickup_coordinates',
       });
+      logWorker('claim_missing_pickup_coordinates', {
+        tripId,
+        attemptNo,
+        destinationLat: trip.destination_lat ?? null,
+        destinationLng: trip.destination_lng ?? null,
+      });
       return { status: 'missing_pickup_coordinates' };
     }
 
@@ -524,6 +728,11 @@ async function processDispatchClaim(claim) {
         result: 'retry',
         retrySeconds: DISPATCH_RETRY_SECONDS,
         errorCode: 'no_driver_available',
+      });
+      logWorker('claim_no_driver_available', {
+        tripId,
+        attemptNo,
+        allowedRadiiKm: getAllowedRadiiKm(attemptNo),
       });
       return { status: 'no_driver_available' };
     }
@@ -555,8 +764,22 @@ async function processDispatchClaim(claim) {
         result: 'done',
         errorCode: 'trip_claim_lost',
       });
+      logWorkerVerbose('claim_trip_claim_lost', {
+        tripId,
+        attemptNo,
+        driverId: selectedDriver.id,
+      });
       return { status: 'trip_claim_lost' };
     }
+
+    logWorker('claim_trip_assigned_pending', {
+      tripId,
+      attemptNo,
+      driverId: selectedDriver.id,
+      distanceKm: Number(driverSelection.distanceKm.toFixed(3)),
+      scoreKm: Number(driverSelection.scoreKm.toFixed(3)),
+      searchRadiusKm: driverSelection.radiusKm,
+    });
 
     const notifyResult = await notifyDriver(
       selectedDriver,
@@ -582,6 +805,13 @@ async function processDispatchClaim(claim) {
         errorText: notifyResult?.reason || 'unknown',
       });
 
+      logWorker('claim_notify_failed', {
+        tripId,
+        attemptNo,
+        driverId: selectedDriver.id,
+        reason: notifyResult?.reason || 'unknown',
+      });
+
       return { status: 'notify_failed', notifyReason: notifyResult?.reason || 'unknown' };
     }
 
@@ -592,6 +822,16 @@ async function processDispatchClaim(claim) {
       selectedDriverId: selectedDriver.id,
       selectedDistanceKm: driverSelection.distanceKm,
       selectedScore: driverSelection.scoreKm,
+    });
+
+    logWorker('claim_assigned_done', {
+      tripId,
+      attemptNo,
+      driverId: selectedDriver.id,
+      channel: notifyResult.channel || null,
+      distanceKm: Number(driverSelection.distanceKm.toFixed(3)),
+      scoreKm: Number(driverSelection.scoreKm.toFixed(3)),
+      searchRadiusKm: driverSelection.radiusKm,
     });
 
     return {
@@ -624,6 +864,17 @@ async function processDispatchClaim(claim) {
 }
 
 async function runDispatchWorkerCycle() {
+  logWorker('cycle_start', {
+    workerId: WORKER_ID,
+    batchSize: DISPATCH_BATCH_SIZE,
+    lockSeconds: DISPATCH_LOCK_SECONDS,
+    retrySeconds: DISPATCH_RETRY_SECONDS,
+    notifyFailRetrySeconds: DISPATCH_NOTIFY_FAIL_RETRY_SECONDS,
+    pendingAcceptTimeoutMs: PENDING_ACCEPT_TIMEOUT_MS,
+    searchRadiiKm: SEARCH_RADII_KM,
+    verboseLogs: DISPATCH_VERBOSE_LOGS,
+  });
+
   const expireResult = await expireTimedOutPendingTrips();
   const claimedItems = await claimDispatchBatch();
 
@@ -642,6 +893,10 @@ async function runDispatchWorkerCycle() {
   for (const claim of claimedItems) {
     const result = await processDispatchClaim(claim);
     summary.results.push({ tripId: claim?.trip_id || null, ...result });
+    logWorkerVerbose('claim_result', {
+      tripId: claim?.trip_id || null,
+      ...result,
+    });
 
     if (result.status === 'assigned') summary.assigned += 1;
     else if (result.status === 'no_driver_available') summary.noDriver += 1;
@@ -658,6 +913,7 @@ async function runDispatchWorkerCycle() {
     skipped: summary.skipped,
     errors: summary.errors,
     expiredPending: summary.expiredPending,
+    results: DISPATCH_VERBOSE_LOGS ? summary.results : undefined,
   });
 
   return summary;
@@ -666,7 +922,16 @@ async function runDispatchWorkerCycle() {
 export async function GET(req) {
   try {
     const auth = isAuthorizedRequest(req);
+    logWorker('http_get_start', {
+      viaVercelCron: auth.viaVercelCron,
+      hasCronSecret: Boolean(CRON_SECRET),
+      hasAuthHeader: Boolean(req.headers.get('authorization')),
+    });
+
     if (!auth.ok) {
+      logWorker('http_get_unauthorized', {
+        viaVercelCron: auth.viaVercelCron,
+      });
       return NextResponse.json(
         { ok: false, error: 'Unauthorized' },
         { status: 401 }
@@ -674,6 +939,15 @@ export async function GET(req) {
     }
 
     const summary = await runDispatchWorkerCycle();
+    logWorker('http_get_result', {
+      viaVercelCron: auth.viaVercelCron,
+      claimed: summary.claimed,
+      assigned: summary.assigned,
+      noDriver: summary.noDriver,
+      notifyFailed: summary.notifyFailed,
+      errors: summary.errors,
+    });
+
     return NextResponse.json(
       {
         ok: true,

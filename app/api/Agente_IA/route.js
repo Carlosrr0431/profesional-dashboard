@@ -1600,7 +1600,47 @@ let saltaStreetCatalogCache = {
 };
 
 function normalizePhone(phone) {
-  return String(phone || '').replace(/\D/g, '');
+  const raw = String(phone || '').trim();
+  if (!raw) return '';
+
+  // Si llega en formato JID (ej: 549...@s.whatsapp.net), quedarnos con la parte local.
+  const localPart = raw.includes('@') ? raw.split('@')[0] : raw;
+  let digits = localPart.replace(/\D/g, '');
+
+  // Prefijo internacional con 00 -> quitarlo para dejar solo E.164 en dígitos.
+  if (digits.startsWith('00')) {
+    digits = digits.slice(2);
+  }
+
+  return digits;
+}
+
+function normalizePhoneForWhatsApp(phone) {
+  let digits = normalizePhone(phone);
+  if (!digits) return '';
+
+  // Números locales con 0 inicial (trunk prefix) -> quitarlo.
+  if (digits.startsWith('0') && digits.length >= 11) {
+    digits = digits.replace(/^0+/, '');
+  }
+
+  // Heurística AR: 54 + móvil suele requerir 549 para WhatsApp.
+  if (digits.startsWith('54') && !digits.startsWith('549') && digits.length >= 12 && digits.length <= 13) {
+    digits = `549${digits.slice(2)}`;
+  }
+
+  // Heurística Salta/AR para formato viejo con "15" luego del área: 54938715xxxxxx -> 549387xxxxxx
+  if (digits.startsWith('54938715') && digits.length >= 14) {
+    digits = `549387${digits.slice(8)}`;
+  }
+
+  return digits;
+}
+
+function toWhatsAppJid(phone) {
+  const normalized = normalizePhoneForWhatsApp(phone);
+  if (!normalized || normalized.length < 10) return null;
+  return `${normalized}@s.whatsapp.net`;
 }
 
 function maskPhone(phone) {
@@ -3351,7 +3391,11 @@ async function insertOutgoingMessage({ phone, messageId, content, rawPayload = n
 }
 
 async function sendWhatsAppText(phone, text) {
-  const to = `${normalizePhone(phone)}@s.whatsapp.net`;
+  const to = toWhatsAppJid(phone);
+  if (!to) {
+    throw new Error(`Número de WhatsApp inválido: ${maskPhone(phone)}`);
+  }
+
   const response = await fetchWithRetry(`${WASENDER_BASE_URL}/send-message`, {
     method: 'POST',
     headers: {
@@ -3412,7 +3456,11 @@ async function resolvePhoneFromJid(jid) {
 }
 
 async function sendWhatsAppPoll(phone, question, options) {
-  const to = `${normalizePhone(phone)}@s.whatsapp.net`;
+  const to = toWhatsAppJid(phone);
+  if (!to) {
+    throw new Error(`Número de WhatsApp inválido para encuesta: ${maskPhone(phone)}`);
+  }
+
   const response = await fetchWithRetry(`${WASENDER_BASE_URL}/send-message`, {
     method: 'POST',
     headers: {
