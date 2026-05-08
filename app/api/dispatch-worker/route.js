@@ -28,14 +28,14 @@ const DISPATCH_NOTIFY_FAIL_RETRY_SECONDS = Math.max(
   DISPATCH_RETRY_SECONDS,
   Math.round(Number(process.env.DISPATCH_WORKER_NOTIFY_FAIL_RETRY_SECONDS || 45) || 45)
 );
-const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 180 * 1000;
-const PENDING_ACCEPT_TIMEOUT_MS = Math.max(
-  10 * 1000,
-  Math.round(
-    Number(process.env.WHATSAPP_PENDING_ACCEPT_TIMEOUT_MS || DEFAULT_PENDING_ACCEPT_TIMEOUT_MS)
-      || DEFAULT_PENDING_ACCEPT_TIMEOUT_MS
-  )
+const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 15 * 1000;
+const MAX_PENDING_ACCEPT_TIMEOUT_MS = 15 * 1000;
+const configuredPendingAcceptTimeoutMs = Number(
+  process.env.WHATSAPP_PENDING_ACCEPT_TIMEOUT_MS || DEFAULT_PENDING_ACCEPT_TIMEOUT_MS
 );
+const PENDING_ACCEPT_TIMEOUT_MS = Number.isFinite(configuredPendingAcceptTimeoutMs)
+  ? Math.max(10 * 1000, Math.min(MAX_PENDING_ACCEPT_TIMEOUT_MS, Math.round(configuredPendingAcceptTimeoutMs)))
+  : DEFAULT_PENDING_ACCEPT_TIMEOUT_MS;
 
 const DRIVER_BUSY_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
 const SEARCH_RADII_KM = [1, 2, 3, 4.5, 6, 8, 10, 12, 15, 20];
