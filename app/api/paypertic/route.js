@@ -214,6 +214,7 @@ export async function POST(request) {
 
   const paymentPayload = {
     // Sin type: Paypertic devuelve form_url para que el usuario elija el medio de pago
+    // (incluye opciones como QR), y solo se fuerza 1 cuota para tarjeta de credito.
     external_transaction_id: externalTransactionId,
     currency_id: 'ARS',
     return_url: returnUrl,
@@ -235,6 +236,9 @@ export async function POST(request) {
     metadata: {
       driver_id: driver.id,
       type: 'commission',
+    },
+    presets: {
+      installments: 1,
     },
   };
 

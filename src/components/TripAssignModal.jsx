@@ -228,6 +228,7 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
         destination_lat: destLat,
         destination_lng: destLng,
         status: 'pending',
+        assigned_at: new Date().toISOString(),
         price: autoPrice || null,
         commission_amount: autoCommission || null,
         distance_km: distanceKm,
