@@ -66,7 +66,7 @@ export function getTripStatus(status) {
 }
 
 /**
- * Send Expo push notification to a driver's device
+ * Send push notification through the backend FCM endpoint.
  */
 export async function sendPushNotification(pushToken, { title, body, data = {} }) {
   if (!pushToken) {
@@ -75,27 +75,22 @@ export async function sendPushNotification(pushToken, { title, body, data = {} }
   }
 
   try {
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+    const response = await fetch('/api/push/send', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
       },
       body: JSON.stringify({
-        to: pushToken,
+        pushToken,
         title,
         body,
         data,
-        sound: 'default',
-        priority: 'high',
-        channelId: 'trips',
-        badge: 1,
       }),
     });
 
-    const result = await response.json();
-    if (result.data?.status === 'error') {
-      console.error('Push notification error:', result.data.message);
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.ok) {
+      console.error('Push notification error:', result?.reason || response.status);
     }
     return result;
   } catch (error) {

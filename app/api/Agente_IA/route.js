@@ -1,5 +1,13 @@
 ﻿import OpenAI, { toFile } from 'openai';
 import { createClient } from '@supabase/supabase-js';
+import {
+  getFirebaseMessagingClient,
+  isFirebaseCredentialError,
+  isLegacyExpoPushToken,
+  isLikelyFcmToken,
+  normalizeFcmDataPayload,
+  normalizeFirebaseSendError,
+} from '../../../src/lib/firebaseAdmin';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -46,7 +54,18 @@ const SALTA_CAPITAL_PRIORITY_RADIUS_KM = Math.max(
   Number(process.env.WHATSAPP_SALTA_CAPITAL_PRIORITY_RADIUS_KM || 18) || 18
 );
 
-const PENDING_ACCEPT_TIMEOUT_MS = 15 * 1000; // 15 segundos
+const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 60 * 1000;
+const MIN_PENDING_ACCEPT_TIMEOUT_MS = 20 * 1000;
+const MAX_PENDING_ACCEPT_TIMEOUT_MS = 5 * 60 * 1000;
+const configuredPendingAcceptTimeoutMs = Number(
+  process.env.WHATSAPP_PENDING_ACCEPT_TIMEOUT_MS || DEFAULT_PENDING_ACCEPT_TIMEOUT_MS
+);
+const PENDING_ACCEPT_TIMEOUT_MS = Number.isFinite(configuredPendingAcceptTimeoutMs)
+  ? Math.max(
+    MIN_PENDING_ACCEPT_TIMEOUT_MS,
+    Math.min(MAX_PENDING_ACCEPT_TIMEOUT_MS, Math.round(configuredPendingAcceptTimeoutMs))
+  )
+  : DEFAULT_PENDING_ACCEPT_TIMEOUT_MS;
 const PENDING_TIMEOUT_CANCEL_REASON = '[AUTO_TIMEOUT] Chofer no aceptó en tiempo (auto-reasignación)';
 const DRIVER_SEARCH_EXPANSION_INTERVAL_MS = 15 * 1000;
 const REASSIGNMENT_LOOKBACK_HOURS = 2;
@@ -4024,11 +4043,18 @@ function shouldReassignCancelledTrip(trip) {
  * En esos casos no se debe excluir al mismo chofer en el reintento.
  */
 function isSystemFailureCancellation(trip) {
+  const rawReason = trip?.cancel_reason || '';
+  if (isAutomaticTimeoutCancellationReason(rawReason)) {
+    return true;
+  }
+
   const reason = normalizeReason(trip?.cancel_reason || '');
   return (
+    reason.includes('no acepto en tiempo') ||
     reason.includes('no aceptado en tiempo') ||
     reason.includes('no notificado al chofer') ||
     reason.includes('reasignando automaticamente') ||
+    reason.includes('auto reasignacion') ||
     reason.includes('reintento necesario')
   );
 }
@@ -5083,7 +5109,7 @@ async function chooseDriver(
         autoTimeouts: 0,
         cancelled: 0,
       };
-      const pushPenaltyKm = driver.push_token ? 0 : NO_PUSH_TOKEN_SCORE_PENALTY_KM;
+      const pushPenaltyKm = isLikelyFcmToken(driver.push_token) ? 0 : NO_PUSH_TOKEN_SCORE_PENALTY_KM;
       const dispatchScoreKm = distanceToOriginKm + reliability.reliabilityPenaltyKm + pushPenaltyKm;
 
       return {
@@ -5125,7 +5151,8 @@ async function chooseDriver(
         selectedAutoTimeouts: selected.reliabilityAutoTimeouts || 0,
         selectedCancelled: selected.reliabilityCancelled || 0,
         selectedPushPenaltyKm: Math.round((selected.pushPenaltyKm || 0) * 100) / 100,
-        hasPushToken: Boolean(selected.push_token),
+        hasPushToken: isLikelyFcmToken(selected.push_token),
+        hasLegacyExpoPushToken: isLegacyExpoPushToken(selected.push_token),
         exclusionsRelaxed,
       });
       return { ...selected, searchRadiusKm: radiusKm };
@@ -5176,14 +5203,16 @@ async function sendPushNotification(pushToken, payload) {
     return { ok: false, reason: 'no_push_token' };
   }
 
-  const tokenLooksValid = /^Expo(nent)?PushToken\[[^\]]+\]$/.test(token);
-  if (!tokenLooksValid) {
+  if (!isLikelyFcmToken(token)) {
+    const reason = isLegacyExpoPushToken(token)
+      ? 'legacy_expo_token_format'
+      : 'invalid_push_token_format';
     logWebhook('push_notification_skipped', {
-      reason: 'invalid_push_token_format',
+      reason,
       title: payload.title,
       tokenPreview: token.slice(0, 24),
     });
-    return { ok: false, reason: 'invalid_push_token_format' };
+    return { ok: false, reason };
   }
 
   const compactTripForPush = (trip) => {
@@ -5249,83 +5278,78 @@ async function sendPushNotification(pushToken, payload) {
     });
   }
 
-  logWebhook('push_notification_start', { title: payload.title, body: payload.body?.slice(0, 80) });
+  const fcmData = normalizeFcmDataPayload(pushData);
+  const fcmDataBytes = JSON.stringify(fcmData).length;
+
+  logWebhook('push_notification_start', {
+    title: payload.title,
+    body: payload.body?.slice(0, 80),
+    dataBytes: fcmDataBytes,
+  });
+
   try {
-    const response = await fetchWithRetry(
-      'https://exp.host/--/api/v2/push/send',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          to: token,
-          title: payload.title,
-          body: payload.body,
-          data: pushData,
-          sound: 'default',
-          priority: 'high',
-          channelId: 'trips',
-          badge: 1,
-        }),
+    const messageId = await getFirebaseMessagingClient().send({
+      token,
+      notification: {
+        title: String(payload?.title || ''),
+        body: String(payload?.body || ''),
       },
-      { retries: 1, delayMs: 500, label: 'expo_push_send' }
-    );
+      data: fcmData,
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'trips',
+          sound: 'default',
+        },
+      },
+    });
 
-    const result = await response.json().catch(() => null);
-    const ticket = Array.isArray(result?.data) ? result.data[0] : result?.data;
-    const ticketStatus = ticket?.status || null;
-    const ticketError = ticket?.details?.error || ticket?.message || null;
-    const ticketErrorNormalized = String(ticketError || '').toLowerCase();
-    const rawResultText = JSON.stringify(result || {}).toLowerCase();
-    const deviceNotRegistered = ticketError === 'DeviceNotRegistered';
-    const invalidCredentials =
-      ticketErrorNormalized.includes('invalidcredentials') ||
-      ticketErrorNormalized.includes('invalid_credentials') ||
-      rawResultText.includes('unable to retrieve the fcm server key') ||
-      rawResultText.includes('fcm server key');
-
-    if (!response.ok || ticketStatus === 'error') {
-      if (invalidCredentials) {
-        pushProviderBackoffUntil = Date.now() + PUSH_PROVIDER_BACKOFF_MS;
-        logWebhook('push_notification_provider_invalid_credentials', {
-          httpStatus: response.status,
-          ticketStatus,
-          ticketError: ticketError || null,
-          backoffMs: PUSH_PROVIDER_BACKOFF_MS,
-        });
-        return {
-          ok: false,
-          reason: 'push_invalid_credentials',
-          ticketStatus,
-          ticketError,
-          backoffMs: PUSH_PROVIDER_BACKOFF_MS,
-        };
-      }
-
-      logWebhook('push_notification_error', {
-        httpStatus: response.status,
-        ticketStatus,
-        ticketError: ticketError || null,
-        raw: JSON.stringify(result || {}).slice(0, 200),
+    if (pushProviderBackoffUntil > 0) {
+      pushProviderBackoffUntil = 0;
+      logWebhook('push_notification_provider_recovered', {
+        ticketId: messageId || null,
       });
-      return {
-        ok: false,
-        reason: deviceNotRegistered ? 'device_not_registered' : 'push_error',
-        ticketStatus,
-        ticketError,
-      };
     }
 
     logWebhook('push_notification_ok', {
-      ticketStatus,
-      ticketId: ticket?.id || null,
+      ticketStatus: 'ok',
+      ticketId: messageId || null,
     });
-    return { ok: true, ticketStatus, ticketId: ticket?.id || null };
+    return { ok: true, ticketStatus: 'ok', ticketId: messageId || null };
   } catch (err) {
-    logWebhook('push_notification_exception', { error: err?.message || 'unknown' });
-    return { ok: false, reason: 'exception', error: err?.message || 'unknown' };
+    const normalizedError = normalizeFirebaseSendError(err);
+    const invalidCredentials =
+      isFirebaseCredentialError(normalizedError.reason) ||
+      isFirebaseCredentialError(normalizedError.code) ||
+      isFirebaseCredentialError(normalizedError.message);
+
+    if (invalidCredentials) {
+      pushProviderBackoffUntil = Date.now() + PUSH_PROVIDER_BACKOFF_MS;
+      logWebhook('push_notification_provider_invalid_credentials', {
+        ticketStatus: 'error',
+        ticketError: normalizedError.message || normalizedError.code || null,
+        backoffMs: PUSH_PROVIDER_BACKOFF_MS,
+      });
+      return {
+        ok: false,
+        reason: 'push_invalid_credentials',
+        ticketStatus: 'error',
+        ticketError: normalizedError.message || normalizedError.code || null,
+        backoffMs: PUSH_PROVIDER_BACKOFF_MS,
+      };
+    }
+
+    logWebhook('push_notification_error', {
+      ticketStatus: 'error',
+      reason: normalizedError.reason || 'push_error',
+      ticketError: normalizedError.message || normalizedError.code || null,
+    });
+    return {
+      ok: false,
+      reason: normalizedError.reason || 'push_error',
+      ticketStatus: 'error',
+      ticketError: normalizedError.message || normalizedError.code || null,
+    };
   }
 }
 
@@ -6232,6 +6256,15 @@ function schedulePendingTimeoutTimer(
 ) {
   if (!tripId) return;
 
+  if (SUPABASE_DISPATCH_ONLY) {
+    logWebhook('pending_timeout_timer_skipped', {
+      tripId,
+      source,
+      reason: 'supabase_dispatch_only',
+    });
+    return;
+  }
+
   if (!ENABLE_PENDING_TIMEOUT_TIMER) {
     logWebhook('pending_timeout_timer_skipped', {
       tripId,
@@ -6386,6 +6419,119 @@ async function expireTimedOutPendingTrips() {
 
   logWebhook('expire_pending_done', { expired });
   return { expired };
+}
+
+/**
+ * Fallback DB-first: cuando el dispatch vive en /api/dispatch-worker,
+ * este cron solo reencola pending vencidos sin ejecutar redispatch legacy.
+ */
+async function requeueTimedOutPendingTripsSupabaseDispatchOnly() {
+  logWebhook('expire_pending_db_first_start');
+
+  const cutoff = new Date(Date.now() - PENDING_ACCEPT_TIMEOUT_MS).toISOString();
+
+  const { data: staleAssigned, error: staleAssignedError } = await getSupabase()
+    .from('trips')
+    .select('id, assigned_at')
+    .eq('status', 'pending')
+    .not('assigned_at', 'is', null)
+    .lt('assigned_at', cutoff);
+
+  if (staleAssignedError) {
+    logWebhook('expire_pending_db_first_error', {
+      scope: 'assigned_at',
+      error: summarizeDbError(staleAssignedError),
+    });
+    return { expired: 0, error: true };
+  }
+
+  const { data: staleWithoutAssigned, error: staleWithoutAssignedError } = await getSupabase()
+    .from('trips')
+    .select('id, status_updated_at')
+    .eq('status', 'pending')
+    .is('assigned_at', null)
+    .lt('status_updated_at', cutoff);
+
+  if (staleWithoutAssignedError) {
+    logWebhook('expire_pending_db_first_error', {
+      scope: 'status_updated_at',
+      error: summarizeDbError(staleWithoutAssignedError),
+    });
+    return { expired: 0, error: true };
+  }
+
+  const { data: staleLegacyPending, error: staleLegacyPendingError } = await getSupabase()
+    .from('trips')
+    .select('id, created_at')
+    .eq('status', 'pending')
+    .is('assigned_at', null)
+    .is('status_updated_at', null)
+    .lt('created_at', cutoff);
+
+  if (staleLegacyPendingError) {
+    logWebhook('expire_pending_db_first_error', {
+      scope: 'created_at_legacy',
+      error: summarizeDbError(staleLegacyPendingError),
+    });
+    return { expired: 0, error: true };
+  }
+
+  const candidateIds = [
+    ...(staleAssigned || []).map((row) => row?.id).filter(Boolean),
+    ...(staleWithoutAssigned || []).map((row) => row?.id).filter(Boolean),
+    ...(staleLegacyPending || []).map((row) => row?.id).filter(Boolean),
+  ].filter((id, index, arr) => arr.indexOf(id) === index);
+
+  logWebhook('expire_pending_db_first_candidates', {
+    cutoff,
+    withAssignedCount: (staleAssigned || []).length,
+    withoutAssignedCount: (staleWithoutAssigned || []).length,
+    legacyPendingCount: (staleLegacyPending || []).length,
+    candidateCount: candidateIds.length,
+  });
+
+  if (!candidateIds.length) {
+    logWebhook('expire_pending_db_first_none');
+    return { expired: 0, error: false };
+  }
+
+  const { data: requeuedRows, error: requeueError } = await getSupabase()
+    .from('trips')
+    .update({
+      driver_id: null,
+      origin_address: null,
+      origin_lat: null,
+      origin_lng: null,
+      status: 'queued',
+      assigned_at: null,
+      accepted_at: null,
+    })
+    .in('id', candidateIds)
+    .eq('status', 'pending')
+    .select('id');
+
+  if (requeueError) {
+    logWebhook('expire_pending_db_first_requeue_error', {
+      candidateCount: candidateIds.length,
+      error: summarizeDbError(requeueError),
+    });
+    return { expired: 0, error: true };
+  }
+
+  const expired = Array.isArray(requeuedRows) ? requeuedRows.length : 0;
+  logWebhook('expire_pending_db_first_done', {
+    expired,
+    candidateCount: candidateIds.length,
+  });
+
+  if (expired < candidateIds.length) {
+    logWebhook('expire_pending_db_first_partial', {
+      candidateCount: candidateIds.length,
+      expired,
+    });
+  }
+
+  return { expired, error: false };
 }
 
 /**
@@ -8323,7 +8469,7 @@ async function processPendingConversationsRequest({ authHeader = '', userAgent =
 
     ensureServerConfig();
     const expireResult = SUPABASE_DISPATCH_ONLY
-      ? { expired: 0, skipped: true, reason: 'supabase_dispatch_only' }
+      ? await requeueTimedOutPendingTripsSupabaseDispatchOnly()
       : await expireTimedOutPendingTrips();
     const pendingResult = await processPendingConversations();
     const transitionResult = await processTripLifecycleTransitions();

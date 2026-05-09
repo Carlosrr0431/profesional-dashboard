@@ -20,16 +20,27 @@
  * Los mocks interceptan TODAS las llamadas externas:
  *   - Supabase (createClient)
  *   - OpenAI (extracción de intención)
+ *   - Firebase Admin Messaging (envío push)
  *   - fetch (Google Maps Geocoding + WaSender)
  */
 
 // ── Mocks de módulos externos ────────────────────────────────────────────────
 jest.mock('openai');
 jest.mock('@supabase/supabase-js');
+jest.mock('firebase-admin/app', () => ({
+  cert: jest.fn((value) => value),
+  getApp: jest.fn(() => ({})),
+  getApps: jest.fn(() => []),
+  initializeApp: jest.fn(() => ({})),
+}));
+jest.mock('firebase-admin/messaging', () => ({
+  getMessaging: jest.fn(),
+}));
 
 // ── Imports ───────────────────────────────────────────────────────────────────
 const { createClient } = require('@supabase/supabase-js');
 const OpenAI = require('openai').default;
+const { getMessaging } = require('firebase-admin/messaging');
 
 const { createSupabaseMock }  = require('../helpers/supabase-mock');
 const { createOpenAIMock }    = require('../helpers/openai-mock');
@@ -42,6 +53,7 @@ const contract = require('../../../shared/trip-contract');
 // ── Datos de prueba ───────────────────────────────────────────────────────────
 const PASSENGER_PHONE = '5493878630173';
 const DRIVER_ID       = 'driver-001';
+const mockSendFcm = jest.fn();
 
 const MOCK_DRIVER = {
   id: DRIVER_ID,
@@ -49,7 +61,7 @@ const MOCK_DRIVER = {
   vehicle_brand: 'Toyota',
   vehicle_model: 'Corolla',
   vehicle_plate: 'ABC123',
-  push_token: 'ExponentPushToken[test-token]',
+  push_token: 'fcm_test_token_abcdefghijklmnopqrstuvwxyz',
   is_online: true,
   current_lat: -24.7900,
   current_lng: -65.4100,
@@ -150,6 +162,9 @@ function buildSupabaseMock() {
 
 beforeEach(() => {
   capturedTripInsert = null;
+  mockSendFcm.mockReset();
+  mockSendFcm.mockResolvedValue('fcm-message-id-001');
+  getMessaging.mockReturnValue({ send: mockSendFcm });
 
   // Mock fetch: diferencia entre Google Maps y WaSender por URL
   global.fetch = jest.fn().mockImplementation((url) => {
@@ -186,15 +201,6 @@ beforeEach(() => {
         ok: true,
         status: 200,
         json: () => Promise.resolve({ success: true }),
-      });
-    }
-
-    // Expo Push Notification service
-    if (urlStr.includes('exp.host')) {
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ data: [{ status: 'ok', id: 'notif-id' }] }),
       });
     }
 
@@ -387,16 +393,16 @@ describe('Destino final embebido en notes', () => {
 // Grupo 3 — Push notification al chofer
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Push notification al chofer', () => {
-  it('llama a fetch con la URL del servicio de notificaciones', async () => {
+  it('envia notificacion por Firebase Messaging al chofer', async () => {
     const evento = makeTextMessageEvent(PASSENGER_PHONE, 'necesito un remis en Belgrano 200');
     await POST(makePostRequest(evento));
 
-    const fetchCalls = global.fetch.mock.calls;
-    const pushCall = fetchCalls.find(([url]) => String(url).includes('exp.host'));
-
-    // Si el trip se creó, debe haber una llamada a push
+    // Si el trip se creo, debe haber un envio por FCM.
     if (capturedTripInsert) {
-      expect(pushCall).toBeDefined();
+      expect(mockSendFcm).toHaveBeenCalled();
+      const message = mockSendFcm.mock.calls[0][0];
+      expect(message?.token).toBe(MOCK_DRIVER.push_token);
+      expect(message?.notification?.title).toBeTruthy();
     }
   });
 });

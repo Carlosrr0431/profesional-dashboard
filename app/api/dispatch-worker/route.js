@@ -1,5 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  getFirebaseMessagingClient,
+  isFirebaseCredentialError,
+  isLegacyExpoPushToken,
+  isLikelyFcmToken,
+  normalizeFcmDataPayload,
+  normalizeFirebaseSendError,
+} from '../../../src/lib/firebaseAdmin';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -28,13 +36,17 @@ const DISPATCH_NOTIFY_FAIL_RETRY_SECONDS = Math.max(
   DISPATCH_RETRY_SECONDS,
   Math.round(Number(process.env.DISPATCH_WORKER_NOTIFY_FAIL_RETRY_SECONDS || 45) || 45)
 );
-const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 15 * 1000;
-const MAX_PENDING_ACCEPT_TIMEOUT_MS = 15 * 1000;
+const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 60 * 1000;
+const MIN_PENDING_ACCEPT_TIMEOUT_MS = 20 * 1000;
+const MAX_PENDING_ACCEPT_TIMEOUT_MS = 5 * 60 * 1000;
 const configuredPendingAcceptTimeoutMs = Number(
   process.env.WHATSAPP_PENDING_ACCEPT_TIMEOUT_MS || DEFAULT_PENDING_ACCEPT_TIMEOUT_MS
 );
 const PENDING_ACCEPT_TIMEOUT_MS = Number.isFinite(configuredPendingAcceptTimeoutMs)
-  ? Math.max(10 * 1000, Math.min(MAX_PENDING_ACCEPT_TIMEOUT_MS, Math.round(configuredPendingAcceptTimeoutMs)))
+  ? Math.max(
+    MIN_PENDING_ACCEPT_TIMEOUT_MS,
+    Math.min(MAX_PENDING_ACCEPT_TIMEOUT_MS, Math.round(configuredPendingAcceptTimeoutMs))
+  )
   : DEFAULT_PENDING_ACCEPT_TIMEOUT_MS;
 
 const DRIVER_BUSY_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
@@ -61,9 +73,13 @@ const WORKER_ID = [
 ].join(':');
 const DISPATCH_VERBOSE_LOGS =
   (process.env.DISPATCH_WORKER_VERBOSE_LOGS || 'true').toLowerCase() !== 'false';
+const PUSH_PROVIDER_BACKOFF_MS = Math.max(
+  60 * 1000,
+  Math.round(Number(process.env.WHATSAPP_PUSH_PROVIDER_BACKOFF_MS || 10 * 60 * 1000) || 10 * 60 * 1000)
+);
 
 let supabaseAdmin = null;
-let pushCredentialsInvalid = false;
+let pushProviderBackoffUntil = 0;
 
 function logWorker(stage, meta = {}) {
   try {
@@ -89,12 +105,7 @@ function summarizeDbError(error) {
 }
 
 function isPushCredentialsIssue(reason) {
-  const normalized = String(reason || '').toLowerCase();
-  return (
-    normalized.includes('invalidcredentials') ||
-    normalized.includes('invalid_credentials') ||
-    normalized.includes('mismatchsenderid')
-  );
+  return isFirebaseCredentialError(reason);
 }
 
 function normalizePhone(phone) {
@@ -193,12 +204,8 @@ function getAllowedRadiiKm(attemptNo) {
   return SEARCH_RADII_KM.slice(0, maxIndex + 1);
 }
 
-function isValidExpoPushToken(pushToken) {
-  return /^Expo(nent)?PushToken\[[^\]]+\]$/.test(String(pushToken || '').trim());
-}
-
 function hasDriverNotificationChannel(driver) {
-  const hasPush = PUSH_NOTIFICATIONS_ENABLED && isValidExpoPushToken(driver?.push_token);
+  const hasPush = PUSH_NOTIFICATIONS_ENABLED && isLikelyFcmToken(driver?.push_token);
   const hasWhatsApp = normalizePhone(driver?.phone || '').length >= 8;
   return hasPush || hasWhatsApp;
 }
@@ -289,12 +296,11 @@ async function expireTimedOutPendingTrips() {
   const cutoff = new Date(Date.now() - PENDING_ACCEPT_TIMEOUT_MS).toISOString();
   const supabase = getSupabaseAdmin();
 
-  // Caso normal: viajes pending con assigned_at vencido y sin aceptación.
+  // Caso normal: viajes pending con assigned_at vencido.
   const { data: staleAssigned, error: staleAssignedError } = await supabase
     .from('trips')
     .select('id, assigned_at')
     .eq('status', 'pending')
-    .is('accepted_at', null)
     .not('assigned_at', 'is', null)
     .lt('assigned_at', cutoff);
 
@@ -306,12 +312,11 @@ async function expireTimedOutPendingTrips() {
     return { expired: 0, error: true };
   }
 
-  // Fail-safe: pending sin assigned_at (no debería pasar) y viejo por status_updated_at.
+  // Fail-safe: pending sin assigned_at y viejo por status_updated_at.
   const { data: staleWithoutAssigned, error: staleWithoutAssignedError } = await supabase
     .from('trips')
     .select('id, status_updated_at')
     .eq('status', 'pending')
-    .is('accepted_at', null)
     .is('assigned_at', null)
     .lt('status_updated_at', cutoff);
 
@@ -323,15 +328,34 @@ async function expireTimedOutPendingTrips() {
     return { expired: 0, error: true };
   }
 
+  // Último fail-safe: filas legacy sin assigned_at ni status_updated_at.
+  const { data: staleLegacyPending, error: staleLegacyPendingError } = await supabase
+    .from('trips')
+    .select('id, created_at')
+    .eq('status', 'pending')
+    .is('assigned_at', null)
+    .is('status_updated_at', null)
+    .lt('created_at', cutoff);
+
+  if (staleLegacyPendingError) {
+    logWorker('expire_pending_candidates_error', {
+      scope: 'created_at_legacy',
+      error: summarizeDbError(staleLegacyPendingError),
+    });
+    return { expired: 0, error: true };
+  }
+
   const candidateIds = [
     ...(staleAssigned || []).map((row) => row?.id).filter(Boolean),
     ...(staleWithoutAssigned || []).map((row) => row?.id).filter(Boolean),
+    ...(staleLegacyPending || []).map((row) => row?.id).filter(Boolean),
   ].filter((id, index, arr) => arr.indexOf(id) === index);
 
   logWorkerVerbose('expire_pending_candidates', {
     cutoff,
     withAssignedCount: (staleAssigned || []).length,
     withoutAssignedCount: (staleWithoutAssigned || []).length,
+    legacyPendingCount: (staleLegacyPending || []).length,
     candidateCount: candidateIds.length,
     candidateTripIds: candidateIds,
   });
@@ -353,7 +377,6 @@ async function expireTimedOutPendingTrips() {
     })
     .in('id', candidateIds)
     .eq('status', 'pending')
-    .is('accepted_at', null)
     .select('id');
 
   if (expireError) {
@@ -545,7 +568,7 @@ async function chooseDriverForClaim(
         pickupLat,
         pickupLng
       );
-      const pushPenaltyKm = driver.push_token ? 0 : NO_PUSH_TOKEN_SCORE_PENALTY_KM;
+      const pushPenaltyKm = isLikelyFcmToken(driver.push_token) ? 0 : NO_PUSH_TOKEN_SCORE_PENALTY_KM;
       const scoreKm = distanceKm + pushPenaltyKm;
       return {
         driver,
@@ -591,7 +614,7 @@ async function chooseDriverForClaim(
         scoreKm: Number(selected.scoreKm.toFixed(3)),
         selectedRadiusKm: radiusKm,
         allowedRadiiKm: allowedRadii,
-        hasPushToken: isValidExpoPushToken(selected?.driver?.push_token),
+        hasPushToken: isLikelyFcmToken(selected?.driver?.push_token),
         hasWhatsApp: normalizePhone(selected?.driver?.phone || '').length >= 8,
       });
 
@@ -615,42 +638,38 @@ async function sendPushNotification(pushToken, payload) {
   const token = String(pushToken || '').trim();
   if (!token) return { ok: false, reason: 'no_push_token' };
 
-  const tokenLooksValid = isValidExpoPushToken(token);
-  if (!tokenLooksValid) {
+  if (!isLikelyFcmToken(token)) {
+    if (isLegacyExpoPushToken(token)) {
+      return { ok: false, reason: 'legacy_expo_token_format' };
+    }
     return { ok: false, reason: 'invalid_push_token_format' };
   }
 
   try {
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
+    const messageId = await getFirebaseMessagingClient().send({
+      token,
+      notification: {
+        title: String(payload?.title || ''),
+        body: String(payload?.body || ''),
       },
-      body: JSON.stringify({
-        to: token,
-        title: payload.title,
-        body: payload.body,
-        data: payload.data || {},
-        sound: 'default',
+      data: normalizeFcmDataPayload(payload?.data || {}),
+      android: {
         priority: 'high',
-        channelId: 'trips',
-      }),
+        notification: {
+          channelId: 'trips',
+          sound: 'default',
+        },
+      },
     });
 
-    const result = await response.json().catch(() => null);
-    const ticket = Array.isArray(result?.data) ? result.data[0] : result?.data;
-
-    if (!response.ok || ticket?.status === 'error') {
-      return {
-        ok: false,
-        reason: ticket?.details?.error || ticket?.message || 'push_error',
-      };
-    }
-
-    return { ok: true, ticketId: ticket?.id || null };
+    return { ok: true, ticketId: messageId || null };
   } catch (error) {
-    return { ok: false, reason: error?.message || 'push_exception' };
+    const normalizedError = normalizeFirebaseSendError(error);
+    return {
+      ok: false,
+      reason: normalizedError.reason,
+      code: normalizedError.code || null,
+    };
   }
 }
 
@@ -704,6 +723,9 @@ async function notifyDriver(driver, trip) {
   const passengerPhone = normalizePhone(trip?.passenger_phone || '');
   const driverPhone = normalizePhone(driver?.phone || '');
   const driverAppDeepLink = buildDriverAppDeepLink(trip?.id);
+  const nowMs = Date.now();
+  const pushBackoffActive = pushProviderBackoffUntil > nowMs;
+  const hasFcmPushToken = isLikelyFcmToken(driver?.push_token);
 
   logWorkerVerbose('notify_start', {
     tripId: trip?.id || null,
@@ -711,7 +733,10 @@ async function notifyDriver(driver, trip) {
     passengerPhone: maskPhone(passengerPhone),
     driverPhone: maskPhone(driverPhone),
     pushEnabled: PUSH_NOTIFICATIONS_ENABLED,
-    hasPushToken: isValidExpoPushToken(driver?.push_token),
+    hasPushToken: hasFcmPushToken,
+    hasLegacyExpoPushToken: isLegacyExpoPushToken(driver?.push_token),
+    pushBackoffActive,
+    pushBackoffRetryAfterMs: pushBackoffActive ? Math.max(0, pushProviderBackoffUntil - nowMs) : 0,
     hasWhatsApp: driverPhone.length >= 8,
     hasDeepLink: Boolean(driverAppDeepLink),
   });
@@ -725,7 +750,7 @@ async function notifyDriver(driver, trip) {
     return { ok: false, reason: 'driver_phone_matches_passenger' };
   }
 
-  if (PUSH_NOTIFICATIONS_ENABLED && driver?.push_token && !pushCredentialsInvalid) {
+  if (PUSH_NOTIFICATIONS_ENABLED && hasFcmPushToken && !pushBackoffActive) {
     const pushResult = await sendPushNotification(driver.push_token, {
       title: 'Nuevo viaje asignado',
       body: `${trip.passenger_name || 'Pasajero'} -> ${trip.destination_address || 'Retiro'}`,
@@ -738,6 +763,14 @@ async function notifyDriver(driver, trip) {
     });
 
     if (pushResult.ok) {
+      if (pushProviderBackoffUntil > 0) {
+        pushProviderBackoffUntil = 0;
+        logWorker('notify_push_recovered', {
+          tripId: trip?.id || null,
+          driverId: driver?.id || null,
+        });
+      }
+
       logWorker('notify_push_ok', {
         tripId: trip?.id || null,
         driverId: driver?.id || null,
@@ -749,18 +782,31 @@ async function notifyDriver(driver, trip) {
       tripId: trip?.id || null,
       driverId: driver?.id || null,
       reason: pushResult?.reason || 'unknown',
+      code: pushResult?.code || null,
     });
 
-    if (isPushCredentialsIssue(pushResult?.reason)) {
-      pushCredentialsInvalid = true;
+    if (isPushCredentialsIssue(pushResult?.reason) || isPushCredentialsIssue(pushResult?.code)) {
+      pushProviderBackoffUntil = Date.now() + PUSH_PROVIDER_BACKOFF_MS;
       logWorker('notify_push_credentials_invalid', {
+        tripId: trip?.id || null,
+        driverId: driver?.id || null,
         reason: pushResult?.reason || 'unknown',
+        backoffMs: PUSH_PROVIDER_BACKOFF_MS,
       });
     }
-  } else if (PUSH_NOTIFICATIONS_ENABLED && pushCredentialsInvalid) {
-    logWorkerVerbose('notify_push_skipped_invalid_credentials', {
+  } else if (PUSH_NOTIFICATIONS_ENABLED && driver?.push_token && !hasFcmPushToken) {
+    logWorkerVerbose('notify_push_skipped_invalid_token_format', {
       tripId: trip?.id || null,
       driverId: driver?.id || null,
+      reason: isLegacyExpoPushToken(driver?.push_token)
+        ? 'legacy_expo_token_format'
+        : 'invalid_push_token_format',
+    });
+  } else if (PUSH_NOTIFICATIONS_ENABLED && driver?.push_token && pushBackoffActive) {
+    logWorkerVerbose('notify_push_skipped_provider_backoff', {
+      tripId: trip?.id || null,
+      driverId: driver?.id || null,
+      retryAfterMs: Math.max(0, pushProviderBackoffUntil - nowMs),
     });
   }
 
@@ -1110,12 +1156,18 @@ async function processDispatchClaim(claim) {
 }
 
 async function runDispatchWorkerCycle() {
+  const nowMs = Date.now();
+  const pushBackoffActive = pushProviderBackoffUntil > nowMs;
+
   logWorker('cycle_start', {
     workerId: WORKER_ID,
     batchSize: DISPATCH_BATCH_SIZE,
     lockSeconds: DISPATCH_LOCK_SECONDS,
     retrySeconds: DISPATCH_RETRY_SECONDS,
     notifyFailRetrySeconds: DISPATCH_NOTIFY_FAIL_RETRY_SECONDS,
+    pushProviderBackoffMs: PUSH_PROVIDER_BACKOFF_MS,
+    pushProviderBackoffActive,
+    pushProviderBackoffRetryAfterMs: pushBackoffActive ? Math.max(0, pushProviderBackoffUntil - nowMs) : 0,
     searchExpansionIntervalMs: SEARCH_EXPANSION_INTERVAL_MS,
     pendingAcceptTimeoutMs: PENDING_ACCEPT_TIMEOUT_MS,
     searchRadiiKm: SEARCH_RADII_KM,
