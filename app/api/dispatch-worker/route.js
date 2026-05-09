@@ -39,6 +39,15 @@ const PENDING_ACCEPT_TIMEOUT_MS = Number.isFinite(configuredPendingAcceptTimeout
 
 const DRIVER_BUSY_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
 const SEARCH_RADII_KM = [1, 2, 3, 4.5, 6, 8, 10, 12, 15, 20];
+const DEFAULT_SEARCH_EXPANSION_INTERVAL_MS = 15 * 1000;
+const configuredSearchExpansionIntervalMs = Number(
+  process.env.DISPATCH_WORKER_SEARCH_EXPANSION_INTERVAL_MS
+    || process.env.WHATSAPP_DRIVER_SEARCH_EXPANSION_INTERVAL_MS
+    || DEFAULT_SEARCH_EXPANSION_INTERVAL_MS
+);
+const SEARCH_EXPANSION_INTERVAL_MS = Number.isFinite(configuredSearchExpansionIntervalMs)
+  ? Math.max(5 * 1000, Math.round(configuredSearchExpansionIntervalMs))
+  : DEFAULT_SEARCH_EXPANSION_INTERVAL_MS;
 const NO_PUSH_TOKEN_SCORE_PENALTY_KM = 0.35;
 const SALTA_CAPITAL_CENTER = { lat: -24.78, lng: -65.42 };
 const DISPATCH_MAX_PICKUP_DISTANCE_FROM_CENTER_KM = Math.max(
@@ -159,6 +168,23 @@ function getSupabaseAdmin() {
   });
 
   return supabaseAdmin;
+}
+
+function computeQueueAgeMs(enqueuedAt) {
+  const timestamp = Date.parse(String(enqueuedAt || ''));
+  if (!Number.isFinite(timestamp)) return null;
+  const ageMs = Date.now() - timestamp;
+  if (!Number.isFinite(ageMs)) return null;
+  return Math.max(0, Math.round(ageMs));
+}
+
+function getEffectiveAttemptNo(attemptNo, queueAgeMs = null) {
+  const normalizedAttempt = Math.max(1, Math.round(Number(attemptNo) || 1));
+  if (!Number.isFinite(Number(queueAgeMs))) return normalizedAttempt;
+
+  const expansionStepsByAge = Math.floor(Number(queueAgeMs) / SEARCH_EXPANSION_INTERVAL_MS);
+  const attemptByAge = Math.max(1, expansionStepsByAge + 1);
+  return Math.max(normalizedAttempt, attemptByAge);
 }
 
 function getAllowedRadiiKm(attemptNo) {
@@ -378,13 +404,34 @@ async function claimDispatchBatch() {
   return claimedItems;
 }
 
-async function chooseDriverForClaim(trip, { attemptNo = 1 } = {}) {
+async function chooseDriverForClaim(
+  trip,
+  {
+    attemptNo = 1,
+    claimAttemptNo = null,
+    queueAgeMs = null,
+    allowedRadiiKm = null,
+  } = {}
+) {
   const pickupLat = Number(trip.destination_lat);
   const pickupLng = Number(trip.destination_lng);
+  const normalizedAttemptNo = Math.max(1, Math.round(Number(attemptNo) || 1));
+  const normalizedClaimAttemptNo = Number.isFinite(Number(claimAttemptNo))
+    ? Math.max(1, Math.round(Number(claimAttemptNo)))
+    : normalizedAttemptNo;
+  const queueAgeSeconds = Number.isFinite(Number(queueAgeMs))
+    ? Number((Number(queueAgeMs) / 1000).toFixed(1))
+    : null;
+  const allowedRadii = Array.isArray(allowedRadiiKm) && allowedRadiiKm.length > 0
+    ? allowedRadiiKm
+    : getAllowedRadiiKm(normalizedAttemptNo);
+
   if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) {
     logWorker('driver_select_missing_coords', {
       tripId: trip?.id || null,
-      attemptNo,
+      attemptNo: normalizedAttemptNo,
+      claimAttemptNo: normalizedClaimAttemptNo,
+      queueAgeSeconds,
       destinationLat: trip?.destination_lat ?? null,
       destinationLng: trip?.destination_lng ?? null,
     });
@@ -420,12 +467,14 @@ async function chooseDriverForClaim(trip, { attemptNo = 1 } = {}) {
   if (!withoutSamePhone.length) {
     logWorker('driver_select_no_candidate', {
       tripId: trip?.id || null,
-      attemptNo,
+      attemptNo: normalizedAttemptNo,
+      claimAttemptNo: normalizedClaimAttemptNo,
+      queueAgeSeconds,
       availableDrivers: (drivers || []).length,
       withCoords: withCoords.length,
       samePhoneFiltered: samePhoneFilteredCount,
       busyFiltered: 0,
-      allowedRadiiKm: getAllowedRadiiKm(attemptNo),
+      allowedRadiiKm: allowedRadii,
     });
     return null;
   }
@@ -444,16 +493,17 @@ async function chooseDriverForClaim(trip, { attemptNo = 1 } = {}) {
   const busyDriverIds = new Set((activeTrips || []).map((item) => item.driver_id).filter(Boolean));
   const candidateDrivers = withoutSamePhone.filter((driver) => !busyDriverIds.has(driver.id));
   const busyFilteredCount = Math.max(0, withoutSamePhone.length - candidateDrivers.length);
-  const allowedRadiiKm = getAllowedRadiiKm(attemptNo);
   if (!candidateDrivers.length) {
     logWorker('driver_select_no_candidate', {
       tripId: trip?.id || null,
-      attemptNo,
+      attemptNo: normalizedAttemptNo,
+      claimAttemptNo: normalizedClaimAttemptNo,
+      queueAgeSeconds,
       availableDrivers: (drivers || []).length,
       withCoords: withCoords.length,
       samePhoneFiltered: samePhoneFilteredCount,
       busyFiltered: busyFilteredCount,
-      allowedRadiiKm,
+      allowedRadiiKm: allowedRadii,
     });
     return null;
   }
@@ -462,23 +512,27 @@ async function chooseDriverForClaim(trip, { attemptNo = 1 } = {}) {
   const noChannelFilteredCount = Math.max(0, candidateDrivers.length - reachableDrivers.length);
   logWorkerVerbose('driver_select_pool', {
     tripId: trip?.id || null,
-    attemptNo,
+    attemptNo: normalizedAttemptNo,
+    claimAttemptNo: normalizedClaimAttemptNo,
+    queueAgeSeconds,
     availableDrivers: (drivers || []).length,
     withCoords: withCoords.length,
     samePhoneFiltered: samePhoneFilteredCount,
     busyFiltered: busyFilteredCount,
     noChannelFiltered: noChannelFilteredCount,
     reachable: reachableDrivers.length,
-    allowedRadiiKm,
+    allowedRadiiKm: allowedRadii,
   });
 
   if (!reachableDrivers.length) {
     logWorker('driver_select_no_reachable_channel', {
       tripId: trip?.id || null,
-      attemptNo,
+      attemptNo: normalizedAttemptNo,
+      claimAttemptNo: normalizedClaimAttemptNo,
+      queueAgeSeconds,
       candidates: candidateDrivers.length,
       noChannelFiltered: noChannelFilteredCount,
-      allowedRadiiKm,
+      allowedRadiiKm: allowedRadii,
     });
     return null;
   }
@@ -504,35 +558,39 @@ async function chooseDriverForClaim(trip, { attemptNo = 1 } = {}) {
       return a.distanceKm - b.distanceKm;
     });
 
-  const ringDistribution = allowedRadiiKm.map((radiusKm) => ({
+  const ringDistribution = allowedRadii.map((radiusKm) => ({
     radiusKm,
     candidates: scored.filter((item) => item.distanceKm <= radiusKm).length,
   }));
   logWorkerVerbose('driver_ring_scan', {
     tripId: trip?.id || null,
-    attemptNo,
-    allowedRadiiKm,
+    attemptNo: normalizedAttemptNo,
+    claimAttemptNo: normalizedClaimAttemptNo,
+    queueAgeSeconds,
+    allowedRadiiKm: allowedRadii,
     nearestDistanceKm: scored[0] ? Number(scored[0].distanceKm.toFixed(3)) : null,
     ringDistribution,
   });
 
-  for (const radiusKm of allowedRadiiKm) {
+  for (const radiusKm of allowedRadii) {
     const inRadius = scored.filter((item) => item.distanceKm <= radiusKm);
     if (inRadius.length > 0) {
       const selected = {
         ...inRadius[0],
         radiusKm,
-        allowedRadiiKm,
+        allowedRadiiKm: allowedRadii,
       };
 
       logWorker('driver_selected', {
         tripId: trip?.id || null,
-        attemptNo,
+        attemptNo: normalizedAttemptNo,
+        claimAttemptNo: normalizedClaimAttemptNo,
+        queueAgeSeconds,
         driverId: selected?.driver?.id || null,
         distanceKm: Number(selected.distanceKm.toFixed(3)),
         scoreKm: Number(selected.scoreKm.toFixed(3)),
         selectedRadiusKm: radiusKm,
-        allowedRadiiKm,
+        allowedRadiiKm: allowedRadii,
         hasPushToken: isValidExpoPushToken(selected?.driver?.push_token),
         hasWhatsApp: normalizePhone(selected?.driver?.phone || '').length >= 8,
       });
@@ -543,8 +601,10 @@ async function chooseDriverForClaim(trip, { attemptNo = 1 } = {}) {
 
   logWorker('driver_select_no_match_in_allowed_rings', {
     tripId: trip?.id || null,
-    attemptNo,
-    allowedRadiiKm,
+    attemptNo: normalizedAttemptNo,
+    claimAttemptNo: normalizedClaimAttemptNo,
+    queueAgeSeconds,
+    allowedRadiiKm: allowedRadii,
     nearestDistanceKm: scored[0] ? Number(scored[0].distanceKm.toFixed(3)) : null,
   });
 
@@ -779,10 +839,19 @@ async function processDispatchClaim(claim) {
   const tripId = claim?.trip_id;
   const lockToken = claim?.lock_token;
   const attemptNo = Math.max(1, Math.round(Number(claim?.attempt_no) || 1));
+  const queueAgeMs = computeQueueAgeMs(claim?.enqueued_at);
+  const effectiveAttemptNo = getEffectiveAttemptNo(attemptNo, queueAgeMs);
+  const allowedRadiiKm = getAllowedRadiiKm(effectiveAttemptNo);
+  const queueAgeSeconds = Number.isFinite(Number(queueAgeMs))
+    ? Number((Number(queueAgeMs) / 1000).toFixed(1))
+    : null;
 
   logWorker('claim_process_start', {
     tripId: tripId || null,
     attemptNo,
+    effectiveAttemptNo,
+    queueAgeSeconds,
+    allowedRadiiKm,
   });
 
   if (!tripId || !lockToken) {
@@ -885,7 +954,12 @@ async function processDispatchClaim(claim) {
       };
     }
 
-    const driverSelection = await chooseDriverForClaim(trip, { attemptNo });
+    const driverSelection = await chooseDriverForClaim(trip, {
+      attemptNo: effectiveAttemptNo,
+      claimAttemptNo: attemptNo,
+      queueAgeMs,
+      allowedRadiiKm,
+    });
     if (!driverSelection?.driver) {
       await releaseDispatchClaim({
         tripId,
@@ -897,7 +971,9 @@ async function processDispatchClaim(claim) {
       logWorker('claim_no_driver_available', {
         tripId,
         attemptNo,
-        allowedRadiiKm: getAllowedRadiiKm(attemptNo),
+        effectiveAttemptNo,
+        queueAgeSeconds,
+        allowedRadiiKm,
       });
       return { status: 'no_driver_available' };
     }
@@ -940,6 +1016,8 @@ async function processDispatchClaim(claim) {
     logWorker('claim_trip_assigned_pending', {
       tripId,
       attemptNo,
+      effectiveAttemptNo,
+      queueAgeSeconds,
       driverId: selectedDriver.id,
       distanceKm: Number(driverSelection.distanceKm.toFixed(3)),
       scoreKm: Number(driverSelection.scoreKm.toFixed(3)),
@@ -992,6 +1070,8 @@ async function processDispatchClaim(claim) {
     logWorker('claim_assigned_done', {
       tripId,
       attemptNo,
+      effectiveAttemptNo,
+      queueAgeSeconds,
       driverId: selectedDriver.id,
       channel: notifyResult.channel || null,
       distanceKm: Number(driverSelection.distanceKm.toFixed(3)),
@@ -1007,6 +1087,7 @@ async function processDispatchClaim(claim) {
       scoreKm: Number(driverSelection.scoreKm.toFixed(3)),
       searchRadiusKm: driverSelection.radiusKm,
       attemptNo,
+      effectiveAttemptNo,
       passengerPhone: maskPhone(trip.passenger_phone),
     };
   } catch (error) {
@@ -1035,6 +1116,7 @@ async function runDispatchWorkerCycle() {
     lockSeconds: DISPATCH_LOCK_SECONDS,
     retrySeconds: DISPATCH_RETRY_SECONDS,
     notifyFailRetrySeconds: DISPATCH_NOTIFY_FAIL_RETRY_SECONDS,
+    searchExpansionIntervalMs: SEARCH_EXPANSION_INTERVAL_MS,
     pendingAcceptTimeoutMs: PENDING_ACCEPT_TIMEOUT_MS,
     searchRadiiKm: SEARCH_RADII_KM,
     verboseLogs: DISPATCH_VERBOSE_LOGS,

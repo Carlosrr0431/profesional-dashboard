@@ -7844,21 +7844,13 @@ async function processWebhookBody(body, requestMeta = {}) {
       const transitionStatus = normalizeText(payloadBody.status || '');
 
       if (SUPABASE_DISPATCH_ONLY) {
-        logWebhook('trip_transition_ignored', {
+        logWebhook('trip_transition_dispatch_mode', {
           tripId,
           status: transitionStatus || null,
-          reason: 'supabase_dispatch_only',
+          mode: 'supabase_dispatch_only',
+          queueDispatch: 'disabled_in_agente_ia',
+          lifecycleTransitions: 'enabled',
         });
-        return {
-          status: 200,
-          body: {
-            success: true,
-            ignored: true,
-            reason: 'supabase_dispatch_only',
-            event: 'trip.transition',
-            tripId,
-          },
-        };
       }
 
       if (transitionStatus === 'pending') {
@@ -8334,15 +8326,7 @@ async function processPendingConversationsRequest({ authHeader = '', userAgent =
       ? { expired: 0, skipped: true, reason: 'supabase_dispatch_only' }
       : await expireTimedOutPendingTrips();
     const pendingResult = await processPendingConversations();
-    const transitionResult = SUPABASE_DISPATCH_ONLY
-      ? {
-        confirmed: 0,
-        reassigned: 0,
-        queued: 0,
-        skipped: true,
-        reason: 'supabase_dispatch_only',
-      }
-      : await processTripLifecycleTransitions();
+    const transitionResult = await processTripLifecycleTransitions();
     return {
       status: 200,
       body: {
