@@ -1166,7 +1166,7 @@ async function runDispatchWorkerCycle() {
     retrySeconds: DISPATCH_RETRY_SECONDS,
     notifyFailRetrySeconds: DISPATCH_NOTIFY_FAIL_RETRY_SECONDS,
     pushProviderBackoffMs: PUSH_PROVIDER_BACKOFF_MS,
-    pushProviderBackoffActive,
+    pushProviderBackoffActive: pushBackoffActive,
     pushProviderBackoffRetryAfterMs: pushBackoffActive ? Math.max(0, pushProviderBackoffUntil - nowMs) : 0,
     searchExpansionIntervalMs: SEARCH_EXPANSION_INTERVAL_MS,
     pendingAcceptTimeoutMs: PENDING_ACCEPT_TIMEOUT_MS,
