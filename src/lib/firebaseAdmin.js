@@ -44,7 +44,8 @@ function readServiceAccountFromSplitEnv() {
 }
 
 function getServiceAccount() {
-  return readServiceAccountFromJsonEnv() || readServiceAccountFromSplitEnv();
+  // Prefer split env vars to avoid passing full JSON in a single variable.
+  return readServiceAccountFromSplitEnv() || readServiceAccountFromJsonEnv();
 }
 
 export function getFirebaseMessagingClient() {
@@ -53,7 +54,7 @@ export function getFirebaseMessagingClient() {
   const serviceAccount = getServiceAccount();
   if (!serviceAccount) {
     throw new Error(
-      'Missing Firebase Admin credentials (FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY)'
+      'Missing Firebase Admin credentials (preferred: FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY; fallback: FIREBASE_SERVICE_ACCOUNT_JSON)'
     );
   }
 
