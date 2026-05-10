@@ -5687,6 +5687,98 @@ async function createTripFromConversation({ conversation, extracted }) {
   const knowledgeCandidates = Array.isArray(extracted?._knowledgeAddressCandidates)
     ? extracted._knowledgeAddressCandidates
     : [];
+  let finalDestinationGeo = null;
+  let destinationNeedsGps = false;
+
+  // Intentar geocodificar el destino final si el pasajero lo proporcionó.
+  // Esto se hace ANTES de asignar chofer para no perder el destino cuando queda en cola.
+  if (finalDestinationHint) {
+    const destinationKnowledgeCandidates = getKnowledgeCandidatesForHint(
+      finalDestinationHint,
+      knowledgeCandidates,
+      8
+    );
+    try {
+      finalDestinationGeo = await geocodeAddress(finalDestinationHint);
+      logWebhook('trip_final_destination_geocoded', {
+        hint: finalDestinationHint,
+        formattedAddress: finalDestinationGeo.formattedAddress,
+        lat: finalDestinationGeo.lat,
+        lng: finalDestinationGeo.lng,
+      });
+    } catch (geoErr) {
+      for (const candidate of destinationKnowledgeCandidates) {
+        try {
+          finalDestinationGeo = await geocodeAddress(candidate);
+          logWebhook('trip_final_destination_geocode_fallback_knowledge_ok', {
+            hint: finalDestinationHint,
+            candidate,
+            formattedAddress: finalDestinationGeo.formattedAddress,
+          });
+          break;
+        } catch {
+          // try next
+        }
+      }
+
+      if (!finalDestinationGeo) {
+        destinationNeedsGps = true;
+        logWebhook('trip_final_destination_geocode_fail', {
+          hint: finalDestinationHint,
+          error: geoErr?.message || 'unknown',
+          knowledgeCandidatesTried: destinationKnowledgeCandidates.length,
+        });
+      }
+    }
+  }
+
+  // Embeber el destino final geocodificado en notes como JSON parseable
+  // para que la driver-app pueda pre-cargar el destino sin voz.
+  const finalDestJson = finalDestinationGeo
+    ? `[FINAL_DEST_JSON:${JSON.stringify({
+        address: finalDestinationGeo.formattedAddress,
+        lat: finalDestinationGeo.lat,
+        lng: finalDestinationGeo.lng,
+      })}]`
+    : null;
+
+  let destinationCandidates = [];
+  if (destinationNeedsGps && finalDestinationHint) {
+    const rawDestinationCandidates = await getAddressCandidates(finalDestinationHint, 4).catch(() => []);
+    const distinctDestinationCandidates = rawDestinationCandidates.filter(
+      (candidate, index, arr) =>
+        index === 0 ||
+        arr.slice(0, index).every(
+          (prev) =>
+            Math.abs(Number(prev.lat) - Number(candidate.lat)) > 0.001 ||
+            Math.abs(Number(prev.lng) - Number(candidate.lng)) > 0.001
+        )
+    );
+
+    const topScore = Number(distinctDestinationCandidates[0]?.score || 0);
+    const secondScore = Number(distinctDestinationCandidates[1]?.score || 0);
+    if (distinctDestinationCandidates.length >= 2 && topScore - secondScore < 0.4) {
+      destinationCandidates = distinctDestinationCandidates
+        .slice(0, 3)
+        .map((candidate) => candidate?.formattedAddress)
+        .filter(Boolean);
+
+      logWebhook('trip_final_destination_candidates_suggested', {
+        hint: finalDestinationHint,
+        optionCount: destinationCandidates.length,
+      });
+    }
+  }
+
+  const destinationFollowupText = destinationCandidates.length > 0
+    ? [
+      'No pude ubicar con precisión el destino final. ¿Era alguna de estas opciones?',
+      destinationCandidates.map((address, idx) => `${idx + 1}) ${address}`).join('\n'),
+      'Respondeme con la dirección exacta o compartime la *ubicación del destino*.',
+    ].join('\n')
+    : destinationNeedsGps
+      ? 'No pude ubicar con precisión el destino final. Si querés, mandame la *ubicación del destino* o una dirección más exacta y la dejo cargada para el chofer.'
+      : null;
 
   // Validar que el punto de retiro esté dentro de una zona de servicio activa.
   // Si no hay zonas configuradas, se acepta cualquier dirección.
@@ -5746,7 +5838,9 @@ async function createTripFromConversation({ conversation, extracted }) {
       notes: [
         '[APPROACH_ONLY]',
         extracted.notes || 'En cola de espera. Destino final: se define al subir el pasajero.',
-        finalDestinationHint ? `Destino final sugerido: ${finalDestinationHint}` : null,
+        finalDestJson || (finalDestinationHint
+          ? `Destino final sugerido por pasajero: ${finalDestinationHint}`
+          : null),
         extracted.catastral_nomenclature ? `[CATASTRAL] ${extracted.catastral_nomenclature}` : null,
       ].filter(Boolean).join('\n'),
     };
@@ -5763,12 +5857,22 @@ async function createTripFromConversation({ conversation, extracted }) {
       queued: true,
       trip: queuedTrip,
       driver: null,
-      reply: 'No hay choferes disponibles en este momento, pero te agregué a la cola de espera. Apenas se libere uno cercano, te mando el móvil automáticamente 🕐',
+      reply: [
+        'No hay choferes disponibles en este momento, pero te agregué a la cola de espera. Apenas se libere uno cercano, te mando el móvil automáticamente 🕐',
+        finalDestinationGeo
+          ? `Destino: *${finalDestinationGeo.formattedAddress}*`
+          : finalDestinationHint
+            ? `Destino indicado: *${finalDestinationHint}*`
+            : null,
+        destinationFollowupText,
+      ].filter(Boolean).join('\n'),
       context: {
         passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
         pickup_location: normalizedPickupQuery || pickupQuery,
         destination: finalDestinationHint || null,
         notes: extracted.notes || null,
+        awaiting_destination_gps: destinationNeedsGps,
+        destination_candidates: destinationCandidates.length ? destinationCandidates : null,
       },
     };
   }
@@ -5778,49 +5882,6 @@ async function createTripFromConversation({ conversation, extracted }) {
   const driverOriginAddress = await reverseGeocodeLatLng(driverLat, driverLng);
   const routeToPickup = await getRouteMetrics({ lat: driverLat, lng: driverLng }, pickupLocation);
 
-  // Intentar geocodificar el destino final si el pasajero lo proporcionó
-  let finalDestinationGeo = null;
-  let destinationNeedsGps = false;
-  if (finalDestinationHint) {
-    const destinationKnowledgeCandidates = getKnowledgeCandidatesForHint(
-      finalDestinationHint,
-      knowledgeCandidates,
-      8
-    );
-    try {
-      finalDestinationGeo = await geocodeAddress(finalDestinationHint);
-      logWebhook('trip_final_destination_geocoded', {
-        hint: finalDestinationHint,
-        formattedAddress: finalDestinationGeo.formattedAddress,
-        lat: finalDestinationGeo.lat,
-        lng: finalDestinationGeo.lng,
-      });
-    } catch (geoErr) {
-      for (const candidate of destinationKnowledgeCandidates) {
-        try {
-          finalDestinationGeo = await geocodeAddress(candidate);
-          logWebhook('trip_final_destination_geocode_fallback_knowledge_ok', {
-            hint: finalDestinationHint,
-            candidate,
-            formattedAddress: finalDestinationGeo.formattedAddress,
-          });
-          break;
-        } catch {
-          // try next
-        }
-      }
-
-      if (!finalDestinationGeo) {
-        destinationNeedsGps = true;
-        logWebhook('trip_final_destination_geocode_fail', {
-          hint: finalDestinationHint,
-          error: geoErr?.message || 'unknown',
-          knowledgeCandidatesTried: destinationKnowledgeCandidates.length,
-        });
-      }
-    }
-  }
-
   // Approach-only trip: driver -> pickup has no fare.
   logWebhook('trip_approach_only_created', {
     approachDistanceKm: routeToPickup.distanceKm,
@@ -5828,16 +5889,6 @@ async function createTripFromConversation({ conversation, extracted }) {
     hasFinalDestinationHint: Boolean(finalDestinationHint),
     hasFinalDestinationGeo: Boolean(finalDestinationGeo),
   });
-
-  // Embeber el destino final geocodificado en notes como JSON parseable
-  // para que la driver-app pueda pre-cargar el destino sin voz
-  const finalDestJson = finalDestinationGeo
-    ? `[FINAL_DEST_JSON:${JSON.stringify({
-        address: finalDestinationGeo.formattedAddress,
-        lat: finalDestinationGeo.lat,
-        lng: finalDestinationGeo.lng,
-      })}]`
-    : null;
 
   const tripPayload = {
     driver_id: driver.id,
@@ -5930,6 +5981,7 @@ async function createTripFromConversation({ conversation, extracted }) {
         destination: finalDestinationHint || null,
         notes: extracted.notes || null,
         awaiting_destination_gps: destinationNeedsGps,
+        destination_candidates: destinationCandidates.length ? destinationCandidates : null,
         confirmed_trip_id: null,
         last_cancellation_notified_trip_id: null,
       },
@@ -5947,8 +5999,8 @@ async function createTripFromConversation({ conversation, extracted }) {
       ? `\nDestino indicado: *${finalDestinationHint}*`
       : '';
 
-  const destinationGpsLine = destinationNeedsGps
-    ? '\nNo pude ubicar con precisión el destino final. Si querés, mandame la *ubicación del destino* o una dirección más exacta y la dejo cargada para el chofer.'
+  const destinationGpsLine = destinationFollowupText
+    ? `\n${destinationFollowupText}`
     : '';
 
   return {
@@ -5963,6 +6015,7 @@ async function createTripFromConversation({ conversation, extracted }) {
       destination: finalDestinationHint || null,
       notes: extracted.notes || null,
       awaiting_destination_gps: destinationNeedsGps,
+      destination_candidates: destinationCandidates.length ? destinationCandidates : null,
       confirmed_trip_id: null,
       last_cancellation_notified_trip_id: null,
     },
@@ -8157,61 +8210,101 @@ async function processWebhookBody(body, requestMeta = {}) {
         selectedAddress: confirmedCandidate.formattedAddress,
       });
 
-      // 4️⃣ Crear el viaje con la dirección confirmada (el trip no existía antes del poll)
-      const finalDestHint = normalizeAddressPhrase(pollExtracted.destination || '');
-      const finalDestJson = null; // el destino final se define al subir el pasajero
-      const notes = [
-        '[APPROACH_ONLY]',
-        pollExtracted.notes || 'Creado desde selección de dirección en encuesta WhatsApp.',
-        finalDestHint ? `Destino final sugerido: ${finalDestHint}` : 'Destino final: se define al subir el pasajero.',
-      ].filter(Boolean).join('\n');
-
-      const { data: pollTrip, error: pollTripErr } = await getSupabase()
-        .from('trips')
-        .insert({
+      // 4️⃣ Crear el viaje reutilizando el flujo canónico para no perder
+      // geocodificación de destino final ni contexto de seguimiento.
+      const tripResult = await createTripFromConversation({
+        conversation: {
+          id: pollConv?.id || null,
+          phone: pollPassengerPhone,
+          push_name: pollPassengerName,
+        },
+        extracted: {
+          ...pollExtracted,
           passenger_name: pollPassengerName,
-          passenger_phone: pollPassengerPhone,
-          status: 'queued',
-          destination_address: confirmedCandidate.formattedAddress,
-          destination_lat: confirmedCandidate.lat,
-          destination_lng: confirmedCandidate.lng,
-          notes,
-        })
-        .select()
-        .single();
+          pickup_location: confirmedCandidate.formattedAddress,
+          _preGeocodedPickup: {
+            formattedAddress: confirmedCandidate.formattedAddress,
+            lat: Number(confirmedCandidate.lat),
+            lng: Number(confirmedCandidate.lng),
+          },
+          _conversationText: pollExtracted?._conversationText || null,
+        },
+      });
 
-      if (pollTripErr || !pollTrip) {
-        logWebhook('poll_results_create_trip_error', { error: summarizeDbError(pollTripErr) });
-        return { status: 500, body: { success: false, error: 'failed_to_create_trip' } };
+      if (!tripResult?.ok || !tripResult?.trip?.id) {
+        if (tripResult?.reply) {
+          await sendWhatsAppText(pollPassengerPhone, tripResult.reply).catch(() => {});
+        }
+        if (pollConv?.id) {
+          try {
+            await getSupabase()
+              .from('whatsapp_conversations')
+              .update({
+                status: 'open',
+                context: tripResult?.context || ctxWithoutPoll,
+                last_processed_at: new Date().toISOString(),
+              })
+              .eq('id', pollConv.id);
+          } catch (_) {}
+        }
+        logWebhook('poll_results_trip_create_not_ready', {
+          convId: pollConv?.id || null,
+          phone: maskPhone(pollPassengerPhone),
+          reason: tripResult?.reason || 'trip_not_created',
+        });
+        return {
+          status: 200,
+          body: {
+            success: true,
+            event: 'poll.results',
+            ignored: true,
+            reason: tripResult?.reason || 'trip_not_created',
+          },
+        };
       }
 
-      logWebhook('poll_results_trip_created', { tripId: pollTrip.id, phone: maskPhone(pollPassengerPhone), address: confirmedCandidate.formattedAddress });
+      logWebhook('poll_results_trip_created', {
+        tripId: tripResult.trip.id,
+        phone: maskPhone(pollPassengerPhone),
+        address: confirmedCandidate.formattedAddress,
+        queued: Boolean(tripResult?.queued),
+        driverId: tripResult?.driver?.id || null,
+      });
 
-      // 5️⃣ Actualizar la conversación: last_trip_id + limpiar contexto + estado 'open'
+      // 5️⃣ Actualizar la conversación: last_trip_id + contexto del resultado + estado 'open'
       if (pollConv?.id) {
         try {
           await getSupabase()
             .from('whatsapp_conversations')
             .update({
-              last_trip_id: pollTrip.id,
+              last_trip_id: tripResult.trip.id,
               status: 'open',
-              context: {},          // contexto limpio — el trip ya fue creado
+              context: tripResult.context || {},
               last_processed_at: new Date().toISOString(),
             })
             .eq('id', pollConv.id);
         } catch (_) {}
       }
 
-      await sendWhatsAppText(
-        pollPassengerPhone,
-        `Dirección confirmada: *${confirmedCandidate.formattedAddress}*. Buscando el chofer más cercano...`
-      );
-      await dispatchQueuedPassengers();
+      if (tripResult?.reply) {
+        await sendWhatsAppText(pollPassengerPhone, tripResult.reply).catch(() => {});
+      }
+      if (tripResult?.queued) {
+        await dispatchQueuedPassengers();
+      }
 
-      logWebhook('poll_results_trip_dispatched', { tripId: pollTrip.id });
+      logWebhook('poll_results_trip_dispatched', {
+        tripId: tripResult.trip.id,
+        queued: Boolean(tripResult?.queued),
+      });
       return {
         status: 200,
-        body: { success: true, event: 'poll.results', tripId: pollTrip.id },
+        body: {
+          success: true,
+          event: 'poll.results',
+          tripId: tripResult.trip.id,
+          queued: Boolean(tripResult?.queued),
+        },
       };
     }
 
