@@ -5837,7 +5837,7 @@ async function createTripFromConversation({ conversation, extracted }) {
       duration_minutes: null,
       notes: [
         '[APPROACH_ONLY]',
-        extracted.notes || 'En cola de espera. Destino final: se define al subir el pasajero.',
+        extracted.notes || 'En cola de espera. Retiro confirmado.',
         finalDestJson || (finalDestinationHint
           ? `Destino final sugerido por pasajero: ${finalDestinationHint}`
           : null),
@@ -5858,7 +5858,7 @@ async function createTripFromConversation({ conversation, extracted }) {
       trip: queuedTrip,
       driver: null,
       reply: [
-        'No hay choferes disponibles en este momento, pero te agregué a la cola de espera. Apenas se libere uno cercano, te mando el móvil automáticamente 🕐',
+        'No hay choferes cercanos disponibles en este momento, pero te agregué a la cola de espera. Apenas se libere uno, te mando el móvil automáticamente 🕐',
         finalDestinationGeo
           ? `Destino: *${finalDestinationGeo.formattedAddress}*`
           : finalDestinationHint
