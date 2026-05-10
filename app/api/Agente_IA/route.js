@@ -5858,7 +5858,7 @@ async function createTripFromConversation({ conversation, extracted }) {
       trip: queuedTrip,
       driver: null,
       reply: [
-        'No hay choferes cercanos disponibles en este momento, pero te agregué a la cola de espera. Apenas se libere uno, te mando el móvil automáticamente 🕐',
+        'Estoy buscando un móvil para tu viaje y ya te sumé a la cola de prioridad. Apenas se confirme uno, te aviso automáticamente 🕐',
         finalDestinationGeo
           ? `Destino: *${finalDestinationGeo.formattedAddress}*`
           : finalDestinationHint
@@ -6783,7 +6783,7 @@ async function processTripLifecycleTransitions() {
 
         await sendPassengerLifecycleFollowup({
           phone: trip.passenger_phone,
-          text: 'No hay choferes disponibles ahora. Te agregué a la cola — te avisamos en cuanto se libere uno 🕐',
+          text: 'Seguimos buscando móvil para tu viaje. Ya quedaste en cola y te avisamos apenas se confirme uno 🕐',
           noticeType: 'queued_no_driver',
           relatedTripId: queuedTrip?.id || trip.id,
         });
@@ -6986,7 +6986,7 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
 
     await sendPassengerLifecycleFollowup({
       phone: trip.passenger_phone,
-      text: 'No hay choferes ahora. Te agregué a la cola — te avisamos en cuanto se libere uno 🕐',
+      text: 'Seguimos buscando móvil para tu viaje. Ya quedaste en cola y te avisamos apenas se confirme uno 🕐',
       noticeType: 'queued_no_driver',
       relatedTripId: queuedTrip?.id || trip.id,
     });
