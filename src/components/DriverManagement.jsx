@@ -84,14 +84,7 @@ export default function DriverManagement({ onBack }) {
   };
 
   if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center bg-light-100">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-accent border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-400 text-sm">Cargando choferes...</p>
-        </div>
-      </div>
-    );
+    return <DriverManagementLoading onBack={onBack} />;
   }
 
   return (
@@ -228,6 +221,108 @@ export default function DriverManagement({ onBack }) {
           onConfirm={handleConfirmMarkCommissionPaid}
         />
       )}
+    </div>
+  );
+}
+
+function DriverManagementLoading({ onBack }) {
+  const rows = Array.from({ length: 7 });
+
+  return (
+    <div className="h-full flex bg-light-100">
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="bg-light-50 border-b border-light-300/50 px-6 py-4">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={onBack}
+                className="w-9 h-9 rounded-xl bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all"
+                title="Volver"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+              </button>
+              <div>
+                <h1 className="text-xl font-bold text-navy-900">Gestión de Choferes</h1>
+                <p className="text-xs text-gray-500">Preparando lista de choferes...</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 rounded-xl bg-accent/5 border border-accent/15 px-3 py-2">
+              <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+              <span className="text-xs font-medium text-accent">Sincronizando en tiempo real</span>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <div className="flex-1 h-[42px] rounded-xl bg-light-200/90 animate-pulse" />
+            <div className="w-[360px] h-[42px] rounded-xl bg-light-200/90 animate-pulse" />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto p-6">
+          <div className="bg-light-50 rounded-2xl border border-light-300/50 overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-light-300/50">
+                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Chofer</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Contacto</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Vehículo</th>
+                  <th className="text-center px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Viajes</th>
+                  <th className="text-center px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Rating</th>
+                  <th className="text-center px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Estado</th>
+                  <th className="text-right px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((_, index) => (
+                  <tr key={`driver-loading-${index}`} className="border-b border-light-300/30">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-light-200/90 animate-pulse" />
+                        <div className="space-y-2">
+                          <div className="h-3 w-36 rounded bg-light-200/90 animate-pulse" />
+                          <div className="h-2.5 w-20 rounded bg-light-200/90 animate-pulse" />
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <div className="h-3 w-28 rounded bg-light-200/90 animate-pulse" />
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <div className="space-y-2">
+                        <div className="h-3 w-32 rounded bg-light-200/90 animate-pulse" />
+                        <div className="h-2.5 w-24 rounded bg-light-200/90 animate-pulse" />
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-3 text-center">
+                      <div className="h-3 w-8 mx-auto rounded bg-light-200/90 animate-pulse" />
+                    </td>
+
+                    <td className="px-4 py-3 text-center">
+                      <div className="h-3 w-10 mx-auto rounded bg-light-200/90 animate-pulse" />
+                    </td>
+
+                    <td className="px-4 py-3 text-center">
+                      <div className="h-6 w-20 mx-auto rounded-full bg-light-200/90 animate-pulse" />
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-1">
+                        <div className="w-8 h-8 rounded-lg bg-light-200/90 animate-pulse" />
+                        <div className="w-8 h-8 rounded-lg bg-light-200/90 animate-pulse" />
+                        <div className="w-8 h-8 rounded-lg bg-light-200/90 animate-pulse" />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

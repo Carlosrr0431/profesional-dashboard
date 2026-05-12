@@ -1892,6 +1892,93 @@ function isTripTransitionAuthorized({ authHeader = '', tripTransitionSecretHeade
   );
 }
 
+function getBearerTokenFromHeader(authHeader = '') {
+  const rawHeader = String(authHeader || '');
+  if (!rawHeader.toLowerCase().startsWith('bearer ')) return '';
+  return rawHeader.slice(7).trim();
+}
+
+async function authenticateDriverFromBearer(authHeader = '') {
+  const token = getBearerTokenFromHeader(authHeader);
+  if (!token) {
+    return { ok: false, reason: 'missing_bearer_token' };
+  }
+
+  const { data: userData, error: authError } = await getSupabase().auth.getUser(token);
+  const userId = userData?.user?.id || null;
+  if (authError || !userId) {
+    return {
+      ok: false,
+      reason: 'invalid_bearer_token',
+      error: authError?.message || null,
+    };
+  }
+
+  const { data: driver, error: driverError } = await getSupabase()
+    .from('drivers')
+    .select('id, user_id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (driverError || !driver?.id) {
+    return {
+      ok: false,
+      reason: 'driver_not_found_for_user',
+      userId,
+      error: driverError?.message || null,
+    };
+  }
+
+  return {
+    ok: true,
+    userId,
+    driverId: driver.id,
+  };
+}
+
+async function authorizeDriverTripTransitionRequest({ authHeader = '', tripId = '' } = {}) {
+  const driverAuth = await authenticateDriverFromBearer(authHeader);
+  if (!driverAuth.ok) {
+    return driverAuth;
+  }
+
+  const trip = await getConversationFlowTripById(tripId);
+  if (!trip) {
+    return {
+      ok: false,
+      reason: 'trip_not_found',
+      driverId: driverAuth.driverId,
+      userId: driverAuth.userId,
+    };
+  }
+
+  if (String(trip.driver_id || '') !== String(driverAuth.driverId)) {
+    return {
+      ok: false,
+      reason: 'trip_not_owned_by_driver',
+      driverId: driverAuth.driverId,
+      tripDriverId: trip.driver_id || null,
+    };
+  }
+
+  const tripStatus = normalizeText(trip.status || '');
+  if (!ACTIVE_TRIP_STATUSES.includes(tripStatus)) {
+    return {
+      ok: false,
+      reason: 'trip_status_not_notifiable',
+      tripStatus,
+      driverId: driverAuth.driverId,
+    };
+  }
+
+  return {
+    ok: true,
+    userId: driverAuth.userId,
+    driverId: driverAuth.driverId,
+    tripStatus,
+  };
+}
+
 function safeJsonParse(value, fallback = null) {
   if (value == null) return fallback;
   try {
@@ -2598,6 +2685,8 @@ function normalizeAddressPhrase(value) {
   return sanitizeAddressInput(
     work
       // Expandir abreviaturas de tipo de vía
+      .replace(/\bavda\.?\b/gi, 'Avenida')
+      .replace(/\bav\.?\b/gi, 'Avenida')
       .replace(/\bgral\.?\b/gi, 'General')
       .replace(/\bcnel\.?\b/gi, 'Coronel')
       .replace(/\btte\.?\b/gi, 'Teniente')
@@ -2611,7 +2700,8 @@ function normalizeAddressPhrase(value) {
       // "altura 200", "nro 200", "numero 200"
       .replace(/\b(?:altura|nro\.?|numero|n[uú]mero)\s*(\d{1,5})\b/gi, '$1')
       // "mitre n 300" / "mitre n° 300"
-      .replace(/\bn\s*[°o]?\s*(\d{1,5})\b/gi, '$1')
+      // Importante: evitar match dentro de palabras Unicode (ej: "Asuncion 1550").
+      .replace(/(^|[\s,.-])n\s*[°o]?\s*(\d{1,5})\b/gi, '$1$2')
       // Ignorar departamento/piso/oficina cuando viene luego del número de calle.
       // Ej: "Mitre 351 2B" -> "Mitre 351", "351 2B" -> "351"
       .replace(/\b(\d{1,5})\s+(?:dto\.?|depto\.?|departamento|dpto\.?|piso|of\.?|oficina|dep\.?|torre|bloque|block)?\s*[a-z]?\d{1,3}[a-z]?\b/gi, '$1')
@@ -4081,8 +4171,9 @@ async function buildPassengerDriverConfirmationMessage(trip, driver) {
   const driverMeta = [driver?.full_name, driverLabel, driver?.vehicle_plate].filter(Boolean).join(' · ');
   const etaText = etaMinutes != null ? `\nLlegada estimada: *~${etaMinutes} min*` : '';
   const distText = distanceToPickupKm != null ? ` (a ${distanceToPickupKm} km)` : '';
-  const trackingLink = trip?.tracking_token
-    ? `${TRACKING_BASE_URL}/seguimiento/${trip.tracking_token}`
+  const trackingToken = String(trip?.tracking_token || '').trim() || String(trip?.id || '').trim() || null;
+  const trackingLink = trackingToken
+    ? `${TRACKING_BASE_URL}/seguimiento/${trackingToken}`
     : null;
   const trackingText = trackingLink
     ? `\nSeguimiento en vivo: ${trackingLink}`
@@ -8030,14 +8121,30 @@ async function processWebhookBody(body, requestMeta = {}) {
       const authHeader = requestMeta.authHeader || '';
       const tripTransitionSecretHeader = requestMeta.tripTransitionSecretHeader || '';
 
-      if (!isTripTransitionAuthorized({ authHeader, tripTransitionSecretHeader })) {
-        logWebhook('trip_transition_unauthorized');
-        return { status: 401, body: { success: false, error: 'Unauthorized' } };
-      }
-
       const tripId = String(payloadBody.tripId || '').trim();
       if (!tripId) {
         return { status: 400, body: { success: false, error: 'tripId is required' } };
+      }
+
+      const authorizedBySecret = isTripTransitionAuthorized({ authHeader, tripTransitionSecretHeader });
+      let authMode = 'trip_transition_secret';
+      let driverAuthMeta = null;
+
+      if (!authorizedBySecret) {
+        driverAuthMeta = await authorizeDriverTripTransitionRequest({ authHeader, tripId });
+        if (!driverAuthMeta.ok) {
+          logWebhook('trip_transition_unauthorized', {
+            tripId,
+            reason: driverAuthMeta.reason || 'unknown',
+          });
+          return { status: 401, body: { success: false, error: 'Unauthorized' } };
+        }
+        authMode = 'driver_jwt';
+        logWebhook('trip_transition_driver_authorized', {
+          tripId,
+          driverId: driverAuthMeta.driverId,
+          tripStatus: driverAuthMeta.tripStatus || null,
+        });
       }
 
       const transitionStatus = normalizeText(payloadBody.status || '');
@@ -8046,6 +8153,7 @@ async function processWebhookBody(body, requestMeta = {}) {
         logWebhook('trip_transition_dispatch_mode', {
           tripId,
           status: transitionStatus || null,
+          authMode,
           mode: 'supabase_dispatch_only',
           queueDispatch: 'disabled_in_agente_ia',
           lifecycleTransitions: 'enabled',
@@ -8066,6 +8174,7 @@ async function processWebhookBody(body, requestMeta = {}) {
           success: true,
           event: 'trip.transition',
           tripId,
+          authMode,
           transitions,
         },
       };
@@ -8371,83 +8480,143 @@ async function processWebhookBody(body, requestMeta = {}) {
       if (typeof gpsLat === 'number' && typeof gpsLng === 'number') {
         logWebhook('location_message_received', { phone: maskPhone(phone), lat: gpsLat, lng: gpsLng });
 
-        // Buscar viaje en cola con awaiting_gps=true en trips.wa_context (arquitectura trips-only)
-        const { data: gpsTrip } = await getSupabase()
-          .from('trips')
-          .select('id, passenger_name, passenger_phone, wa_context, notes')
-          .eq('passenger_phone', normalizePhone(phone))
-          .eq('status', 'queued')
-          .not('wa_context', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        // Resolver dirección: WhatsApp ya la trae en el payload, si no → reverse geocode.
+        // El flujo GPS no depende de contexto previo: crea viaje directo igual que calle+altura.
+        const waName = String(locMsg.name || '').trim();
+        const waAddress = String(locMsg.address || '').trim();
+        const waProvidedAddress = waAddress || waName || null;
 
-        const gpsTripCtx = gpsTrip ? safeJsonParse(gpsTrip.wa_context, {}) : {};
-        const wantsGps = gpsTripCtx?.awaiting_gps === true;
-
-        if (gpsTrip && wantsGps) {
-          // Resolver dirección: WhatsApp ya la trae en el payload, si no → reverse geocode
-          const waName = String(locMsg.name || '').trim();
-          const waAddress = String(locMsg.address || '').trim();
-          const waProvidedAddress = waAddress || waName || null;
-
-          let reverseAddress;
-          if (waProvidedAddress) {
-            reverseAddress = waProvidedAddress;
-            logWebhook('location_address_from_wa_payload', { phone: maskPhone(phone), waAddress: waProvidedAddress });
-          } else {
-            try {
-              reverseAddress = await reverseGeocodeLatLng(gpsLat, gpsLng);
-            } catch {
-              reverseAddress = `${gpsLat.toFixed(6)}, ${gpsLng.toFixed(6)}`;
-            }
-          }
-
-          // Actualizar el viaje en cola con la dirección confirmada por GPS
-          const { data: gpsUpdatedRows, error: gpsUpdateErr } = await getSupabase()
-            .from('trips')
-            .update({
-              destination_address: reverseAddress,
-              destination_lat: gpsLat,
-              destination_lng: gpsLng,
-              wa_context: null,
-            })
-            .eq('id', gpsTrip.id)
-            .eq('status', 'queued')
-            .select('id');
-
-          if (gpsUpdateErr) {
-            logWebhook('location_gps_update_error', {
-              tripId: gpsTrip.id,
-              phone: maskPhone(phone),
-              error: summarizeDbError(gpsUpdateErr),
-            });
-          }
-
-          if (gpsUpdatedRows?.length) {
-            await sendWhatsAppText(
-              phone,
-              'Recibí tu ubicación. Buscando el chofer más cercano...'
-            ).catch(() => {});
-            await dispatchQueuedPassengers();
-            logWebhook('location_gps_trip_updated', {
-              tripId: gpsTrip.id,
-              phone: maskPhone(phone),
-              address: reverseAddress,
-            });
-            return {
-              status: 200,
-              body: { success: true, gpsHandled: true, tripId: gpsTrip.id },
-            };
-          }
-
-          if (!gpsUpdateErr && !gpsUpdatedRows?.length) {
-            logWebhook('location_gps_update_claim_lost', {
-              tripId: gpsTrip.id,
-              phone: maskPhone(phone),
-            });
+        let pickupAddress;
+        if (waProvidedAddress) {
+          pickupAddress = waProvidedAddress;
+          logWebhook('location_address_from_wa_payload', {
+            phone: maskPhone(phone),
+            waAddress: waProvidedAddress,
+          });
+        } else {
+          try {
+            pickupAddress = await reverseGeocodeLatLng(gpsLat, gpsLng);
+          } catch {
+            pickupAddress = `${gpsLat.toFixed(6)}, ${gpsLng.toFixed(6)}`;
           }
         }
+
+        const latestOpenTrip = await getLatestOpenTripByPhone(phone).catch(() => null);
+        const latestOpenTripContext = safeJsonParse(latestOpenTrip?.wa_context, {});
+        const isGpsPlaceholderTrip =
+          Boolean(latestOpenTrip) &&
+          String(latestOpenTrip?.status || '').toLowerCase() === 'queued' &&
+          latestOpenTripContext?.awaiting_gps === true;
+
+        // Si ya tiene un viaje activo real, mantener idempotencia y no duplicar.
+        if (latestOpenTrip && shouldBlockForOpenTrip(latestOpenTrip) && !isGpsPlaceholderTrip) {
+          const activeStatus = String(latestOpenTrip.status || '').toLowerCase();
+          const activeStatusReply =
+            activeStatus === 'queued'
+              ? 'Ya estás en la cola de espera. Te avisamos en cuanto haya un chofer disponible 🕐'
+              : activeStatus === 'pending'
+                ? `Tu pedido ya está tomado, esperando confirmación del chofer.${latestOpenTrip.destination_address ? `\nRetiro: *${latestOpenTrip.destination_address}*` : ''}`
+                : `Ya tenés un móvil asignado. Tu viaje sigue en curso.${latestOpenTrip.destination_address ? `\nRetiro: *${latestOpenTrip.destination_address}*` : ''}`;
+
+          await sendWhatsAppText(phone, activeStatusReply).catch(() => {});
+          logWebhook('location_open_trip_blocked', {
+            phone: maskPhone(phone),
+            tripId: latestOpenTrip.id,
+            tripStatus: latestOpenTrip.status,
+          });
+          return {
+            status: 200,
+            body: {
+              success: true,
+              gpsHandled: true,
+              blockedByOpenTrip: true,
+              tripId: latestOpenTrip.id,
+            },
+          };
+        }
+
+        const latestConversation = await getLatestConversationByPhone(phone).catch(() => null);
+
+        const tripResult = await createTripFromConversation({
+          conversation: {
+            id: latestConversation?.id || null,
+            phone,
+            push_name: pushName || null,
+          },
+          extracted: {
+            passenger_name: pushName || null,
+            pickup_location: pickupAddress,
+            origin: pickupAddress,
+            destination: null,
+            notes: null,
+            _preGeocodedPickup: {
+              formattedAddress: pickupAddress,
+              lat: Number(gpsLat),
+              lng: Number(gpsLng),
+            },
+            _conversationText: '[UBICACION_WHATSAPP]',
+          },
+        });
+
+        // Si había un placeholder de GPS en cola, se invalida para evitar duplicados.
+        if (isGpsPlaceholderTrip && latestOpenTrip?.id && tripResult?.trip?.id !== latestOpenTrip.id) {
+          await getSupabase()
+            .from('trips')
+            .update({
+              status: 'cancelled',
+              cancel_reason: '[AUTO_SUPERSEDED] GPS recibido; se creó un viaje directo',
+              wa_notified_at: new Date().toISOString(),
+              wa_context: null,
+            })
+            .eq('id', latestOpenTrip.id)
+            .eq('status', 'queued')
+            .catch(() => {});
+        }
+
+        if (latestConversation?.id) {
+          const conversationUpdates = {
+            status: 'open',
+            context: tripResult?.context || {},
+            last_processed_at: new Date().toISOString(),
+          };
+          if (tripResult?.trip?.id) {
+            conversationUpdates.last_trip_id = tripResult.trip.id;
+          }
+
+          await getSupabase()
+            .from('whatsapp_conversations')
+            .update(conversationUpdates)
+            .eq('id', latestConversation.id)
+            .catch(() => {});
+        }
+
+        if (tripResult?.reply) {
+          await sendWhatsAppText(phone, tripResult.reply).catch(() => {});
+        }
+
+        if (tripResult?.queued) {
+          await dispatchQueuedPassengers();
+        }
+
+        logWebhook('location_trip_direct_result', {
+          phone: maskPhone(phone),
+          ok: Boolean(tripResult?.ok),
+          reason: tripResult?.reason || null,
+          tripId: tripResult?.trip?.id || null,
+          queued: Boolean(tripResult?.queued),
+        });
+
+        return {
+          status: 200,
+          body: {
+            success: true,
+            gpsHandled: true,
+            ok: Boolean(tripResult?.ok),
+            reason: tripResult?.reason || null,
+            tripId: tripResult?.trip?.id || null,
+            queued: Boolean(tripResult?.queued),
+          },
+        };
       }
 
       // Si no hay viaje en cola esperando GPS, dejar que fluya normal como mensaje
