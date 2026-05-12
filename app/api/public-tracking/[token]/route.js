@@ -16,6 +16,10 @@ function getSupabaseAdmin() {
   });
 }
 
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+}
+
 export async function GET(_request, { params }) {
   try {
     const resolvedParams = await params;
@@ -30,13 +34,26 @@ export async function GET(_request, { params }) {
 
     const supabase = getSupabaseAdmin();
 
-    const { data: trip, error: tripError } = await supabase
+    const { data: tripByToken, error: tripByTokenError } = await supabase
       .from('trips')
       .select('*')
       .eq('tracking_token', token)
       .maybeSingle();
 
-    if (tripError) throw tripError;
+    if (tripByTokenError) throw tripByTokenError;
+
+    let trip = tripByToken || null;
+    if (!trip && isUuid(token)) {
+      const { data: tripById, error: tripByIdError } = await supabase
+        .from('trips')
+        .select('*')
+        .eq('id', token)
+        .maybeSingle();
+
+      if (tripByIdError) throw tripByIdError;
+      trip = tripById || null;
+    }
+
     if (!trip) {
       return NextResponse.json(
         { ok: false, error: { code: 'NOT_FOUND', message: 'Trip not found' } },

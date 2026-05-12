@@ -123,6 +123,18 @@ describe('POST /api/Agente_IA', () => {
       expect(body.success).toBe(true);
       expect(body.tripId).toBe('trip-123');
     });
+
+    it('devuelve 401 con JWT de chofer inválido', async () => {
+      const req = makePostRequest(
+        makeTripTransitionEvent('trip-123'),
+        { authorization: 'Bearer driver-jwt-test' },
+      );
+      const res = await POST(req);
+      const body = await res.json();
+
+      expect(res.status).toBe(401);
+      expect(body.success).toBe(false);
+    });
   });
 });
 
