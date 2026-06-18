@@ -12,7 +12,8 @@ App React Native / Expo para que los pasajeros pidan viajes de remis en Salta Ca
 - **Supabase JS v2** — mismo proyecto que el dashboard
 - **React Navigation 7** — Stack + Bottom Tabs
 - **Zustand 5** — perfil y viaje activo
-- **react-native-maps** — Google Maps (Android e iOS)
+- **@maplibre/maplibre-react-native** — MapLibre + OpenFreeMap (sin API key de Google)
+- **OSRM / Nominatim** — Rutas y geocodificación (Railway en producción)
 - **Login OTP** — teléfono + código de 4 dígitos por WhatsApp
 
 ---
@@ -22,7 +23,7 @@ App React Native / Expo para que los pasajeros pidan viajes de remis en Salta Ca
 1. **Node.js** 18+
 2. **Cuenta Expo** (`npx eas login`)
 3. **Supabase** — ejecutar el SQL de setup (ver abajo)
-4. **Google Cloud** — Maps SDK for Android **y** Maps SDK for iOS habilitados para la API key del mapa
+4. **Servicios geo** — URLs de OSRM y Nominatim en `.env` (ver `.env.example`)
 5. **iOS** — cuenta Apple Developer para instalar en dispositivo físico o publicar en App Store
 
 ---
@@ -36,9 +37,13 @@ cp .env.example .env
 ```
 
 ```
-SUPABASE_URL=https://xzabzbrolmkezljsyycr.supabase.co
-SUPABASE_ANON_KEY=sb_publishable_...
+EXPO_PUBLIC_SUPABASE_URL=https://xzabzbrolmkezljsyycr.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 EXPO_PUBLIC_DASHBOARD_URL=https://profesional-dashboard.vercel.app
+EXPO_PUBLIC_OSRM_URL=https://profesional-osrm-production.up.railway.app
+EXPO_PUBLIC_NOMINATIM_URL=https://profesional-nominatim-production.up.railway.app
+EXPO_PUBLIC_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/liberty
+EXPO_PUBLIC_NOMINATIM_SELF_HOSTED=true
 ```
 
 ---
@@ -79,7 +84,8 @@ npm start
 # Build de desarrollo en la nube (recomendado la primera vez)
 npm run build:android:dev
 
-# O compilación local si tenés Android Studio
+# O compilación local si tenés Android Studio (requiere prebuild tras cambios nativos)
+npx expo prebuild --clean --platform android
 npm run android
 ```
 
@@ -160,7 +166,7 @@ passenger-app/
 |---|---|---|
 | Autenticación | Email + contraseña (Supabase Auth) | OTP WhatsApp (API dashboard) |
 | Rol | Conductor | Pasajero |
-| Mapas | Google Maps | Google Maps (iOS + Android) |
+| Mapas | MapLibre + OSRM + Nominatim | MapLibre + OSRM + Nominatim |
 | Build iOS | EAS | EAS (mismo flujo) |
 
 ---
@@ -171,7 +177,6 @@ passenger-app/
 |---|---|
 | `503 Falta configurar base de datos OTP` | No ejecutaste `passenger_otp_auth.sql` o `passenger_full_setup.sql` |
 | `404` al enviar código | Dashboard sin desplegar o `EXPO_PUBLIC_DASHBOARD_URL` incorrecta |
-| Mapa beige/gris sin calles (Android) | La API key no autoriza `com.remises.passengerapp`. Ejecutá `npm run maps:setup` y agregá el package + SHA-1 en Google Cloud Console (junto a `com.remises.driverapp` si ya existe) |
-| Mapa en blanco en iOS | Falta **Maps SDK for iOS** en Google Cloud Console o el bundle ID no está en la restricción de la API key |
+| Mapa en blanco / sin calles | Verificá `EXPO_PUBLIC_MAP_STYLE_URL` y conexión a internet; si cambiaste plugins nativos, corré `npx expo prebuild --clean --platform android` |
 | `passenger_devices` no existe | Ejecutá la sección 8 de `passenger_full_setup.sql` |
 | No aparece el teclado al tocar OTP/teléfono | Actualizá a la última versión (fix blur+focus) |
