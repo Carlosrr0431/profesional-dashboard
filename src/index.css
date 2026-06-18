@@ -1,0 +1,294 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #F1F3F8;
+  color: #0F172A;
+  overflow: hidden;
+}
+
+#root {
+  height: 100vh;
+}
+
+.bg-dashboard-shell {
+  background:
+    radial-gradient(circle at top left, rgba(220, 38, 38, 0.08), transparent 28%),
+    radial-gradient(circle at top right, rgba(36, 95, 141, 0.12), transparent 24%),
+    linear-gradient(180deg, #f7f8fc 0%, #eef2f8 100%);
+}
+
+.dashboard-toolbar::-webkit-scrollbar {
+  height: 5px;
+}
+
+.dashboard-toolbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dashboard-toolbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+}
+
+/* Slide-in animation for DriverPanel */
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.animate-slideIn {
+  animation: slideIn 0.2s ease-out;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F1F3F8;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #DC2626;
+}
+
+/* Google Maps InfoWindow override */
+.gm-style-iw-d {
+  overflow: hidden !important;
+}
+.gm-style-iw {
+  background-color: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
+  border-radius: 14px !important;
+  padding: 0 !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12) !important;
+}
+.gm-style-iw-tc::after {
+  background: #FFFFFF !important;
+}
+.gm-ui-hover-effect {
+  top: 6px !important;
+  right: 6px !important;
+}
+
+/* Google Places Autocomplete dropdown */
+.pac-container {
+  z-index: 99999 !important;
+  background-color: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
+  border-radius: 8px !important;
+  margin-top: 4px !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12) !important;
+  font-family: inherit !important;
+}
+.pac-item {
+  padding: 8px 12px !important;
+  border-top: 1px solid #F1F3F8 !important;
+  color: #334155 !important;
+  cursor: pointer !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+.pac-item:first-child {
+  border-top: none !important;
+}
+.pac-item:hover {
+  background-color: #F8F9FC !important;
+}
+.pac-item-selected {
+  background-color: #F8F9FC !important;
+}
+.pac-item-query {
+  color: #0F172A !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+}
+.pac-matched {
+  color: #DC2626 !important;
+}
+.pac-icon {
+  filter: none !important;
+}
+.pac-logo::after {
+  display: none !important;
+}
+
+/* Hide Google Maps billing warning dialog */
+.gm-err-container,
+.dismissButton {
+  display: none !important;
+}
+.gm-err-title, .gm-err-message {
+  display: none !important;
+}
+/* Hide the "This page can't load Google Maps correctly" modal */
+.gm-style-pbc {
+  display: none !important;
+}
+/* Google's billing warning overlays - hide and disable pointer events */
+div.gm-control-active.gm-fullscreen-control ~ div[style*="background-color"],
+.gm-style > div > div > div > div > div[style*="background-color: white"],
+div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="position: absolute"]:not(.pac-container) {
+  display: none !important;
+  pointer-events: none !important;
+}
+/* Pac container above everything */
+.pac-container {
+  pointer-events: auto !important;
+}
+.gm-ui-hover-effect > span {
+  background-color: #cbd5e1 !important;
+}
+
+.passenger-iw-card {
+  background: transparent;
+}
+
+.gm-style-iw:has(.passenger-iw-card) {
+  border-radius: 16px !important;
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.14) !important;
+}
+
+.gm-style-iw-ch:has(.passenger-iw-card),
+.gm-style-iw-ch:has(.passenger-iw-card) + .gm-style-iw-chr {
+  padding-top: 0 !important;
+}
+
+/* Pulse animation for online drivers */
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.pulse-online::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: #22C55E;
+  animation: pulse-ring 2s ease-out infinite;
+  z-index: -1;
+}
+
+/* Toast notifications */
+.toast-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  width: min(22rem, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.toast-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.875rem 0.875rem 0.875rem 0.75rem;
+  border-radius: 0.875rem;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+  animation: toastIn 0.22s ease-out;
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.toast-message {
+  flex: 1;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: #0F172A;
+  font-weight: 500;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: none;
+  background: transparent;
+  color: #94A3B8;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 0.375rem;
+}
+
+.toast-close:hover {
+  color: #475569;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.toast-success {
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.toast-success .toast-icon {
+  background: rgba(34, 197, 94, 0.15);
+  color: #15803D;
+}
+
+.toast-error {
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.toast-error .toast-icon {
+  background: rgba(239, 68, 68, 0.12);
+  color: #B91C1C;
+}
+
+.toast-warning {
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.toast-warning .toast-icon {
+  background: rgba(245, 158, 11, 0.15);
+  color: #B45309;
+}
+
+.toast-info {
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+.toast-info .toast-icon {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1D4ED8;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
