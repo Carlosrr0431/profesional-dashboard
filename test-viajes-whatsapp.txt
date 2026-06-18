@@ -1,0 +1,131 @@
+═══════════════════════════════════════════════════
+  MENSAJES DE PRUEBA PARA WHATSAPP - PEDIDOS DE VIAJE
+═══════════════════════════════════════════════════
+
+──────────────────────────────────────────────────
+ 1. CALLE + NÚMERO (deben crear poll de dirección)
+──────────────────────────────────────────────────
+
+Mitre 351
+
+España 1200
+
+Belgrano 200
+
+Av. Belgrano 450
+
+Gral. Güemes 200
+
+San Martín 100
+
+Cnel. Suárez 320
+
+Güemes 350
+
+──────────────────────────────────────────────────
+ 2. CON ERRORES DE ORTOGRAFÍA (prueba corrección)
+──────────────────────────────────────────────────
+
+Irigogien 500
+
+Urquisa 200
+
+Gemes 450
+
+espana 1200
+
+balgrano 350
+
+──────────────────────────────────────────────────
+ 3. INTERSECCIONES
+──────────────────────────────────────────────────
+
+Belgrano y Mitre
+
+España c/ Alvarado
+
+Caseros casi Mitre
+
+San Martín esq. Urquiza
+
+entre España y Mitre
+
+Belgrano casi Mitre
+
+──────────────────────────────────────────────────
+ 4. NÚMEROS EN TEXTO ESPAÑOL
+──────────────────────────────────────────────────
+
+belgrano doscientos cincuenta
+
+mitre ciento veinte
+
+España trescientos
+
+──────────────────────────────────────────────────
+ 5. CON ORIGEN Y DESTINO
+──────────────────────────────────────────────────
+
+
+
+llevame a Mitre 300 desde Belgrano 200
+
+necesito un remis de España 400 a Güemes 100
+
+──────────────────────────────────────────────────
+ 6. PEDIDOS NATURALES (frases completas)
+──────────────────────────────────────────────────
+
+hola necesito un remis a Mitre 500
+
+me mandas un auto a Belgrano 250?
+
+quiero un remis para España y Alvarado
+
+mandame un movil a San Martin 800 por favor
+
+──────────────────────────────────────────────────
+ 7. REQUIEREN GPS (barrios sin número exacto)
+──────────────────────────────────────────────────
+
+barrio tres cerritos
+
+barrio grand bourg
+
+──────────────────────────────────────────────────
+ 8. NO DEBEN CREAR VIAJE (falsos positivos)
+──────────────────────────────────────────────────
+
+hola
+
+gracias
+
+ok dale
+
+acá nomás
+
+en mi casa
+
+el centro
+
+todo bien
+
+ya llegué
+
+──────────────────────────────────────────────────
+ 9. RESERVAS PROGRAMADAS
+──────────────────────────────────────────────────
+
+necesito un remis mañana a las 8 en Mitre 200
+
+reservame para el jueves a las 14:30 en España 500
+
+quiero un auto para mañana a la tarde en Belgrano 100
+
+═══════════════════════════════════════════════════
+ INSTRUCCIONES:
+ - Enviá UN mensaje a la vez y esperá la respuesta
+ - Entre cada prueba, esperá que el viaje anterior
+   se complete o cancelalo con "cancelar"
+ - Los de sección 8 NO deben generar viaje
+═══════════════════════════════════════════════════

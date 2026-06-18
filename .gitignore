@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Expo / React Native
+.expo/
+dist/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Secrets / credentials
+**/firebase-adminsdk*.json
+**/google-services.json
+profesionaapp-firebase-adminsdk*.json
+
+.env.local
+.env.*.local
+**/.env
+!**/.env.example
+
+# Build outputs
+**/android/app/build/
+**/android/.gradle/
+**/android/build/
+**/ios/Pods/
+**/ios/build/
+coverage/
+
+# OSM data (generados en Railway o local)
+infra/geospatial/data/
+*.osm.pbf
+*.osrm*
+
+# IDE / tools
+.tools/
+*.code-workspace
+.DS_Store
+Thumbs.db
+
+# Cursor
+.cursor/
+
+# Railway service repos (cada uno es un Git independiente en railway-services/)
+railway-services/profesional-osrm/
+railway-services/profesional-nominatim/

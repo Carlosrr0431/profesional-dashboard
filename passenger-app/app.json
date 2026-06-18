@@ -1,0 +1,91 @@
+{
+  "expo": {
+    "name": "Profesional Pasajero",
+    "slug": "pasajero-app",
+    "version": "1.0.0",
+    "runtimeVersion": "1.0.0",
+    "platforms": ["ios", "android"],
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "passengerapp",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "ios": {
+      "bundleIdentifier": "com.remises.passengerapp",
+      "buildNumber": "1",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "Necesitamos tu ubicación para encontrarte y asignarte el conductor más cercano.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Necesitamos tu ubicación para seguir el viaje en tiempo real.",
+        "NSLocationAlwaysUsageDescription": "Necesitamos tu ubicación para seguir el viaje en tiempo real.",
+        "UIBackgroundModes": ["fetch", "remote-notification"]
+      }
+    },
+    "android": {
+      "softwareKeyboardLayoutMode": "resize",
+      "package": "com.remises.passengerapp",
+      "googleServicesFile": "./google-services.json",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      [
+        "@maplibre/maplibre-react-native",
+        {
+          "android": {},
+          "ios": {
+            "metalEnabled": true
+          }
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "newArchEnabled": true
+          },
+          "ios": {
+            "useFrameworks": "static",
+            "buildReactNativeFromSource": true,
+            "newArchEnabled": true
+          }
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Necesitamos tu ubicación para encontrarte y asignarte el conductor más cercano."
+        }
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
+      "./plugins/withFirebaseNotificationManifest.js",
+      "expo-font",
+      "expo-updates"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "bd81e9ae-5f0f-4590-821c-d6752330c389"
+      }
+    },
+    "owner": "carlosrr",
+    "updates": {
+      "url": "https://u.expo.dev/bd81e9ae-5f0f-4590-821c-d6752330c389"
+    }
+  }
+}

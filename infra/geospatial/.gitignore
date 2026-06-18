@@ -1,0 +1,4 @@
+# Datos OSM generados localmente (prepare-osm-data)
+data/
+*.osm.pbf
+*.osrm*
