@@ -95,6 +95,40 @@ function tomtomSearchResponse(query) {
     };
   }
 
+  if (lower.includes('bolivia') && lower.includes('200')) {
+    return {
+      results: [{
+        type: 'Point Address',
+        id: 'test-bolivia-200',
+        score: 9.2,
+        position: { lat: -24.7821, lon: -65.4012 },
+        address: {
+          streetName: 'Bolivia',
+          streetNumber: '200',
+          municipality: 'Salta',
+          freeformAddress: 'Avenida Bolivia 200, Salta, Argentina',
+        },
+      }],
+    };
+  }
+
+  if (lower.includes('entre') && lower.includes('200')) {
+    return {
+      results: [{
+        type: 'Point Address',
+        id: 'test-entre-rios-200',
+        score: 9.2,
+        position: { lat: -24.781482624, lon: -65.404901193 },
+        address: {
+          streetName: 'Entre Ríos',
+          streetNumber: '200',
+          municipality: 'Salta',
+          freeformAddress: 'Avenida Entre Ríos 200, Salta, Argentina',
+        },
+      }],
+    };
+  }
+
   return {
     results: [{
       type: 'Point Address',
@@ -194,6 +228,43 @@ function createGeoFetchHandler(baseHandler) {
         status: 200,
         json: async () => tomtomRouteResponse(),
       };
+    }
+
+    if (urlStr.includes('apis.datos.gob.ar/georef')) {
+      const params = parseUrlParams(urlStr);
+      const query = String(params.get('direccion') || '').toLowerCase();
+      if (query.includes('entre') && query.includes('200')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            direcciones: [{
+              nomenclatura: 'AV ENTRE RIOS 200, Salta, Capital, Salta',
+              altura: { valor: 200 },
+              calle: { nombre: 'AV ENTRE RIOS' },
+              localidad_censal: { nombre: 'Salta' },
+              provincia: { nombre: 'Salta' },
+              ubicacion: { lat: -24.781482624, lon: -65.404901193 },
+            }],
+          }),
+        };
+      }
+      if (query.includes('bolivia') && query.includes('200')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            direcciones: [{
+              nomenclatura: 'AV BOLIVIA 200, Salta, Capital, Salta',
+              altura: { valor: 200 },
+              calle: { nombre: 'AV BOLIVIA' },
+              localidad_censal: { nombre: 'Salta' },
+              provincia: { nombre: 'Salta' },
+              ubicacion: { lat: null, lon: null },
+            }],
+          }),
+        };
+      }
     }
 
     if (urlStr.includes('nominatim') && urlStr.includes('/search')) {

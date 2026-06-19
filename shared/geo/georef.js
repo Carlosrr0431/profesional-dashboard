@@ -10,21 +10,30 @@ const { pickPrimaryHouseNumber } = require('../salta-address');
 const GEOREF_TIMEOUT_MS = 8000;
 
 function parseCoordinate(value) {
+  if (value == null || value === '') return null;
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 }
 
-function buildGeorefPlaceId(item, query) {
-  const q = String(query || item?.nomenclatura || '').trim();
-  if (!q) {
-    const lat = parseCoordinate(item?.ubicacion?.lat);
-    const lng = parseCoordinate(item?.ubicacion?.lon);
-    if (lat != null && lng != null) {
-      return `georef:${lat.toFixed(7)},${lng.toFixed(7)}`;
-    }
-    return 'georef:unknown';
+function isValidArgentinaCoordinate(lat, lng) {
+  if (lat == null || lng == null) return false;
+  if (Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001) return false;
+  return lat <= 0 && lat >= -60 && lng <= -50 && lng >= -75;
+}
+
+function buildGeorefPlaceId(item) {
+  const lat = parseCoordinate(item?.ubicacion?.lat);
+  const lng = parseCoordinate(item?.ubicacion?.lon);
+  if (isValidArgentinaCoordinate(lat, lng)) {
+    return `georef:${lat.toFixed(7)},${lng.toFixed(7)}`;
   }
-  return `georef:q:${encodeURIComponent(q)}`;
+
+  const nomenclatura = String(item?.nomenclatura || '').trim();
+  if (nomenclatura) {
+    return `georef:n:${encodeURIComponent(nomenclatura)}`;
+  }
+
+  return 'georef:unknown';
 }
 
 /**
@@ -33,7 +42,7 @@ function buildGeorefPlaceId(item, query) {
 function mapGeorefDireccion(item, query = '') {
   const lat = parseCoordinate(item?.ubicacion?.lat);
   const lng = parseCoordinate(item?.ubicacion?.lon);
-  if (lat === null || lng === null) return null;
+  if (!isValidArgentinaCoordinate(lat, lng)) return null;
 
   const houseNumber = item?.altura?.valor;
   const road = String(item?.calle?.nombre || '').trim();
@@ -43,7 +52,7 @@ function mapGeorefDireccion(item, query = '') {
     lat,
     lng,
     formattedAddress: nomenclatura,
-    placeId: buildGeorefPlaceId(item, query),
+    placeId: buildGeorefPlaceId(item),
     importance: 1,
     osmClass: 'georef',
     osmType: 'address',
@@ -116,6 +125,12 @@ async function resolveGeorefPlaceId(placeId) {
     const query = decodeURIComponent(id.slice('georef:q:'.length));
     const hits = await searchGeorefAddress(query, 1);
     return hits[0] || null;
+  }
+
+  if (id.startsWith('georef:n:')) {
+    const nomenclatura = decodeURIComponent(id.slice('georef:n:'.length));
+    const hits = await fetchGeorefDirecciones(nomenclatura, { max: 1 });
+    return hits.map((item) => mapGeorefDireccion(item)).find(Boolean) || null;
   }
 
   const coordMatch = id.match(/^georef:(-?\d+\.?\d*),(-?\d+\.?\d*)$/);

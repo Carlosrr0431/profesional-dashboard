@@ -23,4 +23,21 @@ describe('geo autocomplete', () => {
     const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
     expect(nominatimCalls.length).toBeGreaterThan(0);
   });
+
+  it('devuelve direcciones con altura aunque Nominatim falle', async () => {
+    const baseFetch = global.fetch.getMockImplementation();
+    global.fetch.mockImplementation(async (url, options) => {
+      if (String(url).includes('nominatim')) {
+        return { ok: false, status: 502, json: async () => ({}) };
+      }
+      return baseFetch(url, options);
+    });
+
+    const entreRios = await autocompleteAddressSalta('Entre Rios 200', 5);
+    expect(entreRios.length).toBeGreaterThan(0);
+
+    const bolivia = await autocompleteAddressSalta('Bolivia 200', 5);
+    expect(bolivia.length).toBeGreaterThan(0);
+    expect(bolivia.some((item) => /bolivia/i.test(item.address))).toBe(true);
+  });
 });

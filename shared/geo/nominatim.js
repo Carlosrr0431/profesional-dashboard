@@ -7,7 +7,7 @@ const {
   isWithinSaltaCapital,
 } = require('./mapConfig');
 
-const { poiSearch, getPlaceById } = require('./tomtomClient');
+const { poiSearch, getPlaceById, geocodeQuery } = require('./tomtomClient');
 
 const {
   buildAddressSearchQueries,
@@ -30,6 +30,7 @@ const {
 const { searchGeorefAddress, resolveGeorefPlaceId } = require('./georef');
 
 const REQUEST_MIN_INTERVAL_MS = NOMINATIM_SELF_HOSTED ? 0 : 1100;
+const NOMINATIM_TIMEOUT_MS = 12000;
 const MAX_AUTOCOMPLETE_VARIANTS = 4;
 const PARALLEL_BATCH = NOMINATIM_SELF_HOSTED ? 2 : 1;
 const MIN_AUTOCOMPLETE_SCORE = 0.12;
@@ -139,20 +140,30 @@ async function nominatimFetch(path, params = {}) {
       ...params,
     });
 
-    const response = await fetch(`${NOMINATIM_BASE_URL}${path}?${qs.toString()}`, {
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': NOMINATIM_USER_AGENT,
-      },
-    });
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller
+      ? setTimeout(() => controller.abort(), NOMINATIM_TIMEOUT_MS)
+      : null;
 
-    lastRequestAt = Date.now();
+    try {
+      const response = await fetch(`${NOMINATIM_BASE_URL}${path}?${qs.toString()}`, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': NOMINATIM_USER_AGENT,
+        },
+        signal: controller?.signal,
+      });
 
-    if (!response.ok) {
-      throw new Error(`Nominatim HTTP ${response.status}`);
+      lastRequestAt = Date.now();
+
+      if (!response.ok) {
+        throw new Error(`Nominatim HTTP ${response.status}`);
+      }
+
+      return response.json();
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-
-    return response.json();
   });
 
   return requestChain;
@@ -171,31 +182,35 @@ async function fetchSearchResults(params) {
 }
 
 async function searchNominatimVariant(query, limit = 8) {
-  const bounded = await fetchSearchResults({
-    q: buildSearchQuery(query),
-    limit: String(Math.max(1, Math.min(limit, 10))),
-    viewbox: SALTA_VIEWBOX,
-    bounded: '1',
-  });
+  try {
+    const bounded = await fetchSearchResults({
+      q: buildSearchQuery(query),
+      limit: String(Math.max(1, Math.min(limit, 10))),
+      viewbox: SALTA_VIEWBOX,
+      bounded: '1',
+    });
 
-  if (bounded.length >= 2) return bounded;
+    if (bounded.length >= 2) return bounded;
 
-  const relaxed = await fetchSearchResults({
-    q: buildSearchQuery(query),
-    limit: String(Math.max(1, Math.min(limit, 10))),
-    viewbox: SALTA_VIEWBOX,
-    bounded: '0',
-  });
+    const relaxed = await fetchSearchResults({
+      q: buildSearchQuery(query),
+      limit: String(Math.max(1, Math.min(limit, 10))),
+      viewbox: SALTA_VIEWBOX,
+      bounded: '0',
+    });
 
-  const seen = new Set();
-  const merged = [];
-  for (const item of [...bounded, ...relaxed]) {
-    const key = item.placeId || `${item.lat},${item.lng}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(item);
+    const seen = new Set();
+    const merged = [];
+    for (const item of [...bounded, ...relaxed]) {
+      const key = item.placeId || `${item.lat},${item.lng}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+    }
+    return merged;
+  } catch {
+    return [];
   }
-  return merged;
 }
 
 async function searchStructuredAddress(query) {
@@ -448,11 +463,18 @@ async function autocompleteAddressSalta(query, limit = 8) {
     const catalogVariantCount = getCatalogAddressVariants(trimmed, 8).length;
 
     const primaryQuery = searchQueries[0] || trimmed;
-    const [primaryHits, structuredHits, georefHits, poiHits] = await Promise.all([
-      useTomTomPoi ? Promise.resolve([]) : searchNominatimVariant(primaryQuery, limit),
-      hasHouseNumber ? searchStructuredAddress(trimmed) : Promise.resolve([]),
+    const [primaryHits, structuredHits, georefHits, poiHits, geocodeHits] = await Promise.all([
+      useTomTomPoi
+        ? Promise.resolve([])
+        : searchNominatimVariant(primaryQuery, limit).catch(() => []),
+      hasHouseNumber
+        ? searchStructuredAddress(trimmed).catch(() => [])
+        : Promise.resolve([]),
       hasHouseNumber ? searchGeorefAddress(trimmed, 3).catch(() => []) : Promise.resolve([]),
       useTomTomPoi ? poiSearch(trimmed, { limit: Math.max(limit, 6) }).catch(() => []) : Promise.resolve([]),
+      hasHouseNumber
+        ? geocodeQuery(buildSearchQuery(trimmed), { limit: Math.max(limit, 6) }).catch(() => [])
+        : Promise.resolve([]),
     ]);
 
     const merged = [];
@@ -483,6 +505,14 @@ async function autocompleteAddressSalta(query, limit = 8) {
       seenPlaceIds,
       seenCoords,
       hasHouseNumber ? 0.18 : 0.35,
+    );
+    collectAutocompleteCandidates(
+      geocodeHits,
+      trimmed,
+      merged,
+      seenPlaceIds,
+      seenCoords,
+      hasHouseNumber ? 0.28 : 0,
     );
 
     if (merged.length < limit && searchQueries.length > 1 && !useTomTomPoi) {
