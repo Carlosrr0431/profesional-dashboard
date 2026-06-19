@@ -61,3 +61,26 @@ export const getBearing = (startLat, startLng, destLat, destLng) => {
   bearing = (bearing * 180) / Math.PI;
   return (bearing + 360) % 360;
 };
+
+const DEFAULT_EDGE_PADDING = { top: 80, right: 40, bottom: 200, left: 40 };
+
+export function fitMapToCoordinates(mapRef, coords = [], edgePadding = DEFAULT_EDGE_PADDING) {
+  const points = coords.filter(
+    (p) => Number.isFinite(p?.latitude) && Number.isFinite(p?.longitude),
+  );
+  if (!mapRef?.current || points.length === 0) return;
+  mapRef.current.fitToCoordinates(points, { edgePadding, animated: true });
+}
+
+export function animateMapCamera(mapRef, { center, bearing = 0, pitch = 0, zoom = 16 }, duration = 250) {
+  if (!mapRef?.current || !center) return;
+  mapRef.current.animateCamera(
+    {
+      center: { latitude: center.latitude, longitude: center.longitude },
+      heading: bearing,
+      pitch,
+      zoom,
+    },
+    { duration },
+  );
+}

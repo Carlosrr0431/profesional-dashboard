@@ -1,18 +1,18 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Marker } from '@maplibre/maplibre-react-native';
+import { Marker } from 'react-native-maps';
 import { colors } from '../../theme/colors';
+import { normalizeCoordinate } from '../../utils/mapCoords';
 
-/**
- * Marca el punto final de la ruta activa en MapLibre.
- */
-const RouteEndMarker = React.memo(({ lngLat, variant = 'destination' }) => {
+/** Marca el punto final de la ruta activa. */
+const RouteEndMarker = React.memo(({ coordinate, variant = 'destination' }) => {
+  const coord = normalizeCoordinate(coordinate);
   const isPickup = variant === 'pickup';
 
-  if (!Array.isArray(lngLat) || lngLat.length < 2) return null;
+  if (!coord) return null;
 
   return (
-    <Marker id={`route-end-${variant}`} lngLat={lngLat}>
+    <Marker coordinate={coord} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
       <View style={styles.wrap}>
         <View style={styles.halo} />
         <View style={[styles.pin, isPickup ? styles.pinRound : styles.pinSquare]}>

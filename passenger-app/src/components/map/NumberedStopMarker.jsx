@@ -1,22 +1,20 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Marker } from '@maplibre/maplibre-react-native';
+import { Marker } from 'react-native-maps';
 import { colors } from '../../theme/colors';
-import { toLngLat } from '../../utils/mapLibreHelpers';
+import { normalizeCoordinate } from '../../utils/mapCoords';
 
-/**
- * Marcador numerado para paradas en la vista previa de ruta.
- */
+/** Marcador numerado para paradas en la vista previa de ruta. */
 export default function NumberedStopMarker({
   coordinate,
   index,
   isFinal = false,
 }) {
-  const lngLat = toLngLat(coordinate);
-  if (!lngLat) return null;
+  const coord = normalizeCoordinate(coordinate);
+  if (!coord) return null;
 
   return (
-    <Marker id={`passenger-stop-${index}`} lngLat={lngLat}>
+    <Marker coordinate={coord} anchor={{ x: 0.5, y: 1 }} tracksViewChanges={false}>
       <View style={styles.wrap} collapsable={false}>
         <View style={[styles.badge, isFinal && styles.badgeFinal]}>
           <Text style={[styles.badgeText, isFinal && styles.badgeTextFinal]}>

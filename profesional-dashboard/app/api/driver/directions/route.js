@@ -56,6 +56,9 @@ export async function GET(request) {
         durationStatic: route.durationStatic,
         polyline: route.polyline,
         steps: route.steps,
+        distanceValue: route.distanceValue,
+        durationValue: route.durationValue,
+        polylineCoords: route.polylineCoords,
       },
     });
   } catch (err) {

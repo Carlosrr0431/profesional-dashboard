@@ -1,22 +1,25 @@
 /**
- * Componente: DriverMarker
- * Marcador del conductor para MapLibre.
+ * Marcador del conductor para react-native-maps.
  */
 import React from 'react';
 import { View } from 'react-native';
-import { Marker } from '@maplibre/maplibre-react-native';
+import { Marker } from 'react-native-maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
+import { normalizeCoordinate } from '../../utils/mapCoords';
 
 export const DriverMarker = ({ coordinate, heading = 0 }) => {
-  const lat = Number(coordinate?.latitude ?? coordinate?.lat);
-  const lng = Number(coordinate?.longitude ?? coordinate?.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const coord = normalizeCoordinate(coordinate);
+  if (!coord) return null;
 
   const rotation = Number.isFinite(heading) ? heading : 0;
 
   return (
-    <Marker id="driver-marker" lngLat={[lng, lat]}>
+    <Marker
+      coordinate={coord}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={false}
+    >
       <View style={{
         width: 38,
         height: 38,

@@ -13,9 +13,8 @@ ENV IMPORT_US_TIGER=false
 ENV IMPORT_GB_POSTCODES=false
 ENV FREEZE=true
 ENV THREADS=2
+ENV KEEP_ARGENTINA_PBF=true
 ENV USER_AGENT=ProfesionalApp-Nominatim-Setup/1.0
-
-COPY railway-entrypoint.sh /railway-entrypoint.sh
 RUN chmod +x /railway-entrypoint.sh
 
 ENTRYPOINT ["/railway-entrypoint.sh"]

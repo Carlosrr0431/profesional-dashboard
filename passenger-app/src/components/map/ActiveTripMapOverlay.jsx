@@ -1,11 +1,10 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Marker } from '@maplibre/maplibre-react-native';
+import { Marker } from 'react-native-maps';
 import DriverMarker from './DriverMarker';
 import PickupMarker from './PickupMarker';
 import { MapRouteLayers } from './MapRouteLayers';
-import { ROUTE_LINE, ROUTE_CASING } from '../../constants/mapStyle';
-import { toLngLat } from '../../utils/mapLibreHelpers';
+import { normalizeCoordinate } from '../../utils/mapCoords';
 
 export default function ActiveTripMapOverlay({
   pickupCoord,
@@ -23,7 +22,7 @@ export default function ActiveTripMapOverlay({
 }) {
   if (!pickupCoord && !destinationCoord && !smoothDriverCoord) return null;
 
-  const destinationLngLat = toLngLat(destinationCoord);
+  const destinationCoordNorm = normalizeCoordinate(destinationCoord);
 
   return (
     <>
@@ -34,8 +33,12 @@ export default function ActiveTripMapOverlay({
         />
       ) : null}
 
-      {destinationLngLat && (isEnRouteToDestination || isSearching || isEnRouteToPickup) ? (
-        <Marker id="passenger-destination" lngLat={destinationLngLat}>
+      {destinationCoordNorm && (isEnRouteToDestination || isSearching || isEnRouteToPickup) ? (
+        <Marker
+          coordinate={destinationCoordNorm}
+          anchor={{ x: 0.5, y: 0.5 }}
+          tracksViewChanges={false}
+        >
           <View style={[styles.destPin, (isSearching || isEnRouteToPickup) && styles.destPinMuted]}>
             <View style={styles.destPinInner} />
           </View>
@@ -48,7 +51,6 @@ export default function ActiveTripMapOverlay({
 
       {!isSearching && fullTripRoute?.length > 1 ? (
         <MapRouteLayers
-          idPrefix="trip-full"
           coords={fullTripRoute}
           lineColor="#94A3B8"
           casingColor="#E2E8F0"
@@ -59,12 +61,9 @@ export default function ActiveTripMapOverlay({
 
       {!isSearching && !isFinished && remainingPath?.length > 1 ? (
         <MapRouteLayers
-          idPrefix="trip-remaining"
           coords={remainingPath}
-          lineColor={ROUTE_LINE}
-          casingColor={ROUTE_CASING}
-          casingWidth={10}
-          lineWidth={5}
+          variant="active"
+          navigationMode
         />
       ) : null}
     </>

@@ -4,6 +4,9 @@ const {
   getCatalogAddressVariants,
   scoreCandidateAgainstQuery,
   formatAddressSuggestion,
+  formatNominatimDisplayLabel,
+  applyQueryHouseNumberToLabel,
+  parseStreetHouseFromQuery,
 } = require('../../../shared/salta-address');
 
 describe('salta-address', () => {
@@ -29,6 +32,41 @@ describe('salta-address', () => {
     const formatted = formatAddressSuggestion('Bartolomé Mitre 200, A4400 Salta, Argentina');
     expect(formatted.title).toBe('Bartolomé Mitre 200');
     expect(formatted.subtitle).toContain('Salta');
+  });
+
+  it('parsea calle y altura desde el texto ingresado', () => {
+    expect(parseStreetHouseFromQuery('belgrano 200')).toEqual({
+      street: 'belgrano',
+      houseNumber: '200',
+    });
+  });
+
+  it('agrega la altura del query cuando Nominatim solo devuelve la calle', () => {
+    const label = applyQueryHouseNumberToLabel(
+      {
+        title: 'Juan Gálvez',
+        subtitle: 'Centro, Salta',
+        full: 'Juan Gálvez, Centro, Salta',
+      },
+      'juan galvez 218',
+    );
+    expect(label.title).toBe('Juan Gálvez 218');
+    expect(label.full).toContain('218');
+  });
+
+  it('formatea etiqueta corta desde addressdetails de Nominatim', () => {
+    const label = formatNominatimDisplayLabel({
+      formattedAddress: '200, Avenida Belgrano, Centro, Salta, Argentina',
+      address: {
+        house_number: '200',
+        road: 'Avenida Belgrano',
+        suburb: 'Centro',
+        city: 'Salta',
+      },
+    });
+    expect(label.title).toMatch(/Belgrano/i);
+    expect(label.title).toContain('200');
+    expect(label.subtitle).toContain('Salta');
   });
 
   it('resuelve calles del catálogo por token parcial', () => {

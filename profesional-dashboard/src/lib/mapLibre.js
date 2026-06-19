@@ -1,6 +1,7 @@
-import { MAP_STYLE_URL } from './geo/index.js';
-
-export { MAP_STYLE_URL };
+/** Config de mapa para componentes cliente (sin imports de Node). */
+export const MAP_STYLE_URL =
+  process.env.NEXT_PUBLIC_MAP_STYLE_URL
+  || 'https://tiles.openfreemap.org/styles/liberty';
 
 export const DEFAULT_MAP_VIEW = {
   longitude: -65.4122,

@@ -1,6 +1,6 @@
 /**
  * Componente: RoutePolyline
- * Obtiene direcciones OSRM, decodifica la polyline y la pinta en MapLibre.
+ * Obtiene direcciones OSRM, decodifica la polyline y la pinta en el mapa.
  */
 import React, { useEffect, useState } from 'react';
 import { decodePolyline } from '../../utils/polyline';
@@ -19,7 +19,9 @@ export const RoutePolyline = ({ origin, destination, onRouteReady, navigationMod
   const fetchRoute = async () => {
     try {
       const result = await getDirections(origin, destination);
-      const coords = decodePolyline(result.polyline);
+      const coords = Array.isArray(result.polylineCoords) && result.polylineCoords.length > 0
+        ? result.polylineCoords
+        : decodePolyline(result.polyline);
       setRouteCoords(coords);
       if (onRouteReady) {
         onRouteReady({

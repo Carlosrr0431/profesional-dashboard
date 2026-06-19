@@ -1,20 +1,22 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Marker } from '@maplibre/maplibre-react-native';
+import { Marker } from 'react-native-maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { toLngLat } from '../../utils/mapLibreHelpers';
+import { normalizeCoordinate } from '../../utils/mapCoords';
 
-/**
- * Marcador del conductor sobre MapLibre (silueta de auto con orientación).
- */
+/** Marcador del conductor (silueta de auto con orientación). */
 const DriverMarker = React.memo(({ coordinate, heading = 0 }) => {
-  const lngLat = toLngLat(coordinate);
-  if (!lngLat) return null;
+  const coord = normalizeCoordinate(coordinate);
+  if (!coord) return null;
 
   const rotation = Number.isFinite(heading) ? heading : 0;
 
   return (
-    <Marker id="passenger-driver" lngLat={lngLat}>
+    <Marker
+      coordinate={coord}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={false}
+    >
       <View
         style={[styles.root, { transform: [{ rotate: `${rotation}deg` }] }]}
         collapsable={false}

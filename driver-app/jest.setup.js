@@ -9,7 +9,7 @@ process.env.EXPO_PUBLIC_SUPABASE_URL         = 'https://test.supabase.co';
 process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY    = 'test-anon-key';
 process.env.EXPO_PUBLIC_OSRM_URL = 'https://test-osrm.example';
 process.env.EXPO_PUBLIC_NOMINATIM_URL = 'https://test-nominatim.example';
-process.env.EXPO_PUBLIC_MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY = 'test-google-maps-key';
 
 // ── Mocks de módulos nativos de Expo ─────────────────────────────────────────
 jest.mock('expo-location', () => ({
@@ -158,63 +158,31 @@ jest.mock('react-native-reanimated', () => {
   return Reanimated;
 });
 
-jest.mock('@maplibre/maplibre-react-native', () => {
+jest.mock('react-native-maps', () => {
   const React = require('react');
   const { View } = require('react-native');
 
-  const MockMap = React.forwardRef((props, ref) => {
+  const MockMapView = React.forwardRef((props, ref) => {
     React.useImperativeHandle(ref, () => ({
-      setStop: jest.fn(),
-      jumpTo: jest.fn(),
-      easeTo: jest.fn(),
-      flyTo: jest.fn(),
-      fitBounds: jest.fn(),
-      zoomTo: jest.fn(),
-    }));
-    return React.createElement(View, props, props.children);
-  });
-
-  const MockCamera = React.forwardRef((props, ref) => {
-    React.useImperativeHandle(ref, () => ({
-      setStop: jest.fn(),
-      jumpTo: jest.fn(),
-      easeTo: jest.fn(),
-      flyTo: jest.fn(),
-      fitBounds: jest.fn(),
-      zoomTo: jest.fn(),
+      animateToRegion: jest.fn(),
+      fitToCoordinates: jest.fn(),
+      animateCamera: jest.fn(),
     }));
     return React.createElement(View, props, props.children);
   });
 
   const PassThrough = (props) => React.createElement(View, props, props.children);
 
-  return {
-    Map: MockMap,
-    Camera: MockCamera,
-    Marker: PassThrough,
-    GeoJSONSource: PassThrough,
-    Layer: PassThrough,
-    ViewAnnotation: PassThrough,
-    UserLocation: PassThrough,
-    Images: PassThrough,
-  };
-});
-
-jest.mock('react-native-maps', () => {
-  const { View } = require('react-native');
-  const MockMapView = (props) => View(props);
-  const MockMarker = (props) => View(props);
-  const MockPolyline = (props) => View(props);
   MockMapView.Animated = MockMapView;
   return {
     __esModule: true,
     default: MockMapView,
-    Marker: MockMarker,
-    Polyline: MockPolyline,
+    Marker: PassThrough,
+    Polyline: PassThrough,
     PROVIDER_GOOGLE: 'google',
     MapView: MockMapView,
   };
-}, { virtual: true });
+});
 
 jest.mock('@gorhom/bottom-sheet', () => {
   const { View } = require('react-native');

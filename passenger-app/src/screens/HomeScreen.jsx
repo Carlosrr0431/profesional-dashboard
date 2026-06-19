@@ -10,7 +10,7 @@ import {
   useWindowDimensions,
   Alert,
 } from 'react-native';
-import { Map, Camera, UserLocation } from '@maplibre/maplibre-react-native';
+import MapView from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,9 +28,9 @@ import ExpandableTripSheet from '../components/home/ExpandableTripSheet';
 import TripPlanRouteOverlay from '../components/map/TripPlanRouteOverlay';
 import ActiveTripMapOverlay from '../components/map/ActiveTripMapOverlay';
 import { TripCompletedOverlay } from '../components/trip/TripCompletedOverlay';
-import { MAP_STYLE_URL } from '../utils/mapConfig';
-import { regionToInitialViewState } from '../utils/mapLibreHelpers';
+import { MAP_PROVIDER } from '../utils/mapProvider';
 import { createMapCameraController } from '../utils/mapCamera';
+import { PASSENGER_MAP_STYLE } from '../constants/mapStyle';
 
 const SALTA_DELTA = { latitudeDelta: 0.04, longitudeDelta: 0.04 };
 const SALTA_CENTER = { latitude: -24.7829, longitude: -65.4122 };
@@ -51,10 +51,10 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { width: screenW, height: screenH } = useWindowDimensions();
   const navigation = useNavigation();
-  const cameraRef = useRef(null);
+  const mapViewRef = useRef(null);
   const mapRef = useRef(null);
   if (!mapRef.current) {
-    mapRef.current = createMapCameraController(cameraRef);
+    mapRef.current = createMapCameraController(mapViewRef);
   }
   const appStateRef = useRef(AppState.currentState);
 
@@ -76,6 +76,7 @@ export default function HomeScreen() {
     pickup: null,
     paradas: [],
   });
+  const routeMapUserGestureRef = useRef(false);
 
   const tripLive = usePassengerActiveTrip({
     mapRef,
@@ -127,9 +128,26 @@ export default function HomeScreen() {
   }, [activeTripId]);
 
   const handleCenterMap = useCallback(() => {
-    if (!location || !mapRef.current) return;
+    if (!mapRef.current) return;
+    routeMapUserGestureRef.current = false;
+    if (routePreview.active && routePreview.pickup && routePreview.paradas?.length > 0) {
+      const points = [
+        routePreview.pickup,
+        routePreview.paradas[routePreview.paradas.length - 1],
+      ]
+        .map((place) => ({
+          latitude: Number(place?.lat),
+          longitude: Number(place?.lng),
+        }))
+        .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude));
+      if (points.length >= 2 && typeof mapRef.current.fitRouteToCoordinates === 'function') {
+        mapRef.current.fitRouteToCoordinates(points, { edgePadding: mapPadding, animated: true });
+        return;
+      }
+    }
+    if (!location) return;
     mapRef.current.animateToRegion({ ...location, ...SALTA_DELTA }, 400);
-  }, [location]);
+  }, [location, mapPadding, routePreview]);
 
   useEffect(() => {
     if (!hasLiveTripMap || !routePreview.active) return;
@@ -149,13 +167,15 @@ export default function HomeScreen() {
 
   const handleRoutePreviewChange = useCallback((preview) => {
     setRoutePreview((prev) => {
-      if (
-        prev.active === preview.active
-        && prev.pickup === preview.pickup
-        && prev.paradas === preview.paradas
-      ) {
-        return prev;
-      }
+      const sameActive = prev.active === preview.active;
+      const samePickup = prev.pickup?.lat === preview.pickup?.lat
+        && prev.pickup?.lng === preview.pickup?.lng;
+      const sameParadas = (prev.paradas?.length || 0) === (preview.paradas?.length || 0)
+        && (prev.paradas || []).every((parada, index) => {
+          const next = preview.paradas?.[index];
+          return parada?.lat === next?.lat && parada?.lng === next?.lng;
+        });
+      if (sameActive && samePickup && sameParadas) return prev;
       return preview;
     });
   }, []);
@@ -201,9 +221,9 @@ export default function HomeScreen() {
     [navigation]
   );
 
-  const initialViewState = useMemo(
-    () => regionToInitialViewState({ ...SALTA_CENTER, ...SALTA_DELTA }),
-    []
+  const initialRegion = useMemo(
+    () => ({ ...SALTA_CENTER, ...SALTA_DELTA }),
+    [],
   );
 
   const activeTripUi = hasActiveTripSheet
@@ -228,17 +248,30 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-      <Map
-        mapStyle={MAP_STYLE_URL}
+      <MapView
+        ref={mapViewRef}
+        provider={MAP_PROVIDER}
         style={StyleSheet.absoluteFill}
-        logo={false}
-        attributionPosition={{ bottom: 8, left: 8 }}
+        initialRegion={initialRegion}
+        customMapStyle={PASSENGER_MAP_STYLE}
+        showsUserLocation={!tripLive.showDriverOnMap}
+        showsCompass={false}
+        showsMyLocationButton={false}
+        zoomEnabled
+        zoomTapEnabled
+        scrollEnabled
+        rotateEnabled={false}
+        pitchEnabled={false}
+        minZoomLevel={11}
+        maxZoomLevel={20}
+        mapPadding={mapPadding}
+        onRegionChangeStart={(event) => {
+          if (event?.nativeEvent?.isGesture) {
+            routeMapUserGestureRef.current = true;
+          }
+        }}
         pointerEvents={sheetExpanded ? 'none' : 'auto'}
       >
-        <Camera ref={cameraRef} initialViewState={initialViewState} />
-
-        {!tripLive.showDriverOnMap ? <UserLocation /> : null}
-
         {hasLiveTripMap ? (
           <ActiveTripMapOverlay
             pickupCoord={tripLive.pickupCoord}
@@ -262,9 +295,10 @@ export default function HomeScreen() {
             paradas={routePreview.paradas}
             mapRef={mapRef}
             mapPadding={mapPadding}
+            userMovedMapRef={routeMapUserGestureRef}
           />
         ) : null}
-      </Map>
+      </MapView>
 
       <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]}>
         <Pressable

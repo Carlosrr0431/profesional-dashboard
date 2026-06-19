@@ -16,7 +16,7 @@ import { radius, spacing } from '../../theme/layout';
 import { autocompleteAddressSalta, getPlaceDetails } from '../../services/googleMaps';
 import MapPickerIcon from './MapPickerIcon';
 
-const DEBOUNCE_MS = 400;
+const DEBOUNCE_MS = 280;
 
 const AddressSearchInput = forwardRef(({
   label,
@@ -44,6 +44,7 @@ const AddressSearchInput = forwardRef(({
   const [query, setQuery] = useState(value?.address || '');
   const [suggestions, setSuggestions] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState(null);
   const [isFocused, setIsFocused] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionAtStart, setSelectionAtStart] = useState(null);
@@ -148,6 +149,7 @@ const AddressSearchInput = forwardRef(({
     queryRef.current = text;
     setQuery(text);
     setSuggestions([]);
+    setSearchError(null);
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
@@ -160,11 +162,20 @@ const AddressSearchInput = forwardRef(({
 
     debounceRef.current = setTimeout(async () => {
       setIsSearching(true);
+      setSearchError(null);
       notifySuggestions([], { isSearching: true, isFocused: true });
       try {
         const results = await autocompleteAddressSalta(text.trim());
         setSuggestions(results);
+        setSearchError(results.length === 0 ? 'No se encontraron direcciones en Salta Capital' : null);
         notifySuggestions(results, { isSearching: false, isFocused: true });
+      } catch (error) {
+        const message = error?.message?.includes('TOMTOM')
+          ? 'El servidor de búsqueda no está configurado. Contactá al operador.'
+          : (error?.message || 'No se pudo buscar la dirección');
+        setSearchError(message);
+        setSuggestions([]);
+        notifySuggestions([], { isSearching: false, isFocused: true, error: message });
       } finally {
         setIsSearching(false);
       }
@@ -377,12 +388,25 @@ const AddressSearchInput = forwardRef(({
                 ]}
               >
                 <Ionicons name="location-outline" size={15} color={colors.textMuted} style={styles.suggestionIcon} />
-                <Text style={styles.suggestionText} numberOfLines={2}>
-                  {item.address}
-                </Text>
+                <View style={styles.suggestionTextWrap}>
+                  <Text style={styles.suggestionTitle} numberOfLines={1}>
+                    {item.title || item.address.split(',')[0]}
+                  </Text>
+                  {item.subtitle ? (
+                    <Text style={styles.suggestionSubtitle} numberOfLines={1}>
+                      {item.subtitle}
+                    </Text>
+                  ) : null}
+                </View>
               </Pressable>
             )}
           />
+        </View>
+      ) : null}
+
+      {!hideDropdown && searchError && suggestions.length === 0 && query.trim().length >= 3 && !isSearching ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>{searchError}</Text>
         </View>
       ) : null}
     </View>
@@ -573,12 +597,33 @@ const styles = StyleSheet.create({
     marginRight: 10,
     flexShrink: 0,
   },
-  suggestionText: {
+  suggestionTextWrap: {
     flex: 1,
+    minWidth: 0,
+  },
+  suggestionTitle: {
     fontSize: 14,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'Inter_500Medium',
     color: colors.textDark,
     lineHeight: 20,
+  },
+  suggestionSubtitle: {
+    fontSize: 12,
+    fontFamily: 'Inter_400Regular',
+    color: colors.textMuted,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  errorBanner: {
+    marginTop: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontFamily: 'Inter_400Regular',
+    lineHeight: 18,
   },
 });
 

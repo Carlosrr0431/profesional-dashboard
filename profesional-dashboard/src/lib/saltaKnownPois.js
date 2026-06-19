@@ -139,10 +139,24 @@ const SALTA_KNOWN_POIS = [
     geocodeQuery: 'Carrefour, Salta, Argentina',
     patterns: [/\bcarrefour\b/],
   },
+  {
+    id: 'unsa',
+    label: 'Universidad Nacional de Salta (UNSa)',
+    geocodeQuery: 'Universidad Nacional de Salta, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'UNSa Salta',
+      'Facultad de Ciencias Naturales UNSA',
+    ],
+    patterns: [
+      /\bunsa\b/,
+      /\buniversidad\s+nacional\s+de\s+salta\b/,
+      /\bu\.?\s*n\.?\s*s\.?\s*a\.?\b/,
+    ],
+  },
 ];
 
 const POI_KEYWORD_RE =
-  /\b(hospital|terminal|shopping|aeropuerto|catedral|plaza|casino|estacion|cementerio|sanatorio|apass|banco|farmacia|supermercado|colegio|escuela|universidad|municipalidad|correo|edificio|oficina|galeria|centro\s+comercial|nuevo\s+centro|macro|carrefour|walmart|hiper|tren)\b/;
+  /\b(hospital|terminal|shopping|aeropuerto|catedral|plaza|casino|estacion|cementerio|sanatorio|apass|banco|farmacia|supermercado|colegio|escuela|universidad|unsa|municipalidad|correo|edificio|oficina|galeria|centro\s+comercial|nuevo\s+centro|macro|carrefour|walmart|hiper|tren)\b/;
 
 /**
  * @param {string} value

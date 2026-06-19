@@ -10,7 +10,7 @@ import {
   Platform,
   Dimensions,
 } from 'react-native';
-import { Map, Camera, UserLocation } from '@maplibre/maplibre-react-native';
+import MapView from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -24,8 +24,7 @@ import { colors } from '../../theme/colors';
 import { radius, shadow, spacing } from '../../theme/layout';
 import { reverseGeocode } from '../../services/googleMaps';
 import { useLocation } from '../../hooks/useLocation';
-import { MAP_STYLE_URL } from '../../utils/mapConfig';
-import { regionToInitialViewState } from '../../utils/mapLibreHelpers';
+import { MAP_PROVIDER } from '../../utils/mapProvider';
 import { createMapCameraController } from '../../utils/mapCamera';
 
 const { height: SCREEN_H } = Dimensions.get('window');
@@ -103,10 +102,10 @@ export default function MapPinPickerModal({
   onClose,
 }) {
   const insets = useSafeAreaInsets();
-  const cameraRef = useRef(null);
+  const mapViewRef = useRef(null);
   const mapRef = useRef(null);
   if (!mapRef.current) {
-    mapRef.current = createMapCameraController(cameraRef);
+    mapRef.current = createMapCameraController(mapViewRef);
   }
   const regionRef = useRef(null);
   const geocodeTimerRef = useRef(null);
@@ -214,20 +213,18 @@ export default function MapPinPickerModal({
     };
   }, [visible, resolveInitialRegion]);
 
-  const handleRegionIsChanging = useCallback(() => {
+  const handleRegionChange = useCallback(() => {
     if (!hasInitializedRef.current) return;
     setIsDragging(true);
   }, []);
 
-  const handleRegionDidChange = useCallback(
-    (event) => {
+  const handleRegionChangeComplete = useCallback(
+    (region) => {
       if (!hasInitializedRef.current) return;
       setIsDragging(false);
-      const center = event?.nativeEvent?.center;
-      if (!Array.isArray(center) || center.length < 2) return;
-      scheduleGeocode({ latitude: center[1], longitude: center[0], ...PICKER_DELTA });
+      scheduleGeocode(region);
     },
-    [scheduleGeocode]
+    [scheduleGeocode],
   );
 
   const handleCenterOnUser = useCallback(async () => {
@@ -278,27 +275,23 @@ export default function MapPinPickerModal({
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-        <Map
-          mapStyle={MAP_STYLE_URL}
+        <MapView
+          ref={mapViewRef}
+          provider={MAP_PROVIDER}
           style={StyleSheet.absoluteFill}
-          logo={false}
-          attributionPosition={{ bottom: 8, left: 8 }}
-          onDidFinishLoadingMap={() => setMapReady(true)}
-          onRegionIsChanging={handleRegionIsChanging}
-          onRegionDidChange={handleRegionDidChange}
-          contentInset={{
+          initialRegion={{ ...SALTA_CENTER, ...PICKER_DELTA }}
+          onMapReady={() => setMapReady(true)}
+          onRegionChange={handleRegionChange}
+          onRegionChangeComplete={handleRegionChangeComplete}
+          mapPadding={{
             top: mapTopPad,
             bottom: mapBottomPad,
             left: 0,
             right: 0,
           }}
-        >
-          <Camera
-            ref={cameraRef}
-            initialViewState={regionToInitialViewState({ ...SALTA_CENTER, ...PICKER_DELTA })}
-          />
-          <UserLocation />
-        </Map>
+          showsUserLocation
+          showsCompass={false}
+        />
 
         {!mapReady ? (
           <View style={styles.mapLoading}>

@@ -286,11 +286,11 @@ function extractRoadNameFromInstruction(instruction) {
     .trim();
 
   const patterns = [
-    // Allow dots so abbreviations like "C. Tadeo Tadía" are captured whole
     /(?:por|direcci[oó]n a|hacia)\s+([A-Z0-9ÁÉÍÓÚÑ][^,]+)/i,
     /en\s+([A-Z0-9ÁÉÍÓÚÑ][^,]+?)(?:\s+hacia|\s+con\s+direcci[oó]n|\s*,|$)/i,
     /(?:continua|continuá|sigue|seguí)\s+por\s+([A-Z0-9ÁÉÍÓÚÑ][^,]+)/i,
     /(?:incorp[oó]rate|incorporate)\s+a\s+([A-Z0-9ÁÉÍÓÚÑ][^,]+)/i,
+    /(?:onto|on)\s+([A-Z0-9ÁÉÍÓÚÑ][^,]+)/i,
   ];
 
   for (const pattern of patterns) {
@@ -830,6 +830,7 @@ const ActiveTripScreen = () => {
   const speed = useLocationStore((s) => s.speed);
 
   const [routePolyline, setRoutePolyline] = useState(null);
+  const [routePolylineCoords, setRoutePolylineCoords] = useState([]);
   const [routeInfo, setRouteInfo] = useState(null);
   const [routeSteps, setRouteSteps] = useState([]);
   const [showSummary, setShowSummary] = useState(false);
@@ -1154,7 +1155,8 @@ const ActiveTripScreen = () => {
       }
 
       const result = await getDirections(origin, destination);
-      setRoutePolyline(result.polyline);
+      setRoutePolyline(result.polyline || null);
+      setRoutePolylineCoords(Array.isArray(result.polylineCoords) ? result.polylineCoords : []);
       setRouteInfo({
         distance: result.distance,
         duration: result.duration,
@@ -1231,10 +1233,10 @@ const ActiveTripScreen = () => {
     return Math.round(tariffInfo.base + tariffInfo.perKm * tripDistanceKm);
   }, [tripDistanceKm, tariffInfo]);
 
-  const routeCoords = useMemo(
-    () => (routePolyline ? decodePolyline(routePolyline) : []),
-    [routePolyline]
-  );
+  const routeCoords = useMemo(() => {
+    if (routePolylineCoords.length > 0) return routePolylineCoords;
+    return routePolyline ? decodePolyline(routePolyline) : [];
+  }, [routePolyline, routePolylineCoords]);
 
   const shouldUseFixedRouteFare = useMemo(() => {
     if (!destinationSet || isFreeRide) return false;
@@ -1456,7 +1458,7 @@ const ActiveTripScreen = () => {
   // Recalcula ruta periódicamente en viajes largos (OSRM no tiene tráfico en vivo).
   useEffect(() => {
     const isNavigating = flowStep === FLOW_STEP.GOING_TO_PICKUP || flowStep === FLOW_STEP.IN_PROGRESS;
-    if (!isNavigating || !routePolyline) return undefined;
+    if (!isNavigating || (routeCoords.length < 2 && !routePolyline)) return undefined;
 
     trafficRefreshTimerRef.current = setInterval(() => {
       const now = Date.now();

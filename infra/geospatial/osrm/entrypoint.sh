@@ -18,7 +18,21 @@ osrm_ready() {
     || [ -f "${OSRM_BASE}.cells" ]
 }
 
-download_argentina() {
+resolve_argentina_pbf() {
+  if [ -n "${PBF_SOURCE_PATH:-}" ] && [ -f "${PBF_SOURCE_PATH}" ]; then
+    echo "${PBF_SOURCE_PATH}"
+    return
+  fi
+
+  for candidate in \
+    "${DATA_DIR}/argentina-260618.osm.pbf" \
+    "${DATA_DIR}/argentina-latest.osm.pbf"; do
+    if [ -f "${candidate}" ]; then
+      echo "${candidate}"
+      return
+    fi
+  done
+
   local dest="${DATA_DIR}/argentina-latest.osm.pbf"
   if [ ! -f "${dest}" ]; then
     echo "[osrm] Descargando Argentina desde Geofabrik..."
@@ -40,19 +54,21 @@ prepare_pbf() {
     return
   fi
 
-  if [ "${SALTA_EXTRACT:-true}" = "true" ]; then
+  if [ "${IMPORT_REGION:-salta}" = "argentina" ] || [ "${SALTA_EXTRACT:-true}" = "false" ]; then
     local argentina
-    argentina="$(download_argentina)"
-    echo "[osrm] Extrayendo provincia de Salta (bbox ${SALTA_BBOX})..."
-    osmium extract -b "${SALTA_BBOX}" "${argentina}" -o "${PBF_FILE}" --overwrite
-    if [ "${KEEP_ARGENTINA_PBF:-false}" != "true" ]; then
-      rm -f "${argentina}"
-    fi
+    argentina="$(resolve_argentina_pbf)"
+    echo "[osrm] Usando Argentina completa: ${argentina}"
+    cp -f "${argentina}" "${PBF_FILE}"
     return
   fi
 
-  echo "[osrm] Descargando PBF fuente..."
-  curl -fsSL -A "${USER_AGENT}" -o "${PBF_FILE}" "${PBF_SOURCE_URL}"
+  local argentina
+  argentina="$(resolve_argentina_pbf)"
+  echo "[osrm] Extrayendo provincia de Salta (bbox ${SALTA_BBOX}) desde ${argentina}..."
+  osmium extract -b "${SALTA_BBOX}" "${argentina}" -o "${PBF_FILE}" --overwrite
+  if [ "${KEEP_ARGENTINA_PBF:-true}" != "true" ]; then
+    rm -f "${argentina}"
+  fi
 }
 
 if ! osrm_ready; then

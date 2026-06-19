@@ -9,6 +9,9 @@ import { GPS_CONFIG } from '../utils/constants';
 import Toast from 'react-native-toast-message';
 
 const BACKGROUND_LOCATION_TASK = 'background-location-task';
+const NAV_MAX_ACCURACY_METERS = 30;
+const WATCH_MAX_ACCURACY_METERS = 25;
+const MAP_BOOTSTRAP_MAX_ACCURACY_METERS = 150;
 
 function getDistanceMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -142,8 +145,23 @@ export const useLocation = () => {
     await pushLocationToSupabase(pos, { force });
   }, [driver, updateDriverLocation, pushLocationToSupabase]);
 
+  const readPosition = useCallback(async (force = false) => {
+    const accuracyMode = force
+      ? Location.Accuracy.Balanced
+      : Location.Accuracy.BestForNavigation;
+
+    try {
+      return await Location.getCurrentPositionAsync({ accuracy: accuracyMode });
+    } catch (error) {
+      if (!force) throw error;
+      return Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Low,
+      });
+    }
+  }, []);
+
   const getCurrentPosition = useCallback(async (options = {}) => {
-    const { syncToSupabase = false } = options;
+    const { syncToSupabase = false, force = false } = options;
     try {
       // Verificar permisos antes de pedir ubicación
       const { status } = await Location.getForegroundPermissionsAsync();
@@ -152,13 +170,10 @@ export const useLocation = () => {
         if (!granted) return null;
       }
 
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.BestForNavigation,
-      });
-
-      // Descartar lecturas con precisión GPS muy pobre (> 30 m)
+      const location = await readPosition(force);
       const accuracy = location.coords.accuracy ?? 99;
-      if (accuracy > 30) return null;
+      const maxAccuracy = force ? MAP_BOOTSTRAP_MAX_ACCURACY_METERS : NAV_MAX_ACCURACY_METERS;
+      if (accuracy > maxAccuracy) return null;
 
       const pos = {
         lat: location.coords.latitude,
@@ -171,7 +186,7 @@ export const useLocation = () => {
       // Filtro de movimiento: evita actualizar currentLocation cuando el auto está
       // detenido y el GPS jittea entre la calle y la vereda.
       const last = lastLocationRef.current;
-      if (last) {
+      if (last && !force) {
         const distMeters = getDistanceMeters(last.lat, last.lng, pos.lat, pos.lng);
         const isMoving = pos.speed > 1.5; // m/s ≈ 5.4 km/h
         // Parado: requiere ≥ 12 m de desplazamiento antes de aceptar el nuevo punto.
@@ -189,7 +204,7 @@ export const useLocation = () => {
       console.warn('Error obteniendo posición:', error.message);
       return null;
     }
-  }, [requestPermissions, setCurrentLocation, syncLocationToBackend]);
+  }, [requestPermissions, readPosition, setCurrentLocation, syncLocationToBackend]);
 
   const sendTrackingPoint = useCallback(async (tripId, location) => {
     if (!tripId || !location || !driver?.id) return;
@@ -382,7 +397,8 @@ export const useLocation = () => {
     }
   }, [driver, currentLocation]);
 
-  const startWatching = useCallback(async () => {
+  const startWatching = useCallback(async (options = {}) => {
+    const { mapOnly = false } = options;
     const hasPermission = await requestPermissions();
     if (!hasPermission) return;
 
@@ -395,10 +411,12 @@ export const useLocation = () => {
         timeInterval: 3000,
       },
       (location) => {
-        // Descartar lecturas con mala precisión GPS (> 25 m)
-        // — estas son las que "caen" en la vereda y desvían la ruta.
         const accuracy = location.coords.accuracy ?? 99;
-        if (accuracy > 25) return;
+        const needsBootstrap = !useLocationStore.getState().currentLocation;
+        const maxAccuracy = needsBootstrap
+          ? MAP_BOOTSTRAP_MAX_ACCURACY_METERS
+          : (mapOnly ? MAP_BOOTSTRAP_MAX_ACCURACY_METERS : WATCH_MAX_ACCURACY_METERS);
+        if (accuracy > maxAccuracy) return;
 
         const pos = {
           lat: location.coords.latitude,
@@ -407,6 +425,16 @@ export const useLocation = () => {
           heading: location.coords.heading ?? 0,
           accuracy,
         };
+
+        if (mapOnly) {
+          applyLocationUpdate(pos, {
+            force: needsBootstrap,
+            skipSupabase: true,
+            minMovingMeters: needsBootstrap ? 0 : 8,
+            minStoppedMeters: needsBootstrap ? 0 : 15,
+          });
+          return;
+        }
 
         if (!hasSyncedToSupabaseRef.current) {
           applyLocationUpdate(pos, { force: true });

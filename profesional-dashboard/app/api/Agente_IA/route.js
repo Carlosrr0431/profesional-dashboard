@@ -40,7 +40,7 @@ import {
   getRouteMetrics as osrmGetRouteMetrics,
   getRouteMetricsByAddress as osrmGetRouteMetricsByAddress,
 } from '../../../src/lib/geo/index.js';
-import { scoreCandidateAgainstQuery } from '../../../../shared/salta-address.js';
+import { scoreCandidateAgainstQuery } from '../../../shared/salta-address.js';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -3340,43 +3340,6 @@ function scoreGeocodeResult(result, query) {
     const hasAnyContentMatch = contentQueryTokens.some((t) => addressTokens.has(t));
     if (!hasAnyContentMatch) score -= 0.6;
   }
-
-  return score;
-}
-
-/** Puntúa un candidato ya geocodificado contra el query original del usuario (no la variante del catálogo). */
-function scoreCandidateAgainstQuery(formattedAddress, query) {
-  const queryTokens = new Set(tokenizeAddress(query));
-  const addressTokens = new Set(tokenizeAddress(formattedAddress || ''));
-  const normalizedFormatted = normalizeForMatch(formattedAddress || '');
-
-  let tokenOverlap = 0;
-  queryTokens.forEach((token) => {
-    if (addressTokens.has(token)) tokenOverlap += 1;
-  });
-
-  let score = queryTokens.size > 0 ? tokenOverlap / queryTokens.size : 0;
-
-  const queryNumbers = extractNumbers(query);
-  const addressNumbers = extractNumbers(formattedAddress);
-  if (queryNumbers.size > 0) {
-    let matchedNumbers = 0;
-    queryNumbers.forEach((num) => {
-      if (addressNumbers.has(num)) matchedNumbers += 1;
-    });
-    score += matchedNumbers > 0 ? 0.35 : -0.25;
-  }
-
-  const CITY_STOPWORDS = new Set(['salta', 'argentina', 'capital']);
-  const contentQueryTokens = [...queryTokens].filter((t) => !CITY_STOPWORDS.has(t) && !/^\d+$/.test(t));
-  if (contentQueryTokens.length > 0) {
-    const matchedContent = contentQueryTokens.filter((t) => addressTokens.has(t)).length;
-    if (matchedContent < contentQueryTokens.length) {
-      score -= 0.5 * (contentQueryTokens.length - matchedContent) / contentQueryTokens.length;
-    }
-  }
-
-  if (normalizedFormatted.includes('salta')) score += 0.2;
 
   return score;
 }

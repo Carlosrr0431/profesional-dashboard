@@ -748,7 +748,6 @@ export default function ExpandableTripSheet({
     if (!pendingAutoReviewRef.current) return undefined;
     if (!paradasAreComplete) return undefined;
     if (!Number.isFinite(pickup?.lat) || !Number.isFinite(pickup?.lng)) return undefined;
-    if (!expanded) return undefined;
     if (stopSheet.visible || mapPickerField != null) return undefined;
 
     pendingAutoReviewRef.current = false;
@@ -760,7 +759,7 @@ export default function ExpandableTripSheet({
       setSuggestions([]);
       setSuggestionsLoading(false);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }, 160);
+    }, expanded ? 160 : 0);
 
     return () => clearTimeout(timer);
   }, [
@@ -892,16 +891,19 @@ export default function ExpandableTripSheet({
 
       let place = {
         address: suggestion.address,
-        lat: null,
-        lng: null,
+        lat: Number.isFinite(suggestion.lat) ? suggestion.lat : null,
+        lng: Number.isFinite(suggestion.lng) ? suggestion.lng : null,
         placeId: suggestion.placeId,
       };
 
-      try {
-        const details = await getPlaceDetails(suggestion.placeId);
-        place = { ...place, lat: details.lat, lng: details.lng };
-      } catch {
-        /* solo texto */
+      const hasCoords = Number.isFinite(place.lat) && Number.isFinite(place.lng);
+      if (!hasCoords && place.placeId) {
+        try {
+          const details = await getPlaceDetails(suggestion.placeId);
+          place = { ...place, lat: details.lat, lng: details.lng };
+        } catch {
+          /* solo texto */
+        }
       }
 
       if (field === ACTIVE_FIELD.pickup) {

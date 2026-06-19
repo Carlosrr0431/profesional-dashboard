@@ -1,50 +1,78 @@
 /**
- * Capas de polilínea para MapLibre (borde + línea principal).
+ * Polilíneas de ruta OSRM sobre react-native-maps (borde + línea estilo Google Maps).
  */
 import React, { useMemo } from 'react';
-import { GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
-import { coordsToLineString } from '../../utils/mapLibreHelpers';
+import { Polyline } from 'react-native-maps';
+import { densifyRouteCoords, normalizeCoords } from '../../utils/mapCoords';
+import {
+  ROUTE_ACTIVE_STYLE,
+  ROUTE_PREVIEW_STYLE,
+} from '../../constants/mapStyle';
 
-const DEFAULT_ROUTE_BLUE = '#4285F4';
-const DEFAULT_ROUTE_CASING = '#FFFFFF';
+const STYLE_PRESETS = {
+  preview: ROUTE_PREVIEW_STYLE,
+  active: ROUTE_ACTIVE_STYLE,
+};
 
 export function MapRouteLayers({
-  idPrefix = 'route',
   coords = [],
   navigationMode = false,
-  lineColor = DEFAULT_ROUTE_BLUE,
-  casingColor = DEFAULT_ROUTE_CASING,
+  variant = 'preview',
+  lineColor,
+  casingColor,
+  outlineColor,
+  outlineWidth,
   casingWidth,
   lineWidth,
+  smooth = true,
 }) {
-  const feature = useMemo(() => coordsToLineString(coords), [coords]);
-  if (!feature) return null;
+  const preset = STYLE_PRESETS[variant] || ROUTE_PREVIEW_STYLE;
 
-  const resolvedCasingWidth = casingWidth ?? (navigationMode ? 16 : 9);
-  const resolvedLineWidth = lineWidth ?? (navigationMode ? 11 : 5);
+  const coordinates = useMemo(() => {
+    const normalized = normalizeCoords(coords);
+    if (!smooth || normalized.length < 2) return normalized;
+    return densifyRouteCoords(normalized, navigationMode ? 14 : 18);
+  }, [coords, navigationMode, smooth]);
+
+  if (coordinates.length < 2) return null;
+
+  const resolvedOutlineColor = outlineColor ?? preset.outlineColor;
+  const resolvedCasingColor = casingColor ?? preset.casingColor;
+  const resolvedLineColor = lineColor ?? preset.lineColor;
+
+  const resolvedLineWidth = lineWidth
+    ?? (navigationMode ? preset.lineWidth + 2 : preset.lineWidth);
+  const resolvedCasingWidth = casingWidth
+    ?? (navigationMode ? preset.casingWidth + 2 : preset.casingWidth);
+  const resolvedOutlineWidth = outlineWidth
+    ?? (navigationMode ? preset.outlineWidth + 2 : preset.outlineWidth);
 
   return (
-    <GeoJSONSource id={`${idPrefix}-source`} data={feature}>
-      <Layer
-        id={`${idPrefix}-casing`}
-        type="line"
-        style={{
-          lineColor: casingColor,
-          lineWidth: resolvedCasingWidth,
-          lineCap: 'round',
-          lineJoin: 'round',
-        }}
+    <>
+      <Polyline
+        coordinates={coordinates}
+        strokeColor={resolvedOutlineColor}
+        strokeWidth={resolvedOutlineWidth}
+        lineCap="round"
+        lineJoin="round"
+        geodesic
       />
-      <Layer
-        id={`${idPrefix}-line`}
-        type="line"
-        style={{
-          lineColor,
-          lineWidth: resolvedLineWidth,
-          lineCap: 'round',
-          lineJoin: 'round',
-        }}
+      <Polyline
+        coordinates={coordinates}
+        strokeColor={resolvedCasingColor}
+        strokeWidth={resolvedCasingWidth}
+        lineCap="round"
+        lineJoin="round"
+        geodesic
       />
-    </GeoJSONSource>
+      <Polyline
+        coordinates={coordinates}
+        strokeColor={resolvedLineColor}
+        strokeWidth={resolvedLineWidth}
+        lineCap="round"
+        lineJoin="round"
+        geodesic
+      />
+    </>
   );
 }

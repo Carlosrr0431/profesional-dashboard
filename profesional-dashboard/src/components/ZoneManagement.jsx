@@ -19,8 +19,6 @@ const ZONE_COLORS = [
   '#65A30D',
 ];
 
-];
-
 export default function ZoneManagement({ onBack }) {
   const toast = useToast();
   const { zones, loading, createZone, deleteZone, toggleZoneActive } = useServiceZones();

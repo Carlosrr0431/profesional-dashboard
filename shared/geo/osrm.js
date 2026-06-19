@@ -9,6 +9,19 @@ function toLatLng(point) {
   return { lat, lng };
 }
 
+function formatOsrmManeuver(maneuver) {
+  if (!maneuver) return 'straight';
+  if (typeof maneuver === 'string') return maneuver;
+
+  const type = String(maneuver.type || 'straight').toLowerCase();
+  const modifier = String(maneuver.modifier || '').toLowerCase();
+  if (type === 'roundabout' && maneuver.exit != null) {
+    return modifier ? `roundabout-${modifier}` : 'roundabout';
+  }
+  if (modifier) return `${type}-${modifier}`;
+  return type;
+}
+
 function formatCoordinatesPath(points) {
   return points
     .map((p) => {
@@ -40,9 +53,6 @@ async function fetchOsrm(path, timeoutMs = ROUTE_TIMEOUT_MS) {
   }
 }
 
-/**
- * Métricas de ruta en formato usado por salta-route y tarifas.
- */
 async function getRouteMetrics(origin, destination, waypoints = []) {
   const from = toLatLng(origin);
   const to = toLatLng(destination);
@@ -83,9 +93,6 @@ async function getRouteMetrics(origin, destination, waypoints = []) {
   };
 }
 
-/**
- * Respuesta compatible con APIs de directions del dashboard/driver.
- */
 async function getDirectionsResponse(origin, destination) {
   const from = toLatLng(origin);
   const to = toLatLng(destination);
@@ -107,6 +114,8 @@ async function getDirectionsResponse(origin, destination) {
   if (!leg) throw new Error('Ruta sin tramos');
 
   const steps = Array.isArray(leg.steps) ? leg.steps : [];
+  let prevLat = from.lat;
+  let prevLng = from.lng;
 
   return {
     distance: {
@@ -122,13 +131,23 @@ async function getDirectionsResponse(origin, destination) {
       text: `${Math.round((Number(leg.duration) || 0) / 60)} min`,
     },
     polyline: route.geometry || '',
-    steps: steps.map((step) => ({
-      distance: { value: Math.round(Number(step.distance) || 0) },
-      duration: { value: Math.round(Number(step.duration) || 0) },
-      html_instructions: step.name || '',
-      maneuver: step.maneuver,
-      polyline: { points: step.geometry || '' },
-    })),
+    steps: steps.map((step) => {
+      const loc = step?.maneuver?.location;
+      const endLng = Array.isArray(loc) ? Number(loc[0]) : prevLng;
+      const endLat = Array.isArray(loc) ? Number(loc[1]) : prevLat;
+      const mapped = {
+        distance: { value: Math.round(Number(step.distance) || 0) },
+        duration: { value: Math.round(Number(step.duration) || 0) },
+        html_instructions: step.name || '',
+        maneuver: formatOsrmManeuver(step.maneuver),
+        polyline: { points: step.geometry || '' },
+        startLocation: { lat: prevLat, lng: prevLng },
+        endLocation: { lat: endLat, lng: endLng },
+      };
+      prevLat = endLat;
+      prevLng = endLng;
+      return mapped;
+    }),
     distanceValue: Math.round(Number(leg.distance) || 0),
     durationValue: Math.round(Number(leg.duration) || 0),
     polylineCoords: route.geometry ? decodePolyline(route.geometry) : [],
@@ -196,10 +215,35 @@ async function getRouteAlternatives(origin, destination) {
   return Array.isArray(data?.routes) ? data.routes : [];
 }
 
+async function getPassengerFareRoute(origin, destination, waypoints = []) {
+  const from = toLatLng(origin);
+  const to = toLatLng(destination);
+  if (![from.lat, from.lng, to.lat, to.lng].every(Number.isFinite)) {
+    return null;
+  }
+
+  const pathPoints = [from, ...waypoints.map(toLatLng), to];
+  const coordinates = formatCoordinatesPath(pathPoints);
+  const params = new URLSearchParams({
+    overview: 'full',
+    alternatives: 'true',
+    geometries: 'polyline',
+    steps: 'false',
+  });
+
+  const data = await fetchOsrm(`/route/v1/driving/${coordinates}?${params.toString()}`);
+  const routes = Array.isArray(data?.routes) ? data.routes : [];
+  if (!routes.length) return null;
+
+  return routes;
+}
+
 module.exports = {
   getRouteMetrics,
   getDirectionsResponse,
   getRouteMetricsByAddress,
   getRouteAlternatives,
+  getPassengerFareRoute,
   decodePolyline,
+  formatOsrmManeuver,
 };

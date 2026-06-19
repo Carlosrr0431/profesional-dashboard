@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Marker } from '@maplibre/maplibre-react-native';
+import { Marker } from 'react-native-maps';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -8,13 +8,13 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { toLngLat } from '../../utils/mapLibreHelpers';
+import { normalizeCoordinate } from '../../utils/mapCoords';
 
 /** Punto de retiro con pulso cuando el conductor se acerca. */
 export default function PickupMarker({ coordinate, pulse = false }) {
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0.5);
-  const lngLat = toLngLat(coordinate);
+  const coord = normalizeCoordinate(coordinate);
 
   useEffect(() => {
     if (!pulse) {
@@ -39,10 +39,10 @@ export default function PickupMarker({ coordinate, pulse = false }) {
     opacity: opacity.value,
   }));
 
-  if (!lngLat) return null;
+  if (!coord) return null;
 
   return (
-    <Marker id="passenger-pickup" lngLat={lngLat}>
+    <Marker coordinate={coord} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={pulse}>
       <View style={styles.wrap} collapsable={false}>
         {pulse ? <Animated.View style={[styles.ring, ringStyle]} /> : null}
         <View style={[styles.dotOuter, pulse && styles.dotOuterPulse]}>

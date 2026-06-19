@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { geocodeAddress, getPlaceDetails } from '../../../../src/lib/geo/index.js';
-import { isWithinSaltaCapital } from '../../../src/lib/constants';
+import { isWithinSaltaCapital } from '../../../../src/lib/constants';
 
 export const dynamic = 'force-dynamic';
 

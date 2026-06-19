@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { getDirections } from '../../services/googleMaps';
-import { ROUTE_CASING, ROUTE_LINE } from '../../constants/mapStyle';
+import { filterCoordsInSaltaCapital } from '../../utils/mapCoords';
 import { MapRouteLayers } from './MapRouteLayers';
 import PickupMarker from './PickupMarker';
 import NumberedStopMarker from './NumberedStopMarker';
@@ -12,6 +12,15 @@ function toCoord(place) {
   return { latitude: lat, longitude: lng };
 }
 
+function buildRouteFitPadding(mapPadding = {}) {
+  return {
+    top: Math.round((mapPadding.top ?? 96) * 0.8),
+    right: Math.round((mapPadding.right ?? 48) * 0.55),
+    bottom: Math.round((mapPadding.bottom ?? 200) * 0.5),
+    left: Math.round((mapPadding.left ?? 64) * 0.55),
+  };
+}
+
 /**
  * Ruta completa recogida → parada 1 → … → destino en el mapa del home.
  */
@@ -20,34 +29,72 @@ export default function TripPlanRouteOverlay({
   paradas = [],
   mapRef,
   mapPadding = { top: 120, right: 52, bottom: 220, left: 68 },
+  userMovedMapRef,
 }) {
   const [routeCoords, setRouteCoords] = useState([]);
   const routeCoordsRef = useRef([]);
   const mapPaddingRef = useRef(mapPadding);
+  const lastFittedRouteKeyRef = useRef('');
   mapPaddingRef.current = mapPadding;
 
-  const pickupCoord = toCoord(pickup);
-  const stopCoords = (paradas || [])
-    .map((parada) => toCoord(parada))
-    .filter(Boolean);
-  const routeKey = [
-    pickupCoord?.latitude,
-    pickupCoord?.longitude,
-    ...stopCoords.flatMap((coord) => [coord.latitude, coord.longitude]),
-  ].join(',');
+  const pickupCoord = useMemo(() => toCoord(pickup), [pickup?.lat, pickup?.lng]);
+  const stopCoords = useMemo(
+    () => (paradas || []).map((parada) => toCoord(parada)).filter(Boolean),
+    [paradas],
+  );
 
-  const fitRouteToMap = useCallback((coords, animated = true) => {
-    if (!mapRef?.current || !Array.isArray(coords) || coords.length < 2) return;
+  const markerPoints = useMemo(
+    () => [pickupCoord, ...stopCoords].filter(Boolean),
+    [pickupCoord, stopCoords],
+  );
 
-    const markerPoints = [pickupCoord, ...stopCoords].filter(Boolean);
-    const fitPoints = coords.length > 1 ? coords : markerPoints;
-    if (fitPoints.length < 2) return;
+  const routeKey = markerPoints
+    .map((coord) => `${coord.latitude.toFixed(5)},${coord.longitude.toFixed(5)}`)
+    .join('|');
 
-    mapRef.current.fitToCoordinates(fitPoints, {
-      edgePadding: mapPaddingRef.current,
-      animated,
-    });
-  }, [mapRef, pickupCoord, stopCoords]);
+  useEffect(() => {
+    lastFittedRouteKeyRef.current = '';
+    if (userMovedMapRef) userMovedMapRef.current = false;
+  }, [routeKey, userMovedMapRef]);
+
+  const fitRouteToMap = useCallback((coords, { animated = true, force = false } = {}) => {
+    if (!mapRef?.current || markerPoints.length < 2) return;
+    if (!force && userMovedMapRef?.current) return;
+    if (!force && lastFittedRouteKeyRef.current === routeKey) return;
+
+    const fitPadding = buildRouteFitPadding(mapPaddingRef.current);
+    const fitTarget = markerPoints;
+
+    if (typeof mapRef.current.fitRouteToCoordinates === 'function') {
+      mapRef.current.fitRouteToCoordinates(fitTarget, {
+        edgePadding: fitPadding,
+        animated,
+      });
+    } else {
+      mapRef.current.fitToCoordinates(fitTarget, {
+        edgePadding: fitPadding,
+        animated,
+      });
+    }
+
+    lastFittedRouteKeyRef.current = routeKey;
+  }, [mapRef, markerPoints, routeKey, userMovedMapRef]);
+
+  const applyRouteToMap = useCallback((coords, animated = true) => {
+    const safeCoords = filterCoordsInSaltaCapital(coords || []);
+    if (safeCoords.length > 1) {
+      routeCoordsRef.current = safeCoords;
+      setRouteCoords(safeCoords);
+      fitRouteToMap(safeCoords, { animated });
+      return;
+    }
+
+    if (markerPoints.length >= 2) {
+      routeCoordsRef.current = markerPoints;
+      setRouteCoords(markerPoints);
+      fitRouteToMap(markerPoints, { animated });
+    }
+  }, [fitRouteToMap, markerPoints]);
 
   useEffect(() => {
     if (!pickupCoord || stopCoords.length === 0) {
@@ -63,36 +110,21 @@ export default function TripPlanRouteOverlay({
     getDirections(pickupCoord, finalCoord, waypointCoords)
       .then((result) => {
         if (cancelled) return;
-        const coords = result?.polylineCoords || [];
-        routeCoordsRef.current = coords;
-        setRouteCoords(coords);
-        fitRouteToMap(coords, true);
+        const coords = filterCoordsInSaltaCapital(result?.polylineCoords || []);
+        if (coords.length > 1) {
+          applyRouteToMap(coords, true);
+          return;
+        }
+        applyRouteToMap(null, true);
       })
       .catch(() => {
-        if (!cancelled) {
-          routeCoordsRef.current = [];
-          setRouteCoords([]);
-        }
+        if (!cancelled) applyRouteToMap(null, true);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [routeKey, fitRouteToMap, pickupCoord, stopCoords]);
-
-  useEffect(() => {
-    if (routeCoordsRef.current.length < 2) return undefined;
-    const timer = setTimeout(() => {
-      fitRouteToMap(routeCoordsRef.current, false);
-    }, 120);
-    return () => clearTimeout(timer);
-  }, [
-    mapPadding.top,
-    mapPadding.right,
-    mapPadding.bottom,
-    mapPadding.left,
-    fitRouteToMap,
-  ]);
+  }, [routeKey, applyRouteToMap, pickupCoord, stopCoords]);
 
   if (!pickupCoord || stopCoords.length === 0) return null;
 
@@ -111,12 +143,8 @@ export default function TripPlanRouteOverlay({
 
       {routeCoords.length > 1 ? (
         <MapRouteLayers
-          idPrefix="plan-route"
           coords={routeCoords}
-          lineColor={ROUTE_LINE}
-          casingColor={ROUTE_CASING}
-          casingWidth={10}
-          lineWidth={5}
+          variant="preview"
         />
       ) : null}
     </>

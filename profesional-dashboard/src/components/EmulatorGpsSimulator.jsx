@@ -63,6 +63,9 @@ export default function EmulatorGpsSimulator({ onBack }) {
     zoom: DEFAULT_ZOOM + 2,
   });
 
+  const [position, setPosition] = useState(EMULATOR_GPS_DEFAULT_ORIGIN);
+  const [trail, setTrail] = useState([]);
+
   const trailGeoJson = useMemo(() => {
     if (trail.length < 2) return null;
     return {
@@ -74,8 +77,7 @@ export default function EmulatorGpsSimulator({ onBack }) {
       properties: {},
     };
   }, [trail]);
-  const [position, setPosition] = useState(EMULATOR_GPS_DEFAULT_ORIGIN);
-  const [trail, setTrail] = useState([]);
+
   const [lastError, setLastError] = useState('');
   const [lastOkAt, setLastOkAt] = useState(null);
   const [syncing, setSyncing] = useState(false);

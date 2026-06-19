@@ -1,17 +1,18 @@
 /**
  * Componente: TripMap
- * Mapa de viaje con MapLibre + OSM, ruta, marcadores y cámara de navegación.
+ * Mapa de viaje con Google Maps (solo visualización), ruta OSRM y navegación in-app.
  */
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
-import { Map, Camera, Marker } from '@maplibre/maplibre-react-native';
+import MapView, { Marker } from 'react-native-maps';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { decodePolyline } from '../../utils/polyline';
 import { projectPointOntoPolyline } from '../../services/navigation';
 import { DEFAULT_REGION } from '../../utils/constants';
-import { MAP_STYLE_URL } from '../../utils/mapConfig';
-import { getBoundsForCoords, regionToInitialViewState, toLngLat } from '../../utils/mapLibreHelpers';
+import { normalizeCoordinate } from '../../utils/mapCoords';
+import { animateMapCamera, fitMapToCoordinates } from '../../utils/mapHelpers';
+import { MAP_PROVIDER } from '../../utils/mapProvider';
 import { MapRouteLayers } from './MapRouteLayers';
 import RouteEndMarker from './RouteEndMarker';
 import DriverNavMarker from './DriverNavMarker';
@@ -195,7 +196,7 @@ function getZoomForSpeed(speedKmh) {
 const PointMarker = React.memo(({ coordinate, type }) => {
   const isOrigin = type === 'origin';
   return (
-    <Marker id={`point-${type}`} lngLat={[coordinate.longitude, coordinate.latitude]}>
+    <Marker coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
       <View style={[styles.pointMarker, { backgroundColor: isOrigin ? colors.success : colors.danger }]}>
         <MaterialCommunityIcons
           name={isOrigin ? 'radiobox-marked' : 'flag-variant'}
@@ -223,7 +224,7 @@ export const TripMap = React.memo(({
   routeEndVariant = 'destination',
   style,
 }) => {
-  const cameraRef = useRef(null);
+  const mapRef = useRef(null);
   const hasFitted = useRef(false);
   const lastNearestIdxRef = useRef(0);
   const smoothHeadingRef = useRef(null);
@@ -317,23 +318,40 @@ export const TripMap = React.memo(({
   }, [polyline]);
 
   const applyCameraStop = useCallback((stop) => {
-    if (!cameraRef.current) return;
-    cameraRef.current.setStop(stop);
+    if (!mapRef.current) return;
+    if (stop.bounds) {
+      const [[minLng, minLat], [maxLng, maxLat]] = stop.bounds;
+      fitMapToCoordinates(
+        mapRef,
+        [
+          { latitude: minLat, longitude: minLng },
+          { latitude: maxLat, longitude: maxLng },
+        ],
+        stop.padding,
+      );
+      return;
+    }
+    if (stop.center) {
+      animateMapCamera(
+        mapRef,
+        {
+          center: { latitude: stop.center[1], longitude: stop.center[0] },
+          bearing: stop.bearing ?? 0,
+          pitch: stop.pitch ?? 0,
+          zoom: stop.zoom ?? 16,
+        },
+        stop.duration ?? 250,
+      );
+    }
   }, []);
 
   useEffect(() => {
     if (navigationMode) return;
-    if (routeCoords.length > 0 && cameraRef.current && !hasFitted.current) {
+    if (routeCoords.length > 0 && mapRef.current && !hasFitted.current) {
       hasFitted.current = true;
       const points = [...routeCoords];
       if (driverCoord) points.push(driverCoord);
-      const boundsInfo = getBoundsForCoords(points);
-      if (boundsInfo) {
-        applyCameraStop({
-          bounds: boundsInfo.bounds,
-          padding: { top: 80, right: 40, bottom: 200, left: 40 },
-        });
-      }
+      fitMapToCoordinates(mapRef, points);
     }
   }, [routeCoords, navigationMode, driverCoord, applyCameraStop]);
 
@@ -462,14 +480,8 @@ export const TripMap = React.memo(({
   const fitAll = useCallback(() => {
     const points = [...routeCoords];
     if (driverCoord) points.push(driverCoord);
-    const boundsInfo = getBoundsForCoords(points);
-    if (boundsInfo) {
-      applyCameraStop({
-        bounds: boundsInfo.bounds,
-        padding: { top: 80, right: 40, bottom: 200, left: 40 },
-      });
-    }
-  }, [routeCoords, driverCoord, applyCameraStop]);
+    fitMapToCoordinates(mapRef, points);
+  }, [routeCoords, driverCoord]);
 
   const centerOnDriver = useCallback(() => {
     const anchor = driverMarkerCoord ?? driverCoord;
@@ -503,35 +515,33 @@ export const TripMap = React.memo(({
     }
   }, [driverCoord, driverMarkerCoord, navigationMode, threeDEnabled, routeHeading, applyCameraStop]);
 
-  const initialViewState = useMemo(() => {
+  const initialRegion = useMemo(() => {
     if (driverLocation) {
-      return regionToInitialViewState({
+      return {
         latitude: driverLocation.lat,
         longitude: driverLocation.lng,
         latitudeDelta: 0.02,
         longitudeDelta: 0.02,
-      });
+      };
     }
-    return regionToInitialViewState(DEFAULT_REGION);
+    return DEFAULT_REGION;
   }, [driverLocation?.lat, driverLocation?.lng]);
-
-  const driverLngLat = toLngLat(driverMarkerCoord);
-  const routeEndLngLat = toLngLat(routeEndCoord);
 
   return (
     <View style={[{ flex: 1 }, style]}>
-      <Map
-        mapStyle={MAP_STYLE_URL}
+      <MapView
+        ref={mapRef}
+        provider={MAP_PROVIDER}
         style={StyleSheet.absoluteFillObject}
-        onDidFinishLoadingMap={() => setMapReady(true)}
-        logo={false}
-        attributionPosition={{ bottom: 8, left: 8 }}
+        initialRegion={initialRegion}
+        onMapReady={() => setMapReady(true)}
+        showsCompass={false}
+        showsUserLocation={false}
+        rotateEnabled={navigationMode}
+        pitchEnabled={navigationMode && threeDEnabled}
       >
-        <Camera ref={cameraRef} initialViewState={initialViewState} />
-
         {remainingRouteCoords.length > 1 && (
           <MapRouteLayers
-            idPrefix="trip-route"
             coords={remainingRouteCoords}
             navigationMode={navigationMode}
           />
@@ -544,16 +554,20 @@ export const TripMap = React.memo(({
           <PointMarker coordinate={destCoord} type="dest" />
         )}
 
-        {navigationMode && routeEndLngLat && (
-          <RouteEndMarker lngLat={routeEndLngLat} variant={routeEndVariant} />
+        {navigationMode && routeEndCoord && (
+          <RouteEndMarker coordinate={routeEndCoord} variant={routeEndVariant} />
         )}
 
-        {driverLngLat && navigationMode && (
-          <DriverNavMarker lngLat={driverLngLat} heading={driverMarkerHeading} />
+        {driverMarkerCoord && navigationMode && (
+          <DriverNavMarker coordinate={driverMarkerCoord} heading={driverMarkerHeading} />
         )}
 
-        {driverLngLat && !navigationMode && (
-          <Marker id="driver-dot" lngLat={driverLngLat}>
+        {driverMarkerCoord && !navigationMode && (
+          <Marker
+            coordinate={driverMarkerCoord}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+          >
             <View style={styles.driverMarkerRoot}>
               <View style={styles.driverMarkerRing}>
                 <View style={styles.driverMarkerCore}>
@@ -563,7 +577,7 @@ export const TripMap = React.memo(({
             </View>
           </Marker>
         )}
-      </Map>
+      </MapView>
 
       <View style={[styles.btnCol, { bottom: controlsBottomOffset }]}>
         {navigationMode && typeof onToggleThreeD === 'function' && (

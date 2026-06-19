@@ -65,15 +65,7 @@
       ]
     },
     "plugins": [
-      [
-        "@maplibre/maplibre-react-native",
-        {
-          "android": {},
-          "ios": {
-            "metalEnabled": true
-          }
-        }
-      ],
+      "expo-dev-client",
       [
         "expo-build-properties",
         {

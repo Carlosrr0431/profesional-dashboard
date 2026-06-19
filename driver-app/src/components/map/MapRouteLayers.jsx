@@ -1,46 +1,43 @@
 /**
- * Capas de polilínea para MapLibre (borde blanco + línea azul).
+ * Polilíneas de ruta OSRM sobre react-native-maps (borde + línea).
  */
 import React, { useMemo } from 'react';
-import { GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
-import { coordsToLineString } from '../../utils/mapLibreHelpers';
+import { Polyline } from 'react-native-maps';
+import { normalizeCoords } from '../../utils/mapCoords';
 
-const ROUTE_BLUE = '#4285F4';
-const ROUTE_CASING = '#FFFFFF';
+const DEFAULT_ROUTE_BLUE = '#4285F4';
+const DEFAULT_ROUTE_CASING = '#FFFFFF';
 
 export function MapRouteLayers({
-  idPrefix = 'route',
   coords = [],
   navigationMode = false,
+  lineColor = DEFAULT_ROUTE_BLUE,
+  casingColor = DEFAULT_ROUTE_CASING,
+  casingWidth,
+  lineWidth,
 }) {
-  const feature = useMemo(() => coordsToLineString(coords), [coords]);
-  if (!feature) return null;
+  const coordinates = useMemo(() => normalizeCoords(coords), [coords]);
+  if (coordinates.length < 2) return null;
 
-  const casingWidth = navigationMode ? 16 : 9;
-  const lineWidth = navigationMode ? 11 : 5;
+  const resolvedCasingWidth = casingWidth ?? (navigationMode ? 16 : 9);
+  const resolvedLineWidth = lineWidth ?? (navigationMode ? 11 : 5);
 
   return (
-    <GeoJSONSource id={`${idPrefix}-source`} data={feature}>
-      <Layer
-        id={`${idPrefix}-casing`}
-        type="line"
-        style={{
-          lineColor: ROUTE_CASING,
-          lineWidth: casingWidth,
-          lineCap: 'round',
-          lineJoin: 'round',
-        }}
+    <>
+      <Polyline
+        coordinates={coordinates}
+        strokeColor={casingColor}
+        strokeWidth={resolvedCasingWidth}
+        lineCap="round"
+        lineJoin="round"
       />
-      <Layer
-        id={`${idPrefix}-line`}
-        type="line"
-        style={{
-          lineColor: ROUTE_BLUE,
-          lineWidth,
-          lineCap: 'round',
-          lineJoin: 'round',
-        }}
+      <Polyline
+        coordinates={coordinates}
+        strokeColor={lineColor}
+        strokeWidth={resolvedLineWidth}
+        lineCap="round"
+        lineJoin="round"
       />
-    </GeoJSONSource>
+    </>
   );
 }
