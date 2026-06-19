@@ -3344,43 +3344,6 @@ function scoreGeocodeResult(result, query) {
   return score;
 }
 
-/** Puntúa un candidato ya geocodificado contra el query original del usuario (no la variante del catálogo). */
-function scoreCandidateAgainstQuery(formattedAddress, query) {
-  const queryTokens = new Set(tokenizeAddress(query));
-  const addressTokens = new Set(tokenizeAddress(formattedAddress || ''));
-  const normalizedFormatted = normalizeForMatch(formattedAddress || '');
-
-  let tokenOverlap = 0;
-  queryTokens.forEach((token) => {
-    if (addressTokens.has(token)) tokenOverlap += 1;
-  });
-
-  let score = queryTokens.size > 0 ? tokenOverlap / queryTokens.size : 0;
-
-  const queryNumbers = extractNumbers(query);
-  const addressNumbers = extractNumbers(formattedAddress);
-  if (queryNumbers.size > 0) {
-    let matchedNumbers = 0;
-    queryNumbers.forEach((num) => {
-      if (addressNumbers.has(num)) matchedNumbers += 1;
-    });
-    score += matchedNumbers > 0 ? 0.35 : -0.25;
-  }
-
-  const CITY_STOPWORDS = new Set(['salta', 'argentina', 'capital']);
-  const contentQueryTokens = [...queryTokens].filter((t) => !CITY_STOPWORDS.has(t) && !/^\d+$/.test(t));
-  if (contentQueryTokens.length > 0) {
-    const matchedContent = contentQueryTokens.filter((t) => addressTokens.has(t)).length;
-    if (matchedContent < contentQueryTokens.length) {
-      score -= 0.5 * (contentQueryTokens.length - matchedContent) / contentQueryTokens.length;
-    }
-  }
-
-  if (normalizedFormatted.includes('salta')) score += 0.2;
-
-  return score;
-}
-
 /**
  * Detecta direcciones que Google Maps no puede geocodificar con precisión y requieren GPS:
  * - Pasajes / callejones: raramente indexados en Google Maps.
