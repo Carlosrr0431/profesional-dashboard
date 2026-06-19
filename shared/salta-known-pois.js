@@ -1,5 +1,6 @@
 /**
  * POIs conocidos de Salta Capital — detección coloquial, typos y nombre canónico para geocodificar.
+ * Compartido entre passenger-app y profesional-dashboard.
  */
 
 function normalizePoiText(value) {
@@ -13,7 +14,7 @@ function normalizePoiText(value) {
 }
 
 /** Corrige errores de tipeo frecuentes en nombres de lugares. */
-export function fixPoiTypoTokens(norm) {
+function fixPoiTypoTokens(norm) {
   return String(norm || '')
     .replace(/\bterminalk\b/g, 'terminal')
     .replace(/\bterminak\b/g, 'terminal')
@@ -28,11 +29,6 @@ export function fixPoiTypoTokens(norm) {
     .replace(/\bestacion\b/g, 'estacion');
 }
 
-/**
- * @typedef {{ id: string, label: string, geocodeQuery: string, alternateGeocodeQueries?: string[], patterns: RegExp[] }} SaltaPoiDef
- */
-
-/** @type {SaltaPoiDef[]} */
 const SALTA_KNOWN_POIS = [
   {
     id: 'terminal',
@@ -158,11 +154,7 @@ const SALTA_KNOWN_POIS = [
 const POI_KEYWORD_RE =
   /\b(hospital|terminal|shopping|aeropuerto|catedral|plaza|casino|estacion|cementerio|sanatorio|apass|banco|farmacia|supermercado|colegio|escuela|universidad|unsa|municipalidad|correo|edificio|oficina|galeria|centro\s+comercial|nuevo\s+centro|macro|carrefour|walmart|hiper|tren)\b/;
 
-/**
- * @param {string} value
- * @returns {{ id: string, label: string, geocodeQuery: string } | null}
- */
-export function resolveSaltaKnownPoi(value) {
+function resolveSaltaKnownPoi(value) {
   const norm = fixPoiTypoTokens(normalizePoiText(value));
   if (!norm) return null;
 
@@ -180,16 +172,14 @@ export function resolveSaltaKnownPoi(value) {
   return null;
 }
 
-/** ¿El texto referencia un POI/lugar (sin ser calle con altura)? */
-export function looksLikeSaltaKnownPoi(value) {
+function looksLikeSaltaKnownPoi(value) {
   const norm = fixPoiTypoTokens(normalizePoiText(value));
   if (!norm) return false;
   if (resolveSaltaKnownPoi(norm)) return true;
   return POI_KEYWORD_RE.test(norm);
 }
 
-/** Consultas extra para obtener varios candidatos en encuesta (Google suele colapsar duplicados). */
-export function getKnownPoiSearchQueries(poi) {
+function getKnownPoiSearchQueries(poi) {
   if (!poi) return [];
   const seen = new Set();
   const out = [];
@@ -204,26 +194,8 @@ export function getKnownPoiSearchQueries(poi) {
   return out;
 }
 
-/**
- * Fusiona candidatos de geocodificación manteniendo lugares a ~50 m o más.
- * @param {Array<{ formattedAddress?: string, lat?: number, lng?: number, score?: number, pollLabel?: string }>} base
- * @param {Array<{ formattedAddress?: string, lat?: number, lng?: number, score?: number, pollLabel?: string }>} extra
- */
-export function mergeDistinctAddressCandidates(base, extra, { maxResults = 5 } = {}) {
-  const merged = [];
-  const add = (c) => {
-    if (!c?.formattedAddress || c.lat == null || c.lng == null) return;
-    const addrKey = String(c.formattedAddress).toLowerCase().trim();
-    const tooClose = merged.some(
-      (prev) =>
-        Math.abs(prev.lat - c.lat) < 0.00045 && Math.abs(prev.lng - c.lng) < 0.00045
-    );
-    if (tooClose) return;
-    if (merged.some((m) => String(m.formattedAddress).toLowerCase().trim() === addrKey)) return;
-    merged.push(c);
-  };
-  (base || []).forEach(add);
-  (extra || []).forEach(add);
-  merged.sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
-  return merged.slice(0, maxResults);
-}
+module.exports = {
+  resolveSaltaKnownPoi,
+  looksLikeSaltaKnownPoi,
+  getKnownPoiSearchQueries,
+};

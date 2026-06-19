@@ -40,7 +40,7 @@ import {
   getRouteMetrics as osrmGetRouteMetrics,
   getRouteMetricsByAddress as osrmGetRouteMetricsByAddress,
 } from '../../../src/lib/geo/index.js';
-import { scoreCandidateAgainstQuery } from '../../../../shared/salta-address.js';
+import { scoreCandidateAgainstQuery } from '../../../shared/salta-address.js';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';

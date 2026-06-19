@@ -1,5 +1,5 @@
 /**
- * Decodifica polylines encoded (formato Google/OSRM).
+ * Codifica/decodifica polylines (formato Google/OSRM/TomTom).
  */
 
 function decodePolyline(encoded) {
@@ -42,4 +42,34 @@ function decodePolyline(encoded) {
   return points;
 }
 
-module.exports = { decodePolyline };
+function encodeSigned(value) {
+  let signed = value < 0 ? ~(value << 1) : (value << 1);
+  let output = '';
+  while (signed >= 0x20) {
+    output += String.fromCharCode((0x20 | (signed & 0x1f)) + 63);
+    signed >>= 5;
+  }
+  output += String.fromCharCode(signed + 63);
+  return output;
+}
+
+function encodePolyline(points = []) {
+  let lastLat = 0;
+  let lastLng = 0;
+  let encoded = '';
+
+  for (const point of points) {
+    const lat = Math.round(Number(point?.lat ?? point?.latitude) * 1e5);
+    const lng = Math.round(Number(point?.lng ?? point?.longitude) * 1e5);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+    encoded += encodeSigned(lat - lastLat);
+    encoded += encodeSigned(lng - lastLng);
+    lastLat = lat;
+    lastLng = lng;
+  }
+
+  return encoded;
+}
+
+module.exports = { decodePolyline, encodePolyline };

@@ -3,6 +3,13 @@ import { supabase } from '../lib/supabase';
 
 const PENDING_STATUSES = ['queued', 'pending'];
 
+function resolvePickupCoord(trip) {
+  const lat = Number(trip?.origin_lat ?? trip?.destination_lat);
+  const lng = Number(trip?.origin_lng ?? trip?.destination_lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
 /**
  * Devuelve los viajes pendientes (esperando chofer) con coordenadas de retiro.
  * Se actualiza en tiempo real vía Supabase Realtime.
@@ -12,43 +19,39 @@ export function usePendingPassengers() {
   const channelRef = useRef(null);
 
   const fetchPendingPassengers = useCallback(async () => {
-    let payload;
     try {
-      const response = await fetch(`/api/pending-passengers?statuses=${encodeURIComponent(PENDING_STATUSES.join(','))}`);
-      payload = await response.json();
-      if (!response.ok) {
-        console.error('[usePendingPassengers] fetch error:', {
-          status: response.status,
-          code: payload?.error?.code || null,
-          message: payload?.error?.message || 'Request failed',
-          details: payload?.error?.details || null,
-        });
-        return;
-      }
+      const { data, error } = await supabase
+        .from('trips')
+        .select(
+          'id, passenger_name, passenger_phone, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, created_at, status, notes',
+        )
+        .in('status', PENDING_STATUSES)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      setPendingTrips(
+        (data || [])
+          .map((trip) => {
+            const coord = resolvePickupCoord(trip);
+            if (!coord) return null;
+            return {
+              id: trip.id,
+              passengerName: trip.passenger_name || 'Pasajero',
+              passengerPhone: trip.passenger_phone || '',
+              address: trip.origin_address || trip.destination_address || 'Sin dirección',
+              lat: coord.lat,
+              lng: coord.lng,
+              createdAt: trip.created_at,
+              status: trip.status,
+              notes: trip.notes || '',
+            };
+          })
+          .filter(Boolean),
+      );
     } catch (err) {
-      console.error('[usePendingPassengers] network error:', {
-        message: err?.message || String(err),
-      });
-      return;
+      console.error('[usePendingPassengers] fetch error:', err?.message || String(err));
     }
-
-    const data = payload?.data || [];
-
-    setPendingTrips(
-      (data || [])
-        .filter((t) => Number.isFinite(Number(t.destination_lat)) && Number.isFinite(Number(t.destination_lng)))
-        .map((t) => ({
-          id: t.id,
-          passengerName: t.passenger_name || 'Pasajero',
-          passengerPhone: t.passenger_phone || '',
-          address: t.destination_address || 'Sin dirección',
-          lat: Number(t.destination_lat),
-          lng: Number(t.destination_lng),
-          createdAt: t.created_at,
-          status: t.status,
-          notes: t.notes || '',
-        }))
-    );
   }, []);
 
   useEffect(() => {

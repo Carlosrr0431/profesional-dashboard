@@ -23,9 +23,9 @@ process.env.TRACKING_BASE_URL                = 'http://localhost:3000';
 process.env.VERCEL                           = '';   // simular entorno local (no serverless)
 process.env.WHATSAPP_IMMEDIATE_PROCESSING    = 'true';
 process.env.WHATSAPP_ACCUMULATION_MS         = '0';  // sin espera en tests
+process.env.TOMTOM_API_KEY                   = 'test-tomtom-key';
 process.env.EXPO_PUBLIC_OSRM_URL             = 'https://test-osrm.example';
 process.env.EXPO_PUBLIC_NOMINATIM_URL        = 'https://test-nominatim.example';
-process.env.NOMINATIM_SELF_HOSTED            = 'true';
 
 const { installGeoFetchMock } = require('./__tests__/helpers/geo-fetch-mock');
 installGeoFetchMock((url) => {

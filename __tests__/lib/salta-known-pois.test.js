@@ -23,6 +23,8 @@ describe('saltaKnownPois', () => {
     'el hospital',
     'aeropuerto',
     'la plaza',
+    'unsa',
+    'UNSA',
   ])('detecta POI: %s', (phrase) => {
     expect(looksLikeSaltaKnownPoi(phrase)).toBe(true);
     expect(resolveSaltaKnownPoi(phrase)).not.toBeNull();

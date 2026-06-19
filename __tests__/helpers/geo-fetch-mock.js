@@ -1,5 +1,5 @@
 /**
- * Mock de fetch para Nominatim + OSRM en tests del dashboard.
+ * Mock de fetch para TomTom Search + Routing en tests del dashboard.
  */
 
 function parseUrlParams(urlStr) {
@@ -10,78 +10,132 @@ function parseUrlParams(urlStr) {
   }
 }
 
-function nominatimSearchResponse(query) {
+function extractTomTomQuery(urlStr) {
+  try {
+    const url = new URL(urlStr);
+    const parts = url.pathname.split('/').filter(Boolean);
+    const endpoint = parts[parts.length - 1] || '';
+    if (endpoint.endsWith('.json')) {
+      return decodeURIComponent(endpoint.replace(/\.json$/, ''));
+    }
+    return '';
+  } catch {
+    return '';
+  }
+}
+
+function tomtomSearchResponse(query) {
   const text = decodeURIComponent(String(query || ''));
   const lower = text.toLowerCase();
 
   if (lower.includes('chacabuco')) {
-    return [{
-      lat: '-24.7889',
-      lon: '-65.4042',
-      display_name: 'Chacabuco 350, A4400 Salta, Argentina',
-      place_id: 'test-chacabuco',
-      importance: 0.7,
-      class: 'highway',
-      type: 'residential',
-      address: { road: 'Chacabuco', house_number: '350' },
-    }];
+    return {
+      results: [{
+        type: 'Point Address',
+        id: 'test-chacabuco',
+        score: 9.1,
+        position: { lat: -24.7889, lon: -65.4042 },
+        address: {
+          streetName: 'Chacabuco',
+          streetNumber: '350',
+          municipality: 'Salta',
+          freeformAddress: 'Chacabuco 350, A4400 Salta, Argentina',
+        },
+      }],
+    };
   }
 
   if (lower.includes('mitre')) {
-    return [{
-      lat: '-24.7874909',
-      lon: '-65.4107292',
-      display_name: 'Bartolomé Mitre 200, A4400 Salta, Argentina',
-      place_id: 'test-mitre',
-      importance: 0.7,
-      class: 'highway',
-      type: 'residential',
-      address: { road: 'Mitre', house_number: '200' },
-    }];
+    return {
+      results: [{
+        type: 'Point Address',
+        id: 'test-mitre',
+        score: 9.1,
+        position: { lat: -24.7874909, lon: -65.4107292 },
+        address: {
+          streetName: 'Mitre',
+          streetNumber: '200',
+          municipality: 'Salta',
+          freeformAddress: 'Bartolomé Mitre 200, A4400 Salta, Argentina',
+        },
+      }],
+    };
   }
 
   if (lower.includes('balcarce')) {
-    return [{
-      lat: '-24.7850',
-      lon: '-65.4080',
-      display_name: 'Balcarce 500, Salta, Argentina',
-      place_id: 'test-balcarce',
-      importance: 0.7,
-      class: 'highway',
-      type: 'residential',
-      address: { road: 'Balcarce', house_number: '500' },
-    }];
+    return {
+      results: [{
+        type: 'Point Address',
+        id: 'test-balcarce',
+        score: 9.1,
+        position: { lat: -24.7850, lon: -65.4080 },
+        address: {
+          streetName: 'Balcarce',
+          streetNumber: '500',
+          municipality: 'Salta',
+          freeformAddress: 'Balcarce 500, Salta, Argentina',
+        },
+      }],
+    };
   }
 
-  return [{
-    lat: '-24.7945667',
-    lon: '-65.3766708',
-    display_name: text.includes('Cherin')
-      ? 'Cherin Pizzeria Artesanal, Salta, Argentina'
-      : `${text || 'Calle Test 100'}, Salta, Argentina`,
-    place_id: 'test-place-1',
-    importance: 0.62,
-    class: 'highway',
-    type: 'residential',
-    address: {
-      road: text.includes('Mitre') ? 'Mitre' : 'Cherin',
-      house_number: '200',
-    },
-  }];
+  if (lower.includes('unsa') || lower.includes('universidad nacional de salta')) {
+    return {
+      results: [{
+        type: 'POI',
+        id: 'test-unsa',
+        score: 9.4,
+        position: { lat: -24.735437, lon: -65.386858 },
+        poi: { name: 'Universidad Nacional de Salta' },
+        address: {
+          municipality: 'Salta',
+          freeformAddress: 'Universidad Nacional de Salta, Salta, Argentina',
+        },
+      }],
+    };
+  }
+
+  return {
+    results: [{
+      type: 'Point Address',
+      id: 'test-place-1',
+      score: 8.8,
+      position: { lat: -24.7945667, lon: -65.3766708 },
+      address: {
+        streetName: text.includes('Mitre') ? 'Mitre' : 'Cherin',
+        streetNumber: '200',
+        municipality: 'Salta',
+        freeformAddress: text.includes('Cherin')
+          ? 'Cherin Pizzeria Artesanal, Salta, Argentina'
+          : `${text || 'Calle Test 100'}, Salta, Argentina`,
+      },
+    }],
+  };
 }
 
-function osrmRouteResponse() {
+function tomtomRouteResponse() {
   return {
-    code: 'Ok',
+    formatVersion: '0.0.12',
     routes: [{
-      distance: 4200,
-      duration: 720,
-      geometry: '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
+      summary: {
+        lengthInMeters: 4200,
+        travelTimeInSeconds: 720,
+      },
       legs: [{
-        distance: 4200,
-        duration: 720,
-        steps: [],
+        points: [
+          { latitude: -24.78, longitude: -65.41 },
+          { latitude: -24.7945667, longitude: -65.3766708 },
+        ],
       }],
+      guidance: {
+        instructions: [{
+          message: 'Seguí derecho',
+          maneuver: 'DEPART',
+          point: { latitude: -24.78, longitude: -65.41 },
+          routeOffsetInMeters: 0,
+          travelTimeInSeconds: 0,
+        }],
+      },
     }],
   };
 }
@@ -90,54 +144,94 @@ function createGeoFetchHandler(baseHandler) {
   return async (url, options) => {
     const urlStr = String(url);
 
-    if (urlStr.includes('nominatim') && urlStr.includes('/reverse')) {
-      const params = parseUrlParams(urlStr);
-      const lat = params.get('lat') || '-24.7945667';
-      const lng = params.get('lon') || '-65.3766708';
+    if (urlStr.includes('api.tomtom.com/search/2/reverseGeocode')) {
       return {
         ok: true,
         status: 200,
         json: async () => ({
-          display_name: `Cherin Pizzeria Artesanal, Salta, Argentina`,
-          lat,
-          lon: lng,
+          addresses: [{
+            address: {
+              freeformAddress: 'Cherin Pizzeria Artesanal, Salta, Argentina',
+            },
+            position: { lat: -24.7945667, lon: -65.3766708 },
+          }],
         }),
+      };
+    }
+
+    if (urlStr.includes('api.tomtom.com/search/2/place.json')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          result: {
+            type: 'Point Address',
+            id: 'test-place-1',
+            score: 8.8,
+            position: { lat: -24.7945667, lon: -65.3766708 },
+            address: {
+              freeformAddress: 'Cherin Pizzeria Artesanal, Salta, Argentina',
+            },
+          },
+        }),
+      };
+    }
+
+    if (urlStr.includes('api.tomtom.com/search/2/search/')
+      || urlStr.includes('api.tomtom.com/search/2/geocode/')
+      || urlStr.includes('api.tomtom.com/search/2/poiSearch/')) {
+      const query = extractTomTomQuery(urlStr);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => tomtomSearchResponse(query),
+      };
+    }
+
+    if (urlStr.includes('api.tomtom.com/routing/1/calculateRoute')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => tomtomRouteResponse(),
       };
     }
 
     if (urlStr.includes('nominatim') && urlStr.includes('/search')) {
       const params = parseUrlParams(urlStr);
       const query = params.get('q') || '';
-      return {
-        ok: true,
-        status: 200,
-        json: async () => nominatimSearchResponse(query),
-      };
-    }
-
-    if (urlStr.includes('nominatim') && urlStr.includes('/lookup')) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => [{
-          lat: '-24.7945667',
-          lon: '-65.3766708',
-          display_name: 'Cherin Pizzeria Artesanal, Salta, Argentina',
-          place_id: 'test-place-1',
-        }],
-      };
+      const mapped = tomtomSearchResponse(query).results.map((item) => ({
+        lat: String(item.position.lat),
+        lon: String(item.position.lon),
+        display_name: item.address.freeformAddress,
+        place_id: item.id,
+        importance: item.score / 10,
+        class: 'highway',
+        type: 'residential',
+        address: {
+          road: item.address.streetName,
+          house_number: item.address.streetNumber,
+        },
+      }));
+      return { ok: true, status: 200, json: async () => mapped };
     }
 
     if (urlStr.includes('/route/v1/driving') || urlStr.includes('profesional-osrm')) {
       return {
         ok: true,
         status: 200,
-        json: async () => osrmRouteResponse(),
+        json: async () => ({
+          code: 'Ok',
+          routes: [{
+            distance: 4200,
+            duration: 720,
+            geometry: '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
+            legs: [{ distance: 4200, duration: 720, steps: [] }],
+          }],
+        }),
       };
     }
 
     if (urlStr.includes('maps.googleapis.com/maps/api/geocode')) {
-      const isReverse = urlStr.includes('latlng=');
       return {
         ok: true,
         status: 200,
@@ -213,6 +307,8 @@ function installGeoFetchMock(baseHandler) {
 module.exports = {
   createGeoFetchHandler,
   installGeoFetchMock,
-  nominatimSearchResponse,
-  osrmRouteResponse,
+  tomtomSearchResponse,
+  tomtomRouteResponse,
+  nominatimSearchResponse: tomtomSearchResponse,
+  osrmRouteResponse: tomtomRouteResponse,
 };
