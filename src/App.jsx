@@ -1,11 +1,12 @@
 import { useState, useRef, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useDrivers } from './hooks/useDrivers';
 import { useSettings } from './hooks/useSettings';
 import { usePendingPassengers } from './hooks/usePendingPassengers';
 import { useQueuedPassengers } from './hooks/useQueuedPassengers';
 import { useScheduledTrips } from './hooks/useScheduledTrips';
 import { useToast } from './context/ToastContext';
-import MapView from './components/MapView';
+const MapView = dynamic(() => import('./components/MapView'), { ssr: false });
 import Sidebar from './components/Sidebar';
 import DriverPanel from './components/DriverPanel';
 import TripAssignModal from './components/TripAssignModal';
@@ -84,16 +85,18 @@ export default function App() {
   // ── Mapa ───────────────────────────────────────────────────────────────────
   const handleCenterDriver = useCallback((driver) => {
     if (mapRef.current && driver.lat && driver.lng) {
-      mapRef.current.panTo({ lat: driver.lat, lng: driver.lng });
+      mapRef.current.panTo([Number(driver.lat), Number(driver.lng)]);
       mapRef.current.setZoom(16);
     }
   }, []);
 
   const handleCenterAll = useCallback(() => {
     if (!mapRef.current || drivers.length === 0) return;
-    const bounds = new window.google.maps.LatLngBounds();
-    drivers.forEach((d) => { if (d.lat && d.lng) bounds.extend({ lat: d.lat, lng: d.lng }); });
-    mapRef.current.fitBounds(bounds, 60);
+    const points = drivers
+      .filter((d) => d.lat && d.lng)
+      .map((d) => [Number(d.lat), Number(d.lng)]);
+    if (points.length === 0) return;
+    mapRef.current.fitBounds(points, { padding: [60, 60] });
   }, [drivers]);
 
   const handleAssignTrip = useCallback((driver) => setTripModalDriver(driver), []);
