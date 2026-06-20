@@ -99,7 +99,7 @@ const ROUTE_BORDER_LAYER = {
   id: 'route-border',
   type: 'line',
   layout: { 'line-cap': 'round', 'line-join': 'round' },
-  paint: { 'line-color': '#7F1D1D', 'line-width': 12, 'line-opacity': 0.12 },
+  paint: { 'line-color': '#FFFFFF', 'line-width': 10, 'line-opacity': 0.9 },
 };
 const ROUTE_LINE_LAYER = {
   id: 'route-line',
@@ -109,7 +109,6 @@ const ROUTE_LINE_LAYER = {
     'line-color': '#DC2626',
     'line-width': 5,
     'line-opacity': 0.92,
-    'line-dasharray': [0, 0],
   },
 };
 const ROUTE_ORIGIN_LAYER = {
