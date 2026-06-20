@@ -17,7 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { colors } from '../theme/colors';
-import { MAPLIBRE_STYLE_URL } from '../utils/mapProvider';
+import { MAPLIBRE_STYLE } from '../utils/mapProvider';
 import DriverLocationMarker from '../components/map/DriverLocationMarker';
 import { useAuthStore } from '../stores/authStore';
 import { useTripStore } from '../stores/tripStore';
@@ -252,7 +252,7 @@ const HomeScreen = () => {
       {/* MAPA */}
       <MapLibreGL.MapView
         style={StyleSheet.absoluteFillObject}
-        styleURL={MAPLIBRE_STYLE_URL}
+        mapStyle={MAPLIBRE_STYLE}
         compassEnabled={false}
         logoEnabled={false}
         attributionEnabled={false}

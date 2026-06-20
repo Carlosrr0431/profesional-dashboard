@@ -11,7 +11,7 @@ import { Badge } from '../components/ui/Badge';
 import { supabase } from '../services/supabase';
 import { formatDateTime, formatPrice, formatDistance, formatDuration } from '../utils/formatters';
 import { getRegionForCoordinates } from '../utils/mapHelpers';
-import { MAPLIBRE_STYLE_URL } from '../utils/mapProvider';
+import { MAPLIBRE_STYLE } from '../utils/mapProvider';
 import { MapRouteLayers } from '../components/map/MapRouteLayers';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -87,7 +87,7 @@ const TripDetailScreen = () => {
         <View style={{ height: 230 }}>
           <MapLibreGL.MapView
             style={{ flex: 1 }}
-            styleURL={MAPLIBRE_STYLE_URL}
+            mapStyle={MAPLIBRE_STYLE}
             scrollEnabled={false}
             zoomEnabled={false}
             rotateEnabled={false}

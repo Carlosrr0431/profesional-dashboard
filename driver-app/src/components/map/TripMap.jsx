@@ -10,7 +10,7 @@ import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { decodePolyline } from '../../utils/polyline';
 import { projectPointOntoPolyline } from '../../services/navigation';
-import { MAPLIBRE_STYLE_URL } from '../../utils/mapProvider';
+import { MAPLIBRE_STYLE } from '../../utils/mapProvider';
 import { MapRouteLayers } from './MapRouteLayers';
 import RouteEndMarker from './RouteEndMarker';
 import DriverNavMarker from './DriverNavMarker';
@@ -480,7 +480,7 @@ export const TripMap = React.memo(({
     <View style={[{ flex: 1 }, style]}>
       <MapLibreGL.MapView
         style={StyleSheet.absoluteFillObject}
-        styleURL={MAPLIBRE_STYLE_URL}
+        mapStyle={MAPLIBRE_STYLE}
         compassEnabled={false}
         logoEnabled={false}
         attributionEnabled={false}
