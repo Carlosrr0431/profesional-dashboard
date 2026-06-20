@@ -12,12 +12,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInUp, SlideInRight } from 'react-native-reanimated';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import MapView from 'react-native-maps';
+import MapLibreGL from '@maplibre/maplibre-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { colors } from '../theme/colors';
-import { MAP_PROVIDER } from '../utils/mapProvider';
+import { MAPLIBRE_STYLE_URL } from '../utils/mapProvider';
 import DriverLocationMarker from '../components/map/DriverLocationMarker';
 import { useAuthStore } from '../stores/authStore';
 import { useTripStore } from '../stores/tripStore';
@@ -250,18 +250,26 @@ const HomeScreen = () => {
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
       {/* MAPA */}
-      <MapView
-        ref={mapRef}
-        provider={MAP_PROVIDER}
+      <MapLibreGL.MapView
         style={StyleSheet.absoluteFillObject}
-        initialRegion={initialRegion}
-        showsCompass={false}
-        showsUserLocation={false}
+        styleURL={MAPLIBRE_STYLE_URL}
+        compassEnabled={false}
+        logoEnabled={false}
+        attributionEnabled={false}
       >
+        <MapLibreGL.Camera
+          ref={mapRef}
+          defaultSettings={{
+            centerCoordinate: initialRegion
+              ? [initialRegion.longitude, initialRegion.latitude]
+              : [-65.42, -24.78],
+            zoomLevel: 14,
+          }}
+        />
         {currentLocation && (
           <DriverLocationMarker location={currentLocation} />
         )}
-      </MapView>
+      </MapLibreGL.MapView>
 
       {/* Gradiente superior */}
       <LinearGradient

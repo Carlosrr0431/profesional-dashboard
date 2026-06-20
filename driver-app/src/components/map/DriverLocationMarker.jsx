@@ -1,21 +1,27 @@
 import React from 'react';
-import { Marker } from 'react-native-maps';
+import { Image, View } from 'react-native';
+import MapLibreGL from '@maplibre/maplibre-react-native';
 
-const DRIVER_LOCATION_ICON = require('../../../assets/driver-nav-puck.png');
 const ICON_SIZE = 42;
 
-/** Marcador de posición actual del chofer — imagen estática (sin recorte en Android). */
+/** Marcador de posición actual del chofer para MapLibre Native. */
 const DriverLocationMarker = React.memo(({ location }) => {
   if (!location?.lat || !location?.lng) return null;
 
   return (
-    <Marker
-      coordinate={{ latitude: location.lat, longitude: location.lng }}
-      image={DRIVER_LOCATION_ICON}
+    <MapLibreGL.MarkerView
+      id="driver-location-marker"
+      coordinate={[Number(location.lng), Number(location.lat)]}
       anchor={{ x: 0.5, y: 0.5 }}
-      tracksViewChanges={false}
-      style={{ width: ICON_SIZE, height: ICON_SIZE }}
-    />
+    >
+      <View style={{ width: ICON_SIZE, height: ICON_SIZE, alignItems: 'center', justifyContent: 'center' }}>
+        <Image
+          source={require('../../../assets/driver-nav-puck.png')}
+          style={{ width: ICON_SIZE, height: ICON_SIZE }}
+          resizeMode="contain"
+        />
+      </View>
+    </MapLibreGL.MarkerView>
   );
 });
 

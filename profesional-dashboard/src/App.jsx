@@ -1,11 +1,12 @@
 import { useState, useRef, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useDrivers } from './hooks/useDrivers';
 import { useSettings } from './hooks/useSettings';
 import { usePendingPassengers } from './hooks/usePendingPassengers';
 import { useQueuedPassengers } from './hooks/useQueuedPassengers';
 import { useScheduledTrips } from './hooks/useScheduledTrips';
 import { useToast } from './context/ToastContext';
-import MapView from './components/MapView';
+const MapView = dynamic(() => import('./components/MapView'), { ssr: false });
 import Sidebar from './components/Sidebar';
 import DriverPanel from './components/DriverPanel';
 import TripAssignModal from './components/TripAssignModal';
@@ -51,6 +52,8 @@ export default function App() {
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [multiSelectedIds,setMultiSelectedIds]= useState(new Set());
   const [showBroadcast,   setShowBroadcast]   = useState(false);
+  // Ruta de preview al asignar viaje: { polylineCoords, origin, destination } | null
+  const [previewRoute,    setPreviewRoute]    = useState(null);
 
   const mapRef = useRef(null);
 
@@ -82,16 +85,27 @@ export default function App() {
   // ── Mapa ───────────────────────────────────────────────────────────────────
   const handleCenterDriver = useCallback((driver) => {
     if (mapRef.current && driver.lat && driver.lng) {
-      mapRef.current.panTo({ lat: driver.lat, lng: driver.lng });
-      mapRef.current.setZoom(16);
+      // react-map-gl/maplibre: center=[lng, lat]
+      mapRef.current.flyTo({ center: [Number(driver.lng), Number(driver.lat)], zoom: 16, duration: 600 });
     }
   }, []);
 
   const handleCenterAll = useCallback(() => {
     if (!mapRef.current || drivers.length === 0) return;
-    const bounds = new window.google.maps.LatLngBounds();
-    drivers.forEach((d) => { if (d.lat && d.lng) bounds.extend({ lat: d.lat, lng: d.lng }); });
-    mapRef.current.fitBounds(bounds, 60);
+    const pts = drivers.filter((d) => d.lat && d.lng);
+    if (pts.length === 0) return;
+    if (pts.length === 1) {
+      mapRef.current.flyTo({ center: [Number(pts[0].lng), Number(pts[0].lat)], zoom: 15, duration: 600 });
+      return;
+    }
+    const lngs = pts.map((d) => Number(d.lng));
+    const lats = pts.map((d) => Number(d.lat));
+    // react-map-gl/maplibre: fitBounds([[swLng,swLat],[neLng,neLat]])
+    mapRef.current.fitBounds(
+      [[Math.min(...lngs) - 0.002, Math.min(...lats) - 0.002],
+       [Math.max(...lngs) + 0.002, Math.max(...lats) + 0.002]],
+      { padding: 64, duration: 700 },
+    );
   }, [drivers]);
 
   const handleAssignTrip = useCallback((driver) => setTripModalDriver(driver), []);
@@ -375,6 +389,7 @@ export default function App() {
                 multiSelectMode={multiSelectMode}
                 multiSelectedIds={multiSelectedIds}
                 onToggleMultiSelect={toggleMultiSelect}
+                previewRoute={previewRoute}
               />
 
               {/* ── Banner de selección múltiple ─────────────────────── */}
@@ -484,19 +499,25 @@ export default function App() {
       {tripModalDriver && (
         <TripAssignModal
           driver={tripModalDriver}
-          onClose={() => setTripModalDriver(null)}
+          onClose={() => { setTripModalDriver(null); setPreviewRoute(null); }}
           onSuccess={handleTripSuccess}
           calculatePrice={calculatePrice}
           tariffPerKm={tariffPerKm}
           tariffBase={tariffBase}
           commissionPercent={commissionPercent}
+          onRouteChange={setPreviewRoute}
         />
       )}
 
       {showNewTripModal && (
         <NewTripModal
-          onClose={() => setShowNewTripModal(false)}
+          onClose={() => { setShowNewTripModal(false); setPreviewRoute(null); }}
           onSuccess={handleNewTripSuccess}
+          onRouteChange={setPreviewRoute}
+          calculatePrice={calculatePrice}
+          tariffPerKm={tariffPerKm}
+          tariffBase={tariffBase}
+          commissionPercent={commissionPercent}
         />
       )}
 

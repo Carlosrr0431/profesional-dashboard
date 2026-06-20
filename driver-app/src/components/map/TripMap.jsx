@@ -1,35 +1,36 @@
 /**
  * Componente: TripMap
- * Mapa de viaje con Google Maps (solo visualización), ruta OSRM y navegación in-app.
+ * Mapa de viaje con MapLibre Native (vector tiles OpenFreeMap bright),
+ * ruta OSRM y navegación in-app con cámara adaptativa.
  */
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import MapLibreGL from '@maplibre/maplibre-react-native';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { decodePolyline } from '../../utils/polyline';
 import { projectPointOntoPolyline } from '../../services/navigation';
-import { DEFAULT_REGION } from '../../utils/constants';
-import { normalizeCoordinate } from '../../utils/mapCoords';
-import { animateMapCamera, fitMapToCoordinates } from '../../utils/mapHelpers';
-import { MAP_PROVIDER } from '../../utils/mapProvider';
+import { MAPLIBRE_STYLE_URL } from '../../utils/mapProvider';
 import { MapRouteLayers } from './MapRouteLayers';
 import RouteEndMarker from './RouteEndMarker';
 import DriverNavMarker from './DriverNavMarker';
 
+/* ── Constantes de navegación ────────────────────────────────────────────── */
 const NAV_PITCH_NORTH_UP = 12;
-const NAV_PITCH_FOLLOW = 52;
+const NAV_PITCH_FOLLOW   = 52;
 const NAV_HEADING_SMOOTH_FACTOR = 0.18;
 const ON_ROUTE_SNAP_MAX_M = 32;
 
+const SALTA_DEFAULT = [-65.42, -24.78]; // [lng, lat]
+
+/* ── Funciones geométricas (sin cambios) ─────────────────────────────────── */
 function getBearing(from, to) {
   if (!from || !to) return 0;
   const lat1 = (from.latitude * Math.PI) / 180;
   const lat2 = (to.latitude * Math.PI) / 180;
   const dLng = ((to.longitude - from.longitude) * Math.PI) / 180;
   const y = Math.sin(dLng) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2)
-    - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
@@ -39,20 +40,14 @@ function moveCoordinate(point, bearing, distanceMeters) {
   const lng1 = (point.longitude * Math.PI) / 180;
   const brng = (bearing * Math.PI) / 180;
   const angDist = distanceMeters / R;
-
   const lat2 = Math.asin(
-    Math.sin(lat1) * Math.cos(angDist)
-    + Math.cos(lat1) * Math.sin(angDist) * Math.cos(brng),
+    Math.sin(lat1) * Math.cos(angDist) + Math.cos(lat1) * Math.sin(angDist) * Math.cos(brng),
   );
   const lng2 = lng1 + Math.atan2(
     Math.sin(brng) * Math.sin(angDist) * Math.cos(lat1),
     Math.cos(angDist) - Math.sin(lat1) * Math.sin(lat2),
   );
-
-  return {
-    latitude: (lat2 * 180) / Math.PI,
-    longitude: (lng2 * 180) / Math.PI,
-  };
+  return { latitude: (lat2 * 180) / Math.PI, longitude: (lng2 * 180) / Math.PI };
 }
 
 function snapCoordToSegment(point, a, b) {
@@ -91,7 +86,6 @@ function buildActiveRoutePolyline(driverCoord, routeCoords) {
   const idx = Math.max(0, Math.min(projection.segmentIndex, routeCoords.length - 2));
   const forward = routeCoords.slice(idx + 1);
   const coords = [snapped, ...forward];
-
   return coords.filter((point, index) => {
     if (index === 0) return true;
     return coordDistMeters(coords[index - 1], point) > 1.5;
@@ -136,14 +130,12 @@ function interpolateAlongPolyline(routeCoords, distanceAlongMeters) {
 
 function getPointAheadOnPolyline(origin, routeCoords, metersAhead = 40) {
   if (!origin || routeCoords.length < 2) return null;
-
   const projection = projectPointOntoPolyline(origin, routeCoords);
   const from = projection.snappedPoint || origin;
   const ahead = interpolateAlongPolyline(
     routeCoords,
     projection.distanceAlongMeters + Math.max(6, metersAhead),
   );
-
   if (!ahead || coordDistMeters(from, ahead) < 2) {
     const idx = Math.min(projection.segmentIndex + 1, routeCoords.length - 1);
     return routeCoords[idx];
@@ -160,19 +152,15 @@ function getLookaheadMeters(speedKmh) {
 
 function getNavigationBearing(origin, routeCoords, speedKmh = 0) {
   if (!origin || routeCoords.length < 2) return 0;
-
   const projection = projectPointOntoPolyline(origin, routeCoords);
   const from = projection.snappedPoint || origin;
   const segIdx = Math.min(projection.segmentIndex, routeCoords.length - 2);
   const segmentBearing = getBearing(routeCoords[segIdx], routeCoords[segIdx + 1]);
-
   const lookAhead = getLookaheadMeters(speedKmh);
   const ahead = getPointAheadOnPolyline(origin, routeCoords, lookAhead);
   if (!ahead) return segmentBearing;
-
   const forwardBearing = getBearing(from, ahead);
   const diff = Math.abs(((forwardBearing - segmentBearing + 540) % 360) - 180);
-
   if (diff > 22) {
     return smoothAngle(forwardBearing, segmentBearing, diff > 40 ? 0.62 : 0.45);
   }
@@ -183,7 +171,7 @@ const ZOOM_TIERS = [
   { minKmh: 65, zoom: 15.7 },
   { minKmh: 40, zoom: 16.2 },
   { minKmh: 20, zoom: 16.8 },
-  { minKmh: 0, zoom: 17.2 },
+  { minKmh: 0,  zoom: 17.2 },
 ];
 
 function getZoomForSpeed(speedKmh) {
@@ -193,10 +181,15 @@ function getZoomForSpeed(speedKmh) {
   return 17.2;
 }
 
-const PointMarker = React.memo(({ coordinate, type }) => {
+/* ── Marcador de punto (origen / destino) ────────────────────────────────── */
+const PointMarkerAnnotation = React.memo(({ coordinate, type }) => {
   const isOrigin = type === 'origin';
+  const id = isOrigin ? 'origin-marker' : 'dest-marker';
   return (
-    <Marker coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
+    <MapLibreGL.PointAnnotation
+      id={id}
+      coordinate={[coordinate.longitude, coordinate.latitude]}
+    >
       <View style={[styles.pointMarker, { backgroundColor: isOrigin ? colors.success : colors.danger }]}>
         <MaterialCommunityIcons
           name={isOrigin ? 'radiobox-marked' : 'flag-variant'}
@@ -204,10 +197,11 @@ const PointMarker = React.memo(({ coordinate, type }) => {
           color="#fff"
         />
       </View>
-    </Marker>
+    </MapLibreGL.PointAnnotation>
   );
 });
 
+/* ── Componente principal ────────────────────────────────────────────────── */
 export const TripMap = React.memo(({
   driverLocation,
   origin,
@@ -224,31 +218,31 @@ export const TripMap = React.memo(({
   routeEndVariant = 'destination',
   style,
 }) => {
-  const mapRef = useRef(null);
+  const cameraRef = useRef(null);
   const hasFitted = useRef(false);
   const lastNearestIdxRef = useRef(0);
   const smoothHeadingRef = useRef(null);
   const lastCameraTimeRef = useRef(0);
   const lastZoomTierRef = useRef(null);
-  const [routeCoords, setRouteCoords] = useState([]);
-  const [mapReady, setMapReady] = useState(false);
 
+  const [routeCoords, setRouteCoords] = useState([]);
+
+  /* ── Coordenadas del conductor ─────────────────────────────────────────── */
   const driverCoord = useMemo(() => {
     if (!driverLocation) return null;
     return { latitude: driverLocation.lat, longitude: driverLocation.lng };
   }, [driverLocation?.lat, driverLocation?.lng]);
 
+  /* ── Proyección sobre la ruta ──────────────────────────────────────────── */
   const getRemainingRouteCoords = useCallback(() => {
     if (routeCoords.length === 0) return [];
     if (!driverCoord) return routeCoords;
-
     const projection = projectPointOntoPolyline(
       { latitude: driverCoord.latitude, longitude: driverCoord.longitude },
       routeCoords,
     );
     const segIdx = Math.max(lastNearestIdxRef.current, projection.segmentIndex || 0);
     lastNearestIdxRef.current = segIdx;
-
     return buildActiveRoutePolyline(driverCoord, routeCoords.slice(segIdx));
   }, [driverCoord, routeCoords]);
 
@@ -256,7 +250,7 @@ export const TripMap = React.memo(({
 
   const routeProjection = useMemo(() => {
     if (!driverCoord || routeCoords.length < 2) {
-      return { deviationMeters: Number.POSITIVE_INFINITY, snappedPoint: null };
+      return { deviationMeters: Infinity, snappedPoint: null };
     }
     return projectPointOntoPolyline(driverCoord, routeCoords);
   }, [driverCoord, routeCoords]);
@@ -275,9 +269,7 @@ export const TripMap = React.memo(({
   const driverMarkerCoord = useMemo(() => {
     if (!driverCoord) return null;
     if (navigationMode) {
-      if (isOnRoute && remainingRouteCoords.length > 0) {
-        return remainingRouteCoords[0];
-      }
+      if (isOnRoute && remainingRouteCoords.length > 0) return remainingRouteCoords[0];
       return driverCoord;
     }
     return snappedDriverCoord ?? driverCoord;
@@ -289,23 +281,14 @@ export const TripMap = React.memo(({
   }, [driverLocation?.speed]);
 
   const routeHeading = useMemo(() => {
-    if (!isOnRoute && Number.isFinite(heading)) {
-      return heading;
-    }
+    if (!isOnRoute && Number.isFinite(heading)) return heading;
     const originPoint = snappedDriverCoord || driverCoord;
     const bearingRoute = routeCoords.length >= 2 ? routeCoords : remainingRouteCoords;
     if (!originPoint || bearingRoute.length < 2) return smoothHeadingRef.current ?? 0;
     return getNavigationBearing(originPoint, bearingRoute, navigationSpeedKmh);
-  }, [
-    isOnRoute,
-    heading,
-    snappedDriverCoord,
-    driverCoord,
-    routeCoords,
-    remainingRouteCoords,
-    navigationSpeedKmh,
-  ]);
+  }, [isOnRoute, heading, snappedDriverCoord, driverCoord, routeCoords, remainingRouteCoords, navigationSpeedKmh]);
 
+  /* ── Decodificar polilínea ─────────────────────────────────────────────── */
   useEffect(() => {
     if (polyline) {
       const decoded = decodePolyline(polyline);
@@ -317,46 +300,52 @@ export const TripMap = React.memo(({
     }
   }, [polyline]);
 
+  /* ── Control de cámara unificado ──────────────────────────────────────── */
   const applyCameraStop = useCallback((stop) => {
-    if (!mapRef.current) return;
+    if (!cameraRef.current) return;
     if (stop.bounds) {
       const [[minLng, minLat], [maxLng, maxLat]] = stop.bounds;
-      fitMapToCoordinates(
-        mapRef,
-        [
-          { latitude: minLat, longitude: minLng },
-          { latitude: maxLat, longitude: maxLng },
-        ],
-        stop.padding,
+      cameraRef.current.fitBounds(
+        [maxLng, maxLat],
+        [minLng, minLat],
+        stop.padding ?? 60,
+        stop.duration ?? 400,
       );
       return;
     }
     if (stop.center) {
-      animateMapCamera(
-        mapRef,
-        {
-          center: { latitude: stop.center[1], longitude: stop.center[0] },
-          bearing: stop.bearing ?? 0,
-          pitch: stop.pitch ?? 0,
-          zoom: stop.zoom ?? 16,
-        },
-        stop.duration ?? 250,
-      );
+      cameraRef.current.setCamera({
+        centerCoordinate: stop.center,
+        zoomLevel: stop.zoom ?? 16,
+        heading: stop.bearing ?? 0,
+        pitch: stop.pitch ?? 0,
+        animationDuration: stop.duration ?? 250,
+        animationMode: 'easeTo',
+      });
     }
   }, []);
 
+  /* ── Fit inicial a la ruta ─────────────────────────────────────────────── */
   useEffect(() => {
     if (navigationMode) return;
-    if (routeCoords.length > 0 && mapRef.current && !hasFitted.current) {
+    if (routeCoords.length > 0 && cameraRef.current && !hasFitted.current) {
       hasFitted.current = true;
       const points = [...routeCoords];
       if (driverCoord) points.push(driverCoord);
-      fitMapToCoordinates(mapRef, points);
+      const lngs = points.map((p) => p.longitude);
+      const lats = points.map((p) => p.latitude);
+      cameraRef.current.fitBounds(
+        [Math.max(...lngs), Math.max(...lats)],
+        [Math.min(...lngs), Math.min(...lats)],
+        60,
+        600,
+      );
     }
-  }, [routeCoords, navigationMode, driverCoord, applyCameraStop]);
+  }, [routeCoords, navigationMode, driverCoord]);
 
+  /* ── Cámara de navegación ──────────────────────────────────────────────── */
   useEffect(() => {
-    if (!navigationMode || !driverCoord || !mapReady) return;
+    if (!navigationMode || !driverCoord) return;
 
     const now = Date.now();
     const speedMps = Number(driverLocation?.speed) > 0 ? Number(driverLocation.speed) : 0;
@@ -369,11 +358,7 @@ export const TripMap = React.memo(({
       } else {
         const angleDiff = Math.abs(((targetHeading - smoothHeadingRef.current + 540) % 360) - 180);
         if (angleDiff >= 2) {
-          smoothHeadingRef.current = smoothAngle(
-            smoothHeadingRef.current,
-            targetHeading,
-            NAV_HEADING_SMOOTH_FACTOR,
-          );
+          smoothHeadingRef.current = smoothAngle(smoothHeadingRef.current, targetHeading, NAV_HEADING_SMOOTH_FACTOR);
         }
       }
     } else {
@@ -416,19 +401,11 @@ export const TripMap = React.memo(({
       });
     }
   }, [
-    navigationMode,
-    threeDEnabled,
-    driverCoord,
-    driverMarkerCoord,
-    snappedDriverCoord,
-    driverLocation?.speed,
-    remainingDistanceMeters,
-    remainingRouteCoords,
-    routeHeading,
-    mapReady,
-    applyCameraStop,
+    navigationMode, threeDEnabled, driverCoord, driverMarkerCoord, snappedDriverCoord,
+    driverLocation?.speed, remainingDistanceMeters, remainingRouteCoords, routeHeading, applyCameraStop,
   ]);
 
+  /* ── Marcadores ────────────────────────────────────────────────────────── */
   const originCoord = useMemo(() => {
     if (!origin) return null;
     return { latitude: parseFloat(origin.lat), longitude: parseFloat(origin.lng) };
@@ -454,34 +431,32 @@ export const TripMap = React.memo(({
 
   const driverMarkerHeading = useMemo(() => {
     if (!driverMarkerCoord) return Number.isFinite(heading) ? heading : 0;
-    if (navigationMode && !isOnRoute && Number.isFinite(heading)) {
-      return heading;
-    }
+    if (navigationMode && !isOnRoute && Number.isFinite(heading)) return heading;
     const bearingRoute = routeCoords.length >= 2 ? routeCoords : remainingRouteCoords;
-    if (navigationMode && isOnRoute && bearingRoute.length >= 2) {
-      return routeHeading;
-    }
+    if (navigationMode && isOnRoute && bearingRoute.length >= 2) return routeHeading;
     if (bearingRoute.length >= 2 && snappedDriverCoord) {
       return getNavigationBearing(snappedDriverCoord, bearingRoute, navigationSpeedKmh);
     }
     return Number.isFinite(heading) ? heading : 0;
-  }, [
-    driverMarkerCoord,
-    snappedDriverCoord,
-    routeCoords,
-    remainingRouteCoords,
-    navigationMode,
-    isOnRoute,
-    routeHeading,
-    navigationSpeedKmh,
-    heading,
-  ]);
+  }, [driverMarkerCoord, snappedDriverCoord, routeCoords, remainingRouteCoords, navigationMode, isOnRoute, routeHeading, navigationSpeedKmh, heading]);
 
+  /* ── Botones de control ────────────────────────────────────────────────── */
   const fitAll = useCallback(() => {
     const points = [...routeCoords];
     if (driverCoord) points.push(driverCoord);
-    fitMapToCoordinates(mapRef, points);
-  }, [routeCoords, driverCoord]);
+    if (!cameraRef.current || points.length === 0) return;
+    if (points.length === 1) {
+      applyCameraStop({ center: [points[0].longitude, points[0].latitude], zoom: 15 });
+      return;
+    }
+    const lngs = points.map((p) => p.longitude);
+    const lats = points.map((p) => p.latitude);
+    cameraRef.current.fitBounds(
+      [Math.max(...lngs), Math.max(...lats)],
+      [Math.min(...lngs), Math.min(...lats)],
+      60, 500,
+    );
+  }, [routeCoords, driverCoord, applyCameraStop]);
 
   const centerOnDriver = useCallback(() => {
     const anchor = driverMarkerCoord ?? driverCoord;
@@ -491,55 +466,38 @@ export const TripMap = React.memo(({
       const cameraHeading = Number.isFinite(smoothHeadingRef.current) ? smoothHeadingRef.current : routeHeading;
       smoothHeadingRef.current = cameraHeading;
       const cameraCenter = moveCoordinate(anchor, cameraHeading, 75);
-      applyCameraStop({
-        center: [cameraCenter.longitude, cameraCenter.latitude],
-        bearing: cameraHeading,
-        pitch: NAV_PITCH_FOLLOW,
-        zoom: 17.2,
-      });
+      applyCameraStop({ center: [cameraCenter.longitude, cameraCenter.latitude], bearing: cameraHeading, pitch: NAV_PITCH_FOLLOW, zoom: 17.2 });
     } else if (navigationMode) {
       const cameraCenter = moveCoordinate(anchor, routeHeading, 40);
-      applyCameraStop({
-        center: [cameraCenter.longitude, cameraCenter.latitude],
-        bearing: 0,
-        pitch: NAV_PITCH_NORTH_UP,
-        zoom: 16.8,
-      });
+      applyCameraStop({ center: [cameraCenter.longitude, cameraCenter.latitude], bearing: 0, pitch: NAV_PITCH_NORTH_UP, zoom: 16.8 });
     } else {
-      applyCameraStop({
-        center: [anchor.longitude, anchor.latitude],
-        bearing: 0,
-        pitch: 0,
-        zoom: 16.5,
-      });
+      applyCameraStop({ center: [anchor.longitude, anchor.latitude], bearing: 0, pitch: 0, zoom: 16.5 });
     }
   }, [driverCoord, driverMarkerCoord, navigationMode, threeDEnabled, routeHeading, applyCameraStop]);
 
-  const initialRegion = useMemo(() => {
-    if (driverLocation) {
-      return {
-        latitude: driverLocation.lat,
-        longitude: driverLocation.lng,
-        latitudeDelta: 0.02,
-        longitudeDelta: 0.02,
-      };
-    }
-    return DEFAULT_REGION;
-  }, [driverLocation?.lat, driverLocation?.lng]);
-
+  /* ── Render ────────────────────────────────────────────────────────────── */
   return (
     <View style={[{ flex: 1 }, style]}>
-      <MapView
-        ref={mapRef}
-        provider={MAP_PROVIDER}
+      <MapLibreGL.MapView
         style={StyleSheet.absoluteFillObject}
-        initialRegion={initialRegion}
-        onMapReady={() => setMapReady(true)}
-        showsCompass={false}
-        showsUserLocation={false}
+        styleURL={MAPLIBRE_STYLE_URL}
+        compassEnabled={false}
+        logoEnabled={false}
+        attributionEnabled={false}
         rotateEnabled={navigationMode}
         pitchEnabled={navigationMode && threeDEnabled}
       >
+        <MapLibreGL.Camera
+          ref={cameraRef}
+          defaultSettings={{
+            centerCoordinate: driverCoord
+              ? [driverCoord.longitude, driverCoord.latitude]
+              : SALTA_DEFAULT,
+            zoomLevel: 14,
+          }}
+        />
+
+        {/* Ruta OSRM */}
         {remainingRouteCoords.length > 1 && (
           <MapRouteLayers
             coords={remainingRouteCoords}
@@ -547,26 +505,39 @@ export const TripMap = React.memo(({
           />
         )}
 
+        {/* Marcadores de puntos (no-nav) */}
         {!navigationMode && originCoord && (
-          <PointMarker coordinate={originCoord} type="origin" />
+          <PointMarkerAnnotation coordinate={originCoord} type="origin" />
         )}
         {!navigationMode && destCoord && (
-          <PointMarker coordinate={destCoord} type="dest" />
+          <PointMarkerAnnotation coordinate={destCoord} type="dest" />
         )}
 
+        {/* Marcador fin de ruta (nav) */}
         {navigationMode && routeEndCoord && (
-          <RouteEndMarker coordinate={routeEndCoord} variant={routeEndVariant} />
+          <MapLibreGL.MarkerView
+            id="route-end-marker"
+            coordinate={[routeEndCoord.longitude, routeEndCoord.latitude]}
+          >
+            <RouteEndMarker coordinate={routeEndCoord} variant={routeEndVariant} />
+          </MapLibreGL.MarkerView>
         )}
 
+        {/* Marcador conductor (navegación) */}
         {driverMarkerCoord && navigationMode && (
-          <DriverNavMarker coordinate={driverMarkerCoord} heading={driverMarkerHeading} />
+          <MapLibreGL.MarkerView
+            id="driver-nav-marker"
+            coordinate={[driverMarkerCoord.longitude, driverMarkerCoord.latitude]}
+          >
+            <DriverNavMarker coordinate={driverMarkerCoord} heading={driverMarkerHeading} />
+          </MapLibreGL.MarkerView>
         )}
 
+        {/* Marcador conductor (visualización) */}
         {driverMarkerCoord && !navigationMode && (
-          <Marker
-            coordinate={driverMarkerCoord}
-            anchor={{ x: 0.5, y: 0.5 }}
-            tracksViewChanges={false}
+          <MapLibreGL.MarkerView
+            id="driver-view-marker"
+            coordinate={[driverMarkerCoord.longitude, driverMarkerCoord.latitude]}
           >
             <View style={styles.driverMarkerRoot}>
               <View style={styles.driverMarkerRing}>
@@ -575,10 +546,11 @@ export const TripMap = React.memo(({
                 </View>
               </View>
             </View>
-          </Marker>
+          </MapLibreGL.MarkerView>
         )}
-      </MapView>
+      </MapLibreGL.MapView>
 
+      {/* Botones flotantes */}
       <View style={[styles.btnCol, { bottom: controlsBottomOffset }]}>
         {navigationMode && typeof onToggleThreeD === 'function' && (
           <Pressable onPress={onToggleThreeD} style={({ pressed }) => [styles.modeBtn, pressed && { opacity: 0.7 }]}>
@@ -611,36 +583,26 @@ export const TripMap = React.memo(({
 
 const styles = StyleSheet.create({
   driverMarkerRoot: {
-    width: 52,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 52, height: 52,
+    alignItems: 'center', justifyContent: 'center',
   },
   driverMarkerRing: {
-    width: 38,
-    height: 38,
+    width: 38, height: 38,
     borderRadius: 19,
     backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   driverMarkerCore: {
-    width: 32,
-    height: 32,
+    width: 32, height: 32,
     borderRadius: 16,
     backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   pointMarker: {
-    width: 30,
-    height: 30,
+    width: 30, height: 30,
     borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2.5,
-    borderColor: '#fff',
-    boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2.5, borderColor: '#fff',
   },
   btnCol: {
     position: 'absolute',
@@ -648,25 +610,19 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   modeBtn: {
-    width: 40,
-    height: 40,
+    width: 40, height: 40,
     borderRadius: 12,
     backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.10)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: '#E2E8F0',
+    elevation: 3,
   },
   mapBtn: {
-    width: 40,
-    height: 40,
+    width: 40, height: 40,
     borderRadius: 12,
     backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.10)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: '#E2E8F0',
+    elevation: 3,
   },
 });
