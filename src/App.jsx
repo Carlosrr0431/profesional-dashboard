@@ -51,6 +51,8 @@ export default function App() {
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [multiSelectedIds,setMultiSelectedIds]= useState(new Set());
   const [showBroadcast,   setShowBroadcast]   = useState(false);
+  // Ruta de preview al asignar viaje: { polylineCoords, origin, destination } | null
+  const [previewRoute,    setPreviewRoute]    = useState(null);
 
   const mapRef = useRef(null);
 
@@ -375,6 +377,7 @@ export default function App() {
                 multiSelectMode={multiSelectMode}
                 multiSelectedIds={multiSelectedIds}
                 onToggleMultiSelect={toggleMultiSelect}
+                previewRoute={previewRoute}
               />
 
               {/* ── Banner de selección múltiple ─────────────────────── */}
@@ -484,12 +487,13 @@ export default function App() {
       {tripModalDriver && (
         <TripAssignModal
           driver={tripModalDriver}
-          onClose={() => setTripModalDriver(null)}
+          onClose={() => { setTripModalDriver(null); setPreviewRoute(null); }}
           onSuccess={handleTripSuccess}
           calculatePrice={calculatePrice}
           tariffPerKm={tariffPerKm}
           tariffBase={tariffBase}
           commissionPercent={commissionPercent}
+          onRouteChange={setPreviewRoute}
         />
       )}
 

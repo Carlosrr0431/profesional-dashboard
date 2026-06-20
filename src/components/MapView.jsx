@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo, useCallback, useMemo, useState } from 'react';
-import Map, { Marker, Popup } from 'react-map-gl/maplibre';
+import Map, { Marker, Popup, Source, Layer } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { SALTA_CENTER, DEFAULT_ZOOM } from '../lib/constants';
 import { MAP_STYLE_URL, DEFAULT_MAP_VIEW, mapLibreOptions } from '../lib/mapLibre';
@@ -98,6 +98,86 @@ const PassengerMapMarker = memo(function PassengerMapMarker({ trip, onClick }) {
   && prev.trip.status === next.trip.status
 ));
 
+// Capa de línea para la ruta de preview
+const ROUTE_LINE_LAYER = {
+  id: 'preview-route-line',
+  type: 'line',
+  paint: {
+    'line-color': '#DC2626',
+    'line-width': 4.5,
+    'line-opacity': 0.88,
+  },
+  layout: {
+    'line-cap': 'round',
+    'line-join': 'round',
+  },
+};
+
+const ROUTE_BORDER_LAYER = {
+  id: 'preview-route-border',
+  type: 'line',
+  paint: {
+    'line-color': '#7F1D1D',
+    'line-width': 7,
+    'line-opacity': 0.2,
+  },
+  layout: {
+    'line-cap': 'round',
+    'line-join': 'round',
+  },
+};
+
+function RoutePreviewLayer({ previewRoute }) {
+  if (!previewRoute?.polylineCoords?.length) return null;
+
+  const geojson = {
+    type: 'Feature',
+    geometry: {
+      type: 'LineString',
+      coordinates: previewRoute.polylineCoords.map((p) => [p.lng, p.lat]),
+    },
+  };
+
+  return (
+    <Source id="preview-route" type="geojson" data={geojson}>
+      <Layer {...ROUTE_BORDER_LAYER} />
+      <Layer {...ROUTE_LINE_LAYER} />
+    </Source>
+  );
+}
+
+function PreviewMarker({ lat, lng, type }) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const isOrigin = type === 'origin';
+  return (
+    <Marker longitude={lng} latitude={lat} anchor="bottom">
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.35))',
+      }}>
+        <div style={{
+          width: 28,
+          height: 28,
+          borderRadius: isOrigin ? '50%' : 6,
+          background: isOrigin ? '#DC2626' : '#059669',
+          border: '3px solid #FFFFFF',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 13,
+          fontWeight: 800,
+          color: '#FFFFFF',
+        }}>
+          {isOrigin ? 'A' : 'B'}
+        </div>
+        <div style={{ width: 2, height: 8, background: isOrigin ? '#DC2626' : '#059669' }} />
+      </div>
+    </Marker>
+  );
+}
+
 function MapView({
   drivers,
   pendingPassengers = [],
@@ -108,6 +188,7 @@ function MapView({
   multiSelectMode,
   multiSelectedIds,
   onToggleMultiSelect,
+  previewRoute = null,
 }) {
   const [activeInfo, setActiveInfo] = useState(null);
   const [activePassenger, setActivePassenger] = useState(null);
@@ -169,6 +250,15 @@ function MapView({
             onClick={handlePassengerClick}
           />
         ))}
+
+        {/* ── Ruta de preview al asignar un viaje ──────────────────────── */}
+        <RoutePreviewLayer previewRoute={previewRoute} />
+        {previewRoute?.origin && (
+          <PreviewMarker lat={previewRoute.origin.lat} lng={previewRoute.origin.lng} type="origin" />
+        )}
+        {previewRoute?.destination && (
+          <PreviewMarker lat={previewRoute.destination.lat} lng={previewRoute.destination.lng} type="destination" />
+        )}
 
         {activeInfo && !multiSelectMode ? (
           <Popup

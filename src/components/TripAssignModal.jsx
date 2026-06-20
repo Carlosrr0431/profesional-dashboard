@@ -1,184 +1,249 @@
-import { useState, useRef, useEffect } from 'react';
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { sendPushNotification, formatPrice, formatKm } from '../lib/utils';
 import { formatError } from '../lib/errorFormat';
-import { isWithinSaltaCapital } from '../lib/constants';
 import { buildDashboardAssignNotes } from '../lib/tripRequeue';
 import { useToast } from '../context/ToastContext';
 import AddressAutocomplete from './AddressAutocomplete';
 
-const inputStyle = {
-  width: '100%',
-  padding: '10px 12px',
-  background: '#F1F3F8',
-  border: '1px solid #E2E8F0',
-  borderRadius: '8px',
-  color: '#0F172A',
-  fontSize: '13px',
-  outline: 'none',
-  fontFamily: 'inherit',
-};
+/* ── Estilos globales ─────────────────────────────────────────────────────── */
+const MODAL_STYLES = `
+@keyframes _tm_spin { to { transform: rotate(360deg); } }
+@keyframes _tm_fade { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+@keyframes _tm_shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+._tm_shimmer {
+  background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
+  background-size: 800px 100%;
+  animation: _tm_shimmer 1.4s infinite;
+  border-radius: 6px;
+}
+`;
 
-const labelStyle = {
-  display: 'block',
-  fontSize: '11px',
-  color: '#94A3B8',
-  marginBottom: '4px',
-  fontWeight: 600,
-};
+/* ── Primitivas UI ────────────────────────────────────────────────────────── */
+function Spinner({ size = 16, color = '#DC2626' }) {
+  return (
+    <div style={{
+      width: size,
+      height: size,
+      border: `2px solid ${color}25`,
+      borderTopColor: color,
+      borderRadius: '50%',
+      animation: '_tm_spin 0.65s linear infinite',
+      flexShrink: 0,
+    }} />
+  );
+}
 
-export default function TripAssignModal({ driver, onClose, onSuccess, calculatePrice, tariffPerKm, tariffBase, commissionPercent }) {
+function ToggleSwitch({ checked, onChange, label }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: 0,
+      }}
+    >
+      <div style={{
+        width: 36,
+        height: 20,
+        borderRadius: 10,
+        background: checked ? '#DC2626' : '#CBD5E1',
+        position: 'relative',
+        transition: 'background 0.2s',
+        flexShrink: 0,
+      }}>
+        <div style={{
+          position: 'absolute',
+          top: 2,
+          left: checked ? 18 : 2,
+          width: 16,
+          height: 16,
+          borderRadius: '50%',
+          background: '#FFFFFF',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+          transition: 'left 0.2s',
+        }} />
+      </div>
+      {label && (
+        <span style={{ fontSize: 12, fontWeight: 600, color: checked ? '#DC2626' : '#64748B' }}>
+          {label}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/* ── Componente principal ─────────────────────────────────────────────────── */
+export default function TripAssignModal({
+  driver,
+  onClose,
+  onSuccess,
+  calculatePrice,
+  tariffPerKm,
+  tariffBase,
+  commissionPercent,
+  onRouteChange,
+}) {
   const toast = useToast();
+
+  /* Origen */
   const [originAddress, setOriginAddress] = useState('');
   const [originLat, setOriginLat] = useState(null);
   const [originLng, setOriginLng] = useState(null);
+  const [originMode, setOriginMode] = useState('custom');
+
+  /* Destino */
   const [destAddress, setDestAddress] = useState('');
   const [destLat, setDestLat] = useState(null);
   const [destLng, setDestLng] = useState(null);
+
+  /* Opcionales */
   const [passengerName, setPassengerName] = useState('');
   const [passengerPhone, setPassengerPhone] = useState('');
   const [notes, setNotes] = useState('');
   const [showOptional, setShowOptional] = useState(false);
-  const [loading, setLoading] = useState(false);
+
+  /* Ruta */
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeInfo, setRouteInfo] = useState(null); // { distanceKm, durationMinutes, polylineCoords }
+  const [showOnMap, setShowOnMap] = useState(true);
+
+  /* Submit */
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [originMode, setOriginMode] = useState('custom');
-  const [routeInfo, setRouteInfo] = useState(null); // { distanceKm, durationMinutes }
 
-  const reverseGeocode = async (lat, lng) => {
-    try {
-      const response = await fetch(`/api/geo/reverse?lat=${lat}&lng=${lng}`);
-      const payload = await response.json();
-      if (payload?.ok) return payload.data?.formattedAddress;
-    } catch (e) {
-      console.error('Reverse geocode error:', formatError(e));
-    }
-    return null;
-  };
-
-  const onOriginSelect = (place) => {
-    const addr = place.formattedAddress || '';
-    setOriginAddress(addr);
-    setOriginLat(place.lat);
-    setOriginLng(place.lng);
-  };
-
-  const onDestSelect = (place) => {
-    const addr = place.formattedAddress || '';
-    setDestAddress(addr);
-    setDestLat(place.lat);
-    setDestLng(place.lng);
-  };
-
+  /* ── Limpiar ruta al desmontar ─────────────────────────────────────────── */
   useEffect(() => {
-    if (driver && originMode === 'driver') {
-      const lat = parseFloat(driver.lat);
-      const lng = parseFloat(driver.lng);
-      if (!lat || !lng || (lat === 0 && lng === 0)) {
-        setOriginAddress('Ubicación no disponible');
-        setOriginLat(null);
-        setOriginLng(null);
-        return;
-      }
-      setOriginLat(lat);
-      setOriginLng(lng);
-      reverseGeocode(lat, lng).then((addr) => {
-        setOriginAddress(addr || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
-      });
+    return () => { onRouteChange?.(null); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ── Usar ubicación del chofer como origen ────────────────────────────── */
+  useEffect(() => {
+    if (originMode !== 'driver') return;
+    const lat = parseFloat(driver?.lat);
+    const lng = parseFloat(driver?.lng);
+    if (!lat || !lng || (lat === 0 && lng === 0)) {
+      setOriginAddress('Ubicación no disponible');
+      setOriginLat(null);
+      setOriginLng(null);
+      return;
     }
+    setOriginLat(lat);
+    setOriginLng(lng);
+    fetch(`/api/geo/reverse?lat=${lat}&lng=${lng}`)
+      .then((r) => r.json())
+      .then((p) => setOriginAddress(p?.ok ? (p.data?.formattedAddress || `${lat.toFixed(5)}, ${lng.toFixed(5)}`) : `${lat.toFixed(5)}, ${lng.toFixed(5)}`))
+      .catch(() => setOriginAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`));
   }, [driver, originMode]);
 
-  // Auto-calculate route when both coords available
+  /* ── Calcular ruta cuando hay origen + destino ────────────────────────── */
   useEffect(() => {
     if (!originLat || !originLng || !destLat || !destLng) {
       setRouteInfo(null);
+      onRouteChange?.(null);
       return;
     }
-    const calcRoute = async () => {
-      try {
-        const url = `/api/geo/route-metrics?originLat=${originLat}&originLng=${originLng}&destLat=${destLat}&destLng=${destLng}`;
-        const response = await fetch(url);
-        const payload = await response.json();
-        if (payload?.ok && payload.data?.distanceKm != null) {
-          setRouteInfo(payload.data);
-        } else {
-          setRouteInfo(null);
-        }
-      } catch (err) {
-        console.warn('Route calc error:', err);
-        setRouteInfo(null);
-      }
-    };
-    calcRoute();
+
+    let cancelled = false;
+    setRouteLoading(true);
+    setRouteInfo(null);
+
+    const qs = new URLSearchParams({
+      originLat, originLng, destLat, destLng, alternatives: 'true',
+    });
+    fetch(`/api/geo/directions?${qs}`)
+      .then((r) => r.json())
+      .then((payload) => {
+        if (cancelled) return;
+        const d = payload?.data;
+        if (!payload?.ok || !d) { setRouteLoading(false); return; }
+        const info = {
+          distanceKm: Math.round((Number(d.distanceValue) / 1000) * 10) / 10,
+          durationMinutes: Math.round(Number(d.durationValue) / 60),
+          polylineCoords: Array.isArray(d.polylineCoords) ? d.polylineCoords : [],
+        };
+        setRouteInfo(info);
+        setRouteLoading(false);
+      })
+      .catch(() => { if (!cancelled) setRouteLoading(false); });
+
+    return () => { cancelled = true; };
   }, [originLat, originLng, destLat, destLng]);
 
+  /* ── Publicar ruta al mapa ────────────────────────────────────────────── */
+  useEffect(() => {
+    if (!onRouteChange) return;
+    if (showOnMap && routeInfo?.polylineCoords?.length > 1) {
+      onRouteChange({
+        polylineCoords: routeInfo.polylineCoords,
+        origin: { lat: originLat, lng: originLng, label: originAddress },
+        destination: { lat: destLat, lng: destLng, label: destAddress },
+      });
+    } else {
+      onRouteChange(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showOnMap, routeInfo]);
+
+  /* ── Precio estimado ──────────────────────────────────────────────────── */
   const autoPrice = routeInfo ? calculatePrice(routeInfo.distanceKm) : null;
   const autoCommission = autoPrice ? Math.round(autoPrice * (commissionPercent || 10) / 100) : null;
 
-  const geocodeAddress = async (address) => {
+  /* ── Geocodificar dirección escrita sin seleccionar ───────────────────── */
+  const geocodeTyped = useCallback(async (address) => {
     try {
-      const response = await fetch(`/api/geo/geocode?address=${encodeURIComponent(`${address}, Salta, Argentina`)}`);
-      const payload = await response.json();
-      if (payload?.ok) {
-        return {
-          lat: payload.data.lat,
-          lng: payload.data.lng,
-          formatted: payload.data.formattedAddress,
-        };
-      }
-    } catch (e) {
-      console.error('Geocode error:', formatError(e));
-    }
+      const res = await fetch(`/api/geo/geocode?address=${encodeURIComponent(`${address}, Salta, Argentina`)}`);
+      const p = await res.json();
+      if (p?.ok) return { lat: p.data.lat, lng: p.data.lng, formatted: p.data.formattedAddress };
+    } catch { /* ignorar */ }
     return null;
-  };
+  }, []);
 
+  /* ── Submit ───────────────────────────────────────────────────────────── */
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
-    // If origin is driver mode but no coords, block
     if (originMode === 'driver' && (!originLat || !originLng)) {
       setError('El chofer no tiene ubicación disponible. Cambiá a dirección manual.');
       return;
     }
 
-    const currentOriginText = originAddress;
-    const currentDestText = destAddress;
-    if (currentOriginText) setOriginAddress(currentOriginText);
-    if (currentDestText) setDestAddress(currentDestText);
-
-    let finalOriginAddress = currentOriginText || originAddress;
+    let finalOriginAddress = originAddress;
     let finalOriginLat = originLat;
     let finalOriginLng = originLng;
-    let finalDestAddress = currentDestText.trim();
+    let finalDestAddress = destAddress.trim();
     let finalDestLat = destLat;
     let finalDestLng = destLng;
 
-    // If origin is custom and user typed but didn't select autocomplete, geocode it
-    if (originMode === 'custom' && currentOriginText && (!finalOriginLat || !finalOriginLng)) {
-      const result = await geocodeAddress(currentOriginText);
-      if (result) {
-        finalOriginLat = result.lat;
-        finalOriginLng = result.lng;
-        finalOriginAddress = result.formatted;
-        setOriginLat(result.lat);
-        setOriginLng(result.lng);
-        setOriginAddress(result.formatted);
+    if (originMode === 'custom' && finalOriginAddress && (!finalOriginLat || !finalOriginLng)) {
+      const r = await geocodeTyped(finalOriginAddress);
+      if (r) {
+        finalOriginLat = r.lat; finalOriginLng = r.lng; finalOriginAddress = r.formatted;
+        setOriginLat(r.lat); setOriginLng(r.lng); setOriginAddress(r.formatted);
       } else {
-        setError('No se pudo encontrar la dirección de origen. Probá con otra.');
+        setError('No se pudo encontrar la dirección de recogida. Probá con otra.');
         return;
       }
     }
 
-    // If destination typed but no coords, geocode it
     if (finalDestAddress && (!finalDestLat || !finalDestLng)) {
-      const result = await geocodeAddress(finalDestAddress);
-      if (result) {
-        finalDestLat = result.lat;
-        finalDestLng = result.lng;
-        finalDestAddress = result.formatted;
-        setDestLat(result.lat);
-        setDestLng(result.lng);
-        setDestAddress(result.formatted);
+      const r = await geocodeTyped(finalDestAddress);
+      if (r) {
+        finalDestLat = r.lat; finalDestLng = r.lng; finalDestAddress = r.formatted;
+        setDestLat(r.lat); setDestLng(r.lng); setDestAddress(r.formatted);
       } else {
         setError('No se pudo encontrar la dirección de destino. Probá con otra.');
         return;
@@ -190,33 +255,23 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
       return;
     }
 
-    const resolvedPassengerName = passengerName.trim() || 'Pasajero';
-    const resolvedDestAddress = finalDestAddress || 'A confirmar';
-
-    setLoading(true);
-
+    setSubmitting(true);
     try {
-      // Use pre-calculated route info
-      const distanceKm = routeInfo?.distanceKm || null;
-      const durationMinutes = routeInfo?.durationMinutes || null;
-
       const driverLat = parseFloat(driver?.lat);
       const driverLng = parseFloat(driver?.lng);
       const hasDriverCoords =
-        Number.isFinite(driverLat)
-        && Number.isFinite(driverLng)
-        && !(driverLat === 0 && driverLng === 0);
+        Number.isFinite(driverLat) && Number.isFinite(driverLng) && !(driverLat === 0 && driverLng === 0);
 
       const tripNotes = buildDashboardAssignNotes({
         userNotes: notes.trim(),
-        dropoffAddress: resolvedDestAddress,
+        dropoffAddress: finalDestAddress || 'A confirmar',
         dropoffLat: finalDestLat,
         dropoffLng: finalDestLng,
       });
 
       const tripData = {
         driver_id: driver.id,
-        passenger_name: resolvedPassengerName,
+        passenger_name: passengerName.trim() || 'Pasajero',
         passenger_phone: passengerPhone.trim() || null,
         destination_address: finalOriginAddress,
         destination_lat: finalOriginLat,
@@ -229,351 +284,353 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
         assigned_at: new Date().toISOString(),
         price: autoPrice || null,
         commission_amount: autoCommission || null,
-        distance_km: distanceKm,
-        duration_minutes: durationMinutes,
+        distance_km: routeInfo?.distanceKm || null,
+        duration_minutes: routeInfo?.durationMinutes || null,
         notes: tripNotes,
         wa_context: { dispatch_excluded_driver_ids: [] },
       };
 
-      const { data, error: insertError } = await supabase
-        .from('trips')
-        .insert(tripData)
-        .select()
-        .single();
-
+      const { data, error: insertError } = await supabase.from('trips').insert(tripData).select().single();
       if (insertError) throw insertError;
 
-      // Send push notification to driver's device
       try {
         const { data: driverData } = await supabase
-          .from('drivers')
-          .select('push_token, full_name')
-          .eq('id', driver.id)
-          .single();
-
+          .from('drivers').select('push_token, full_name').eq('id', driver.id).single();
         if (driverData?.push_token) {
           const priceText = data.price ? ` · ${formatPrice(data.price)}` : '';
           const distText = data.distance_km ? ` · ${formatKm(data.distance_km)}` : '';
           await sendPushNotification(driverData.push_token, {
-            title: `Nuevo viaje asignado`,
-            body: `${resolvedPassengerName} → ${finalOriginAddress}${distText}${priceText}`,
-            data: {
-              type: 'new_trip',
-              tripId: data.id,
-              trip: data,
-            },
+            title: 'Nuevo viaje asignado',
+            body: `${tripData.passenger_name} → ${finalOriginAddress}${distText}${priceText}`,
+            data: { type: 'new_trip', tripId: data.id, trip: data },
             driverId: driver.id,
           });
         }
-      } catch (pushErr) {
-        console.warn('Push notification error (trip created successfully):', pushErr);
-        toast.warning('Viaje creado, pero no se pudo enviar la notificación al chofer');
+      } catch {
+        toast.warning('Viaje creado, pero no se pudo notificar al chofer');
       }
 
-      if (onSuccess) onSuccess(data);
+      onSuccess?.(data);
       onClose();
     } catch (err) {
-      console.error('Error creating trip:', formatError(err));
-      const message = err.message || 'Error al crear el viaje';
-      setError(message);
-      toast.error(message);
+      const msg = err.message || 'Error al crear el viaje';
+      setError(msg);
+      toast.error(msg);
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  const autocompleteOptions = SALTA_CAPITAL_AUTOCOMPLETE_OPTIONS;
-
+  /* ── Render ───────────────────────────────────────────────────────────── */
   return (
     <div
       style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0,0,0,0.6)',
-        backdropFilter: 'blur(4px)',
+        position: 'fixed', inset: 0, zIndex: 9999,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(6px)',
       }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
+      <style>{MODAL_STYLES}</style>
+
       <div
         style={{
           background: '#FFFFFF',
-          borderRadius: '16px',
+          borderRadius: 20,
           width: '100%',
-          maxWidth: '460px',
-          maxHeight: '90vh',
+          maxWidth: 520,
+          maxHeight: '92vh',
           overflowY: 'auto',
-          border: '1px solid #E2E8F0',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.28)',
+          animation: '_tm_fade 0.18s ease',
         }}
       >
-        {/* Header */}
-        <div
-          style={{
-            padding: '16px 20px',
-            borderBottom: '1px solid #E2E8F0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div>
-            <h2 style={{ color: '#0F172A', fontSize: '16px', fontWeight: 700, margin: 0 }}>
-              Asignar Viaje
-            </h2>
-            <p style={{ color: '#94A3B8', fontSize: '12px', margin: '2px 0 0' }}>
-              Chofer: {driver?.fullName}
-            </p>
+        {/* ── Header ─────────────────────────────────────────────────────── */}
+        <div style={{
+          padding: '16px 20px',
+          borderBottom: '1px solid #F1F5F9',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          position: 'sticky', top: 0, background: '#FFFFFF', zIndex: 10,
+          borderRadius: '20px 20px 0 0',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 36, height: 36,
+              background: 'linear-gradient(135deg, #EF4444, #B91C1C)',
+              borderRadius: 10,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 16,
+            }}>
+              🚖
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Asignar Viaje</div>
+              <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>
+                Chofer: <strong style={{ color: '#475569' }}>{driver?.fullName || driver?.full_name || '—'}</strong>
+              </div>
+            </div>
           </div>
           <button
             onClick={onClose}
             style={{
-              background: '#F1F3F8',
-              border: '1px solid #E2E8F0',
-              borderRadius: '8px',
-              color: '#94A3B8',
-              width: '32px',
-              height: '32px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              fontSize: '16px',
+              width: 32, height: 32,
+              background: '#F1F5F9', border: 'none', borderRadius: 8,
+              color: '#64748B', fontSize: 14, cursor: 'pointer', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              transition: 'background 0.1s',
             }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#E2E8F0'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#F1F5F9'; }}
           >
             ✕
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} style={{ padding: '16px 20px' }}>
-          {/* Origin — único campo obligatorio */}
-          <div style={{ marginBottom: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <label style={labelStyle}>📍 RECOGIDA DEL PASAJERO</label>
-              <button
-                type="button"
-                onClick={() => setOriginMode(originMode === 'driver' ? 'custom' : 'driver')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#DC2626',
-                  fontSize: '10px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                {originMode === 'driver' ? 'Cambiar dirección' : 'Usar ubicación del chofer'}
-              </button>
+        <form onSubmit={handleSubmit} style={{ padding: '20px' }}>
+          {/* ── Inputs de dirección ──────────────────────────────────────── */}
+          <div style={{
+            background: '#F8FAFC',
+            border: '1px solid #E2E8F0',
+            borderRadius: 14,
+            padding: '4px 0',
+            marginBottom: 16,
+          }}>
+            {/* Origen */}
+            <div style={{ padding: '10px 14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <OriginDot />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>
+                    RECOGIDA
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOriginMode((m) => (m === 'driver' ? 'custom' : 'driver'))}
+                  style={{
+                    background: originMode === 'driver' ? 'rgba(220,38,38,0.08)' : 'none',
+                    border: originMode === 'driver' ? '1px solid rgba(220,38,38,0.2)' : '1px solid #E2E8F0',
+                    borderRadius: 6, color: '#DC2626',
+                    fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                    padding: '3px 8px', transition: 'all 0.15s',
+                  }}
+                >
+                  {originMode === 'driver' ? '✓ Ubicación del chofer' : 'Usar ubicación del chofer'}
+                </button>
+              </div>
+              {originMode === 'driver' ? (
+                <div style={{
+                  padding: '9px 12px',
+                  background: '#FFF7F7',
+                  border: '1px solid rgba(220,38,38,0.2)',
+                  borderRadius: 8,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <span style={{ fontSize: 13 }}>📍</span>
+                  <span style={{ fontSize: 12, color: '#DC2626', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {originAddress || 'Obteniendo ubicación del chofer…'}
+                  </span>
+                </div>
+              ) : (
+                <AddressAutocomplete
+                  id="assign-origin"
+                  placeholder="Ej: Belgrano 1200, Salta"
+                  value={originAddress}
+                  accentColor="#DC2626"
+                  inputIcon={<OriginDotSmall />}
+                  onChange={(text) => { setOriginAddress(text); setOriginLat(null); setOriginLng(null); }}
+                  onSelect={(place) => { setOriginAddress(place.formattedAddress); setOriginLat(place.lat); setOriginLng(place.lng); }}
+                />
+              )}
             </div>
-            {originMode === 'driver' ? (
-              <div
-                style={{
-                  ...inputStyle,
-                  background: '#F1F3F8',
-                  color: '#EF4444',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <span style={{ fontSize: '14px' }}>📍</span>
-                <span style={{ fontSize: '12px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {originAddress || 'Obteniendo ubicación...'}
+
+            {/* Separador visual */}
+            <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px' }}>
+              <div style={{ width: 1, height: 16, background: '#E2E8F0', marginLeft: 6, marginRight: 0 }} />
+            </div>
+
+            {/* Destino */}
+            <div style={{ padding: '10px 14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <DestDot />
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>
+                  DESTINO <span style={{ fontWeight: 400, color: '#94A3B8' }}>(opcional)</span>
                 </span>
               </div>
-            ) : (
               <AddressAutocomplete
-                id="assign-origin"
-                placeholder="Ej: Belgrano 1200, Salta"
-                value={originAddress}
-                onChange={(text) => {
-                  setOriginAddress(text);
-                  setOriginLat(null);
-                  setOriginLng(null);
-                }}
-                onSelect={onOriginSelect}
+                id="assign-dest"
+                placeholder="Ej: Av. San Martín 500, Salta"
+                value={destAddress}
+                accentColor="#059669"
+                inputIcon={<DestDotSmall />}
+                onChange={(text) => { setDestAddress(text); setDestLat(null); setDestLng(null); }}
+                onSelect={(place) => { setDestAddress(place.formattedAddress); setDestLat(place.lat); setDestLng(place.lng); }}
               />
-            )}
+            </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowOptional((prev) => !prev)}
-            style={{
-              width: '100%',
-              marginBottom: showOptional ? '12px' : '4px',
-              padding: '8px 0',
-              background: 'none',
-              border: 'none',
-              color: '#64748B',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              textAlign: 'left',
-            }}
-          >
-            {showOptional ? '− Ocultar detalles opcionales' : '+ Agregar detalles opcionales (destino, pasajero, notas)'}
-          </button>
-
-          {showOptional && (
-            <>
-              <div style={{ marginBottom: '12px' }}>
-                <AddressAutocomplete
-                  id="assign-dest"
-                  label="🏁 DESTINO (opcional)"
-                  placeholder="Ej: Av. San Martín 500, Salta"
-                  value={destAddress}
-                  onChange={(text) => {
-                    setDestAddress(text);
-                    setDestLat(null);
-                    setDestLng(null);
-                  }}
-                  onSelect={onDestSelect}
+          {/* ── Tarjeta de ruta ──────────────────────────────────────────── */}
+          {(routeLoading || routeInfo) && (
+            <div style={{
+              background: 'linear-gradient(135deg, #FFF5F5 0%, #FFF 100%)',
+              border: '1px solid rgba(220,38,38,0.15)',
+              borderRadius: 12,
+              padding: '12px 16px',
+              marginBottom: 14,
+            }}>
+              {routeLoading ? (
+                <RouteLoadingSkeleton />
+              ) : (
+                <RouteInfoCard
+                  routeInfo={routeInfo}
+                  autoPrice={autoPrice}
+                  autoCommission={autoCommission}
+                  tariffBase={tariffBase}
+                  tariffPerKm={tariffPerKm}
+                  commissionPercent={commissionPercent}
                 />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
-                <div>
-                  <label style={labelStyle}>👤 PASAJERO (opcional)</label>
-                  <input
-                    type="text"
-                    placeholder="Nombre"
-                    style={inputStyle}
-                    value={passengerName}
-                    onChange={(e) => setPassengerName(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle}>📞 TELÉFONO (opcional)</label>
-                  <input
-                    type="tel"
-                    placeholder="Ej: 3874001234"
-                    style={inputStyle}
-                    value={passengerPhone}
-                    onChange={(e) => setPassengerPhone(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '12px' }}>
-                <label style={labelStyle}>📝 NOTAS (opcional)</label>
-                <input
-                  type="text"
-                  placeholder="Instrucciones adicionales..."
-                  style={inputStyle}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              </div>
-            </>
-          )}
-
-          {/* Route info & Price */}
-          {routeInfo && (
-            <div
-              style={{
-                display: 'flex',
-                gap: '8px',
-                marginBottom: '12px',
-                padding: '12px',
-                background: 'rgba(220,38,38,0.06)',
-                border: '1px solid rgba(220,38,38,0.15)',
-                borderRadius: '10px',
-              }}
-            >
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 600, marginBottom: '2px' }}>DISTANCIA</div>
-                <div style={{ color: '#0F172A', fontSize: '15px', fontWeight: 700 }}>{routeInfo.distanceKm} km</div>
-              </div>
-              <div style={{ width: '1px', background: 'rgba(220,38,38,0.2)' }} />
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 600, marginBottom: '2px' }}>TIEMPO</div>
-                <div style={{ color: '#0F172A', fontSize: '15px', fontWeight: 700 }}>{routeInfo.durationMinutes} min</div>
-              </div>
-              <div style={{ width: '1px', background: 'rgba(220,38,38,0.2)' }} />
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 600, marginBottom: '2px' }}>PRECIO</div>
-                <div style={{ color: '#00E6B8', fontSize: '18px', fontWeight: 700 }}>
-                  ${autoPrice?.toLocaleString('es-AR') || '—'}
-                </div>
-                <div style={{ color: '#64748B', fontSize: '9px', marginTop: '1px' }}>
-                  {tariffBase > 0 ? `$${tariffBase} + ` : ''}${tariffPerKm}/km
-                </div>
-              </div>
-              {autoCommission > 0 && (
-                <>
-                  <div style={{ width: '1px', background: 'rgba(220,38,38,0.2)' }} />
-                  <div style={{ flex: 1, textAlign: 'center' }}>
-                    <div style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 600, marginBottom: '2px' }}>COMISIÓN</div>
-                    <div style={{ color: '#F59E0B', fontSize: '15px', fontWeight: 700 }}>
-                      ${autoCommission?.toLocaleString('es-AR') || '—'}
-                    </div>
-                    <div style={{ color: '#64748B', fontSize: '9px', marginTop: '1px' }}>
-                      {commissionPercent}%
-                    </div>
-                  </div>
-                </>
               )}
             </div>
           )}
 
-          {/* Error */}
-          {error && (
-            <div
-              style={{
-                padding: '8px 12px',
-                background: 'rgba(239,68,68,0.1)',
-                border: '1px solid rgba(239,68,68,0.3)',
-                borderRadius: '8px',
-                color: '#EF4444',
-                fontSize: '12px',
-                marginBottom: '12px',
-              }}
-            >
-              {error}
+          {/* ── Toggle mostrar en mapa ───────────────────────────────────── */}
+          {routeInfo && routeInfo.polylineCoords?.length > 1 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '8px 12px',
+              background: showOnMap ? 'rgba(220,38,38,0.05)' : '#F8FAFC',
+              border: `1px solid ${showOnMap ? 'rgba(220,38,38,0.18)' : '#E2E8F0'}`,
+              borderRadius: 10,
+              marginBottom: 14,
+              transition: 'all 0.2s',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 14 }}>🗺️</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Mostrar ruta en el mapa</span>
+              </div>
+              <ToggleSwitch checked={showOnMap} onChange={setShowOnMap} />
             </div>
           )}
 
-          {/* Buttons */}
-          <div style={{ display: 'flex', gap: '10px' }}>
+          {/* ── Campos opcionales ────────────────────────────────────────── */}
+          <button
+            type="button"
+            onClick={() => setShowOptional((v) => !v)}
+            style={{
+              width: '100%', marginBottom: showOptional ? 12 : 4,
+              padding: '7px 12px',
+              background: 'none', border: '1px dashed #E2E8F0',
+              borderRadius: 8, color: '#64748B',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              textAlign: 'left', display: 'flex', alignItems: 'center', gap: 6,
+              transition: 'border-color 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#94A3B8'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; }}
+          >
+            <span style={{ fontSize: 10 }}>{showOptional ? '▲' : '▼'}</span>
+            {showOptional ? 'Ocultar datos opcionales' : '+ Agregar pasajero, teléfono y notas'}
+          </button>
+
+          {showOptional && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>
+                    👤 PASAJERO
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Nombre"
+                    value={passengerName}
+                    onChange={(e) => setPassengerName(e.target.value)}
+                    style={optInputStyle}
+                    onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
+                    onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>
+                    📞 TELÉFONO
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="Ej: 3874001234"
+                    value={passengerPhone}
+                    onChange={(e) => setPassengerPhone(e.target.value)}
+                    style={optInputStyle}
+                    onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
+                    onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>
+                  📝 NOTAS
+                </label>
+                <input
+                  type="text"
+                  placeholder="Instrucciones adicionales..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  style={optInputStyle}
+                  onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
+                  onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* ── Error ────────────────────────────────────────────────────── */}
+          {error && (
+            <div style={{
+              padding: '9px 14px',
+              background: '#FEF2F2', border: '1px solid #FCA5A5',
+              borderRadius: 8, color: '#DC2626',
+              fontSize: 12, fontWeight: 500, marginBottom: 12,
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <span>⚠️</span> {error}
+            </div>
+          )}
+
+          {/* ── Botones ──────────────────────────────────────────────────── */}
+          <div style={{ display: 'flex', gap: 10 }}>
             <button
               type="button"
               onClick={onClose}
               style={{
-                flex: 1,
-                padding: '10px',
-                background: '#F1F3F8',
-                border: '1px solid #E2E8F0',
-                borderRadius: '10px',
-                color: '#94A3B8',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
+                flex: 1, padding: '11px 16px',
+                background: '#F1F5F9', border: '1px solid #E2E8F0',
+                borderRadius: 12, color: '#64748B',
+                fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                transition: 'all 0.15s',
               }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#E2E8F0'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = '#F1F5F9'; }}
             >
               Cancelar
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={submitting}
               style={{
-                flex: 2,
-                padding: '10px',
-                background: loading ? '#CBD5E1' : 'linear-gradient(135deg, #EF4444, #DC2626)',
-                border: 'none',
-                borderRadius: '10px',
-                color: '#FFFFFF',
-                fontSize: '13px',
-                fontWeight: 700,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.7 : 1,
+                flex: 2, padding: '11px 16px',
+                background: submitting ? '#CBD5E1' : 'linear-gradient(135deg, #EF4444 0%, #B91C1C 100%)',
+                border: 'none', borderRadius: 12,
+                color: '#FFFFFF', fontSize: 13, fontWeight: 700,
+                cursor: submitting ? 'not-allowed' : 'pointer',
+                opacity: submitting ? 0.75 : 1,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                boxShadow: submitting ? 'none' : '0 4px 14px rgba(220,38,38,0.35)',
+                transition: 'all 0.15s',
               }}
             >
-              {loading ? 'Asignando...' : '🚖 Asignar Viaje'}
+              {submitting ? (
+                <><Spinner size={14} color="#fff" /> Asignando…</>
+              ) : (
+                '🚖 Asignar Viaje'
+              )}
             </button>
           </div>
         </form>
@@ -581,3 +638,115 @@ export default function TripAssignModal({ driver, onClose, onSuccess, calculateP
     </div>
   );
 }
+
+/* ── Sub-componentes visuales ─────────────────────────────────────────────── */
+
+function OriginDot() {
+  return (
+    <div style={{
+      width: 10, height: 10, borderRadius: '50%',
+      background: '#DC2626', border: '2px solid #FCA5A5',
+      flexShrink: 0,
+    }} />
+  );
+}
+function OriginDotSmall() {
+  return <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#DC2626', flexShrink: 0 }} />;
+}
+function DestDot() {
+  return (
+    <div style={{
+      width: 10, height: 10, borderRadius: 2,
+      background: '#059669', border: '2px solid #6EE7B7',
+      flexShrink: 0,
+    }} />
+  );
+}
+function DestDotSmall() {
+  return <div style={{ width: 8, height: 8, borderRadius: 2, background: '#059669', flexShrink: 0 }} />;
+}
+
+function RouteLoadingSkeleton() {
+  return (
+    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+      <Spinner size={16} color="#DC2626" />
+      <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 500 }}>Calculando ruta…</span>
+      <div style={{ flex: 1, display: 'flex', gap: 8 }}>
+        {[60, 50, 70].map((w, i) => (
+          <div key={i} className="_tm_shimmer" style={{ height: 28, flex: 1 }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RouteInfoCard({ routeInfo, autoPrice, autoCommission, tariffBase, tariffPerKm, commissionPercent }) {
+  const divider = <div style={{ width: 1, background: 'rgba(220,38,38,0.15)', alignSelf: 'stretch' }} />;
+
+  return (
+    <div>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#DC2626', letterSpacing: '0.06em', marginBottom: 8 }}>
+        RESUMEN DEL VIAJE
+      </div>
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
+        <StatItem
+          icon="📏"
+          label="DISTANCIA"
+          value={`${routeInfo.distanceKm} km`}
+          valueColor="#0F172A"
+        />
+        {divider}
+        <StatItem
+          icon="⏱️"
+          label="TIEMPO"
+          value={`${routeInfo.durationMinutes} min`}
+          valueColor="#0F172A"
+        />
+        {divider}
+        <StatItem
+          icon="💰"
+          label="PRECIO"
+          value={autoPrice != null ? `$${autoPrice.toLocaleString('es-AR')}` : '—'}
+          valueColor="#DC2626"
+          sub={tariffBase > 0 ? `$${tariffBase} + $${tariffPerKm}/km` : `$${tariffPerKm}/km`}
+        />
+        {autoCommission > 0 && (
+          <>
+            {divider}
+            <StatItem
+              icon="🏷️"
+              label="COMISIÓN"
+              value={`$${autoCommission.toLocaleString('es-AR')}`}
+              valueColor="#D97706"
+              sub={`${commissionPercent}%`}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatItem({ icon, label, value, valueColor, sub }) {
+  return (
+    <div style={{ flex: 1, textAlign: 'center', padding: '0 8px' }}>
+      <div style={{ fontSize: 13, marginBottom: 2 }}>{icon}</div>
+      <div style={{ fontSize: 9, color: '#94A3B8', fontWeight: 700, letterSpacing: '0.05em', marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 16, fontWeight: 800, color: valueColor, lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 9, color: '#94A3B8', marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+const optInputStyle = {
+  width: '100%',
+  padding: '9px 12px',
+  background: '#FFFFFF',
+  border: '1.5px solid #E2E8F0',
+  borderRadius: 10,
+  color: '#0F172A',
+  fontSize: 13,
+  outline: 'none',
+  fontFamily: 'inherit',
+  transition: 'border-color 0.15s, box-shadow 0.15s',
+};
