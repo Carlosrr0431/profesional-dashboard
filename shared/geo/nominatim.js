@@ -28,6 +28,40 @@ const {
   normalizePoiText,
 } = require('../salta-known-pois');
 const { searchGeorefAddress, resolveGeorefPlaceId } = require('./georef');
+const { fuzzySearch: tomtomFuzzySearch } = require('./tomtomClient');
+
+// Fallback a TomTom solo cuando Nominatim no encuentra suficientes resultados
+// para una búsqueda de lugar/comercio sin número de calle.
+async function searchTomTomPoiFallback(query, limit = 6) {
+  const text = String(query || '').trim();
+  if (!text) return [];
+
+  // Intentamos dos variantes: con "Salta" explícito y la query literal
+  const variants = [
+    /salta/i.test(text) ? text : `${text}, Salta`,
+    text,
+  ].filter((v, i, arr) => arr.indexOf(v) === i);
+
+  const merged = [];
+  const seen = new Set();
+
+  for (const variant of variants) {
+    try {
+      // idxSet POI,PAD,Addr,Str cubre comercios, puntos de interés y calles
+      const hits = await tomtomFuzzySearch(variant, { limit, idxSet: 'POI,PAD,Addr,Str' });
+      for (const hit of hits) {
+        const key = hit.placeId || `${hit.lat.toFixed(5)},${hit.lng.toFixed(5)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push({ ...hit, osmType: hit.osmType === 'poi' ? 'poi' : hit.osmType });
+      }
+    } catch {
+      // TomTom no disponible o sin clave → ignorar silenciosamente
+    }
+  }
+
+  return merged;
+}
 
 const REQUEST_MIN_INTERVAL_MS = NOMINATIM_SELF_HOSTED ? 0 : 1100;
 const NOMINATIM_TIMEOUT_MS = 12000;
@@ -65,6 +99,7 @@ function buildSearchQuery(address) {
   if (/salta/i.test(text)) return text;
   return `${text}, Salta, Argentina`;
 }
+
 
 function parseCoordinate(value) {
   const num = Number(value);
@@ -440,6 +475,15 @@ function collectAutocompleteCandidates(items, query, merged, seenPlaceIds, seenC
     if (VAGUE_OSM_TYPES.has(item.osmType) && !item.address?.house_number && !item.address?.road && !item.poiName) {
       continue;
     }
+    if (
+      titleOverride
+      && !item.poiName
+      && item.osmType !== 'poi'
+      && !OSM_POI_CLASSES.has(item.osmClass)
+      && !['hospital', 'clinic', 'university', 'mall', 'marketplace', 'museum', 'stadium', 'bus_station', 'aerodrome'].includes(item.osmType)
+    ) {
+      continue;
+    }
     if (!isWithinSaltaCapital(item.lat, item.lng)) continue;
 
     const coordKey = `${item.lat.toFixed(3)},${item.lng.toFixed(3)}`;
@@ -575,6 +619,21 @@ async function autocompleteAddressSalta(query, limit = 8) {
         seenLabels,
         0.45,
         knownPoi.label || null,
+      );
+    }
+
+    // Fallback TomTom: solo si es búsqueda de POI/lugar, no está en catálogo conocido,
+    // no tiene número de calle, y Nominatim devolvió menos de 2 resultados útiles.
+    if (useOsmPoi && !knownPoi && !hasHouseNumber && merged.length < 2) {
+      const tomtomHits = await searchTomTomPoiFallback(trimmed, Math.max(limit, 6)).catch(() => []);
+      collectAutocompleteCandidates(
+        tomtomHits,
+        trimmed,
+        merged,
+        seenPlaceIds,
+        seenCoords,
+        seenLabels,
+        0.38,
       );
     }
 
