@@ -547,8 +547,9 @@ async function autocompleteAddressSalta(query, limit = 8) {
     const primaryQuery = useOsmPoi
       ? (knownPoi?.geocodeQuery || buildPoiAutocompleteQueries(trimmed)[0] || trimmed)
       : (searchQueries[0] || trimmed);
-    // Google Places corre en paralelo con Nominatim para consultas de POI.
-    // Basic Data es gratuito: displayName, formattedAddress, location, types.
+
+    // Google Places (Basic Data gratuito) corre SIEMPRE como fuente primaria.
+    // Nominatim/Georef son fuentes secundarias/complementarias.
     const [primaryHits, structuredHits, georefHits, poiHits, geocodeHits, googlePoiHits] = await Promise.all([
       searchNominatimVariant(primaryQuery, limit).catch(() => []),
       hasHouseNumber
@@ -559,8 +560,8 @@ async function autocompleteAddressSalta(query, limit = 8) {
       hasHouseNumber
         ? searchNominatimVariant(buildSearchQuery(trimmed), Math.max(limit, 6)).catch(() => [])
         : Promise.resolve([]),
-      // Google Places: corre siempre para consultas de POI (comercios, nombres propios, etc.)
-      useOsmPoi ? googleSearchPoi(trimmed, Math.max(limit, 6)).catch(() => []) : Promise.resolve([]),
+      // Google Places: SIEMPRE activo, fuente primaria para todos los tipos de búsqueda
+      googleSearchPoi(trimmed, Math.max(limit, 10)).catch(() => []),
     ]);
 
     const merged = [];
@@ -568,7 +569,22 @@ async function autocompleteAddressSalta(query, limit = 8) {
     const seenCoords = new Set();
     const seenLabels = new Set();
 
+    // ── 1. Google Places PRIMERO (prioridad máxima) ────────────────────────
+    // Bonus 1.5 garantiza que aparezca antes que cualquier resultado de Nominatim.
+    collectAutocompleteCandidates(
+      googlePoiHits,
+      trimmed,
+      merged,
+      seenPlaceIds,
+      seenCoords,
+      seenLabels,
+      1.5,
+    );
+
+    // ── 2. Georef (precisión para direcciones con número de calle) ─────────
     collectGeorefCandidates(georefHits, trimmed, merged, seenPlaceIds, seenCoords);
+
+    // ── 3. Nominatim (complementario / fallback) ───────────────────────────
     collectAutocompleteCandidates(
       structuredHits,
       trimmed,
@@ -605,16 +621,6 @@ async function autocompleteAddressSalta(query, limit = 8) {
       seenCoords,
       seenLabels,
       hasHouseNumber ? 0.28 : 0,
-    );
-    // Google Places: resultados de POI con alta relevancia (basic data gratuito)
-    collectAutocompleteCandidates(
-      googlePoiHits,
-      trimmed,
-      merged,
-      seenPlaceIds,
-      seenCoords,
-      seenLabels,
-      0.50,
     );
 
     if (merged.length < limit && searchQueries.length > 1 && !useOsmPoi) {

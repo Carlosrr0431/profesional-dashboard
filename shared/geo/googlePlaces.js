@@ -169,7 +169,9 @@ async function searchPoiSalta(query, limit = 8) {
       textQuery,
       languageCode: 'es',
       regionCode: 'AR',
-      locationBias: {
+      // locationRestriction garantiza resultados solo dentro del radio de Salta Capital.
+      // Más preciso que locationBias (que solo "prefiere" la zona pero puede devolver otros).
+      locationRestriction: {
         circle: {
           center: SALTA_CENTER,
           radius: SALTA_RADIUS_M,
