@@ -20,15 +20,18 @@ import {
 import DriverInfoWindow from './DriverInfoWindow';
 import PassengerInfoWindow from './PassengerInfoWindow';
 
-// CartoDB Voyager — estética idéntica a Google Maps (gratuito, sin clave)
+// ESRI World Street Map — estética blanca, calles amarillas/grises, muy cercana a Google Maps (gratuita)
 const TILE_URL =
-  'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
 const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+  'Tiles &copy; <a href="https://www.esri.com/">Esri</a> &mdash; Source: Esri, HERE, Garmin, USGS, Intermap, INCREMENT P, NRCan, Esri Japan, METI, Esri China (Hong Kong), Esri Korea, Esri (Thailand), NGCC, &copy; OpenStreetMap contributors, and the GIS User Community';
 
-// Estilos CSS globales para popups Leaflet modernos
+// Estilos CSS globales para popups y controles con estética Google Maps
 const POPUP_GLOBAL_CSS = `
-.leaflet-map-pane { cursor: default !important; }
+/* Fondo del mapa blanco mientras cargan los tiles */
+.leaflet-container { background: #f8f8f8 !important; font-family: 'Roboto', 'Inter', system-ui, sans-serif !important; }
+
+/* Popups modernos */
 .app-leaflet-popup .leaflet-popup-content-wrapper {
   border-radius: 16px !important;
   padding: 0 !important;
@@ -44,29 +47,40 @@ const POPUP_GLOBAL_CSS = `
 }
 .app-leaflet-popup .leaflet-popup-tip-container { display: none !important; }
 .app-leaflet-popup .leaflet-popup-close-button { display: none !important; }
-/* Botones de zoom al estilo Google Maps */
+
+/* Controles de zoom — estilo exacto de Google Maps */
 .leaflet-control-zoom {
   border: none !important;
-  box-shadow: 0 2px 8px rgba(15,23,42,0.18) !important;
-  border-radius: 10px !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3) !important;
+  border-radius: 2px !important;
   overflow: hidden !important;
+  margin: 10px !important;
 }
 .leaflet-control-zoom a {
   background: #fff !important;
-  color: #444 !important;
-  font-size: 18px !important;
+  color: #666 !important;
+  font-size: 20px !important;
   font-weight: 300 !important;
-  line-height: 32px !important;
-  width: 34px !important;
-  height: 34px !important;
+  width: 40px !important;
+  height: 40px !important;
+  line-height: 40px !important;
   border: none !important;
+  border-radius: 0 !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   text-decoration: none !important;
+  transition: background 0.12s !important;
 }
-.leaflet-control-zoom a:hover { background: #f0f0f0 !important; }
-.leaflet-control-zoom-in { border-bottom: 1px solid #e8e8e8 !important; }
+.leaflet-control-zoom a:hover { background: #f5f5f5 !important; color: #333 !important; }
+.leaflet-control-zoom-in {
+  border-bottom: 1px solid #e6e6e6 !important;
+  font-size: 22px !important;
+  font-weight: 300 !important;
+}
+
+/* Escalar los tiles igual que Google Maps */
+.leaflet-tile-pane { opacity: 1 !important; }
 `;
 
 // Convierte el spec de icono SVG al formato Leaflet
@@ -273,12 +287,11 @@ function MapView({
         attributionControl={false}
         maxZoom={20}
       >
-        {/* Capa base CartoDB Voyager — similar a Google Maps */}
+        {/* Capa base ESRI World Street Map — fondo blanco, estética Google Maps */}
         <TileLayer
           url={TILE_URL}
-          attribution={TILE_ATTRIBUTION}
-          subdomains="abcd"
-          maxZoom={20}
+          attribution=""
+          maxZoom={19}
           detectRetina
         />
 
@@ -346,39 +359,37 @@ function MapView({
         )}
       </MapContainer>
 
-      {/* Atribución discreta */}
+      {/* Atribución discreta estilo Google Maps */}
       <div
         style={{
           position: 'absolute',
-          bottom: 6,
-          right: 6,
+          bottom: 0,
+          right: 0,
           zIndex: 1000,
-          fontSize: 10,
-          color: '#94A3B8',
-          background: 'rgba(255,255,255,0.85)',
-          padding: '2px 7px',
-          borderRadius: 6,
+          fontSize: 11,
+          color: '#6b6b6b',
+          background: 'rgba(255,255,255,0.9)',
+          padding: '2px 8px',
           pointerEvents: 'auto',
-          backdropFilter: 'blur(4px)',
         }}
       >
         {'© '}
         <a
+          href="https://www.esri.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: '#1a73e8', textDecoration: 'none' }}
+        >
+          Esri
+        </a>
+        {', © '}
+        <a
           href="https://www.openstreetmap.org/copyright"
           target="_blank"
           rel="noopener noreferrer"
-          style={{ color: '#64748B' }}
+          style={{ color: '#1a73e8', textDecoration: 'none' }}
         >
           OpenStreetMap
-        </a>
-        {' © '}
-        <a
-          href="https://carto.com/attributions"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ color: '#64748B' }}
-        >
-          CARTO
         </a>
       </div>
     </div>
