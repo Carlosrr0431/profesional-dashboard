@@ -93,7 +93,7 @@ export default function NewTripModal({
     setRouteLoading(true);
     setRouteInfo(null);
 
-    const qs = new URLSearchParams({ originLat: pickupLat, originLng: pickupLng, destLat, destLng });
+    const qs = new URLSearchParams({ originLat: pickupLat, originLng: pickupLng, destLat, destLng, alternatives: 'true' });
     fetch(`/api/geo/directions?${qs}`)
       .then((r) => r.json())
       .then((payload) => {
