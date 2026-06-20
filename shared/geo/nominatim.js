@@ -29,14 +29,18 @@ const {
 } = require('../salta-known-pois');
 const { searchGeorefAddress, resolveGeorefPlaceId } = require('./georef');
 const { fuzzySearch: tomtomFuzzySearch } = require('./tomtomClient');
+const {
+  searchPoiSalta: googleSearchPoi,
+  getGooglePlaceDetails,
+  isGooglePlaceId,
+} = require('./googlePlaces');
 
-// Fallback a TomTom solo cuando Nominatim no encuentra suficientes resultados
-// para una búsqueda de lugar/comercio sin número de calle.
+// Fallback a TomTom — solo cuando ni Nominatim ni Google Places encontraron
+// suficientes resultados para una búsqueda de lugar/comercio sin número de calle.
 async function searchTomTomPoiFallback(query, limit = 6) {
   const text = String(query || '').trim();
   if (!text) return [];
 
-  // Intentamos dos variantes: con "Salta" explícito y la query literal
   const variants = [
     /salta/i.test(text) ? text : `${text}, Salta`,
     text,
@@ -47,7 +51,6 @@ async function searchTomTomPoiFallback(query, limit = 6) {
 
   for (const variant of variants) {
     try {
-      // idxSet POI,PAD,Addr,Str cubre comercios, puntos de interés y calles
       const hits = await tomtomFuzzySearch(variant, { limit, idxSet: 'POI,PAD,Addr,Str' });
       for (const hit of hits) {
         const key = hit.placeId || `${hit.lat.toFixed(5)},${hit.lng.toFixed(5)}`;
@@ -544,7 +547,9 @@ async function autocompleteAddressSalta(query, limit = 8) {
     const primaryQuery = useOsmPoi
       ? (knownPoi?.geocodeQuery || buildPoiAutocompleteQueries(trimmed)[0] || trimmed)
       : (searchQueries[0] || trimmed);
-    const [primaryHits, structuredHits, georefHits, poiHits, geocodeHits] = await Promise.all([
+    // Google Places corre en paralelo con Nominatim para consultas de POI.
+    // Basic Data es gratuito: displayName, formattedAddress, location, types.
+    const [primaryHits, structuredHits, georefHits, poiHits, geocodeHits, googlePoiHits] = await Promise.all([
       searchNominatimVariant(primaryQuery, limit).catch(() => []),
       hasHouseNumber
         ? searchStructuredAddress(trimmed).catch(() => [])
@@ -554,6 +559,8 @@ async function autocompleteAddressSalta(query, limit = 8) {
       hasHouseNumber
         ? searchNominatimVariant(buildSearchQuery(trimmed), Math.max(limit, 6)).catch(() => [])
         : Promise.resolve([]),
+      // Google Places: corre siempre para consultas de POI (comercios, nombres propios, etc.)
+      useOsmPoi ? googleSearchPoi(trimmed, Math.max(limit, 6)).catch(() => []) : Promise.resolve([]),
     ]);
 
     const merged = [];
@@ -599,6 +606,16 @@ async function autocompleteAddressSalta(query, limit = 8) {
       seenLabels,
       hasHouseNumber ? 0.28 : 0,
     );
+    // Google Places: resultados de POI con alta relevancia (basic data gratuito)
+    collectAutocompleteCandidates(
+      googlePoiHits,
+      trimmed,
+      merged,
+      seenPlaceIds,
+      seenCoords,
+      seenLabels,
+      0.50,
+    );
 
     if (merged.length < limit && searchQueries.length > 1 && !useOsmPoi) {
       const extraHits = await runVariantsInBatches(searchQueries.slice(1, 4), limit);
@@ -622,8 +639,8 @@ async function autocompleteAddressSalta(query, limit = 8) {
       );
     }
 
-    // Fallback TomTom: solo si es búsqueda de POI/lugar, no está en catálogo conocido,
-    // no tiene número de calle, y Nominatim devolvió menos de 2 resultados útiles.
+    // Fallback TomTom: último recurso, solo si Nominatim Y Google Places
+    // no encontraron suficientes resultados para una búsqueda de lugar.
     if (useOsmPoi && !knownPoi && !hasHouseNumber && merged.length < 2) {
       const tomtomHits = await searchTomTomPoiFallback(trimmed, Math.max(limit, 6)).catch(() => []);
       collectAutocompleteCandidates(
@@ -663,6 +680,11 @@ async function autocompleteAddressSalta(query, limit = 8) {
 async function getPlaceDetails(placeId) {
   const id = String(placeId || '').trim();
   if (!id) throw new Error('place_id inválido');
+
+  // Lugar de Google Places (New API) — Basic Data gratuito
+  if (isGooglePlaceId(id)) {
+    return getGooglePlaceDetails(id);
+  }
 
   if (id.startsWith('georef:')) {
     const mapped = await resolveGeorefPlaceId(id);
