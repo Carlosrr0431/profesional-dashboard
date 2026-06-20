@@ -85,18 +85,27 @@ export default function App() {
   // ── Mapa ───────────────────────────────────────────────────────────────────
   const handleCenterDriver = useCallback((driver) => {
     if (mapRef.current && driver.lat && driver.lng) {
-      mapRef.current.panTo([Number(driver.lat), Number(driver.lng)]);
-      mapRef.current.setZoom(16);
+      // react-map-gl/maplibre: center=[lng, lat]
+      mapRef.current.flyTo({ center: [Number(driver.lng), Number(driver.lat)], zoom: 16, duration: 600 });
     }
   }, []);
 
   const handleCenterAll = useCallback(() => {
     if (!mapRef.current || drivers.length === 0) return;
-    const points = drivers
-      .filter((d) => d.lat && d.lng)
-      .map((d) => [Number(d.lat), Number(d.lng)]);
-    if (points.length === 0) return;
-    mapRef.current.fitBounds(points, { padding: [60, 60] });
+    const pts = drivers.filter((d) => d.lat && d.lng);
+    if (pts.length === 0) return;
+    if (pts.length === 1) {
+      mapRef.current.flyTo({ center: [Number(pts[0].lng), Number(pts[0].lat)], zoom: 15, duration: 600 });
+      return;
+    }
+    const lngs = pts.map((d) => Number(d.lng));
+    const lats = pts.map((d) => Number(d.lat));
+    // react-map-gl/maplibre: fitBounds([[swLng,swLat],[neLng,neLat]])
+    mapRef.current.fitBounds(
+      [[Math.min(...lngs) - 0.002, Math.min(...lats) - 0.002],
+       [Math.max(...lngs) + 0.002, Math.max(...lats) + 0.002]],
+      { padding: 64, duration: 700 },
+    );
   }, [drivers]);
 
   const handleAssignTrip = useCallback((driver) => setTripModalDriver(driver), []);
@@ -502,8 +511,13 @@ export default function App() {
 
       {showNewTripModal && (
         <NewTripModal
-          onClose={() => setShowNewTripModal(false)}
+          onClose={() => { setShowNewTripModal(false); setPreviewRoute(null); }}
           onSuccess={handleNewTripSuccess}
+          onRouteChange={setPreviewRoute}
+          calculatePrice={calculatePrice}
+          tariffPerKm={tariffPerKm}
+          tariffBase={tariffBase}
+          commissionPercent={commissionPercent}
         />
       )}
 
