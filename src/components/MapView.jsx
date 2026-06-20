@@ -12,21 +12,23 @@ import DriverInfoWindow from './DriverInfoWindow';
 import PassengerInfoWindow from './PassengerInfoWindow';
 
 /*
- * Estilo inline de MapLibre con tiles raster ESRI World Street Map.
- * Ventaja: no requiere fetch externo de estilo JSON → carga instantánea.
- * Aspecto: fondo blanco, calles con jerarquía de colores, muy similar a Google Maps.
- * ESRI es un CDN altamente disponible y sin CORS ni autenticación requerida.
+ * CartoDB Voyager — tiles raster con fondo blanco puro y calles en gris neutro.
+ * Estética muy cercana a Google Maps (sin tonos rojizos ni amarillentos).
+ * Gratis, sin API key, CDN global de alta disponibilidad.
  */
 const MAP_STYLE = {
   version: 8,
   sources: {
-    'esri-world-street': {
+    'carto-voyager': {
       type: 'raster',
       tiles: [
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+        'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+        'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+        'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+        'https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
       ],
       tileSize: 256,
-      attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> &mdash; Esri, HERE, Garmin, USGS, Intermap, &copy; OpenStreetMap contributors',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
       maxzoom: 19,
     },
   },
@@ -34,12 +36,12 @@ const MAP_STYLE = {
     {
       id: 'background',
       type: 'background',
-      paint: { 'background-color': '#f9f9f9' },
+      paint: { 'background-color': '#f8f8f8' },
     },
     {
-      id: 'esri-world-street-layer',
+      id: 'carto-voyager-layer',
       type: 'raster',
-      source: 'esri-world-street',
+      source: 'carto-voyager',
       minzoom: 0,
       maxzoom: 19,
     },
@@ -227,31 +229,36 @@ const MapView = memo(function MapView({
         {/* ── Marcadores de conductores ──────────────────────────────── */}
         {drivers.map((driver) => {
           if (!driver.lat || !driver.lng) return null;
-          const spec = buildDriverMarkerIconSpec(driver);
           const isSelected = driver.id === selectedDriverId;
+          const spec = buildDriverMarkerIconSpec(driver, isSelected, false);
           return (
             <Marker
               key={driver.id}
               longitude={Number(driver.lng)}
               latitude={Number(driver.lat)}
-              anchor="center"
+              anchor="bottom"
               onClick={(e) => {
                 e.originalEvent.stopPropagation();
                 setActiveInfo({ type: 'driver', data: driver });
                 onDriverClick?.(driver);
               }}
             >
-              <div style={{
-                position: 'relative', cursor: 'pointer',
-                filter: isSelected ? 'drop-shadow(0 0 6px rgba(220,38,38,0.8))' : 'drop-shadow(0 2px 4px rgba(0,0,0,0.28))',
-                transform: isSelected ? 'scale(1.12)' : 'scale(1)',
-                transition: 'transform 0.15s, filter 0.15s',
-              }}>
-                <div
-                  dangerouslySetInnerHTML={{ __html: spec.svg || '' }}
-                  style={{ width: spec.size?.[0] ?? 44, height: spec.size?.[1] ?? 50, display: 'block' }}
-                />
-              </div>
+              {/* spec.url es un data-URI SVG generado por buildDriverMarkerIconSpec */}
+              <img
+                src={spec.url}
+                width={spec.width}
+                height={spec.height}
+                alt={driver.full_name ?? 'chofer'}
+                style={{
+                  cursor: 'pointer',
+                  display: 'block',
+                  transform: isSelected ? 'scale(1.15)' : 'scale(1)',
+                  filter: isSelected
+                    ? 'drop-shadow(0 0 6px rgba(220,38,38,0.8))'
+                    : 'drop-shadow(0 2px 5px rgba(0,0,0,0.35))',
+                  transition: 'transform 0.15s, filter 0.15s',
+                }}
+              />
             </Marker>
           );
         })}
@@ -261,24 +268,30 @@ const MapView = memo(function MapView({
           const pasLat = Number(trip.passenger_lat ?? trip.pickup_lat);
           const pasLng = Number(trip.passenger_lng ?? trip.pickup_lng);
           if (!Number.isFinite(pasLat) || !Number.isFinite(pasLng)) return null;
-          const spec = buildPassengerMarkerIconSpec(trip);
+          // Firma correcta: buildPassengerMarkerIconSpec(createdAt, status)
+          const spec = buildPassengerMarkerIconSpec(trip.created_at, trip.status);
           return (
             <Marker
               key={`trip-${trip.id}`}
               longitude={pasLng}
               latitude={pasLat}
-              anchor="bottom"
+              anchor="center"
               onClick={(e) => {
                 e.originalEvent.stopPropagation();
                 setActiveInfo({ type: 'trip', data: trip });
               }}
             >
-              <div style={{ cursor: 'pointer', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.28))' }}>
-                <div
-                  dangerouslySetInnerHTML={{ __html: spec.svg || '' }}
-                  style={{ width: spec.size?.[0] ?? 36, height: spec.size?.[1] ?? 36, display: 'block' }}
-                />
-              </div>
+              <img
+                src={spec.url}
+                width={spec.width}
+                height={spec.height}
+                alt="pasajero"
+                style={{
+                  cursor: 'pointer',
+                  display: 'block',
+                  filter: 'drop-shadow(0 2px 5px rgba(0,0,0,0.3))',
+                }}
+              />
             </Marker>
           );
         })}
