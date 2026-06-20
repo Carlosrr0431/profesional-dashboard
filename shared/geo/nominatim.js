@@ -534,7 +534,8 @@ async function autocompleteAddressSalta(query, limit = 8) {
       seenPlaceIds,
       seenCoords,
       seenLabels,
-      0.12,
+      knownPoi ? 0.55 : 0.12,
+      knownPoi?.label || null,
     );
     collectAutocompleteCandidates(
       poiHits,
