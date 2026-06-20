@@ -117,7 +117,10 @@ export default function TripAssignModal({
   /* Ruta */
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeInfo, setRouteInfo] = useState(null); // { distanceKm, durationMinutes, polylineCoords }
-  const [showOnMap, setShowOnMap] = useState(true);
+  const [showOnMap, setShowOnMap] = useState(false);
+
+  /* Modal minimizado (vista mapa completo) */
+  const [minimized, setMinimized] = useState(false);
 
   /* Submit */
   const [submitting, setSubmitting] = useState(false);
@@ -201,6 +204,13 @@ export default function TripAssignModal({
   const autoPrice = routeInfo ? calculatePrice(routeInfo.distanceKm) : null;
   const autoCommission = autoPrice ? Math.round(autoPrice * (commissionPercent || 10) / 100) : null;
 
+  /* ── Ver ruta en mapa (minimiza el modal) ─────────────────────────────── */
+  const handleVerRuta = useCallback(() => {
+    if (!routeInfo?.polylineCoords?.length) return;
+    setShowOnMap(true);
+    setMinimized(true);
+  }, [routeInfo]);
+
   /* ── Geocodificar dirección escrita sin seleccionar ───────────────────── */
   const geocodeTyped = useCallback(async (address) => {
     try {
@@ -213,7 +223,7 @@ export default function TripAssignModal({
 
   /* ── Submit ───────────────────────────────────────────────────────────── */
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     setError('');
 
     if (originMode === 'driver' && (!originLat || !originLng)) {
@@ -321,7 +331,117 @@ export default function TripAssignModal({
     }
   };
 
-  /* ── Render ───────────────────────────────────────────────────────────── */
+  /* ── Render minimizado (barra flotante sobre el mapa) ─────────────────── */
+  if (minimized) {
+    return (
+      <div
+        style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 9999, width: 'calc(100% - 48px)', maxWidth: 600,
+          animation: '_tm_fade 0.18s ease',
+        }}
+      >
+        <style>{MODAL_STYLES}</style>
+        <div style={{
+          background: '#FFFFFF',
+          borderRadius: 18,
+          boxShadow: '0 8px 40px rgba(0,0,0,0.28)',
+          padding: '12px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}>
+          {/* Ruta resumida */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 32, height: 32,
+              background: 'linear-gradient(135deg,#EF4444,#B91C1C)',
+              borderRadius: 9, display: 'flex', alignItems: 'center',
+              justifyContent: 'center', fontSize: 14, flexShrink: 0,
+            }}>🚖</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>
+                Chofer: <strong style={{ color: '#475569' }}>{driver?.fullName || driver?.full_name || '—'}</strong>
+              </div>
+              <div style={{
+                fontSize: 12, color: '#0F172A', fontWeight: 600,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {originAddress ? `📍 ${originAddress}` : '—'}
+                {destAddress ? ` → 📍 ${destAddress}` : ''}
+              </div>
+            </div>
+            {routeInfo && (
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                <span style={{
+                  background: '#F1F5F9', borderRadius: 8,
+                  padding: '4px 9px', fontSize: 12, fontWeight: 700, color: '#0F172A',
+                }}>
+                  {routeInfo.distanceKm} km
+                </span>
+                {autoPrice != null && (
+                  <span style={{
+                    background: 'rgba(220,38,38,0.08)', borderRadius: 8,
+                    padding: '4px 9px', fontSize: 12, fontWeight: 700, color: '#DC2626',
+                  }}>
+                    ${autoPrice.toLocaleString('es-AR')}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Acciones */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => { setMinimized(false); setShowOnMap(false); onRouteChange?.(null); }}
+              style={{
+                flex: 1, padding: '9px 12px',
+                background: '#F1F5F9', border: '1px solid #E2E8F0',
+                borderRadius: 10, color: '#64748B',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#E2E8F0'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = '#F1F5F9'; }}
+            >
+              ← Volver al formulario
+            </button>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={handleSubmit}
+              style={{
+                flex: 2, padding: '9px 16px',
+                background: submitting ? '#CBD5E1' : 'linear-gradient(135deg,#EF4444 0%,#B91C1C 100%)',
+                border: 'none', borderRadius: 10,
+                color: '#FFFFFF', fontSize: 13, fontWeight: 700,
+                cursor: submitting ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                boxShadow: submitting ? 'none' : '0 4px 14px rgba(220,38,38,0.35)',
+              }}
+            >
+              {submitting ? <><Spinner size={13} color="#fff" /> Asignando…</> : '🚖 Asignar Viaje'}
+            </button>
+          </div>
+
+          {error && (
+            <div style={{
+              padding: '7px 12px', background: '#FEF2F2',
+              border: '1px solid #FCA5A5', borderRadius: 8,
+              color: '#DC2626', fontSize: 12, fontWeight: 500,
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}>
+              <span>⚠️</span> {error}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Render modal completo ────────────────────────────────────────────── */
   return (
     <div
       style={{
@@ -595,30 +715,61 @@ export default function TripAssignModal({
           )}
 
           {/* ── Botones ──────────────────────────────────────────────────── */}
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              type="button"
-              onClick={onClose}
-              style={{
-                flex: 1, padding: '11px 16px',
-                background: '#F1F5F9', border: '1px solid #E2E8F0',
-                borderRadius: 12, color: '#64748B',
-                fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                transition: 'all 0.15s',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = '#E2E8F0'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = '#F1F5F9'; }}
-            >
-              Cancelar
-            </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Fila 1: Cancelar + Ver ruta */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  flex: 1, padding: '10px 14px',
+                  background: '#F1F5F9', border: '1px solid #E2E8F0',
+                  borderRadius: 12, color: '#64748B',
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#E2E8F0'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#F1F5F9'; }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleVerRuta}
+                disabled={!routeInfo?.polylineCoords?.length || routeLoading}
+                title={!routeInfo?.polylineCoords?.length ? 'Ingresá origen y destino para ver la ruta' : 'Ver ruta en el mapa'}
+                style={{
+                  flex: 1, padding: '10px 14px',
+                  background: routeInfo?.polylineCoords?.length
+                    ? 'linear-gradient(135deg,#0EA5E9 0%,#0284C7 100%)'
+                    : '#F1F5F9',
+                  border: routeInfo?.polylineCoords?.length ? 'none' : '1px solid #E2E8F0',
+                  borderRadius: 12,
+                  color: routeInfo?.polylineCoords?.length ? '#FFFFFF' : '#94A3B8',
+                  fontSize: 13, fontWeight: 700,
+                  cursor: routeInfo?.polylineCoords?.length ? 'pointer' : 'not-allowed',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  boxShadow: routeInfo?.polylineCoords?.length ? '0 4px 12px rgba(14,165,233,0.35)' : 'none',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {routeLoading ? (
+                  <><Spinner size={13} color={routeInfo ? '#fff' : '#94A3B8'} /> Calculando…</>
+                ) : (
+                  '🗺️ Ver en mapa'
+                )}
+              </button>
+            </div>
+
+            {/* Fila 2: Asignar viaje (ancho completo) */}
             <button
               type="submit"
               disabled={submitting}
               style={{
-                flex: 2, padding: '11px 16px',
+                width: '100%', padding: '12px 16px',
                 background: submitting ? '#CBD5E1' : 'linear-gradient(135deg, #EF4444 0%, #B91C1C 100%)',
                 border: 'none', borderRadius: 12,
-                color: '#FFFFFF', fontSize: 13, fontWeight: 700,
+                color: '#FFFFFF', fontSize: 14, fontWeight: 700,
                 cursor: submitting ? 'not-allowed' : 'pointer',
                 opacity: submitting ? 0.75 : 1,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
