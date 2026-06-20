@@ -141,7 +141,7 @@ const SALTA_KNOWN_POIS = [
     alternateGeocodeQueries: ['Fundación Santa Clara de Asís Salta'],
     patterns: [
       /\bclinica\s+santa\s+clara\b/,
-      /\bsanta\s+clara\s+de\s+asis\b/,
+      /\bsanta\s+clara(?:\s+de\s+asis)?\b/,
     ],
   },
   {
