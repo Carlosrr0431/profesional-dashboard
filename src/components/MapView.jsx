@@ -12,11 +12,39 @@ import DriverInfoWindow from './DriverInfoWindow';
 import PassengerInfoWindow from './PassengerInfoWindow';
 
 /*
- * OpenFreeMap "bright" — estilo vectorial idéntico a Google Maps.
- * Fondo blanco, calles con jerarquía de color, íconos de POI, zonas verdes.
- * Completamente gratuito y sin límite de uso.
+ * Estilo inline de MapLibre con tiles raster ESRI World Street Map.
+ * Ventaja: no requiere fetch externo de estilo JSON → carga instantánea.
+ * Aspecto: fondo blanco, calles con jerarquía de colores, muy similar a Google Maps.
+ * ESRI es un CDN altamente disponible y sin CORS ni autenticación requerida.
  */
-const BRIGHT_STYLE = 'https://tiles.openfreemap.org/styles/bright';
+const MAP_STYLE = {
+  version: 8,
+  sources: {
+    'esri-world-street': {
+      type: 'raster',
+      tiles: [
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+      ],
+      tileSize: 256,
+      attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> &mdash; Esri, HERE, Garmin, USGS, Intermap, &copy; OpenStreetMap contributors',
+      maxzoom: 19,
+    },
+  },
+  layers: [
+    {
+      id: 'background',
+      type: 'background',
+      paint: { 'background-color': '#f9f9f9' },
+    },
+    {
+      id: 'esri-world-street-layer',
+      type: 'raster',
+      source: 'esri-world-street',
+      minzoom: 0,
+      maxzoom: 19,
+    },
+  ],
+};
 
 /* ── Estilos CSS globales para los controles ─────────────────────────────── */
 const MAP_CSS = `
@@ -166,7 +194,7 @@ const MapView = memo(function MapView({
       <style>{MAP_CSS}</style>
       <Map
         ref={internalMapRef}
-        mapStyle={BRIGHT_STYLE}
+        mapStyle={MAP_STYLE}
         initialViewState={{
           longitude: SALTA_CENTER.lng,
           latitude: SALTA_CENTER.lat,
