@@ -40,6 +40,14 @@ describe('saltaKnownPois', () => {
     expect(fixPoiTypoTokens('el shoping')).toBe('el shopping');
   });
 
+  it('resuelve Escuela Normal de Maestras (nombre largo de Google)', () => {
+    const poi = resolveSaltaKnownPoi(
+      'Escuela Normal de Maestras General Manuel Belgrano',
+    );
+    expect(poi?.id).toBe('escuela_normal_belgrano');
+    expect(poi?.geocodeQuery).toMatch(/Escuela Normal/i);
+  });
+
   it('getKnownPoiSearchQueries incluye alternativas de terminal', () => {
     const poi = resolveSaltaKnownPoi('la terminal');
     const queries = getKnownPoiSearchQueries(poi);

@@ -436,6 +436,24 @@ function createGeoFetchHandler(baseHandler) {
       const params = parseUrlParams(urlStr);
       const query = String(params.get('q') || '').toLowerCase();
 
+      if (query.includes('escuela normal')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ([{
+            lat: '-24.78048',
+            lon: '-65.410809',
+            display_name: 'Escuela Normal, Bartolomé Mitre, Salta, Argentina',
+            place_id: 'test-escuela-normal',
+            importance: 0.88,
+            class: 'amenity',
+            type: 'school',
+            name: 'Escuela Normal',
+            address: { road: 'Bartolomé Mitre', city: 'Salta' },
+          }]),
+        };
+      }
+
       if (query.includes('unsa') || query.includes('universidad nacional de salta')) {
         return {
           ok: true,

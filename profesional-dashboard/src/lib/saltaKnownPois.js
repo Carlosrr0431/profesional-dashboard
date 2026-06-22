@@ -76,6 +76,15 @@ const SALTA_KNOWN_POIS = [
     patterns: [
       /\bhospital\s+san\s+bernardo\b/,
       /\bsan\s+bernardo\b/,
+      /\b(el\s+)?hospital\b/,
+    ],
+    excludePatterns: [
+      /\bmilitar\b/,
+      /\bmaterno\b/,
+      /\bpapa\s+francisco\b/,
+      /\btres\s+cerritos\b/,
+      /\bmilagro\b/,
+      /\bpediatric/,
     ],
   },
   {
@@ -402,6 +411,47 @@ const SALTA_KNOWN_POIS = [
     label: 'Banco Macro',
     geocodeQuery: 'Banco Macro, Salta, Argentina',
     patterns: [/\bmacro\b/, /\bbanco\s+macro\b/],
+  },
+
+  // ── Escuelas / Colegios ───────────────────────────────────────────────────
+  {
+    id: 'escuela_normal_belgrano',
+    label: 'Escuela Normal de Maestras General Manuel Belgrano',
+    geocodeQuery: 'Escuela Normal, Bartolomé Mitre, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Escuela Normal, Salta, Argentina',
+      'Escuela Normal de Maestras, Salta, Argentina',
+    ],
+    patterns: [
+      /\bescuela\s+normal\b/,
+      /\bnormal\s+de\s+maestras\b/,
+      /\bnormal\s+(general\s+)?manuel\s+belgrano\b/,
+    ],
+  },
+  {
+    id: 'colegio_belgrano',
+    label: 'Colegio Belgrano',
+    geocodeQuery: 'Colegio Belgrano, Salta, Argentina',
+    patterns: [/\bcolegio\s+belgrano\b/],
+    excludePatterns: [/\bescuela\s+normal\b/, /\bnormal\s+de\s+maestras\b/],
+  },
+  {
+    id: 'colegio_del_milagro',
+    label: 'Colegio del Milagro',
+    geocodeQuery: 'Colegio del Milagro, Salta, Argentina',
+    patterns: [/\bcolegio\s+del\s+milagro\b/],
+  },
+  {
+    id: 'colegio_san_lucas',
+    label: 'Colegio San Lucas',
+    geocodeQuery: 'Colegio San Lucas, Salta, Argentina',
+    patterns: [/\bcolegio\s+san\s+lucas\b/],
+  },
+  {
+    id: 'colegio_jesus',
+    label: 'Colegio de Jesús',
+    geocodeQuery: 'Colegio de Jesús, Salta, Argentina',
+    patterns: [/\bcolegio\s+de\s+jesus\b/],
   },
 
   // ── Gobierno / Servicios públicos ─────────────────────────────────────────

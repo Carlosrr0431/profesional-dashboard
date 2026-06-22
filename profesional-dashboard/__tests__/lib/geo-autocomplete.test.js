@@ -290,6 +290,19 @@ describe('geo autocomplete', () => {
     expect(details.lng).toBeCloseTo(-65.3774, 3);
   });
 
+  it('geocodifica Escuela Normal de Maestras (nombre largo de Google) vía OSM', async () => {
+    const details = await getPlaceDetails('google:ChIJXeY5zbjDG5QRsstuzg8yVow', {
+      sessionToken: 'test-session-escuela-normal',
+      formattedAddress: 'Escuela Normal de Maestras General Manuel Belgrano, Bartolomé Mitre, Salta',
+      title: 'Escuela Normal de Maestras General Manuel Belgrano',
+      subtitle: 'Bartolomé Mitre, Salta',
+    });
+
+    expect(details.formattedAddress).toContain('Escuela Normal');
+    expect(details.lat).toBeCloseTo(-24.78048, 3);
+    expect(details.lng).toBeCloseTo(-65.410809, 3);
+  });
+
   it('devuelve direcciones con altura vía Nominatim/GeoRef', async () => {
     const entreRios = await geocodeAddress('Entre Rios 200');
     expect(entreRios.lat).toBeDefined();

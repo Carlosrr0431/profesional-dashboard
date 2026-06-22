@@ -120,6 +120,7 @@ function scorePoiHit(hit, { title, subtitle }) {
   }
 
   if (POI_CLASSES.has(hit.osmClass)) score += 2;
+  if (hit.osmType === 'school' && /escuela|colegio|instituto|normal/i.test(titleFold)) score += 3;
   if (hit.osmClass === 'building' || hit.osmType === 'house') score += 1.5;
   if (hit.osmClass === 'highway' || hit.osmType === 'residential' || hit.osmType === 'tertiary') {
     score -= 2.5;
@@ -173,6 +174,36 @@ function uniqueQueries(values) {
   return out;
 }
 
+/** Acorta nombres largos de escuelas/colegios para coincidir con OSM (ej. "Escuela Normal"). */
+function buildInstitutionShortQueries(title, subtitle) {
+  const text = normalizeGeocodeText(title);
+  if (!/^(escuela|colegio|instituto|universidad|facultad)\b/i.test(text)) return [];
+
+  const queries = [];
+  const words = text.split(/\s+/).filter(Boolean);
+
+  for (let len = Math.min(4, words.length); len >= 2; len -= 1) {
+    queries.push(`${words.slice(0, len).join(' ')}, Salta, Argentina`);
+  }
+
+  const withoutHonorific = text
+    .replace(/\s+(general|gral\.?|dr\.?|prof\.?|ing\.?)\s+[\w\s]+$/i, '')
+    .trim();
+  if (withoutHonorific !== text && withoutHonorific.length >= 8) {
+    queries.push(`${withoutHonorific}, Salta, Argentina`);
+  }
+
+  const normalMatch = text.match(/^(escuela\s+normal)\b/i);
+  if (normalMatch) {
+    queries.push(`${normalMatch[1]}, Salta, Argentina`);
+    if (subtitle && /mitre/i.test(subtitle)) {
+      queries.push(`${normalMatch[1]}, Bartolomé Mitre, Salta, Argentina`);
+    }
+  }
+
+  return queries;
+}
+
 function buildPoiGeocodeQueries(title, subtitle, label) {
   const poiTitle = normalizeGeocodeText(title);
   const poiSubtitle = normalizeGeocodeText(subtitle);
@@ -194,6 +225,7 @@ function buildPoiGeocodeQueries(title, subtitle, label) {
     if (typoNorm && typoNorm !== foldText(poiTitle)) {
       queries.push(`${typoNorm}, Salta, Argentina`);
     }
+    queries.push(...buildInstitutionShortQueries(poiTitle, poiSubtitle));
   }
 
   if (poiLabel) queries.push(poiLabel);
