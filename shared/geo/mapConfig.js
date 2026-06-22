@@ -49,15 +49,24 @@ const NOMINATIM_SELF_HOSTED = readEnv(
   'NOMINATIM_SELF_HOSTED',
 ) !== 'false';
 
-/** Salta Capital — viewbox legacy (georef local) */
+/**
+ * Google Places Autocomplete para POIs.
+ * Se puede desactivar explícitamente en env si querés operar solo con OSM/Nominatim.
+ */
+const GOOGLE_POI_AUTOCOMPLETE_ENABLED = readEnv(
+  'EXPO_PUBLIC_GOOGLE_POI_AUTOCOMPLETE_ENABLED',
+  'GOOGLE_POI_AUTOCOMPLETE_ENABLED',
+) !== 'false';
+
+/** Salta Capital — viewbox y bounds operativos (alineados) */
 const SALTA_VIEWBOX = '-65.55,-24.90,-65.30,-24.70';
 const SALTA_COUNTRY = 'ar';
 
 const SALTA_CAPITAL_BOUNDS = {
-  north: -24.68,
-  south: -24.88,
-  east: -65.33,
-  west: -65.48,
+  north: -24.70,
+  south: -24.90,
+  east: -65.30,
+  west: -65.55,
 };
 
 function isWithinSaltaCapital(lat, lng) {
@@ -95,6 +104,7 @@ module.exports = {
   NOMINATIM_BASE_URL,
   NOMINATIM_USER_AGENT,
   NOMINATIM_SELF_HOSTED,
+  GOOGLE_POI_AUTOCOMPLETE_ENABLED,
   SALTA_VIEWBOX,
   SALTA_COUNTRY,
   SALTA_CAPITAL_BOUNDS,

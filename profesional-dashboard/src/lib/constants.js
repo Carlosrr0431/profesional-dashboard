@@ -11,12 +11,12 @@ export const EMULATOR_GPS_DEFAULT_ORIGIN = {
   lng: -65.419865,
 };
 
-/** Rectángulo de Salta Capital (mismo que Agente_IA / TripAssignModal). */
+/** Rectángulo de Salta Capital (alineado con SALTA_VIEWBOX / Nominatim). */
 export const SALTA_CAPITAL_BOUNDS = {
-  north: -24.68,
-  south: -24.88,
-  east: -65.33,
-  west: -65.48,
+  north: -24.70,
+  south: -24.90,
+  east: -65.30,
+  west: -65.55,
 };
 
 /** Bounds para geocode REST: suroeste|noroeste (lat,lng|lat,lng). */

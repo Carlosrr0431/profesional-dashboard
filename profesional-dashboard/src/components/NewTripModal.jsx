@@ -93,7 +93,7 @@ export default function NewTripModal({
     setRouteLoading(true);
     setRouteInfo(null);
 
-    const qs = new URLSearchParams({ originLat: pickupLat, originLng: pickupLng, destLat, destLng });
+    const qs = new URLSearchParams({ originLat: pickupLat, originLng: pickupLng, destLat, destLng, alternatives: 'true' });
     fetch(`/api/geo/directions?${qs}`)
       .then((r) => r.json())
       .then((payload) => {
@@ -139,7 +139,11 @@ export default function NewTripModal({
   const onPickupSelect = (place) => {
     const lat = Number(place?.lat);
     const lng = Number(place?.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setError('No se pudo ubicar la dirección de recogida. Elegila de nuevo de la lista.');
+      setPickupLat(null); setPickupLng(null); setPlaceId(''); setPickupLabel('');
+      return;
+    }
     if (!isWithinSaltaCapital(lat, lng)) {
       setError('La dirección debe estar dentro de Salta Capital.');
       setPickupLat(null); setPickupLng(null); setPlaceId(''); setPickupLabel('');
@@ -380,7 +384,24 @@ export default function NewTripModal({
                 accentColor="#059669"
                 inputIcon={<DestDotSmall />}
                 onChange={(text) => { setDestLabel(text); setDestLat(null); setDestLng(null); }}
-                onSelect={(place) => { setDestLabel(place.formattedAddress); setDestLat(place.lat); setDestLng(place.lng); }}
+                onSelect={(place) => {
+                  const lat = Number(place?.lat);
+                  const lng = Number(place?.lng);
+                  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                    setError('No se pudo ubicar el destino. Elegilo de nuevo de la lista.');
+                    setDestLabel(''); setDestLat(null); setDestLng(null);
+                    return;
+                  }
+                  if (!isWithinSaltaCapital(lat, lng)) {
+                    setError('La dirección debe estar dentro de Salta Capital.');
+                    setDestLabel(''); setDestLat(null); setDestLng(null);
+                    return;
+                  }
+                  setDestLabel(place.formattedAddress);
+                  setDestLat(lat);
+                  setDestLng(lng);
+                  setError('');
+                }}
               />
             </div>
           </div>

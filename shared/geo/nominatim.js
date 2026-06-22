@@ -2,12 +2,11 @@ const {
   NOMINATIM_BASE_URL,
   NOMINATIM_USER_AGENT,
   NOMINATIM_SELF_HOSTED,
+  GOOGLE_POI_AUTOCOMPLETE_ENABLED,
   SALTA_VIEWBOX,
   SALTA_COUNTRY,
   isWithinSaltaCapital,
 } = require('./mapConfig');
-
-const { poiSearch, getPlaceById } = require('./tomtomClient');
 
 const {
   buildAddressSearchQueries,
@@ -26,15 +25,58 @@ const {
   resolveSaltaKnownPoi,
   getKnownPoiSearchQueries,
   looksLikeSaltaKnownPoi,
+  buildPoiAutocompleteQueries,
+  normalizePoiText,
 } = require('../salta-known-pois');
 const { searchGeorefAddress, resolveGeorefPlaceId } = require('./georef');
+const { fuzzySearch: tomtomFuzzySearch } = require('./tomtomClient');
+const {
+  searchPoiSalta: googleSearchPoi,
+  getGooglePlaceDetails,
+  isGooglePlaceId,
+} = require('./googlePlaces');
+
+// Fallback a TomTom — solo cuando ni Nominatim ni Google Places encontraron
+// suficientes resultados para una búsqueda de lugar/comercio sin número de calle.
+async function searchTomTomPoiFallback(query, limit = 6) {
+  const text = String(query || '').trim();
+  if (!text) return [];
+
+  const variants = [
+    /salta/i.test(text) ? text : `${text}, Salta`,
+    text,
+  ].filter((v, i, arr) => arr.indexOf(v) === i);
+
+  const merged = [];
+  const seen = new Set();
+
+  for (const variant of variants) {
+    try {
+      const hits = await tomtomFuzzySearch(variant, { limit, idxSet: 'POI,PAD,Addr,Str' });
+      for (const hit of hits) {
+        const key = hit.placeId || `${hit.lat.toFixed(5)},${hit.lng.toFixed(5)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push({ ...hit, osmType: hit.osmType === 'poi' ? 'poi' : hit.osmType });
+      }
+    } catch {
+      // TomTom no disponible o sin clave → ignorar silenciosamente
+    }
+  }
+
+  return merged;
+}
 
 const REQUEST_MIN_INTERVAL_MS = NOMINATIM_SELF_HOSTED ? 0 : 1100;
+const NOMINATIM_TIMEOUT_MS = 12000;
 const MAX_AUTOCOMPLETE_VARIANTS = 4;
 const PARALLEL_BATCH = NOMINATIM_SELF_HOSTED ? 2 : 1;
 const MIN_AUTOCOMPLETE_SCORE = 0.12;
 const GEOREF_AUTOCOMPLETE_BONUS = 0.92;
 const VAGUE_OSM_TYPES = new Set(['administrative', 'state', 'country', 'postcode']);
+const OSM_POI_CLASSES = new Set([
+  'amenity', 'shop', 'tourism', 'leisure', 'office', 'craft', 'healthcare', 'historic',
+]);
 
 let lastRequestAt = 0;
 let requestChain = Promise.resolve();
@@ -43,7 +85,7 @@ function sleep(ms) {
   return new Promise((resolve) => { setTimeout(resolve, ms); });
 }
 
-function shouldSearchTomTomPoi(query) {
+function shouldSearchOsmPoi(query) {
   const text = String(query || '').trim();
   if (!text) return false;
   if (pickPrimaryHouseNumber(text) != null) return false;
@@ -55,18 +97,13 @@ function shouldSearchTomTomPoi(query) {
   return true;
 }
 
-function isTomTomPlaceId(id) {
-  const value = String(id || '').trim();
-  if (!value || /^\d+$/.test(value)) return false;
-  return value.startsWith('coord:') === false && value.startsWith('georef:') === false;
-}
-
 function buildSearchQuery(address) {
   const text = String(address || '').trim();
   if (!text) return '';
   if (/salta/i.test(text)) return text;
   return `${text}, Salta, Argentina`;
 }
+
 
 function parseCoordinate(value) {
   const num = Number(value);
@@ -78,15 +115,21 @@ function mapNominatimResult(item) {
   const lng = parseCoordinate(item?.lon);
   if (lat === null || lng === null) return null;
 
+  const osmClass = String(item.class || '');
+  const poiName = OSM_POI_CLASSES.has(osmClass)
+    ? String(item.name || '').trim()
+    : '';
+
   return {
     lat,
     lng,
     formattedAddress: String(item.display_name || '').trim(),
     placeId: item.place_id != null ? String(item.place_id) : null,
     importance: Number(item.importance) || 0,
-    osmClass: String(item.class || ''),
+    osmClass,
     osmType: String(item.type || ''),
     address: item.address || {},
+    poiName: poiName || undefined,
   };
 }
 
@@ -139,20 +182,30 @@ async function nominatimFetch(path, params = {}) {
       ...params,
     });
 
-    const response = await fetch(`${NOMINATIM_BASE_URL}${path}?${qs.toString()}`, {
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': NOMINATIM_USER_AGENT,
-      },
-    });
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller
+      ? setTimeout(() => controller.abort(), NOMINATIM_TIMEOUT_MS)
+      : null;
 
-    lastRequestAt = Date.now();
+    try {
+      const response = await fetch(`${NOMINATIM_BASE_URL}${path}?${qs.toString()}`, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': NOMINATIM_USER_AGENT,
+        },
+        signal: controller?.signal,
+      });
 
-    if (!response.ok) {
-      throw new Error(`Nominatim HTTP ${response.status}`);
+      lastRequestAt = Date.now();
+
+      if (!response.ok) {
+        throw new Error(`Nominatim HTTP ${response.status}`);
+      }
+
+      return response.json();
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-
-    return response.json();
   });
 
   return requestChain;
@@ -171,30 +224,62 @@ async function fetchSearchResults(params) {
 }
 
 async function searchNominatimVariant(query, limit = 8) {
-  const bounded = await fetchSearchResults({
-    q: buildSearchQuery(query),
-    limit: String(Math.max(1, Math.min(limit, 10))),
-    viewbox: SALTA_VIEWBOX,
-    bounded: '1',
-  });
+  try {
+    const bounded = await fetchSearchResults({
+      q: buildSearchQuery(query),
+      limit: String(Math.max(1, Math.min(limit, 10))),
+      viewbox: SALTA_VIEWBOX,
+      bounded: '1',
+    });
 
-  if (bounded.length >= 2) return bounded;
+    if (bounded.length >= 2) return bounded;
 
-  const relaxed = await fetchSearchResults({
-    q: buildSearchQuery(query),
-    limit: String(Math.max(1, Math.min(limit, 10))),
-    viewbox: SALTA_VIEWBOX,
-    bounded: '0',
-  });
+    const relaxed = await fetchSearchResults({
+      q: buildSearchQuery(query),
+      limit: String(Math.max(1, Math.min(limit, 10))),
+      viewbox: SALTA_VIEWBOX,
+      bounded: '0',
+    });
 
-  const seen = new Set();
-  const merged = [];
-  for (const item of [...bounded, ...relaxed]) {
-    const key = item.placeId || `${item.lat},${item.lng}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(item);
+    const seen = new Set();
+    const merged = [];
+    for (const item of [...bounded, ...relaxed]) {
+      const key = item.placeId || `${item.lat},${item.lng}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+    }
+    return merged;
+  } catch {
+    return [];
   }
+}
+
+async function searchNominatimPoi(query, limit = 8) {
+  const text = String(query || '').trim();
+  if (!text) return [];
+
+  const searchQueries = buildPoiAutocompleteQueries(text).slice(0, 6);
+  const merged = [];
+  const seen = new Set();
+
+  for (const q of searchQueries) {
+    try {
+      const hits = await searchNominatimVariant(q, limit);
+      for (const hit of hits) {
+        const key = hit.placeId || `${hit.lat.toFixed(5)},${hit.lng.toFixed(5)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push({
+          ...hit,
+          osmType: OSM_POI_CLASSES.has(hit.osmClass) ? 'poi' : hit.osmType,
+        });
+      }
+    } catch {
+      // ignorar query fallida
+    }
+  }
+
   return merged;
 }
 
@@ -295,10 +380,26 @@ function toAutocompleteSuggestion(item, query, bonusScore = 0, titleOverride = n
   const score = scoreCombinedCandidate(item, query) + bonusScore;
   const poiTitle = String(item.poiName || '').trim();
   const title = titleOverride || poiTitle || label.title;
+
+  // Cuando hay un POI, la calle queda en label.title (que sería sobreescrito por poiTitle).
+  // La incluimos en el subtítulo para no perder esa información, igual que Google Maps.
+  // Ejemplo: poiTitle="Shopping Salta", label.title="Ruta Nac. 50", label.subtitle="Bº El Pilar, Salta"
+  // → subtitle = "Ruta Nac. 50, Bº El Pilar, Salta"
+  const subtitleText = String(label.subtitle || '').trim();
+  const titleText = String(label.title || '').trim();
+  const subtitleStartsWithTitle = Boolean(
+    subtitleText
+    && titleText
+    && subtitleText.toLowerCase().startsWith(titleText.toLowerCase()),
+  );
+  const enrichedSubtitle = (poiTitle && titleText && titleText !== poiTitle)
+    ? (subtitleStartsWithTitle ? subtitleText : [titleText, subtitleText].filter(Boolean).join(', '))
+    : subtitleText;
+
   const address = titleOverride
-    ? (label.subtitle ? `${titleOverride}, ${label.subtitle}` : titleOverride)
-    : (poiTitle && label.subtitle
-      ? `${poiTitle}, ${label.subtitle}`
+    ? (enrichedSubtitle ? `${titleOverride}, ${enrichedSubtitle}` : titleOverride)
+    : (poiTitle && enrichedSubtitle
+      ? `${poiTitle}, ${enrichedSubtitle}`
       : (label.full || item.formattedAddress));
   return {
     address,
@@ -306,7 +407,8 @@ function toAutocompleteSuggestion(item, query, bonusScore = 0, titleOverride = n
     lat: item.lat,
     lng: item.lng,
     title,
-    subtitle: label.subtitle,
+    subtitle: enrichedSubtitle,
+    sessionToken: item.sessionToken || null,
     score,
   };
 }
@@ -357,11 +459,29 @@ async function geocodeAddressMultiple(address, limit = 5) {
     throw new Error('No se encontró la dirección');
   }
 
-  return suggestions.slice(0, limit).map((item) => ({
-    lat: item.lat,
-    lng: item.lng,
-    formattedAddress: item.address,
-  }));
+  const results = [];
+  for (const item of suggestions.slice(0, limit)) {
+    if (Number.isFinite(item.lat) && Number.isFinite(item.lng)) {
+      results.push({
+        lat: item.lat,
+        lng: item.lng,
+        formattedAddress: item.address,
+      });
+      continue;
+    }
+    const details = await getPlaceDetails(item.placeId, {
+      sessionToken: item.sessionToken,
+      formattedAddress: item.address,
+      title: item.title,
+      subtitle: item.subtitle,
+    });
+    results.push({
+      lat: details.lat,
+      lng: details.lng,
+      formattedAddress: details.formattedAddress || item.address,
+    });
+  }
+  return results;
 }
 
 async function reverseGeocode(lat, lng) {
@@ -384,7 +504,7 @@ async function reverseGeocode(lat, lng) {
   }
 }
 
-function collectAutocompleteCandidates(items, query, merged, seenPlaceIds, seenCoords, bonusScore = 0, titleOverride = null) {
+function collectAutocompleteCandidates(items, query, merged, seenPlaceIds, seenCoords, seenLabels, bonusScore = 0, titleOverride = null) {
   for (const item of items) {
     const placeId = item?.placeId
       || (Number.isFinite(item?.lat) && Number.isFinite(item?.lng)
@@ -394,17 +514,35 @@ function collectAutocompleteCandidates(items, query, merged, seenPlaceIds, seenC
     if (VAGUE_OSM_TYPES.has(item.osmType) && !item.address?.house_number && !item.address?.road && !item.poiName) {
       continue;
     }
-    if (!isWithinSaltaCapital(item.lat, item.lng)) continue;
+    if (
+      titleOverride
+      && !item.poiName
+      && item.osmType !== 'poi'
+      && !OSM_POI_CLASSES.has(item.osmClass)
+      && !['hospital', 'clinic', 'university', 'mall', 'marketplace', 'museum', 'stadium', 'bus_station', 'aerodrome'].includes(item.osmType)
+    ) {
+      continue;
+    }
+    const hasCoords = Number.isFinite(item?.lat) && Number.isFinite(item?.lng);
+    if (hasCoords && !isWithinSaltaCapital(item.lat, item.lng)) continue;
 
-    const coordKey = `${item.lat.toFixed(4)},${item.lng.toFixed(4)}`;
+    const coordKey = hasCoords
+      ? `${item.lat.toFixed(3)},${item.lng.toFixed(3)}`
+      : `id:${placeId}`;
     if (seenPlaceIds.has(placeId) || seenCoords.has(coordKey)) continue;
 
     const poiBonus = (item.poiName || item.osmType === 'poi') ? 0.2 : 0;
     const suggestion = toAutocompleteSuggestion({ ...item, placeId }, query, bonusScore + poiBonus, titleOverride);
     if (suggestion.score < MIN_AUTOCOMPLETE_SCORE) continue;
+    // Descartar resultados con título demasiado corto (ruido de OSM como "A", "B", etc.)
+    if (suggestion.title && suggestion.title.length <= 2 && !suggestion.title.match(/^\d/)) continue;
+
+    const labelKey = normalizePoiText(suggestion.address);
+    if (labelKey && seenLabels.has(labelKey)) continue;
 
     seenPlaceIds.add(placeId);
     seenCoords.add(coordKey);
+    if (labelKey) seenLabels.add(labelKey);
     merged.push(suggestion);
   }
 }
@@ -437,35 +575,84 @@ function collectGeorefCandidates(items, query, merged, seenPlaceIds, seenCoords)
 
 async function autocompleteAddressSalta(query, limit = 8) {
   const trimmed = String(query || '').trim();
-  if (trimmed.length < 3) return [];
+  if (trimmed.length < 2) return [];
 
   try {
     const searchQueries = buildAddressSearchQueries(trimmed).slice(0, MAX_AUTOCOMPLETE_VARIANTS);
     const knownPoi = resolveSaltaKnownPoi(trimmed);
     const hasHouseNumber = pickPrimaryHouseNumber(trimmed) != null;
-    const useTomTomPoi = shouldSearchTomTomPoi(trimmed);
+    const useOsmPoi = shouldSearchOsmPoi(trimmed);
+    const shouldUseGooglePoi = GOOGLE_POI_AUTOCOMPLETE_ENABLED && !hasHouseNumber && trimmed.length >= 3;
+    // Para texto libre sin altura (ej: "jaraba"), forzamos una pasada POI aunque
+    // no matchee keyword conocida; evita perder comercios populares.
+    const forcePoiSearch = !hasHouseNumber && trimmed.length >= 4;
     ensureStreetCatalog();
     const catalogVariantCount = getCatalogAddressVariants(trimmed, 8).length;
 
-    const primaryQuery = searchQueries[0] || trimmed;
-    const [primaryHits, structuredHits, georefHits, poiHits] = await Promise.all([
-      useTomTomPoi ? Promise.resolve([]) : searchNominatimVariant(primaryQuery, limit),
-      hasHouseNumber ? searchStructuredAddress(trimmed) : Promise.resolve([]),
-      hasHouseNumber ? searchGeorefAddress(trimmed, 3).catch(() => []) : Promise.resolve([]),
-      useTomTomPoi ? poiSearch(trimmed, { limit: Math.max(limit, 6) }).catch(() => []) : Promise.resolve([]),
-    ]);
+    const primaryQuery = useOsmPoi
+      ? (knownPoi?.geocodeQuery || buildPoiAutocompleteQueries(trimmed)[0] || trimmed)
+      : (searchQueries[0] || trimmed);
+    const knownPoiTitleOverride = (knownPoi && knownPoi.id !== 'shopping')
+      ? (knownPoi.label || null)
+      : null;
 
     const merged = [];
     const seenPlaceIds = new Set();
     const seenCoords = new Set();
+    const seenLabels = new Set();
 
+    // 1) Fast-path principal para POIs: Google Places Autocomplete (New).
+    const googlePoiHits = shouldUseGooglePoi
+      ? await googleSearchPoi(trimmed, Math.max(limit + 4, 12)).catch(() => [])
+      : [];
+    collectAutocompleteCandidates(
+      googlePoiHits,
+      trimmed,
+      merged,
+      seenPlaceIds,
+      seenCoords,
+      seenLabels,
+      2.1,
+    );
+
+    // Si Google resolvió una consulta POI (sin altura), devolvemos enseguida:
+    // evita que resultados de calles degraden la relevancia.
+    if (shouldUseGooglePoi && merged.length >= 1) {
+      merged.sort((a, b) => b.score - a.score);
+      return merged.slice(0, limit).map(({ score, ...item }) => item);
+    }
+    // Para consultas con altura, si Google ya dio al menos 1 match, priorizamos velocidad.
+    if (hasHouseNumber && merged.length >= 1) {
+      merged.sort((a, b) => b.score - a.score);
+      return merged.slice(0, limit).map(({ score, ...item }) => item);
+    }
+
+    // 2) Fuentes complementarias: Nominatim (OSM), GeoRef, TomTom.
+    const [primaryHits, structuredHits, georefHits, poiHits, geocodeHits] = await Promise.all([
+      searchNominatimVariant(primaryQuery, limit).catch(() => []),
+      hasHouseNumber
+        ? searchStructuredAddress(trimmed).catch(() => [])
+        : Promise.resolve([]),
+      hasHouseNumber ? searchGeorefAddress(trimmed, 3).catch(() => []) : Promise.resolve([]),
+      (useOsmPoi || forcePoiSearch)
+        ? searchNominatimPoi(trimmed, Math.max(limit + 2, 8)).catch(() => [])
+        : Promise.resolve([]),
+      hasHouseNumber
+        ? searchNominatimVariant(buildSearchQuery(trimmed), Math.max(limit, 6)).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+
+    // ── 2. Georef (precisión para direcciones con número de calle) ─────────
     collectGeorefCandidates(georefHits, trimmed, merged, seenPlaceIds, seenCoords);
+
+    // ── 3. Nominatim (complementario / fallback) ───────────────────────────
     collectAutocompleteCandidates(
       structuredHits,
       trimmed,
       merged,
       seenPlaceIds,
       seenCoords,
+      seenLabels,
       hasHouseNumber ? 0.22 : 0,
     );
     collectAutocompleteCandidates(
@@ -474,7 +661,9 @@ async function autocompleteAddressSalta(query, limit = 8) {
       merged,
       seenPlaceIds,
       seenCoords,
-      0.12,
+      seenLabels,
+      knownPoi ? 0.55 : 0.12,
+      knownPoiTitleOverride,
     );
     collectAutocompleteCandidates(
       poiHits,
@@ -482,18 +671,34 @@ async function autocompleteAddressSalta(query, limit = 8) {
       merged,
       seenPlaceIds,
       seenCoords,
-      hasHouseNumber ? 0.18 : 0.35,
+      seenLabels,
+      hasHouseNumber ? 0.18 : (useOsmPoi ? 0.35 : 0.24),
+    );
+    collectAutocompleteCandidates(
+      geocodeHits,
+      trimmed,
+      merged,
+      seenPlaceIds,
+      seenCoords,
+      seenLabels,
+      hasHouseNumber ? 0.28 : 0,
     );
 
-    if (merged.length < limit && searchQueries.length > 1 && !useTomTomPoi) {
+    if (merged.length < limit && searchQueries.length > 1 && !useOsmPoi) {
       const extraHits = await runVariantsInBatches(searchQueries.slice(1, 4), limit);
-      collectAutocompleteCandidates(extraHits, trimmed, merged, seenPlaceIds, seenCoords, 0);
+      collectAutocompleteCandidates(extraHits, trimmed, merged, seenPlaceIds, seenCoords, seenLabels, 0);
     }
 
     if (merged.length < limit && knownPoi) {
-      const poiQueries = getKnownPoiSearchQueries(knownPoi).slice(0, 1);
+      const poiQueries = getKnownPoiSearchQueries(knownPoi).slice(0, 3);
       const poiBatches = await Promise.all(
-        poiQueries.map((q) => poiSearch(q, { limit: 3 }).catch(() => [])),
+        poiQueries.map(async (q) => {
+          const [poiHits, variantHits] = await Promise.all([
+            searchNominatimPoi(q, 4).catch(() => []),
+            searchNominatimVariant(q, 4).catch(() => []),
+          ]);
+          return [...poiHits, ...variantHits];
+        }),
       );
       collectAutocompleteCandidates(
         poiBatches.flat(),
@@ -501,14 +706,30 @@ async function autocompleteAddressSalta(query, limit = 8) {
         merged,
         seenPlaceIds,
         seenCoords,
-        0.45,
-        knownPoi.label || null,
+        seenLabels,
+        0.52,
+        knownPoiTitleOverride,
       );
     }
 
-    if (merged.length < limit && catalogVariantCount > 1 && !useTomTomPoi) {
+    // Fallback TomTom: último recurso, solo si Nominatim Y Google Places
+    // no encontraron suficientes resultados para una búsqueda de lugar.
+    if (useOsmPoi && !knownPoi && !hasHouseNumber && merged.length < 2) {
+      const tomtomHits = await searchTomTomPoiFallback(trimmed, Math.max(limit, 6)).catch(() => []);
+      collectAutocompleteCandidates(
+        tomtomHits,
+        trimmed,
+        merged,
+        seenPlaceIds,
+        seenCoords,
+        seenLabels,
+        0.38,
+      );
+    }
+
+    if (merged.length < limit && catalogVariantCount > 1 && !useOsmPoi) {
       const catalogHits = await geocodeCatalogCandidates(trimmed);
-      collectAutocompleteCandidates(catalogHits, trimmed, merged, seenPlaceIds, seenCoords, 0.15);
+      collectAutocompleteCandidates(catalogHits, trimmed, merged, seenPlaceIds, seenCoords, seenLabels, 0.15);
     }
 
     merged.sort((a, b) => b.score - a.score);
@@ -529,9 +750,18 @@ async function autocompleteAddressSalta(query, limit = 8) {
   }
 }
 
-async function getPlaceDetails(placeId) {
+async function getPlaceDetails(placeId, options = {}) {
   const id = String(placeId || '').trim();
   if (!id) throw new Error('place_id inválido');
+
+  if (isGooglePlaceId(id)) {
+    return getGooglePlaceDetails(id, {
+      sessionToken: options?.sessionToken,
+      formattedAddress: options?.formattedAddress,
+      title: options?.title,
+      subtitle: options?.subtitle,
+    });
+  }
 
   if (id.startsWith('georef:')) {
     const mapped = await resolveGeorefPlaceId(id);
@@ -554,19 +784,6 @@ async function getPlaceDetails(placeId) {
       throw new Error('No se pudo obtener detalles del lugar');
     }
     return { lat, lng, formattedAddress: await reverseGeocode(lat, lng) };
-  }
-
-  if (isTomTomPlaceId(id)) {
-    const mapped = await getPlaceById(id);
-    if (!mapped) {
-      throw new Error('No se pudo obtener detalles del lugar');
-    }
-    const label = formatNominatimDisplayLabel(mapped);
-    return {
-      lat: mapped.lat,
-      lng: mapped.lng,
-      formattedAddress: label.full || mapped.formattedAddress,
-    };
   }
 
   const data = await nominatimFetch('/lookup', {

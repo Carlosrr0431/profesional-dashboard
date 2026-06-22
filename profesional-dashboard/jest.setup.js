@@ -10,6 +10,7 @@
 // ── Variables de entorno requeridas por route.js ────────────────────────────
 process.env.GOOGLE_MAPS_API_KEY              = 'test-google-maps-key';
 process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY  = 'test-google-maps-key';
+process.env.GOOGLE_POI_AUTOCOMPLETE_ENABLED  = 'true';
 process.env.OPENAI_API_KEY                   = 'sk-test-openai-key';
 process.env.WASENDER_API_KEY                 = 'test-wasender-key';
 process.env.WASENDER_BASE_URL                = 'https://test.wasenderapi.com/api';

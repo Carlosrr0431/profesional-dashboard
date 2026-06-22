@@ -17,8 +17,10 @@ import BroadcastVoiceChat from './components/BroadcastVoiceChat';
 import QueuePanel from './components/QueuePanel';
 import ScheduledTripsPanel from './components/ScheduledTripsPanel';
 import StatisticsPanel from './components/StatisticsPanel';
+import GeocodeErrorsPanel from './components/GeocodeErrorsPanel';
 import EmulatorGpsSimulator from './components/EmulatorGpsSimulator';
 import { useTripStatistics } from './hooks/useTripStatistics';
+import { useGeocodeErrors } from './hooks/useGeocodeErrors';
 
 // ─── Vista activa ─────────────────────────────────────────────────────────────
 const VIEWS = {
@@ -28,6 +30,7 @@ const VIEWS = {
   management: 'management',
   zones:      'zones',
   statistics: 'statistics',
+  geocodeErrors: 'geocodeErrors',
   emulatorGps: 'emulatorGps',
 };
 
@@ -43,6 +46,7 @@ export default function App() {
     calculatePrice, updateSetting,
   } = useSettings();
   const tripStatistics = useTripStatistics('30d');
+  const geocodeErrors = useGeocodeErrors('pending');
 
   const [selectedId,      setSelectedId]      = useState(null);
   const [panelDriverId,   setPanelDriverId]   = useState(null);
@@ -259,6 +263,21 @@ export default function App() {
           </NavTab>
 
           <NavTab
+            active={currentView === VIEWS.geocodeErrors}
+            onClick={() => goTo(currentView === VIEWS.geocodeErrors ? VIEWS.map : VIEWS.geocodeErrors)}
+            badge={geocodeErrors.stats.pending > 0 ? geocodeErrors.stats.pending : null}
+            badgeColor="warning"
+            icon={
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            }
+          >
+            Geo errores
+          </NavTab>
+
+          <NavTab
             active={currentView === VIEWS.emulatorGps}
             onClick={() => goTo(currentView === VIEWS.emulatorGps ? VIEWS.map : VIEWS.emulatorGps)}
             icon={
@@ -356,6 +375,10 @@ export default function App() {
             />
           </div>
 
+        ) : currentView === VIEWS.geocodeErrors ? (
+          <div className="flex-1 min-h-0 flex">
+            <GeocodeErrorsPanel onBack={() => goTo(VIEWS.map)} />
+          </div>
         ) : currentView === VIEWS.emulatorGps ? (
           <div className="flex-1 w-full min-w-0 min-h-0 flex flex-col">
             <EmulatorGpsSimulator onBack={() => goTo(VIEWS.map)} />

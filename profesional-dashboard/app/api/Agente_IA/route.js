@@ -5374,7 +5374,8 @@ async function geocodeAddressMultiple(address, maxResults = 5) {
 }
 
 /**
- * Búsqueda de direcciones en Salta Capital vía Nominatim (autocomplete).
+ * Búsqueda de direcciones/POIs en Salta Capital.
+ * Fuente primaria: Google Places (Basic Data); fallback: OSM/Nominatim/Georef.
  */
 async function autocompleteAndGeocodeAddress(query, maxResults = 5) {
   const safeQuery = sanitizeAddressInput(query);
@@ -5382,7 +5383,13 @@ async function autocompleteAndGeocodeAddress(query, maxResults = 5) {
 
   try {
     const hits = await autocompleteAddressSalta(safeQuery, maxResults);
-    logWebhook('nominatim_autocomplete_ok', { query: safeQuery, count: hits.length });
+    const googleCount = hits.filter((hit) => String(hit?.placeId || '').startsWith('google:')).length;
+    logWebhook('geo_autocomplete_ok', {
+      query: safeQuery,
+      count: hits.length,
+      googleCount,
+      fallbackCount: Math.max(0, hits.length - googleCount),
+    });
     return hits
       .map((hit) => ({
         formattedAddress: hit.address,
@@ -5392,7 +5399,7 @@ async function autocompleteAndGeocodeAddress(query, maxResults = 5) {
       }))
       .filter((item) => item.score >= 0.10);
   } catch (err) {
-    logWebhook('nominatim_autocomplete_error', { query: safeQuery, error: err?.message || 'unknown' });
+    logWebhook('geo_autocomplete_error', { query: safeQuery, error: err?.message || 'unknown' });
     return [];
   }
 }
