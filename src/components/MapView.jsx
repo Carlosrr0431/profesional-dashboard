@@ -2,6 +2,7 @@
 
 import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
 import Map, { Marker, Popup, Source, Layer, NavigationControl } from 'react-map-gl/maplibre';
+import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { SALTA_CENTER, DEFAULT_ZOOM } from '../lib/constants';
 import {
@@ -182,6 +183,7 @@ const MapView = memo(function MapView({
       <style>{MAP_CSS}</style>
       <Map
         ref={internalMapRef}
+        mapLib={maplibregl}
         mapStyle={MAP_STYLE}
         initialViewState={{
           longitude: SALTA_CENTER.lng,
