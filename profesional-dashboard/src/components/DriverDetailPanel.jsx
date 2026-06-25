@@ -2,8 +2,23 @@ import { useState, useEffect, useCallback } from 'react';
 import { formatPrice, formatKm, formatDuration, formatDateTime, formatTime, getTripStatus, timeAgo } from '../lib/utils';
 import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
+import { isFleetRoot } from '../lib/driverRoles';
+import AssignedDriversTab from './AssignedDriversTab';
 
-export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTrips, getDriverCommissionPayments, recordCommissionPayment, toggleCommissionBlock }) {
+export default function DriverDetailPanel({
+  driver,
+  onClose,
+  onEdit,
+  getDriverTrips,
+  getDriverCommissionPayments,
+  recordCommissionPayment,
+  toggleCommissionBlock,
+  fetchAssignedDrivers,
+  createAssignedDriver,
+  deleteAssignedDriver,
+  toggleAssignedDriverStatus,
+  assignedCount = 0,
+}) {
   const toast = useToast();
   const [trips, setTrips] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -118,6 +133,8 @@ export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTr
     }
   };
 
+  const canManageAssigned = isFleetRoot(driver);
+
   return (
     <div className="w-[440px] bg-light-50 border-l border-light-300/50 flex flex-col h-full animate-slideIn">
       {/* Header */}
@@ -159,6 +176,9 @@ export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTr
             { key: 'info', label: 'Resumen' },
             { key: 'trips', label: `Viajes (${trips.length})` },
             { key: 'commission', label: 'Comisiones', alert: driver.pending_commission > 0 || driver.commission_blocked },
+            ...(canManageAssigned
+              ? [{ key: 'assigned', label: `Asignados (${assignedCount})` }]
+              : []),
           ].map((t) => (
             <button
               key={t.key}
@@ -222,6 +242,16 @@ export default function DriverDetailPanel({ driver, onClose, onEdit, getDriverTr
                 blocking={blocking}
               />
             )}
+            {tab === 'assigned' && canManageAssigned ? (
+              <AssignedDriversTab
+                ownerDriver={driver}
+                fetchAssignedDrivers={fetchAssignedDrivers}
+                createAssignedDriver={createAssignedDriver}
+                deleteAssignedDriver={deleteAssignedDriver}
+                toggleAssignedDriverStatus={toggleAssignedDriverStatus}
+                getDriverTrips={getDriverTrips}
+              />
+            ) : null}
           </>
         )}
       </div>

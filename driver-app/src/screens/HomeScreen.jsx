@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInUp, SlideInRight } from 'react-native-reanimated';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import MapLibreGL from '@maplibre/maplibre-react-native';
+import MapLibreGL from '../lib/maplibre';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
@@ -27,6 +27,7 @@ import { useRealtime } from '../hooks/useRealtime';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from '../hooks/useLocation';
 import { supabase } from '../services/supabase';
+import { setDriverOnlineStatus } from '../services/assignedDriverService';
 import { NewTripModal } from '../components/trip/NewTripModal';
 import { VoiceChatModal } from '../components/VoiceChatModal';
 import { formatPrice, formatDistance } from '../utils/formatters';
@@ -183,8 +184,7 @@ const HomeScreen = () => {
     }
 
     try {
-      const { error } = await supabase.from('drivers').update({ is_available: newStatus }).eq('id', driver.id);
-      if (error) throw error;
+      await setDriverOnlineStatus(driver.id, newStatus);
 
       await supabase.from('driver_locations').upsert({
         driver_id: driver.id,
@@ -207,7 +207,7 @@ const HomeScreen = () => {
         text2: newStatus ? 'Vas a recibir viajes' : 'No recibirás viajes',
       });
     } catch (e) {
-      Toast.show({ type: 'error', text1: 'Error', text2: 'No se pudo cambiar el estado' });
+      Toast.show({ type: 'error', text1: 'Error', text2: e.message || 'No se pudo cambiar el estado' });
     }
   };
 

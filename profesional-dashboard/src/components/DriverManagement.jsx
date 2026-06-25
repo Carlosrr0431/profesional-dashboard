@@ -5,10 +5,11 @@ import DriverDetailPanel from './DriverDetailPanel';
 import { formatPrice, timeAgo } from '../lib/utils';
 import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
+import { isAssignedDriver } from '../lib/driverRoles';
 
 export default function DriverManagement({ onBack }) {
   const toast = useToast();
-  const { drivers, loading, createDriver, updateDriver, getDriverTrips, getDriverCommissionPayments, recordCommissionPayment, toggleCommissionBlock, refetch } = useDriverManagement();
+  const { drivers, loading, createDriver, updateDriver, getDriverTrips, getDriverCommissionPayments, recordCommissionPayment, toggleCommissionBlock, refetch, fetchAssignedDrivers, createAssignedDriver, deleteAssignedDriver, toggleAssignedDriverStatus } = useDriverManagement();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
@@ -25,8 +26,20 @@ export default function DriverManagement({ onBack }) {
     if (updated) setDetailDriver(updated);
   }, [drivers, detailDriver?.id]);
 
+  const fleetDrivers = useMemo(() => drivers.filter((d) => !isAssignedDriver(d)), [drivers]);
+
+  const assignedCountByOwner = useMemo(() => {
+    const map = {};
+    drivers.forEach((d) => {
+      if (d.is_assigned_driver && d.owner_id) {
+        map[d.owner_id] = (map[d.owner_id] || 0) + 1;
+      }
+    });
+    return map;
+  }, [drivers]);
+
   const filtered = useMemo(() => {
-    return drivers.filter((d) => {
+    return fleetDrivers.filter((d) => {
       if (filter === 'active' && !d.is_available) return false;
       if (filter === 'inactive' && d.is_available) return false;
       if (filter === 'blocked' && !d.commission_blocked) return false;
@@ -42,7 +55,7 @@ export default function DriverManagement({ onBack }) {
       }
       return true;
     });
-  }, [drivers, search, filter]);
+  }, [fleetDrivers, search, filter]);
 
   const handleSave = async (formData) => {
     setSaving(true);
@@ -120,7 +133,7 @@ export default function DriverManagement({ onBack }) {
               </button>
               <div>
                 <h1 className="text-xl font-bold text-navy-900">Gestión de Choferes</h1>
-                <p className="text-xs text-gray-500">{drivers.length} choferes registrados</p>
+                <p className="text-xs text-gray-500">{fleetDrivers.length} choferes registrados</p>
               </div>
             </div>
             <button
@@ -196,6 +209,7 @@ export default function DriverManagement({ onBack }) {
                     <DriverTableRow
                       key={driver.id}
                       driver={driver}
+                      assignedCount={assignedCountByOwner[driver.id] || 0}
                       onView={() => setDetailDriver(driver)}
                       onEdit={() => handleEdit(driver)}
                       isSelected={detailDriver?.id === driver.id}
@@ -219,6 +233,11 @@ export default function DriverManagement({ onBack }) {
           getDriverCommissionPayments={getDriverCommissionPayments}
           recordCommissionPayment={recordCommissionPayment}
           toggleCommissionBlock={toggleCommissionBlock}
+          fetchAssignedDrivers={fetchAssignedDrivers}
+          createAssignedDriver={createAssignedDriver}
+          deleteAssignedDriver={deleteAssignedDriver}
+          toggleAssignedDriverStatus={toggleAssignedDriverStatus}
+          assignedCount={assignedCountByOwner[detailDriver.id] || 0}
         />
       )}
 
@@ -390,7 +409,7 @@ function ConfirmCommissionPaymentModal({ driver, loading, onCancel, onConfirm })
   );
 }
 
-function DriverTableRow({ driver, onView, onEdit, isSelected, onToggleBlock }) {
+function DriverTableRow({ driver, assignedCount = 0, onView, onEdit, isSelected, onToggleBlock }) {
   const initials = (driver.full_name || 'NN')
     .split(' ')
     .map((n) => n[0])
@@ -419,6 +438,11 @@ function DriverTableRow({ driver, onView, onEdit, isSelected, onToggleBlock }) {
               {driver.driver_number && (
                 <span className="text-[10px] font-bold text-accent bg-accent/15 px-1.5 py-0.5 rounded-md">#{driver.driver_number}</span>
               )}
+              {assignedCount > 0 ? (
+                <span className="text-[10px] font-bold text-online bg-online/10 px-1.5 py-0.5 rounded-md">
+                  +{assignedCount} asignado{assignedCount !== 1 ? 's' : ''}
+                </span>
+              ) : null}
             </div>
             <p className="text-[11px] text-gray-500">
               {driver.vehicle_type === 'moto' ? '🏍️' : '🚗'} {driver.vehicle_type || 'auto'}

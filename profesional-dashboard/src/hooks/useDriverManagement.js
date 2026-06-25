@@ -230,6 +230,76 @@ export function useDriverManagement() {
     );
   }, [fetchDrivers, patchDriver, recordCommissionPayment]);
 
+  const parseApiError = (response, payload) => ({
+    status: response.status,
+    code: payload?.error?.code || null,
+    message: payload?.error?.message || 'Request failed',
+    details: payload?.error?.details || null,
+  });
+
+  const fetchAssignedDrivers = useCallback(async (ownerDriverId) => {
+    const response = await fetch(
+      `/api/driver-management/drivers/${encodeURIComponent(ownerDriverId)}/assigned`,
+      { cache: 'no-store' },
+    );
+    const payload = await response.json();
+    if (!response.ok) {
+      const err = parseApiError(response, payload);
+      throw new Error(err.message);
+    }
+    return payload?.data || [];
+  }, []);
+
+  const createAssignedDriver = useCallback(async (ownerDriverId, { fullName, phone }) => {
+    const response = await fetch(
+      `/api/driver-management/drivers/${encodeURIComponent(ownerDriverId)}/assigned`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName, phone }),
+      },
+    );
+    const payload = await response.json();
+    if (!response.ok) {
+      const err = parseApiError(response, payload);
+      throw new Error(err.message);
+    }
+    await fetchDrivers();
+    return payload?.data || null;
+  }, [fetchDrivers]);
+
+  const deleteAssignedDriver = useCallback(async (ownerDriverId, assignedDriverId) => {
+    const response = await fetch(
+      `/api/driver-management/drivers/${encodeURIComponent(ownerDriverId)}/assigned/${encodeURIComponent(assignedDriverId)}`,
+      { method: 'DELETE' },
+    );
+    const payload = await response.json();
+    if (!response.ok) {
+      const err = parseApiError(response, payload);
+      throw new Error(err.message);
+    }
+    await fetchDrivers();
+    return payload?.data || null;
+  }, [fetchDrivers]);
+
+  const toggleAssignedDriverStatus = useCallback(async (ownerDriverId, assignedDriverId, isAvailable) => {
+    const response = await fetch(
+      `/api/driver-management/drivers/${encodeURIComponent(ownerDriverId)}/assigned/${encodeURIComponent(assignedDriverId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_available: isAvailable }),
+      },
+    );
+    const payload = await response.json();
+    if (!response.ok) {
+      const err = parseApiError(response, payload);
+      throw new Error(err.message);
+    }
+    await fetchDrivers();
+    return payload?.data || null;
+  }, [fetchDrivers]);
+
   return {
     drivers,
     loading,
@@ -243,5 +313,9 @@ export function useDriverManagement() {
     recordCommissionPayment,
     toggleCommissionBlock,
     patchDriver,
+    fetchAssignedDrivers,
+    createAssignedDriver,
+    deleteAssignedDriver,
+    toggleAssignedDriverStatus,
   };
 }
