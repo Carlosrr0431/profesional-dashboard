@@ -5091,6 +5091,76 @@ async function geocodeAddress(address) {
   }
 }
 
+/**
+ * Geocodifica un candidato de poll probando la dirección completa antes que la etiqueta corta.
+ */
+async function geocodePollCandidate(candidate, votedLabel = '') {
+  const queries = [
+    candidate?.formattedAddress,
+    candidate?.pollLabel,
+    candidate?.label,
+    votedLabel,
+  ]
+    .map((q) => sanitizeAddressInput(q || ''))
+    .filter(Boolean);
+
+  const seen = new Set();
+  for (const query of queries) {
+    const key = normalizeForMatch(query);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    try {
+      const geo = await geocodeAddress(query);
+      return {
+        label: candidate?.label || votedLabel || query,
+        formattedAddress: geo.formattedAddress,
+        lat: geo.lat,
+        lng: geo.lng,
+      };
+    } catch (err) {
+      logWebhook('poll_candidate_geocode_try_fail', {
+        query,
+        error: err?.message || 'unknown',
+      });
+    }
+  }
+  return null;
+}
+
+function findPollCandidateByVote(candidates, votedName) {
+  const voted = String(votedName || '').trim();
+  if (!voted) return null;
+  const normVoted = normalizeForMatch(voted);
+
+  return (candidates || []).find((c) => {
+    const label = String(c?.label || '').trim();
+    const formatted = String(c?.formattedAddress || '').trim();
+    if (label && label === voted) return true;
+    if (formatted && formatted === voted) return true;
+    const normLabel = normalizeForMatch(label);
+    const normFmt = normalizeForMatch(formatted);
+    if (normLabel && normLabel === normVoted) return true;
+    if (normFmt && normFmt === normVoted) return true;
+    const candidatePrefix = normLabel.split(' ').slice(0, 4).join(' ');
+    const votedPrefix = normVoted.split(' ').slice(0, 4).join(' ');
+    return Boolean(
+      candidatePrefix &&
+      votedPrefix &&
+      (normVoted.startsWith(candidatePrefix) || normLabel.startsWith(votedPrefix))
+    );
+  }) || null;
+}
+
+async function clearPendingPollFromTrip(tripId, pollTripWaCtx = {}) {
+  if (!tripId) return;
+  const cleanTripCtx = { ...(pollTripWaCtx || {}) };
+  delete cleanTripCtx.pending_poll;
+  await getSupabase()
+    .from('trips')
+    .update({ wa_context: Object.keys(cleanTripCtx).length ? cleanTripCtx : null })
+    .eq('id', tripId);
+}
+
 async function geocodeAddressMultiple(address, maxResults = 5) {
   const safeQuery = sanitizeAddressInput(address);
   if (!safeQuery) return [];
@@ -8599,11 +8669,45 @@ async function processClaimedConversation(batch) {
           lng: match.lng,
         });
 
-        const scheduleInfoFromPoll = scheduleInfoFromWaContext(pollTripWaCtx);
-        const pickupGeoFromPoll = {
+        let pickupGeoFromPoll = {
           formattedAddress: match.formattedAddress,
           lat: match.lat,
           lng: match.lng,
+        };
+        if (!pickupGeoFromPoll.lat || !pickupGeoFromPoll.lng) {
+          const geocoded = await geocodePollCandidate(match, votedText);
+          if (geocoded) {
+            pickupGeoFromPoll = geocoded;
+            logWebhook('conversation_address_poll_geocoded', {
+              conversationId: batch?.id || null,
+              formattedAddress: geocoded.formattedAddress,
+            });
+          } else {
+            await sendWhatsAppText(
+              batch.phone,
+              `No pude ubicar con precisión *${match.label || votedText}*. Mandame la *calle y número exacto* o compartí tu *ubicación actual* desde WhatsApp.`
+            );
+            logWebhook('conversation_address_poll_geocode_fail', {
+              conversationId: batch?.id || null,
+              votedText,
+              formattedAddress: match.formattedAddress || null,
+            });
+            return {
+              handled: true,
+              updates: {
+                status: 'awaiting_address_selection',
+                processing_started_at: null,
+                last_processed_at: new Date().toISOString(),
+              },
+            };
+          }
+        }
+
+        const scheduleInfoFromPoll = scheduleInfoFromWaContext(pollTripWaCtx);
+        pickupGeoFromPoll = {
+          formattedAddress: pickupGeoFromPoll.formattedAddress,
+          lat: pickupGeoFromPoll.lat,
+          lng: pickupGeoFromPoll.lng,
         };
 
         if (scheduleInfoFromPoll) {
@@ -8639,6 +8743,8 @@ async function processClaimedConversation(batch) {
         if (tripResult?.queued) {
           await dispatchQueuedPassengers();
         }
+
+        await clearPendingPollFromTrip(pollTrip?.id, pollTripWaCtx).catch(() => {});
 
         logWebhook('conversation_trip_result', {
           conversationId: batch?.id || null,
@@ -10574,9 +10680,7 @@ async function processWebhookBody(body, requestMeta = {}) {
         return { status: 200, body: { success: true, ignored: true, reason: 'no_pending_poll_in_trip' } };
       }
 
-      const selectedCandidate = pollCandidates.find(
-        (c) => c.label === voted.name || c.formattedAddress === voted.name
-      );
+      const selectedCandidate = findPollCandidateByVote(pollCandidates, voted.name);
 
       if (!selectedCandidate) {
         logWebhook('poll_results_ignored', { reason: 'voted_option_not_in_candidates', pollMsgId, votedName: voted.name });
@@ -10586,33 +10690,21 @@ async function processWebhookBody(body, requestMeta = {}) {
       const pollPassengerPhone = normalizePhone(voterPhone);
       const pollPassengerName = pollExtracted.passenger_name || pollConv?.push_name || 'Pasajero WhatsApp';
 
-      // 2️⃣ Limpiar pending_poll de trips.wa_context y conversación
-      if (pollTripRow?.id) {
-        try {
-          const cleanTripCtx = { ...pollTripWaCtxResults };
-          delete cleanTripCtx.pending_poll;
-          await getSupabase()
-            .from('trips')
-            .update({ wa_context: Object.keys(cleanTripCtx).length ? cleanTripCtx : null })
-            .eq('id', pollTripRow.id);
-        } catch (_) {}
-      }
-      if (pollConv?.id) {
-        try {
-          await getSupabase()
-            .from('whatsapp_conversations')
-            .update({ context: {}, status: 'open' })
-            .eq('id', pollConv.id);
-        } catch (_) {}
-      }
-
       // "Ninguna de estas opciones" → pedir GPS/calle directamente
       if (normalizeForMatch(voted.name || '').startsWith('ninguna')) {
+        await clearPendingPollFromTrip(pollTripRow?.id, pollTripWaCtxResults);
+        if (pollConv?.id) {
+          try {
+            await getSupabase()
+              .from('whatsapp_conversations')
+              .update({ context: {}, status: 'open' })
+              .eq('id', pollConv.id);
+          } catch (_) {}
+        }
         await sendWhatsAppText(
           pollPassengerPhone,
           'Entendido. Compartí tu *ubicación actual* desde WhatsApp (ícono de ubicación → "Ubicación actual"), o mandame la *calle y número exacto* y te mando el móvil enseguida.'
         );
-        // Marcar awaiting_gps en trips.wa_context
         if (pollTripRow?.id) {
           try {
             await getSupabase()
@@ -10625,19 +10717,43 @@ async function processWebhookBody(body, requestMeta = {}) {
         return { status: 200, body: { success: true, event: 'poll.results', noneSelected: true } };
       }
 
-      // 3️⃣ Geocodificar si el candidato no tiene coordenadas (opciones del historial)
+      // Geocodificar si el candidato no tiene coordenadas (poll de catálogo / calles ambiguas)
       let confirmedCandidate = selectedCandidate;
       if (!confirmedCandidate.lat || !confirmedCandidate.lng) {
-        try {
-          const geo = await geocodeAddress(voted.name);
-          confirmedCandidate = { label: voted.name, formattedAddress: geo.formattedAddress, lat: geo.lat, lng: geo.lng };
-          logWebhook('poll_results_geocoded_candidate', { votedName: voted.name });
-        } catch (geoErr) {
-          logWebhook('poll_results_geocode_fail', { votedName: voted.name, error: geoErr?.message });
+        const geocoded = await geocodePollCandidate(selectedCandidate, voted.name);
+        if (geocoded) {
+          confirmedCandidate = { ...selectedCandidate, ...geocoded };
+          logWebhook('poll_results_geocoded_candidate', {
+            votedName: voted.name,
+            formattedAddress: geocoded.formattedAddress,
+          });
+        } else {
+          logWebhook('poll_results_geocode_fail', {
+            votedName: voted.name,
+            formattedAddress: selectedCandidate.formattedAddress || null,
+          });
         }
       }
 
       if (!confirmedCandidate.lat || !confirmedCandidate.lng) {
+        if (pollTripRow?.id) {
+          try {
+            await getSupabase()
+              .from('trips')
+              .update({
+                wa_context: {
+                  ...pollTripWaCtxResults,
+                  awaiting_gps: true,
+                  extracted: pollExtracted,
+                },
+              })
+              .eq('id', pollTripRow.id);
+          } catch (_) {}
+        }
+        await sendWhatsAppText(
+          pollPassengerPhone,
+          `No pude ubicar con precisión *${voted.name}*. Mandame la *calle y número exacto* o compartí tu *ubicación actual* desde WhatsApp.`
+        ).catch(() => {});
         logWebhook('poll_results_ignored', { reason: 'candidate_no_coords', votedName: voted.name });
         return { status: 200, body: { success: true, ignored: true, reason: 'candidate_no_coords' } };
       }
@@ -10684,6 +10800,8 @@ async function processWebhookBody(body, requestMeta = {}) {
               .eq('id', pollConv.id);
           } catch (_) {}
         }
+
+        await clearPendingPollFromTrip(pollTripRow?.id, pollTripWaCtxResults).catch(() => {});
 
         return {
           status: 200,
@@ -10783,6 +10901,8 @@ async function processWebhookBody(body, requestMeta = {}) {
         queued: Boolean(tripResult?.queued),
         driverId: tripResult?.driver?.id || null,
       });
+
+      await clearPendingPollFromTrip(pollTripRow?.id, pollTripWaCtxResults).catch(() => {});
 
       // 5️⃣ Actualizar la conversación: last_trip_id + contexto del resultado + estado 'open'
       if (pollConv?.id) {
