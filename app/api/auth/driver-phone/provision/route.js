@@ -31,9 +31,9 @@ export async function POST(req) {
       auth_email: result.auth_email,
     });
   } catch (error) {
-    console.error('[assigned-driver/provision]', error);
+    console.error('[driver-phone/provision]', error);
     return NextResponse.json(
-      { ok: false, message: error?.message || 'No se pudo configurar la cuenta del chofer.' },
+      { ok: false, message: error?.message || 'No se pudo configurar la cuenta.' },
       { status: 500 },
     );
   }
