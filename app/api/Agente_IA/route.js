@@ -11,7 +11,7 @@ import {
   normalizeFcmDataPayload,
   normalizeFirebaseSendError,
 } from '../../../src/lib/firebaseAdmin';
-import { buildAddressPollPayload } from '../../../src/lib/formatPollAddressLabel';
+import { buildAddressPollPayload, formatAddressForWhatsAppPoll } from '../../../src/lib/formatPollAddressLabel';
 import {
   messageConfirmsTripCancel,
   messageDeniesTripCancel,
@@ -2144,6 +2144,11 @@ function inferSaltaCapitalFromFormattedAddress(formattedAddress) {
 
   const normalizedParts = parts.map((part) => normalizeForMatch(part)).filter(Boolean);
   if (normalizedParts.length < 2) return null;
+
+  // Formato corto sin país: "Güemes 200, Salta"
+  if (normalizedParts.length === 2) {
+    return stripPostalCodePrefix(normalizedParts[1]) === 'salta';
+  }
 
   const country = normalizedParts[normalizedParts.length - 1];
   if (country !== 'argentina') return null;
@@ -5143,6 +5148,44 @@ async function autocompleteAndGeocodeAddress(query, maxResults = 5) {
 }
 
 /**
+ * Candidatos de encuesta desde calles homónimas del catálogo local (sin geocodificar).
+ * Las coordenadas se resuelven cuando el pasajero elige una opción en el poll.
+ */
+async function buildCatalogAmbiguityPollCandidates(query, maxResults = 4) {
+  await loadSaltaStreetCatalog().catch(() => null);
+  const catalogVariants = getCatalogAddressVariants(query, 8);
+  if (catalogVariants.length <= 1) return [];
+
+  const seen = new Set();
+  const candidates = [];
+
+  for (const variant of catalogVariants) {
+    const formattedAddress = /,\s*argentina\s*$/i.test(variant)
+      ? variant
+      : `${variant.replace(/,\s*salta\s*$/i, '').trim()}, Salta, Argentina`;
+    const pollLabel =
+      formatAddressForWhatsAppPoll(formattedAddress) ||
+      formatAddressForWhatsAppPoll(variant);
+    const dedupeKey = normalizeForMatch(pollLabel);
+    if (!dedupeKey || seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    candidates.push({
+      formattedAddress,
+      pollLabel,
+      lat: null,
+      lng: null,
+      score: scoreCandidateAgainstQuery(formattedAddress, query),
+      source: 'catalog_variant',
+    });
+
+    if (candidates.length >= maxResults) break;
+  }
+
+  return candidates;
+}
+
+/**
  * Genera queries explícitos para cada calle del catálogo que matchea un nombre
  * ambiguo (ej: "Güemes 100" → "Gral Guemes 100, Salta", "Dr Adolfo Guemes 100, Salta", etc.)
  * y los geocodifica individualmente. Esto garantiza que calles homónimas importantes
@@ -5153,28 +5196,21 @@ async function geocodeCatalogVariants(query, maxResults = 6) {
   const catalogVariants = getCatalogAddressVariants(query, 8);
   if (catalogVariants.length <= 1) return [];
 
+  const uniqueVariants = [...new Set(catalogVariants)].slice(0, 4);
+  const settled = await Promise.allSettled(
+    uniqueVariants.map((variant) => autocompleteAndGeocodeAddress(variant, 2))
+  );
+
   const candidates = [];
   const seenKeys = new Set();
-
-  for (const variant of catalogVariants) {
-    try {
-      const hit = await dashboardGeocodeAddress(variant);
-      if (!hit) continue;
-
+  for (const result of settled) {
+    if (result.status !== 'fulfilled') continue;
+    for (const hit of result.value) {
       const key = (hit.formattedAddress || '').toLowerCase().trim();
-      if (seenKeys.has(key)) continue;
+      if (!key || seenKeys.has(key)) continue;
+      if (!Number.isFinite(hit.lat) || !Number.isFinite(hit.lng)) continue;
       seenKeys.add(key);
-      const score = scoreCandidateAgainstQuery(hit.formattedAddress, variant);
-      if (score >= 0.15) {
-        candidates.push({
-          formattedAddress: hit.formattedAddress,
-          lat: hit.lat,
-          lng: hit.lng,
-          score,
-        });
-      }
-    } catch (err) {
-      logWebhook('dashboard_geocode_catalog_variant_error', { variant, error: err?.message || 'unknown' });
+      candidates.push({ ...hit, source: 'catalog_autocomplete' });
     }
   }
 
@@ -5187,18 +5223,29 @@ async function geocodeCatalogVariants(query, maxResults = 6) {
  * del catálogo local — misma pila que NewTripModal y /api/geo/geocode.
  */
 async function getAddressCandidates(query, maxResults = 5) {
-  const [geocodeResult, catalogResult] = await Promise.allSettled([
+  const catalogVariantsPromise = geocodeCatalogVariants(query, maxResults);
+  const catalogTimeoutMs = Number(process.env.WHATSAPP_CATALOG_GEOCODE_TIMEOUT_MS || 12000);
+  const catalogWithTimeout = Promise.race([
+    catalogVariantsPromise,
+    new Promise((resolve) => {
+      setTimeout(() => resolve([]), catalogTimeoutMs);
+    }),
+  ]);
+
+  const [geocodeResult, autocompleteResult, catalogResult] = await Promise.allSettled([
     geocodeAddressMultiple(query, maxResults),
-    geocodeCatalogVariants(query, maxResults),
+    autocompleteAndGeocodeAddress(query, maxResults),
+    catalogWithTimeout,
   ]);
 
   const geocodeCandidates = geocodeResult.status === 'fulfilled' ? geocodeResult.value : [];
+  const autocompleteCandidates = autocompleteResult.status === 'fulfilled' ? autocompleteResult.value : [];
   const catalogCandidates = catalogResult.status === 'fulfilled' ? catalogResult.value : [];
 
   // Merge and deduplicate — first by formatted address string, then by lat/lng proximity (~100m)
   const seenKeys = new Set();
   const merged = [];
-  for (const c of [...geocodeCandidates, ...catalogCandidates]) {
+  for (const c of [...geocodeCandidates, ...autocompleteCandidates, ...catalogCandidates]) {
     const key = (c.formattedAddress || '').toLowerCase().trim();
     if (!key || seenKeys.has(key)) continue;
     // Also skip if a previous candidate is within ~100m (different string, same place)
@@ -5217,6 +5264,7 @@ async function getAddressCandidates(query, maxResults = 5) {
   logWebhook('maps_address_candidates_merged', {
     query,
     geocodeCount: geocodeCandidates.length,
+    autocompleteCount: autocompleteCandidates.length,
     catalogCount: catalogCandidates.length,
     mergedCount: merged.length,
   });
@@ -9817,7 +9865,13 @@ async function processClaimedConversation(batch) {
     resolveSaltaKnownPoi(nextContext.pickup_location) ||
     resolveSaltaKnownPoi(normalizedPickupForGeo);
 
-  let addressCandidates = await getAddressCandidates(normalizedPickupForGeo, 5).catch(() => []);
+  const [addressCandidatesResult, catalogStreetPollCandidates] = await Promise.all([
+    getAddressCandidates(normalizedPickupForGeo, 5).catch(() => []),
+    buildCatalogAmbiguityPollCandidates(normalizedPickupForGeo, 4)
+      .then((items) => items.filter(isSaltaCapitalCandidate))
+      .catch(() => []),
+  ]);
+  let addressCandidates = addressCandidatesResult;
   if (knownPoiMatch) {
     addressCandidates = await enrichCandidatesForKnownPoi(knownPoiMatch, addressCandidates);
     logWebhook('conversation_poi_candidates_enriched', {
@@ -9840,31 +9894,46 @@ async function processClaimedConversation(batch) {
 
   const saltaCapitalCandidates = filterSaltaCapitalCandidates(distinctCandidates);
 
+  let addressPollCandidates = saltaCapitalCandidates;
+  if (addressPollCandidates.length < 2 && catalogStreetPollCandidates.length >= 2) {
+    addressPollCandidates = catalogStreetPollCandidates;
+    logWebhook('conversation_catalog_street_poll_fallback', {
+      conversationId: batch?.id || null,
+      pickup: normalizedPickupForGeo,
+      optionCount: catalogStreetPollCandidates.length,
+    });
+  }
+
   const topScoreGap =
-    saltaCapitalCandidates.length >= 2
-      ? saltaCapitalCandidates[0].score - (saltaCapitalCandidates[1]?.score ?? 0)
+    addressPollCandidates.length >= 2
+      ? addressPollCandidates[0].score - (addressPollCandidates[1]?.score ?? 0)
       : Infinity;
 
+  const hasCatalogStreetPoll = addressPollCandidates.some((c) => c.source === 'catalog_variant');
+
   const shouldSendAddressPoll =
-    saltaCapitalCandidates.length >= 2 &&
-    (knownPoiMatch || topScoreGap < 0.40);
+    addressPollCandidates.length >= 2 &&
+    (knownPoiMatch || topScoreGap < 0.40 || hasCatalogStreetPoll);
 
   const shouldSendPoiConfirmPoll =
-    Boolean(knownPoiMatch) && saltaCapitalCandidates.length === 1;
+    Boolean(knownPoiMatch) && addressPollCandidates.length === 1;
 
-  if (saltaCapitalCandidates.length === 1 && !knownPoiMatch) {
+  if (addressPollCandidates.length === 1 && !knownPoiMatch) {
+    const onlyCandidate = addressPollCandidates[0];
+    if (Number.isFinite(onlyCandidate?.lat) && Number.isFinite(onlyCandidate?.lng)) {
     tripExtracted._preGeocodedPickup = {
-      formattedAddress: saltaCapitalCandidates[0].formattedAddress,
-      lat: saltaCapitalCandidates[0].lat,
-      lng: saltaCapitalCandidates[0].lng,
+      formattedAddress: onlyCandidate.formattedAddress,
+      lat: onlyCandidate.lat,
+      lng: onlyCandidate.lng,
     };
     logWebhook('conversation_address_auto_resolved_salta_capital', {
       conversationId: batch?.id || null,
       formattedAddress: tripExtracted._preGeocodedPickup.formattedAddress,
       totalCandidates: distinctCandidates.length,
     });
+    }
   } else if (shouldSendAddressPoll || shouldSendPoiConfirmPoll) {
-    const orderedPollCandidates = [...saltaCapitalCandidates].sort((a, b) => {
+    const orderedPollCandidates = [...addressPollCandidates].sort((a, b) => {
       const scoreDiff = Number(b?.score || 0) - Number(a?.score || 0);
       if (scoreDiff !== 0) return scoreDiff;
       return String(a?.formattedAddress || '').localeCompare(String(b?.formattedAddress || ''));
@@ -9894,7 +9963,7 @@ async function processClaimedConversation(batch) {
         pollMsgId,
         optionCount: pollOptions.length,
         saltaCapitalOptionsCount: pollTopCandidates.length,
-        filteredOutCount: distinctCandidates.length - saltaCapitalCandidates.length,
+        filteredOutCount: distinctCandidates.length - addressPollCandidates.length,
         knownPoiId: knownPoiMatch?.id || null,
         poiConfirmPoll: shouldSendPoiConfirmPoll,
       });
