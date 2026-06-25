@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  buildFleetOwnersById,
+  mergeAssignedDriverWithOwner,
+} from '../../../src/lib/fleetDriverEnrichment';
 
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 
@@ -65,38 +69,49 @@ export async function GET() {
       vehicleTypeMap[driverId] = setting?.value || 'auto';
     });
 
+    const ownersById = buildFleetOwnersById(driversRes.data);
+
     const mapped = (driversRes.data || []).map((driver) => {
-      const loc = locationsMap[driver.id];
-      const activeTrip = activeTripsMap[driver.id] || null;
-      const pendingCommission = Math.max(0, toNumber(driver.pending_commission, 0));
+      const owner = driver.owner_id ? ownersById[driver.owner_id] : null;
+      const merged = mergeAssignedDriverWithOwner(driver, owner);
+      const loc = locationsMap[merged.id];
+      const activeTrip = activeTripsMap[merged.id] || null;
+      const pendingCommission = Math.max(0, toNumber(merged.pending_commission, 0));
+      const assigned = Boolean(merged.is_assigned_driver && merged.owner_id);
+
       return {
-        id: driver.id,
-        lat: toNumber(loc?.lat ?? driver.current_lat, 0),
-        lng: toNumber(loc?.lng ?? driver.current_lng, 0),
+        id: merged.id,
+        lat: toNumber(loc?.lat ?? merged.current_lat, 0),
+        lng: toNumber(loc?.lng ?? merged.current_lng, 0),
         speed: toNumber(loc?.speed, 0),
         heading: toNumber(loc?.heading, 0),
-        isOnline: Boolean(driver.is_available),
-        updatedAt: loc?.updated_at || driver.updated_at,
-        fullName: driver.full_name || 'Sin nombre',
-        driverNumber: driver.driver_number || null,
-        phone: driver.phone || '',
-        photoUrl: driver.photo_url || '',
-        vehicleBrand: driver.vehicle_brand || '',
-        vehicleModel: driver.vehicle_model || '',
-        vehiclePlate: driver.vehicle_plate || '',
-        vehicleColor: driver.vehicle_color || '',
-        vehicleType: driver.vehicle_type || vehicleTypeMap[driver.id] || 'auto',
-        isAvailable: Boolean(driver.is_available),
-        rating: toNumber(driver.rating, 5),
-        totalTrips: toNumber(driver.total_trips, 0),
+        isOnline: Boolean(merged.is_available),
+        updatedAt: loc?.updated_at || merged.updated_at,
+        fullName: merged.full_name || 'Sin nombre',
+        driverNumber: merged.driver_number ?? null,
+        phone: merged.phone || '',
+        fleetContactPhone: assigned ? (owner?.phone || '') : (merged.phone || ''),
+        photoUrl: merged.photo_url || '',
+        vehicleBrand: merged.vehicle_brand || '',
+        vehicleModel: merged.vehicle_model || '',
+        vehiclePlate: merged.vehicle_plate || '',
+        vehicleColor: merged.vehicle_color || '',
+        vehicleType: merged.vehicle_type || vehicleTypeMap[merged.id] || 'auto',
+        isAvailable: Boolean(merged.is_available),
+        rating: toNumber(merged.rating, 5),
+        totalTrips: toNumber(merged.total_trips, 0),
         activeTrip,
         pendingCommission,
-        lastCommissionPaymentAt: driver.last_commission_payment_at || null,
+        lastCommissionPaymentAt: merged.last_commission_payment_at || null,
         commissionBalance: pendingCommission,
         commissionOverdue: resolveCommissionOverdue(
           pendingCommission,
-          driver.last_commission_payment_at
+          merged.last_commission_payment_at,
         ),
+        isAssignedDriver: assigned,
+        ownerId: merged.owner_id || null,
+        ownerName: assigned ? (owner?.full_name || 'Propietario') : null,
+        ownerPhone: assigned ? (owner?.phone || '') : null,
       };
     });
 

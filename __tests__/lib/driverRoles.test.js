@@ -1,6 +1,7 @@
 import {
   normalizeDriverPhone,
   buildAssignedDriverAuthEmail,
+  buildAssignedDriverInsertPayload,
   isAssignedDriver,
   isFleetRoot,
   getAssignedDriverRegistrationStatus,
@@ -31,5 +32,27 @@ describe('driverRoles (dashboard)', () => {
 
   it('máximo 3 choferes asignados', () => {
     expect(MAX_ASSIGNED_DRIVERS).toBe(3);
+  });
+
+  it('copia vehículo y número de móvil del dueño al crear asignado', () => {
+    const owner = {
+      id: 'owner-1',
+      driver_number: 2,
+      vehicle_brand: 'Volkswagen',
+      vehicle_model: 'Gol',
+      vehicle_plate: 'AB123CD',
+      vehicle_type: 'auto',
+    };
+    const payload = buildAssignedDriverInsertPayload(owner, {
+      fullName: 'Charly Brown',
+      phone: '3878630173',
+      phoneNormalized: '543878630173',
+      authEmail: 'assigned.543878630173@profesional.test',
+    });
+
+    expect(payload.driver_number).toBe(2);
+    expect(payload.vehicle_plate).toBe('AB123CD');
+    expect(payload.owner_id).toBe('owner-1');
+    expect(payload.phone).toBe('3878630173');
   });
 });

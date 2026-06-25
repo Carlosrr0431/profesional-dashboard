@@ -33,15 +33,38 @@ export default function DriverInfoWindow({ driver, onAssignTrip }) {
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <p style={{ color: '#0F172A', fontSize: '14px', fontWeight: 700, margin: 0 }}>{driver.fullName}</p>
-            {driver.driverNumber && (
+            {driver.isAssignedDriver ? (
+              <span style={{
+                fontSize: '9px', fontWeight: 800, color: '#4F46E5',
+                background: 'rgba(79,70,229,0.12)', padding: '1px 6px',
+                borderRadius: '5px',
+              }}>Asignado</span>
+            ) : null}
+            {driver.driverNumber != null && !driver.isAssignedDriver ? (
               <span style={{
                 fontSize: '10px', fontWeight: 800, color: '#EF4444',
                 background: 'rgba(220,38,38,0.15)', padding: '1px 6px',
                 borderRadius: '5px',
               }}>#{driver.driverNumber}</span>
-            )}
+            ) : null}
+            {driver.isAssignedDriver && driver.driverNumber != null ? (
+              <span style={{
+                fontSize: '10px', fontWeight: 800, color: '#4F46E5',
+                background: 'rgba(79,70,229,0.12)', padding: '1px 6px',
+                borderRadius: '5px',
+              }}>Móvil #{driver.driverNumber}</span>
+            ) : null}
           </div>
-          <p style={{ color: '#94A3B8', fontSize: '11px', margin: '2px 0 0' }}>{driver.phone || 'Sin teléfono'}</p>
+          <p style={{ color: '#94A3B8', fontSize: '11px', margin: '2px 0 0' }}>
+            {driver.isAssignedDriver
+              ? `Titular: ${driver.ownerPhone || driver.fleetContactPhone || 'Sin teléfono'}`
+              : (driver.phone || 'Sin teléfono')}
+          </p>
+          {driver.isAssignedDriver && driver.ownerName ? (
+            <p style={{ color: '#6366F1', fontSize: '10px', margin: '2px 0 0' }}>
+              Vehículo de {driver.ownerName}
+            </p>
+          ) : null}
         </div>
         <span style={{
           fontSize: '10px', fontWeight: 600, padding: '3px 8px', borderRadius: '20px',
