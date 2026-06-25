@@ -10,43 +10,7 @@ import {
 } from '../lib/driverMarkerIcon';
 import DriverInfoWindow from './DriverInfoWindow';
 import PassengerInfoWindow from './PassengerInfoWindow';
-
-/*
- * CartoDB Voyager — tiles raster con fondo blanco puro y calles en gris neutro.
- * Estética muy cercana a Google Maps (sin tonos rojizos ni amarillentos).
- * Gratis, sin API key, CDN global de alta disponibilidad.
- */
-const MAP_STYLE = {
-  version: 8,
-  sources: {
-    'carto-voyager': {
-      type: 'raster',
-      tiles: [
-        'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-        'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-        'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-        'https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-      ],
-      tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
-      maxzoom: 19,
-    },
-  },
-  layers: [
-    {
-      id: 'background',
-      type: 'background',
-      paint: { 'background-color': '#f8f8f8' },
-    },
-    {
-      id: 'carto-voyager-layer',
-      type: 'raster',
-      source: 'carto-voyager',
-      minzoom: 0,
-      maxzoom: 19,
-    },
-  ],
-};
+import { MAP_STYLE } from '../lib/mapLibre';
 
 /* ── Estilos CSS globales para los controles ─────────────────────────────── */
 const MAP_CSS = `
@@ -154,6 +118,15 @@ const MapView = memo(function MapView({
 }) {
   const [activeInfo, setActiveInfo] = useState(null);
 
+  useEffect(() => {
+    if (activeInfo?.type !== 'driver') return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setActiveInfo(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeInfo?.type]);
+
   /* Exponer la API del mapa al padre vía mapRef */
   const internalMapRef = useRef(null);
   useEffect(() => {
@@ -177,17 +150,31 @@ const MapView = memo(function MapView({
   const routeOriginJSON  = buildPointGeoJSON(previewRoute?.origin?.lat, previewRoute?.origin?.lng);
   const routeDestJSON    = buildPointGeoJSON(previewRoute?.destination?.lat, previewRoute?.destination?.lng);
 
-  /* Auto-zoom cuando llega la ruta */
+  /* Auto-zoom cuando llega la ruta o un punto suelto de preview */
   useEffect(() => {
-    if (!previewRoute?.polylineCoords?.length || !internalMapRef.current) return;
-    const coords = previewRoute.polylineCoords;
-    const lngs = coords.map((p) => Number(p.lng));
-    const lats = coords.map((p) => Number(p.lat));
-    const swLng = Math.min(...lngs) - 0.002;
-    const swLat = Math.min(...lats) - 0.002;
-    const neLng = Math.max(...lngs) + 0.002;
-    const neLat = Math.max(...lats) + 0.002;
-    internalMapRef.current.fitBounds([[swLng, swLat], [neLng, neLat]], { padding: 72, duration: 900 });
+    if (!previewRoute || !internalMapRef.current) return;
+
+    if (previewRoute?.polylineCoords?.length > 1) {
+      const coords = previewRoute.polylineCoords;
+      const lngs = coords.map((p) => Number(p.lng));
+      const lats = coords.map((p) => Number(p.lat));
+      const swLng = Math.min(...lngs) - 0.002;
+      const swLat = Math.min(...lats) - 0.002;
+      const neLng = Math.max(...lngs) + 0.002;
+      const neLat = Math.max(...lats) + 0.002;
+      internalMapRef.current.fitBounds([[swLng, swLat], [neLng, neLat]], { padding: 72, duration: 900 });
+      return;
+    }
+
+    const lat = Number(previewRoute?.origin?.lat);
+    const lng = Number(previewRoute?.origin?.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      internalMapRef.current.flyTo({
+        center: [lng, lat],
+        zoom: 16,
+        duration: 900,
+      });
+    }
   }, [previewRoute]);
 
   return (
@@ -295,25 +282,6 @@ const MapView = memo(function MapView({
           );
         })}
 
-        {/* ── Popup conductor ───────────────────────────────────────── */}
-        {activeInfo?.type === 'driver' && (
-          <Popup
-            longitude={Number(activeInfo.data.lng)}
-            latitude={Number(activeInfo.data.lat)}
-            anchor="bottom"
-            offset={[0, -8]}
-            onClose={() => setActiveInfo(null)}
-            closeOnClick={false}
-            maxWidth="320px"
-          >
-            <DriverInfoWindow
-              driver={activeInfo.data}
-              onAssignTrip={(d) => { setActiveInfo(null); onAssignTrip?.(d); }}
-              onClose={() => setActiveInfo(null)}
-            />
-          </Popup>
-        )}
-
         {/* ── Popup pasajero ────────────────────────────────────────── */}
         {activeInfo?.type === 'trip' && (
           <Popup
@@ -332,6 +300,32 @@ const MapView = memo(function MapView({
           </Popup>
         )}
       </Map>
+
+      {activeInfo?.type === 'driver' ? (
+        <>
+          <button
+            type="button"
+            aria-label="Cerrar detalle del chofer"
+            className="absolute inset-0 z-[15] border-0 bg-slate-900/25 p-0"
+            onClick={() => setActiveInfo(null)}
+          />
+          <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
+            <div
+              className="pointer-events-auto w-full max-w-[min(320px,calc(100%-2rem))]"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Chofer ${activeInfo.data.fullName}`}
+            >
+              <DriverInfoWindow
+                driver={activeInfo.data}
+                onAssignTrip={(d) => { setActiveInfo(null); onAssignTrip?.(d); }}
+                onClose={() => setActiveInfo(null)}
+              />
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 });

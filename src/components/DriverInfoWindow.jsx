@@ -12,13 +12,13 @@ function getDriverStatusInfo(driver) {
   return { label: 'Desconectado', color: '#94A3B8', bg: 'rgba(148,163,184,0.1)', busy: true };
 }
 
-export default function DriverInfoWindow({ driver, onAssignTrip }) {
+export default function DriverInfoWindow({ driver, onAssignTrip, onClose }) {
   const initials = driver.fullName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
   const status = getDriverStatusInfo(driver);
   const canAssign = !status.busy;
 
   return (
-    <div style={{ background: '#FFFFFF', color: '#0F172A', padding: '14px', minWidth: '250px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
+    <div style={{ background: '#FFFFFF', color: '#0F172A', padding: '14px', minWidth: '250px', borderRadius: '12px', boxShadow: '0 8px 32px rgba(15,23,42,0.18)', border: '1px solid rgba(226,232,240,0.9)' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid #E2E8F0' }}>
         <div style={{
@@ -72,6 +72,28 @@ export default function DriverInfoWindow({ driver, onAssignTrip }) {
         }}>
           {status.label}
         </span>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
+            aria-label="Cerrar"
+            style={{
+              marginLeft: '2px',
+              width: '28px',
+              height: '28px',
+              border: 'none',
+              borderRadius: '8px',
+              background: '#F1F5F9',
+              color: '#64748B',
+              cursor: 'pointer',
+              fontSize: '16px',
+              lineHeight: 1,
+              flexShrink: 0,
+            }}
+          >
+            ×
+          </button>
+        ) : null}
       </div>
 
       {/* Vehicle info */}
