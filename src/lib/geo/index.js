@@ -1,5 +1,5 @@
 /**
- * Servicios geoespaciales del dashboard (Nominatim/OSM + TomTom POI + OSRM routing).
+ * Servicios geoespaciales del dashboard (Nominatim/OSM + Georef + OSRM routing).
  */
 import { createRequire } from 'module';
 
