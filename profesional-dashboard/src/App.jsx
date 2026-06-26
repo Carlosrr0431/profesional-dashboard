@@ -19,6 +19,7 @@ import ScheduledTripsPanel from './components/ScheduledTripsPanel';
 import StatisticsPanel from './components/StatisticsPanel';
 import GeocodeErrorsPanel from './components/GeocodeErrorsPanel';
 import EmulatorGpsSimulator from './components/EmulatorGpsSimulator';
+import DashboardBrand from './components/DashboardBrand';
 import { useTripStatistics } from './hooks/useTripStatistics';
 import { useGeocodeErrors } from './hooks/useGeocodeErrors';
 
@@ -143,7 +144,7 @@ export default function App() {
             <div className="absolute inset-0 border-[3px] border-accent border-t-transparent rounded-full animate-spin" />
           </div>
           <div className="text-center">
-            <p className="text-navy-900 text-sm font-semibold">Profesional Remises</p>
+            <DashboardBrand className="justify-center mb-3" imageClassName="h-10 w-auto max-w-[150px] object-contain" />
             <p className="text-gray-400 text-xs mt-0.5">Cargando operaciones...</p>
           </div>
         </div>
@@ -160,16 +161,8 @@ export default function App() {
       <header className="flex-shrink-0 h-[60px] bg-white/90 backdrop-blur-xl border-b border-light-300/50 flex items-center px-4 gap-3 shadow-[0_8px_30px_rgba(15,23,42,0.06)] z-30">
 
         {/* ── Logo ─────────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-2.5 flex-shrink-0 pr-3 border-r border-light-300/60">
-          <div className="w-8 h-8 bg-gradient-to-br from-accent via-accent to-rose-700 rounded-[10px] flex items-center justify-center shadow-md shadow-accent/30 flex-shrink-0">
-            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z" />
-            </svg>
-          </div>
-          <div className="leading-none">
-            <p className="text-navy-900 font-extrabold text-[13px] tracking-tight">Profesional</p>
-            <p className="text-[9px] text-gray-400 tracking-widest uppercase font-medium">Remises · Salta</p>
-          </div>
+        <div className="flex items-center flex-shrink-0 pr-3 border-r border-light-300/60">
+          <DashboardBrand />
         </div>
 
         {/* ── Espaciador ───────────────────────────────────────────────── */}
