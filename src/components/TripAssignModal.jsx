@@ -102,6 +102,7 @@ export default function TripAssignModal({
   const [originLat, setOriginLat] = useState(null);
   const [originLng, setOriginLng] = useState(null);
   const [originMode, setOriginMode] = useState('custom');
+  const [originGeocodeSource, setOriginGeocodeSource] = useState(null);
 
   /* Destino */
   const [destAddress, setDestAddress] = useState('');
@@ -141,10 +142,12 @@ export default function TripAssignModal({
       setOriginAddress('Ubicación no disponible');
       setOriginLat(null);
       setOriginLng(null);
+      setOriginGeocodeSource(null);
       return;
     }
     setOriginLat(lat);
     setOriginLng(lng);
+    setOriginGeocodeSource(null);
     fetch(`/api/geo/reverse?lat=${lat}&lng=${lng}`)
       .then((r) => r.json())
       .then((p) => setOriginAddress(p?.ok ? (p.data?.formattedAddress || `${lat.toFixed(5)}, ${lng.toFixed(5)}`) : `${lat.toFixed(5)}, ${lng.toFixed(5)}`))
@@ -155,7 +158,6 @@ export default function TripAssignModal({
   useEffect(() => {
     if (!originLat || !originLng || !destLat || !destLng) {
       setRouteInfo(null);
-      onRouteChange?.(null);
       return;
     }
 
@@ -185,31 +187,52 @@ export default function TripAssignModal({
     return () => { cancelled = true; };
   }, [originLat, originLng, destLat, destLng]);
 
+  const hasOriginPoint = originLat != null && originLng != null;
+  const hasFullRoute = routeInfo?.polylineCoords?.length > 1;
+  const canShowOnMap = hasFullRoute || hasOriginPoint;
+
   /* ── Publicar ruta al mapa ────────────────────────────────────────────── */
   useEffect(() => {
     if (!onRouteChange) return;
-    if (showOnMap && routeInfo?.polylineCoords?.length > 1) {
+    if (!showOnMap) {
+      onRouteChange(null);
+      return;
+    }
+
+    if (hasFullRoute) {
       onRouteChange({
         polylineCoords: routeInfo.polylineCoords,
         origin: { lat: originLat, lng: originLng, label: originAddress },
-        destination: { lat: destLat, lng: destLng, label: destAddress },
+        destination: destLat != null && destLng != null
+          ? { lat: destLat, lng: destLng, label: destAddress }
+          : null,
       });
-    } else {
-      onRouteChange(null);
+      return;
     }
+
+    if (hasOriginPoint) {
+      onRouteChange({
+        polylineCoords: [],
+        origin: { lat: originLat, lng: originLng, label: originAddress },
+        destination: null,
+      });
+      return;
+    }
+
+    onRouteChange(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showOnMap, routeInfo]);
+  }, [showOnMap, routeInfo, originLat, originLng, originAddress, destLat, destLng, destAddress]);
 
   /* ── Precio estimado ──────────────────────────────────────────────────── */
   const autoPrice = routeInfo ? calculatePrice(routeInfo.distanceKm) : null;
   const autoCommission = autoPrice ? Math.round(autoPrice * (commissionPercent || 10) / 100) : null;
 
-  /* ── Ver ruta en mapa (minimiza el modal) ─────────────────────────────── */
+  /* ── Ver ruta u origen en mapa (minimiza el modal) ────────────────────── */
   const handleVerRuta = useCallback(() => {
-    if (!routeInfo?.polylineCoords?.length) return;
+    if (!canShowOnMap) return;
     setShowOnMap(true);
     setMinimized(true);
-  }, [routeInfo]);
+  }, [canShowOnMap]);
 
   /* ── Geocodificar dirección escrita sin seleccionar ───────────────────── */
   const geocodeTyped = useCallback(async (address) => {
@@ -558,9 +581,39 @@ export default function TripAssignModal({
                   value={originAddress}
                   accentColor="#DC2626"
                   inputIcon={<OriginDotSmall />}
-                  onChange={(text) => { setOriginAddress(text); setOriginLat(null); setOriginLng(null); }}
-                  onSelect={(place) => { setOriginAddress(place.formattedAddress); setOriginLat(place.lat); setOriginLng(place.lng); }}
+                  onChange={(text) => {
+                    setOriginAddress(text);
+                    setOriginLat(null);
+                    setOriginLng(null);
+                    setOriginGeocodeSource(null);
+                  }}
+                  onSelect={(place) => {
+                    setOriginAddress(place.formattedAddress);
+                    setOriginLat(place.lat);
+                    setOriginLng(place.lng);
+                    setOriginGeocodeSource(place.geocodeSource || null);
+                  }}
                 />
+              )}
+              {originMode === 'custom' && originLat != null && originGeocodeSource && (
+                <div style={{ marginTop: 4 }}>
+                  <span
+                    title={originGeocodeSource === 'supabase_cache' ? 'Coordenadas desde cache en base de datos' : 'Coordenadas desde Google Place Details Essentials'}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '2px 8px',
+                      borderRadius: 999,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: '0.03em',
+                      background: originGeocodeSource === 'supabase_cache' ? '#ECFDF5' : '#EFF6FF',
+                      color: originGeocodeSource === 'supabase_cache' ? '#047857' : '#1D4ED8',
+                    }}
+                  >
+                    {originGeocodeSource === 'supabase_cache' ? 'cache BD' : 'Google'}
+                  </span>
+                </div>
               )}
             </div>
 
@@ -736,20 +789,24 @@ export default function TripAssignModal({
               <button
                 type="button"
                 onClick={handleVerRuta}
-                disabled={!routeInfo?.polylineCoords?.length || routeLoading}
-                title={!routeInfo?.polylineCoords?.length ? 'Ingresá origen y destino para ver la ruta' : 'Ver ruta en el mapa'}
+                disabled={!canShowOnMap || routeLoading}
+                title={
+                  !canShowOnMap
+                    ? 'Confirmá el origen para verlo en el mapa'
+                    : (hasFullRoute ? 'Ver ruta en el mapa' : 'Ver punto de origen en el mapa')
+                }
                 style={{
                   flex: 1, padding: '10px 14px',
-                  background: routeInfo?.polylineCoords?.length
+                  background: canShowOnMap
                     ? 'linear-gradient(135deg,#0EA5E9 0%,#0284C7 100%)'
                     : '#F1F5F9',
-                  border: routeInfo?.polylineCoords?.length ? 'none' : '1px solid #E2E8F0',
+                  border: canShowOnMap ? 'none' : '1px solid #E2E8F0',
                   borderRadius: 12,
-                  color: routeInfo?.polylineCoords?.length ? '#FFFFFF' : '#94A3B8',
+                  color: canShowOnMap ? '#FFFFFF' : '#94A3B8',
                   fontSize: 13, fontWeight: 700,
-                  cursor: routeInfo?.polylineCoords?.length ? 'pointer' : 'not-allowed',
+                  cursor: canShowOnMap && !routeLoading ? 'pointer' : 'not-allowed',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  boxShadow: routeInfo?.polylineCoords?.length ? '0 4px 12px rgba(14,165,233,0.35)' : 'none',
+                  boxShadow: canShowOnMap ? '0 4px 12px rgba(14,165,233,0.35)' : 'none',
                   transition: 'all 0.15s',
                 }}
               >

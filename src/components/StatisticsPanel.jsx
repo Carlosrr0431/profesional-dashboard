@@ -1,12 +1,56 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import Map from 'react-map-gl/maplibre';
+import { useMemo, useState, useRef, useEffect } from 'react';
+import Map, { Source, Layer } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { SALTA_CENTER, DEFAULT_ZOOM } from '../lib/constants';
 import { MAP_STYLE_URL, DEFAULT_MAP_VIEW, mapLibreOptions } from '../lib/mapLibre';
-import { createHeatmapCanvasOverlay } from '../lib/heatmapCanvasOverlay';
 import { formatPrice, formatKm, formatDuration } from '../lib/utils';
+
+const HEATMAP_LAYER = {
+  id: 'trip-heatmap',
+  type: 'heatmap',
+  paint: {
+    'heatmap-weight': ['get', 'weight'],
+    'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 15, 2.2],
+    'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 10, 12, 15, 32],
+    'heatmap-opacity': 0.88,
+    'heatmap-color': [
+      'interpolate',
+      ['linear'],
+      ['heatmap-density'],
+      0,
+      'rgba(191, 219, 254, 0)',
+      0.15,
+      'rgba(191, 219, 254, 0.65)',
+      0.35,
+      'rgba(134, 239, 172, 0.85)',
+      0.55,
+      'rgba(253, 230, 138, 0.9)',
+      0.75,
+      'rgba(252, 165, 165, 0.95)',
+      1,
+      'rgba(239, 68, 68, 1)',
+    ],
+  },
+};
+
+function buildHeatmapGeoJSON(points) {
+  const features = (points || [])
+    .filter((point) => Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)))
+    .map((point) => ({
+      type: 'Feature',
+      properties: {
+        weight: Number(point.weight) > 0 ? Number(point.weight) : 1,
+      },
+      geometry: {
+        type: 'Point',
+        coordinates: [Number(point.lng), Number(point.lat)],
+      },
+    }));
+
+  return { type: 'FeatureCollection', features };
+}
 
 const PERIOD_OPTIONS = [
   { key: '7d', label: '7d' },
@@ -278,6 +322,7 @@ function LocationViewToggle({ value, onChange, views }) {
 }
 
 function TripHeatmap({ points }) {
+  const mapRef = useRef(null);
   const [viewState, setViewState] = useState({
     ...DEFAULT_MAP_VIEW,
     longitude: SALTA_CENTER.lng,
@@ -285,15 +330,54 @@ function TripHeatmap({ points }) {
     zoom: DEFAULT_ZOOM,
   });
 
+  const heatmapGeoJSON = useMemo(() => buildHeatmapGeoJSON(points), [points]);
+  const hasPoints = heatmapGeoJSON.features.length > 0;
+
+  useEffect(() => {
+    const map = mapRef.current?.getMap?.();
+    if (!map || !hasPoints) return;
+
+    const lngs = heatmapGeoJSON.features.map((feature) => feature.geometry.coordinates[0]);
+    const lats = heatmapGeoJSON.features.map((feature) => feature.geometry.coordinates[1]);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+
+    if (minLng === maxLng && minLat === maxLat) {
+      map.easeTo({ center: [minLng, minLat], zoom: 14, duration: 400 });
+      return;
+    }
+
+    map.fitBounds(
+      [[minLng, minLat], [maxLng, maxLat]],
+      { padding: 56, duration: 400, maxZoom: 15 },
+    );
+  }, [heatmapGeoJSON, hasPoints]);
+
   return (
-    <Map
-      {...viewState}
-      onMove={(event) => setViewState(event.viewState)}
-      mapStyle={MAP_STYLE_URL}
-      mapContainerClassName="h-[320px] w-full rounded-2xl overflow-hidden"
-      style={{ width: '100%', height: '320px' }}
-      {...mapLibreOptions}
-    />
+    <div className="relative h-[320px] w-full rounded-2xl overflow-hidden">
+      <Map
+        ref={mapRef}
+        {...viewState}
+        onMove={(event) => setViewState(event.viewState)}
+        mapStyle={MAP_STYLE_URL}
+        mapContainerClassName="h-full w-full"
+        style={{ width: '100%', height: '100%' }}
+        {...mapLibreOptions}
+      >
+        {hasPoints ? (
+          <Source id="trip-heatmap-source" type="geojson" data={heatmapGeoJSON}>
+            <Layer {...HEATMAP_LAYER} />
+          </Source>
+        ) : null}
+      </Map>
+      {!hasPoints ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/55">
+          <p className="text-[12px] text-gray-400">Sin puntos para el mapa de calor</p>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

@@ -136,9 +136,9 @@ export default function DriverDetailPanel({
   const canManageAssigned = isFleetRoot(driver);
 
   return (
-    <div className="w-[440px] bg-light-50 border-l border-light-300/50 flex flex-col h-full animate-slideIn">
+    <div className="relative w-[440px] shrink-0 min-h-0 h-full bg-light-50 border-l border-light-300/50 flex flex-col animate-slideIn overflow-hidden">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-light-300/50">
+      <div className="flex-shrink-0 px-5 py-4 border-b border-light-300/50">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-light-200 flex items-center justify-center text-lg font-bold text-gray-400 overflow-hidden flex-shrink-0">
@@ -197,7 +197,7 @@ export default function DriverDetailPanel({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-8 h-8 border-3 border-accent border-t-transparent rounded-full animate-spin" />
@@ -318,14 +318,13 @@ function InfoTab({ driver, stats }) {
     { label: 'Vehículo', value: `${driver.vehicle_brand || ''} ${driver.vehicle_model || ''}`.trim() || '—' },
     { label: 'Patente', value: driver.vehicle_plate || '—' },
     { label: 'Color', value: driver.vehicle_color || '—' },
-    { label: 'Año', value: driver.vehicle_year || '—' },
     { label: 'Licencia', value: driver.license_expiry || '—' },
     { label: 'Rating', value: `⭐ ${parseFloat(driver.rating || 5).toFixed(1)}` },
     { label: 'Registrado', value: driver.created_at ? new Date(driver.created_at).toLocaleDateString('es-AR') : '—' },
   ];
 
   return (
-    <div className="p-5 space-y-4">
+    <div className="p-5 pb-8 space-y-4">
       {/* Stats grid */}
       <div className="grid grid-cols-2 gap-2.5">
         <StatCard label="Viajes Hoy" value={stats.todayTrips} color="text-accent" />
@@ -363,7 +362,7 @@ function TripsTab({ trips, tripFilter, setTripFilter, totalTrips, completedCount
   const activeCount = totalTrips - completedCount - cancelledCount;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="pb-8">
       {/* Sub-filter */}
       <div className="px-5 py-3 border-b border-light-300/30">
         <div className="flex gap-1 flex-wrap">
@@ -387,7 +386,7 @@ function TripsTab({ trips, tripFilter, setTripFilter, totalTrips, completedCount
       </div>
 
       {/* Trip list */}
-      <div className="flex-1 overflow-y-auto">
+      <div>
         {trips.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-gray-400">
             <svg className="w-10 h-10 mb-2 text-light-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -447,7 +446,7 @@ function CommissionTab({
   const displayPending = pendingFromDB > 0 ? pendingFromDB : Math.max(0, commissionBalance);
 
   return (
-    <div className="p-5 space-y-4">
+    <div className="p-5 pb-8 space-y-4">
       {/* Block status banner */}
       {isBlocked && (
         <div className="flex items-center justify-between bg-danger/10 border border-danger/30 rounded-xl px-4 py-3">

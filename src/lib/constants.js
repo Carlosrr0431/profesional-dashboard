@@ -5,18 +5,18 @@ export const SALTA_CENTER = {
   lng: -65.4232,
 };
 
-/** Respaldo si no hay chofer en BD (driver_number 2 por defecto). */
+/** Respaldo si no hay chofer en BD (driver_number 1 por defecto en simulador). */
 export const EMULATOR_GPS_DEFAULT_ORIGIN = {
   lat: -24.7804933,
   lng: -65.419865,
 };
 
-/** Rectángulo de Salta Capital (mismo que Agente_IA / TripAssignModal). */
+/** Rectángulo de Salta Capital (alineado con SALTA_VIEWBOX / Nominatim). */
 export const SALTA_CAPITAL_BOUNDS = {
-  north: -24.68,
-  south: -24.88,
-  east: -65.33,
-  west: -65.48,
+  north: -24.70,
+  south: -24.90,
+  east: -65.30,
+  west: -65.55,
 };
 
 /** Bounds para geocode REST: suroeste|noroeste (lat,lng|lat,lng). */

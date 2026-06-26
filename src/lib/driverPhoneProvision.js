@@ -150,6 +150,86 @@ export async function provisionDriverPhoneAuth({ driverId, phone, password }) {
   return { ok: true, auth_email: authEmail };
 }
 
+/** Cambio de contraseña desde el dashboard (admin). Crea la cuenta si aún no existe. */
+export async function adminUpdateDriverPassword({ driverId, password }) {
+  const cleanedPassword = String(password || '').trim();
+  if (!driverId) {
+    return { ok: false, status: 400, message: 'Falta el identificador del chofer' };
+  }
+  if (cleanedPassword.length < 8) {
+    return { ok: false, status: 400, message: 'La contraseña debe tener al menos 8 caracteres' };
+  }
+
+  const admin = getSupabaseAdmin();
+
+  const { data: driver, error: driverError } = await admin
+    .from('drivers')
+    .select(
+      'id,user_id,auth_email,phone,phone_normalized,is_assigned_driver,owner_id,full_name,driver_number,role',
+    )
+    .eq('id', driverId)
+    .maybeSingle();
+
+  if (driverError) throw driverError;
+  if (!driver?.id) {
+    return { ok: false, status: 404, message: 'Chofer no encontrado' };
+  }
+
+  const isAssigned = Boolean(driver.is_assigned_driver && driver.owner_id);
+  const normalizedPhone = driver.phone_normalized || normalizeDriverPhone(driver.phone);
+
+  let authEmail = driver.auth_email || null;
+  if (!authEmail && normalizedPhone) {
+    authEmail = isAssigned
+      ? buildAssignedDriverAuthEmail(normalizedPhone)
+      : buildOwnerAuthEmail(normalizedPhone, driver.driver_number);
+  }
+
+  let userId = driver.user_id;
+
+  if (!userId && authEmail) {
+    userId = await findAuthUserIdByEmail(admin, authEmail);
+  }
+
+  if (userId) {
+    const { error: updateError } = await admin.auth.admin.updateUserById(userId, {
+      password: cleanedPassword,
+      email_confirm: true,
+    });
+    if (updateError) throw updateError;
+  } else if (authEmail) {
+    const metadata = isAssigned
+      ? { assigned_driver: true }
+      : { fleet_owner: true, driver_number: driver.driver_number };
+
+    userId = await ensureAuthUser(admin, {
+      email: authEmail,
+      password: cleanedPassword,
+      fullName: driver.full_name,
+      metadata,
+    });
+  } else {
+    return {
+      ok: false,
+      status: 400,
+      message: 'Este chofer no tiene teléfono ni cuenta vinculada para restablecer la contraseña',
+    };
+  }
+
+  const driverPatch = {
+    user_id: userId,
+    password_initialized: true,
+    updated_at: new Date().toISOString(),
+  };
+  if (authEmail) driverPatch.auth_email = authEmail;
+  if (normalizedPhone && !driver.phone_normalized) driverPatch.phone_normalized = normalizedPhone;
+
+  const { error: linkError } = await admin.from('drivers').update(driverPatch).eq('id', driverId);
+  if (linkError) throw linkError;
+
+  return { ok: true, auth_email: authEmail };
+}
+
 /** @deprecated Usar provisionDriverPhoneAuth */
 export async function provisionAssignedDriverAuth(params) {
   return provisionDriverPhoneAuth(params);

@@ -12,7 +12,6 @@ export function mergeAssignedDriverWithOwner(driver, owner) {
     driver_number: coalesce(driver.driver_number, owner.driver_number),
     vehicle_brand: coalesce(driver.vehicle_brand, owner.vehicle_brand),
     vehicle_model: coalesce(driver.vehicle_model, owner.vehicle_model),
-    vehicle_year: coalesce(driver.vehicle_year, owner.vehicle_year),
     vehicle_plate: coalesce(driver.vehicle_plate, owner.vehicle_plate),
     vehicle_color: coalesce(driver.vehicle_color, owner.vehicle_color),
     vehicle_photo_url: coalesce(driver.vehicle_photo_url, owner.vehicle_photo_url),

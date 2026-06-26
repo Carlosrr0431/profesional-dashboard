@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react';
+import { formatPhoneForDisplay } from '../lib/driverRoles';
 
 const FIELD_CLASS = 'w-full bg-light-200 border border-light-300/50 rounded-xl px-3 py-2.5 text-sm text-navy-900 placeholder-gray-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all';
 const LABEL_CLASS = 'block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5';
+
+function isPhoneLoginDriver(driver) {
+  if (!driver) return false;
+  const email = String(driver.auth_email || '').toLowerCase();
+  return Boolean(driver.phone_normalized || driver.phone || email.endsWith('@profesional.test'));
+}
 
 export default function DriverFormModal({ driver, onClose, onSave, saving, error }) {
   const isEdit = !!driver;
@@ -15,7 +22,6 @@ export default function DriverFormModal({ driver, onClose, onSave, saving, error
     vehicle_type: 'auto',
     vehicle_brand: '',
     vehicle_model: '',
-    vehicle_year: '',
     vehicle_plate: '',
     vehicle_color: '',
     license_expiry: '',
@@ -32,7 +38,6 @@ export default function DriverFormModal({ driver, onClose, onSave, saving, error
         vehicle_type: driver.vehicle_type || 'auto',
         vehicle_brand: driver.vehicle_brand || '',
         vehicle_model: driver.vehicle_model || '',
-        vehicle_year: driver.vehicle_year?.toString() || '',
         vehicle_plate: driver.vehicle_plate || '',
         vehicle_color: driver.vehicle_color || '',
         license_expiry: driver.license_expiry || '',
@@ -49,11 +54,19 @@ export default function DriverFormModal({ driver, onClose, onSave, saving, error
     const data = { ...form };
     if (data.driver_number) data.driver_number = parseInt(data.driver_number);
     else data.driver_number = null;
-    if (data.vehicle_year) data.vehicle_year = parseInt(data.vehicle_year);
-    else data.vehicle_year = null;
     if (!data.license_expiry) data.license_expiry = null;
+    if (isEdit && !String(data.password || '').trim()) {
+      delete data.password;
+    }
     onSave(data);
   };
+
+  const phoneLogin = isEdit && isPhoneLoginDriver(driver);
+  const loginHint = phoneLogin
+    ? `Ingreso con teléfono: ${formatPhoneForDisplay(driver.phone) || driver.phone || '—'}`
+    : driver?.auth_email
+      ? `Cuenta: ${driver.auth_email}`
+      : 'Sin cuenta de acceso vinculada';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
@@ -112,6 +125,31 @@ export default function DriverFormModal({ driver, onClose, onSave, saving, error
               </div>
             </div>
           )}
+
+          {isEdit ? (
+            <div className="bg-accent/5 border border-accent/20 rounded-xl p-4">
+              <h3 className="text-sm font-semibold text-accent mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                Acceso a la app
+              </h3>
+              <p className="text-xs text-gray-500 mb-3">{loginHint}</p>
+              <div>
+                <label className={LABEL_CLASS}>Nueva contraseña</label>
+                <input
+                  type="password"
+                  minLength={8}
+                  value={form.password}
+                  onChange={(e) => handleChange('password', e.target.value)}
+                  placeholder="Dejá vacío para no cambiar"
+                  className={FIELD_CLASS}
+                  autoComplete="new-password"
+                />
+                <p className="text-[11px] text-gray-400 mt-1.5">
+                  Opcional. Mínimo 8 caracteres. El chofer usará esta clave para ingresar a la app móvil.
+                </p>
+              </div>
+            </div>
+          ) : null}
 
           {/* Personal info */}
           <div>
@@ -206,18 +244,6 @@ export default function DriverFormModal({ driver, onClose, onSave, saving, error
                   value={form.vehicle_model}
                   onChange={(e) => handleChange('vehicle_model', e.target.value)}
                   placeholder="Corolla"
-                  className={FIELD_CLASS}
-                />
-              </div>
-              <div>
-                <label className={LABEL_CLASS}>Año</label>
-                <input
-                  type="number"
-                  value={form.vehicle_year}
-                  onChange={(e) => handleChange('vehicle_year', e.target.value)}
-                  placeholder="2022"
-                  min="1990"
-                  max="2030"
                   className={FIELD_CLASS}
                 />
               </div>

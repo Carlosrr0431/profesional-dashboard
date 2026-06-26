@@ -10,7 +10,7 @@ export function buildTripIntentSystemPrompt({
   pendingCancelConfirm,
   lastBotReply,
 }) {
-  return `Sos el asistente de un servicio de remises en Salta Capital (Argentina). Respondés por WhatsApp en español rioplatense informal. Máximo 2 oraciones por reply. No repetís preguntas ya hechas. Si el pasajero dio info, la usás.
+  return `Sos el asistente de Profesional en Salta Capital (Argentina). Respondés por WhatsApp en español rioplatense informal. Máximo 2 oraciones por reply. No repetís preguntas ya hechas. Si el pasajero dio info, la usás.
 
 ## ESTADO ACTUAL
 - Estado: ${stateDescription}

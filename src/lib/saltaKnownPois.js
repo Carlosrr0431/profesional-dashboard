@@ -1,5 +1,6 @@
 /**
  * POIs conocidos de Salta Capital — detección coloquial, typos y nombre canónico para geocodificar.
+ * Compartido entre passenger-app y profesional-dashboard.
  */
 
 function normalizePoiText(value) {
@@ -13,7 +14,7 @@ function normalizePoiText(value) {
 }
 
 /** Corrige errores de tipeo frecuentes en nombres de lugares. */
-export function fixPoiTypoTokens(norm) {
+function fixPoiTypoTokens(norm) {
   return String(norm || '')
     .replace(/\bterminalk\b/g, 'terminal')
     .replace(/\bterminak\b/g, 'terminal')
@@ -25,14 +26,12 @@ export function fixPoiTypoTokens(norm) {
     .replace(/\bhospitak\b/g, 'hospital')
     .replace(/\baeropuertok\b/g, 'aeropuerto')
     .replace(/\bestacionk\b/g, 'estacion')
-    .replace(/\bestacion\b/g, 'estacion');
+    .replace(/\bestacion\b/g, 'estacion')
+    .replace(/\bjarava\b/g, 'jaraba')
+    .replace(/\bfransisca\b/g, 'francisca')
+    .replace(/\bhiperlibertad\b/g, 'hiper libertad');
 }
 
-/**
- * @typedef {{ id: string, label: string, geocodeQuery: string, alternateGeocodeQueries?: string[], patterns: RegExp[] }} SaltaPoiDef
- */
-
-/** @type {SaltaPoiDef[]} */
 const SALTA_KNOWN_POIS = [
   // ── Transporte ────────────────────────────────────────────────────────────
   {
@@ -76,6 +75,15 @@ const SALTA_KNOWN_POIS = [
     patterns: [
       /\bhospital\s+san\s+bernardo\b/,
       /\bsan\s+bernardo\b/,
+      /\b(el\s+)?hospital\b/,
+    ],
+    excludePatterns: [
+      /\bmilitar\b/,
+      /\bmaterno\b/,
+      /\bpapa\s+francisco\b/,
+      /\btres\s+cerritos\b/,
+      /\bmilagro\b/,
+      /\bpediatric/,
     ],
   },
   {
@@ -329,14 +337,65 @@ const SALTA_KNOWN_POIS = [
 
   // ── Lugares / Esparcimiento ───────────────────────────────────────────────
   {
-    id: 'plaza',
+    id: 'plaza_ceferino',
+    label: 'Plaza Ceferino',
+    geocodeQuery: 'Plaza Ceferino, Barrio Don Ceferino, Salta, Argentina',
+    alternateGeocodeQueries: ['Plaza de Ceferino, Salta, Argentina'],
+    patterns: [
+      /\bplaza\s+(de\s+)?ceferino\b/,
+    ],
+  },
+  {
+    id: 'plaza_alvarado',
+    label: 'Plaza Alvarado',
+    geocodeQuery: 'Plaza Alvarado, Salta, Argentina',
+    patterns: [/\bplaza\s+(de\s+)?alvarado\b/],
+  },
+  {
+    id: 'plaza_belgrano',
+    label: 'Plaza Belgrano',
+    geocodeQuery: 'Plaza Belgrano, Salta, Argentina',
+    patterns: [/\bplaza\s+(de\s+)?belgrano\b/],
+  },
+  {
+    id: 'plaza_guemes',
+    label: 'Plaza General Güemes',
+    geocodeQuery: 'Plaza General Güemes, Salta, Argentina',
+    alternateGeocodeQueries: ['Plaza Gral Güemes, Salta, Argentina'],
+    patterns: [
+      /\bplaza\s+(gral\.?\s*)?g[uü]emes\b/,
+      /\bplaza\s+don\s+mart[ií]n\s+miguel\s+de\s+g[uü]emes\b/,
+    ],
+  },
+  {
+    id: 'plaza_25_mayo',
+    label: 'Plaza 25 de Mayo',
+    geocodeQuery: 'Plaza 25 de Mayo, Salta, Argentina',
+    patterns: [/\bplaza\s+25\s+de\s+mayo\b/],
+  },
+  {
+    id: 'plaza_juventud',
+    label: 'Plaza de la Juventud',
+    geocodeQuery: 'Plaza de la Juventud, Salta, Argentina',
+    patterns: [/\bplaza\s+(de\s+la\s+)?juventud\b/],
+  },
+  {
+    id: 'plaza_9_de_julio',
     label: 'Plaza 9 de Julio',
     geocodeQuery: 'Plaza 9 de Julio, Salta, Argentina',
     patterns: [
-      /\b(la\s+)?plaza(?:\s+9\s+de\s+julio|\s+principal)?\b/,
       /\bplaza\s+9\s+de\s+julio\b/,
-      /\b(la\s+)?catedral\b/,
+      /\bplaza\s+principal\b/,
     ],
+    /** Solo "la plaza" / "plaza" a secas — no "plaza <otro nombre>". */
+    exactPatterns: [/^(?:la\s+)?plaza$/i],
+  },
+  {
+    id: 'catedral',
+    label: 'Catedral Basílica de Salta',
+    geocodeQuery: 'Catedral Basílica de Salta, Salta, Argentina',
+    alternateGeocodeQueries: ['Catedral de Salta, Argentina'],
+    patterns: [/\b(la\s+)?catedral\b/],
   },
   {
     id: 'casino',
@@ -356,7 +415,6 @@ const SALTA_KNOWN_POIS = [
     geocodeQuery: 'Parque San Martín, Salta, Argentina',
     patterns: [
       /\bparque\s+san\s+mart(i|í)n\b/,
-      /\bparque\b/,
     ],
   },
   {
@@ -373,13 +431,47 @@ const SALTA_KNOWN_POIS = [
 
   // ── Comercios / Servicios ─────────────────────────────────────────────────
   {
+    id: 'el_punto_shopping',
+    label: 'El Punto Shopping',
+    geocodeQuery: 'Av. Finca Yerba Buena 4401, San Lorenzo, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Avenida Finca Yerba Buena 4401 San Lorenzo Salta',
+      'El Punto Shopping San Lorenzo',
+      'Finca Yerba Buena 4401 San Lorenzo',
+    ],
+    patterns: [
+      /\bel\s+punto\s+shopping\b/,
+      /\bpunto\s+shopping\b/,
+      /\bpunto\s+shoping\b/,
+    ],
+    branches: [
+      {
+        subtitlePatterns: [/finca|yerba\s*buena|san\s*lorenzo/],
+        geocodeQuery: 'Av. Finca Yerba Buena 4401, San Lorenzo, Salta, Argentina',
+        shortLabel: 'El Punto Shopping, Finca Yerba Buena, San Lorenzo',
+      },
+    ],
+  },
+  {
+    id: 'alto_noa_shopping',
+    label: 'Alto NOA Shopping',
+    geocodeQuery: 'Alto NOA Shopping, Av. del Bicentenario 702, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Alto Noa Shopping Center Salta',
+      'Shopping Alto NOA Salta',
+    ],
+    patterns: [
+      /\balto\s+noa\b/,
+      /\bnoa\s+shopping\b/,
+    ],
+  },
+  {
     id: 'shopping',
     label: 'Shopping Salta',
     geocodeQuery: 'Shopping Salta, Salta, Argentina',
     alternateGeocodeQueries: [
       'Alto Palermo Salta',
       'Shopping Alto Palermo Salta',
-      'Alto NOA Shopping Salta',
       'Centro Comercial Del Norte Salta',
       'Paseo San Cayetano Salta',
     ],
@@ -388,7 +480,124 @@ const SALTA_KNOWN_POIS = [
       /\bshopping\s+salta\b/,
       /\bnuevo\s+centro\s+shopping\b/,
       /\bcentro\s+comercial\s+shopping\b/,
-      /\balto\s+noa\b/,
+    ],
+    /** No confundir con "El Punto Shopping" u otros shoppings con nombre propio. */
+    excludePatterns: [/\bpunto\s+shop/i],
+  },
+  {
+    id: 'paseo_libertad',
+    label: 'Paseo Libertad',
+    geocodeQuery: 'Paseo Libertad, Avenida Monseñor Roberto José Tavella, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Paseo Libertad Salta',
+      'Paseo Libertad 1, Salta, Argentina',
+      'Monseñor Roberto José Tavella 1, Salta, Argentina',
+    ],
+    patterns: [
+      /\bpaseo\s+libertad\b/,
+      /\bel\s+balcon\b/,
+    ],
+  },
+  {
+    id: 'paseo_salta',
+    label: 'Paseo Salta',
+    geocodeQuery: 'Paseo Libertad, Avenida Monseñor Roberto José Tavella, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Paseo Salta Rotonda Limache Salta',
+      'Rotonda de Limache Salta',
+      'Paseo Libertad Salta',
+    ],
+    patterns: [
+      /\bpaseo\s+salta\b/,
+    ],
+  },
+  {
+    id: 'hiper_libertad',
+    label: 'Hiper Libertad',
+    geocodeQuery: 'Paseo Libertad, Avenida Monseñor Roberto José Tavella, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Paseo Libertad Salta',
+      'Paseo Salta Rotonda Limache Salta',
+      'Hiper Libertad Paseo Salta Salta',
+    ],
+    patterns: [
+      /\bhiper\s*libertad\b/,
+      /\bhiperlibertad\b/,
+      /\blibertad\s+sa\b/,
+    ],
+  },
+  {
+    id: 'la_anonima',
+    label: 'La Anónima',
+    geocodeQuery: 'Paseo Libertad, Avenida Monseñor Roberto José Tavella, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Paseo Salta La Anónima Salta',
+      'Paseo Libertad Salta',
+      'Rotonda de Limache Salta',
+    ],
+    patterns: [
+      /\b(la\s+)?anonima\b/,
+    ],
+  },
+  {
+    id: 'la_francisca',
+    label: 'La Francisca',
+    geocodeQuery: 'Av. Gral. Arenales 1819, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'General Arenales 1819, Salta, Argentina',
+      'Arenales 1819, Salta, Argentina',
+    ],
+    patterns: [
+      /\b(la\s+)?fransisca\b/,
+      /\b(la\s+)?francisca\b/,
+    ],
+    branches: [
+      {
+        subtitlePatterns: [/arenal/],
+        geocodeQuery: 'Av. Gral. Arenales 1819, Salta, Argentina',
+        shortLabel: 'La Francisca, Arenales 1819, Salta',
+      },
+      {
+        subtitlePatterns: [/bicentenario|tres\s*cerritos/],
+        geocodeQuery: 'Av. del Bicentenario de la Batalla de Salta 1431, Salta, Argentina',
+        shortLabel: 'La Francisca, Bicentenario 1431, Salta',
+      },
+      {
+        subtitlePatterns: [/reyes\s*catolicos/],
+        geocodeQuery: 'Av. Reyes Católicos 1431, Salta, Argentina',
+        shortLabel: 'La Francisca, Reyes Católicos 1431, Salta',
+      },
+    ],
+  },
+  {
+    id: 'imagenes_jaraba',
+    label: 'Imágenes Jaraba',
+    geocodeQuery: 'Juan Martín de Pueyrredón 550, Salta, Argentina',
+    patterns: [
+      /\b(imagen(es)?\s+)?jaraba\b/,
+      /\bjaraba\b/,
+    ],
+    branches: [
+      {
+        subtitlePatterns: [/pueyrredon/],
+        geocodeQuery: 'Juan Martín de Pueyrredón 550, Salta, Argentina',
+        shortLabel: 'Imágenes Jaraba, Pueyrredón 550, Salta',
+      },
+      {
+        subtitlePatterns: [/mitre/],
+        geocodeQuery: 'Bartolomé Mitre 486, Salta, Argentina',
+        shortLabel: 'Imágenes Jaraba, Mitre 486, Salta',
+      },
+      {
+        subtitlePatterns: [/vicente\s*lopez/],
+        geocodeQuery: 'Vicente López 46, Salta, Argentina',
+        shortLabel: 'Imágenes Jaraba, Vicente López 46, Salta',
+      },
+      {
+        subtitlePatterns: [/9\s*de\s*julio|guemes/],
+        geocodeQuery: '9 de Julio, General Güemes, Salta, Argentina',
+        shortLabel: 'Imágenes Jaraba, 9 de Julio, Salta',
+      },
     ],
   },
   {
@@ -402,6 +611,91 @@ const SALTA_KNOWN_POIS = [
     label: 'Banco Macro',
     geocodeQuery: 'Banco Macro, Salta, Argentina',
     patterns: [/\bmacro\b/, /\bbanco\s+macro\b/],
+  },
+
+  // ── Escuelas / Colegios ───────────────────────────────────────────────────
+  {
+    id: 'escuela_normal_belgrano',
+    label: 'Escuela Normal de Maestras General Manuel Belgrano',
+    geocodeQuery: 'Escuela Normal, Bartolomé Mitre, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Escuela Normal, Salta, Argentina',
+      'Escuela Normal de Maestras, Salta, Argentina',
+    ],
+    patterns: [
+      /\bescuela\s+normal\b/,
+      /\bnormal\s+de\s+maestras\b/,
+      /\bnormal\s+(general\s+)?manuel\s+belgrano\b/,
+    ],
+  },
+  {
+    id: 'colegio_belgrano',
+    label: 'Colegio Belgrano',
+    geocodeQuery: 'Colegio Belgrano, Salta, Argentina',
+    patterns: [/\bcolegio\s+belgrano\b/],
+    excludePatterns: [/\bescuela\s+normal\b/, /\bnormal\s+de\s+maestras\b/],
+  },
+  {
+    id: 'colegio_del_milagro',
+    label: 'Colegio del Milagro',
+    geocodeQuery: 'Colegio del Milagro, Salta, Argentina',
+    patterns: [/\bcolegio\s+del\s+milagro\b/],
+  },
+  {
+    id: 'colegio_san_lucas',
+    label: 'Colegio San Lucas',
+    geocodeQuery: 'Colegio San Lucas, Salta, Argentina',
+    patterns: [/\bcolegio\s+san\s+lucas\b/],
+  },
+  {
+    id: 'colegio_jesus',
+    label: 'Colegio de Jesús',
+    geocodeQuery: 'Colegio de Jesús, Salta, Argentina',
+    patterns: [/\bcolegio\s+de\s+jesus\b/],
+  },
+  {
+    id: 'escuela_emprendedores',
+    label: 'Escuela de Emprendedores Salta',
+    geocodeQuery: 'Avenida Independencia 910, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Escuela de Emprendedores, Avenida Independencia 910, Salta',
+      'Oficina de empleo, Avenida Independencia 910, Salta, Argentina',
+    ],
+    patterns: [
+      /\bescuela\s+de\s+emprendedores\b/,
+      /\bemprendedores\s+salta\b/,
+    ],
+    branches: [
+      {
+        subtitlePatterns: [/independencia/],
+        geocodeQuery: 'Avenida Independencia 910, Salta, Argentina',
+        shortLabel: 'Escuela de Emprendedores, Independencia 910, Salta',
+      },
+    ],
+  },
+  {
+    id: 'incaa_hogar_escuela',
+    label: 'Espacio INCAA Hogar Escuela',
+    geocodeQuery: 'Escuela Hogar 4660, Avenida Hipólito Yrigoyen, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Espacio INCAA Hogar Escuela, Avenida Hipólito Yrigoyen, Salta',
+      'Escuela Hogar 4660 Carmen Puch de Güemes, Salta, Argentina',
+      'Pasaje Feliciano Chiclana y Avenida Hipólito Yrigoyen, Salta, Argentina',
+    ],
+    patterns: [
+      /\bincaa\b/,
+      /\bespacio\s+incaa\b/,
+      /\bhogar\s+escuela\b/,
+      /\bcarmen\s+puch\b/,
+    ],
+    excludePatterns: [/\bemprendedores\b/],
+    branches: [
+      {
+        subtitlePatterns: [/yrigoyen/],
+        geocodeQuery: 'Escuela Hogar 4660, Avenida Hipólito Yrigoyen, Salta, Argentina',
+        shortLabel: 'Espacio INCAA Hogar Escuela, Yrigoyen, Salta',
+      },
+    ],
   },
 
   // ── Gobierno / Servicios públicos ─────────────────────────────────────────
@@ -420,18 +714,20 @@ const SALTA_KNOWN_POIS = [
 ];
 
 const POI_KEYWORD_RE =
-  /\b(hospital|terminal|shopping|aeropuerto|catedral|plaza|casino|estacion|cementerio|sanatorio|apass|banco|farmacia|supermercado|colegio|escuela|universidad|unsa|ucasal|municipalidad|correo|edificio|oficina|galeria|centro\s+comercial|nuevo\s+centro|macro|carrefour|walmart|hiper|tren|estadio|mercado|feria|museo|cabildo|parque|cerro|telef[eé]rico|balcarce|martearena|milagro|materno|pediatric[ao]|maam|bellas\s+artes|ciencias\s+naturales|siglo\s+21|gigante|antoniana|san\s+bernardo|san\s+miguel|artesanal)\b/;
+  /\b(hospital|terminal|shopping|aeropuerto|catedral|plaza|casino|estacion|cementerio|sanatorio|apass|banco|farmacia|supermercado|colegio|escuela|universidad|unsa|ucasal|municipalidad|correo|edificio|oficina|galeria|centro\s+comercial|nuevo\s+centro|macro|carrefour|walmart|hiper|tren|estadio|mercado|feria|museo|cabildo|parque|cerro|telef[eé]rico|balcarce|martearena|milagro|materno|militarr|pediatric[ao]|maam|bellas\s+artes|ciencias\s+naturales|siglo\s+21|gigante|antoniana|san\s+bernardo|san\s+miguel|artesanal|incaa|hogar\s+escuela|carmen\s+puch)\b/;
 
-/**
- * @param {string} value
- * @returns {{ id: string, label: string, geocodeQuery: string } | null}
- */
-export function resolveSaltaKnownPoi(value) {
+function poiMatchesEntry(poi, norm) {
+  if (poi.excludePatterns?.some((pattern) => pattern.test(norm))) return false;
+  if (poi.exactPatterns?.some((pattern) => pattern.test(norm))) return true;
+  return poi.patterns.some((pattern) => pattern.test(norm));
+}
+
+function resolveSaltaKnownPoi(value) {
   const norm = fixPoiTypoTokens(normalizePoiText(value));
   if (!norm) return null;
 
   for (const poi of SALTA_KNOWN_POIS) {
-    if (poi.patterns.some((pattern) => pattern.test(norm))) {
+    if (poiMatchesEntry(poi, norm)) {
       return {
         id: poi.id,
         label: poi.label,
@@ -444,16 +740,53 @@ export function resolveSaltaKnownPoi(value) {
   return null;
 }
 
-/** ¿El texto referencia un POI/lugar (sin ser calle con altura)? */
-export function looksLikeSaltaKnownPoi(value) {
+/**
+ * Mapea título + subtítulo de Google Autocomplete a una dirección estructurada
+ * (calle + altura) cuando el POI no existe en OSM pero sí la sucursal conocida.
+ */
+function resolveKnownPoiBranch(title, subtitle) {
+  const titleNorm = fixPoiTypoTokens(normalizePoiText(title));
+  const subtitleNorm = normalizePoiText(subtitle);
+  const combined = `${titleNorm} ${subtitleNorm}`.trim();
+  if (!titleNorm && !combined) return null;
+
+  for (const poi of SALTA_KNOWN_POIS) {
+    const matchesPoi = poiMatchesEntry(poi, titleNorm) || poiMatchesEntry(poi, combined);
+    if (!matchesPoi) continue;
+
+    for (const branch of poi.branches || []) {
+      const matchesBranch = branch.subtitlePatterns?.some(
+        (pattern) => pattern.test(subtitleNorm) || pattern.test(combined),
+      );
+      if (matchesBranch) {
+        return {
+          id: poi.id,
+          label: branch.shortLabel || poi.label,
+          geocodeQuery: branch.geocodeQuery,
+        };
+      }
+    }
+
+    if (poi.geocodeQuery) {
+      return {
+        id: poi.id,
+        label: poi.label,
+        geocodeQuery: poi.geocodeQuery,
+      };
+    }
+  }
+
+  return null;
+}
+
+function looksLikeSaltaKnownPoi(value) {
   const norm = fixPoiTypoTokens(normalizePoiText(value));
   if (!norm) return false;
   if (resolveSaltaKnownPoi(norm)) return true;
   return POI_KEYWORD_RE.test(norm);
 }
 
-/** Consultas extra para obtener varios candidatos en encuesta (Google suele colapsar duplicados). */
-export function getKnownPoiSearchQueries(poi) {
+function getKnownPoiSearchQueries(poi) {
   if (!poi) return [];
   const seen = new Set();
   const out = [];
@@ -469,7 +802,7 @@ export function getKnownPoiSearchQueries(poi) {
 }
 
 /** Varias consultas Nominatim para autocomplete de POIs (typos + alternativas + categoría). */
-export function buildPoiAutocompleteQueries(value) {
+function buildPoiAutocompleteQueries(value) {
   const raw = String(value || '').trim();
   const norm = fixPoiTypoTokens(normalizePoiText(value));
   const queries = [];
@@ -499,6 +832,17 @@ export function buildPoiAutocompleteQueries(value) {
     add('centro comercial Salta');
     add('shopping mall Salta');
     add('Alto NOA Shopping Salta');
+  }
+  if (/\bhiper\s*libertad\b/.test(norm) || /\bhiperlibertad\b/.test(norm)) {
+    add('Paseo Libertad Salta');
+    add('Paseo Salta Rotonda Limache Salta');
+  }
+  if (/\bpaseo\s+salta\b/.test(norm) || /\bpaseo\s+libertad\b/.test(norm)) {
+    add('Paseo Libertad Salta');
+    add('Rotonda de Limache Salta');
+  }
+  if (/\banonima\b/.test(norm)) {
+    add('Paseo Libertad Salta');
   }
   if (/\bterminal\b/.test(norm)) {
     add('terminal de omnibus Salta');
@@ -531,26 +875,12 @@ export function buildPoiAutocompleteQueries(value) {
   return queries;
 }
 
-/**
- * Fusiona candidatos de geocodificación manteniendo lugares a ~50 m o más.
- * @param {Array<{ formattedAddress?: string, lat?: number, lng?: number, score?: number, pollLabel?: string }>} base
- * @param {Array<{ formattedAddress?: string, lat?: number, lng?: number, score?: number, pollLabel?: string }>} extra
- */
-export function mergeDistinctAddressCandidates(base, extra, { maxResults = 5 } = {}) {
-  const merged = [];
-  const add = (c) => {
-    if (!c?.formattedAddress || c.lat == null || c.lng == null) return;
-    const addrKey = String(c.formattedAddress).toLowerCase().trim();
-    const tooClose = merged.some(
-      (prev) =>
-        Math.abs(prev.lat - c.lat) < 0.00045 && Math.abs(prev.lng - c.lng) < 0.00045
-    );
-    if (tooClose) return;
-    if (merged.some((m) => String(m.formattedAddress).toLowerCase().trim() === addrKey)) return;
-    merged.push(c);
-  };
-  (base || []).forEach(add);
-  (extra || []).forEach(add);
-  merged.sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
-  return merged.slice(0, maxResults);
-}
+module.exports = {
+  resolveSaltaKnownPoi,
+  resolveKnownPoiBranch,
+  looksLikeSaltaKnownPoi,
+  getKnownPoiSearchQueries,
+  buildPoiAutocompleteQueries,
+  normalizePoiText,
+  fixPoiTypoTokens,
+};

@@ -40,6 +40,26 @@ describe('saltaKnownPois', () => {
     expect(fixPoiTypoTokens('el shoping')).toBe('el shopping');
   });
 
+  it('resuelve Escuela de Emprendedores con dirección en Independencia 910', () => {
+    const poi = resolveSaltaKnownPoi('Escuela de Emprendedores Salta');
+    expect(poi?.id).toBe('escuela_emprendedores');
+    expect(poi?.geocodeQuery).toMatch(/Independencia 910/i);
+  });
+
+  it('resuelve Escuela Normal de Maestras (nombre largo de Google)', () => {
+    const poi = resolveSaltaKnownPoi(
+      'Escuela Normal de Maestras General Manuel Belgrano',
+    );
+    expect(poi?.id).toBe('escuela_normal_belgrano');
+    expect(poi?.geocodeQuery).toMatch(/Escuela Normal/i);
+  });
+
+  it('resuelve Espacio INCAA Hogar Escuela en Yrigoyen', () => {
+    const poi = resolveSaltaKnownPoi('Espacio INCAA Hogar Escuela');
+    expect(poi?.id).toBe('incaa_hogar_escuela');
+    expect(poi?.geocodeQuery).toMatch(/4660|Yrigoyen/i);
+  });
+
   it('getKnownPoiSearchQueries incluye alternativas de terminal', () => {
     const poi = resolveSaltaKnownPoi('la terminal');
     const queries = getKnownPoiSearchQueries(poi);

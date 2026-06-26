@@ -86,7 +86,6 @@ export async function POST(request) {
       driver_number: profile?.driver_number ? parseInt(profile.driver_number, 10) : null,
       vehicle_brand: profile?.vehicle_brand || null,
       vehicle_model: profile?.vehicle_model || null,
-      vehicle_year: profile?.vehicle_year ? parseInt(profile.vehicle_year, 10) : null,
       vehicle_plate: profile?.vehicle_plate || null,
       vehicle_color: profile?.vehicle_color || null,
       vehicle_type: profile?.vehicle_type || 'auto',

@@ -52,10 +52,10 @@ describe('provisionAssignedDriverAuth', () => {
         id: 'd1',
         is_assigned_driver: true,
         owner_id: 'owner1',
-        phone_normalized: '543878630173',
+        phone_normalized: '5493878630173',
         password_initialized: false,
         user_id: null,
-        auth_email: buildAssignedDriverAuthEmail('543878630173'),
+        auth_email: buildAssignedDriverAuthEmail('5493878630173'),
         full_name: 'Juan',
       },
       error: null,
@@ -86,7 +86,7 @@ describe('provisionAssignedDriverAuth', () => {
       phone_normalized: normalizeDriverPhone('3878630173'),
       password_initialized: false,
       user_id: null,
-      auth_email: buildAssignedDriverAuthEmail('543878630173'),
+      auth_email: buildAssignedDriverAuthEmail(normalizeDriverPhone('3878630173')),
       full_name: 'Juan',
     };
 

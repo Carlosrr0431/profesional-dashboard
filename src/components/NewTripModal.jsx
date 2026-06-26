@@ -50,9 +50,12 @@ export default function NewTripModal({
 
   /* Recogida */
   const [pickupLabel, setPickupLabel] = useState('');
+  const [pickupTitle, setPickupTitle] = useState('');
+  const [pickupSubtitle, setPickupSubtitle] = useState('');
   const [pickupLat, setPickupLat] = useState(null);
   const [pickupLng, setPickupLng] = useState(null);
   const [placeId, setPlaceId] = useState('');
+  const [pickupGeocodeSource, setPickupGeocodeSource] = useState(null);
 
   /* Destino */
   const [destLabel, setDestLabel] = useState('');
@@ -85,7 +88,6 @@ export default function NewTripModal({
   useEffect(() => {
     if (!pickupLat || !pickupLng || !destLat || !destLng) {
       setRouteInfo(null);
-      onRouteChange?.(null);
       return;
     }
 
@@ -112,42 +114,72 @@ export default function NewTripModal({
     return () => { cancelled = true; };
   }, [pickupLat, pickupLng, destLat, destLng]);
 
+  const hasPickupPoint = pickupLat != null && pickupLng != null;
+  const hasFullRoute = routeInfo?.polylineCoords?.length > 1;
+  const canShowOnMap = hasFullRoute || hasPickupPoint;
+
   /* ── Publicar ruta al mapa ────────────────────────────────────────────── */
   useEffect(() => {
     if (!onRouteChange) return;
-    if (showOnMap && routeInfo?.polylineCoords?.length > 1) {
+    if (!showOnMap) {
+      onRouteChange(null);
+      return;
+    }
+
+    if (hasFullRoute) {
       onRouteChange({
         polylineCoords: routeInfo.polylineCoords,
         origin: { lat: pickupLat, lng: pickupLng, label: pickupLabel },
-        destination: { lat: destLat, lng: destLng, label: destLabel },
+        destination: destLat != null && destLng != null
+          ? { lat: destLat, lng: destLng, label: destLabel }
+          : null,
       });
-    } else {
-      onRouteChange(null);
+      return;
     }
+
+    if (hasPickupPoint) {
+      onRouteChange({
+        polylineCoords: [],
+        origin: { lat: pickupLat, lng: pickupLng, label: pickupLabel },
+        destination: null,
+      });
+      return;
+    }
+
+    onRouteChange(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showOnMap, routeInfo]);
+  }, [showOnMap, routeInfo, pickupLat, pickupLng, pickupLabel, destLat, destLng, destLabel]);
 
   const autoPrice = routeInfo && calculatePrice ? calculatePrice(routeInfo.distanceKm) : null;
 
-  /* ── Ver ruta en mapa (minimiza el modal) ─────────────────────────────── */
+  /* ── Ver ruta o punto de recogida en mapa (minimiza el modal) ─────────── */
   const handleVerRuta = useCallback(() => {
-    if (!routeInfo?.polylineCoords?.length) return;
+    if (!canShowOnMap) return;
     setShowOnMap(true);
     setMinimized(true);
-  }, [routeInfo]);
+  }, [canShowOnMap]);
 
   const onPickupSelect = (place) => {
     const lat = Number(place?.lat);
     const lng = Number(place?.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setError('No se pudo ubicar la dirección de recogida. Elegila de nuevo de la lista.');
+      setPickupLat(null); setPickupLng(null); setPlaceId(''); setPickupLabel('');
+      setPickupTitle(''); setPickupSubtitle(''); setPickupGeocodeSource(null);
+      return;
+    }
     if (!isWithinSaltaCapital(lat, lng)) {
       setError('La dirección debe estar dentro de Salta Capital.');
       setPickupLat(null); setPickupLng(null); setPlaceId(''); setPickupLabel('');
+      setPickupTitle(''); setPickupSubtitle(''); setPickupGeocodeSource(null);
       return;
     }
     setPickupLabel(place.formattedAddress || '');
+    setPickupTitle(place.title || '');
+    setPickupSubtitle(place.subtitle || '');
     setPickupLat(lat); setPickupLng(lng);
     setPlaceId(place.placeId || '');
+    setPickupGeocodeSource(place.geocodeSource || null);
     setError('');
   };
 
@@ -353,11 +385,36 @@ export default function NewTripModal({
                 value={pickupLabel}
                 accentColor="#DC2626"
                 inputIcon={<OriginDotSmall />}
-                onChange={(text) => { setPickupLabel(text); setPickupLat(null); setPickupLng(null); setPlaceId(''); }}
+                onChange={(text) => {
+                  setPickupLabel(text);
+                  setPickupLat(null);
+                  setPickupLng(null);
+                  setPlaceId('');
+                  setPickupTitle('');
+                  setPickupSubtitle('');
+                  setPickupGeocodeSource(null);
+                }}
                 onSelect={onPickupSelect}
               />
-              {pickupLat != null && (
-                <p style={{ color: '#059669', fontSize: 11, margin: '4px 0 0', fontWeight: 500 }}>✓ Ubicación confirmada</p>
+              {pickupLat != null && pickupGeocodeSource && (
+                <div style={{ marginTop: 4 }}>
+                  <span
+                    title={pickupGeocodeSource === 'supabase_cache' ? 'Coordenadas desde cache en base de datos' : 'Coordenadas desde Google Place Details Essentials'}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '2px 8px',
+                      borderRadius: 999,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: '0.03em',
+                      background: pickupGeocodeSource === 'supabase_cache' ? '#ECFDF5' : '#EFF6FF',
+                      color: pickupGeocodeSource === 'supabase_cache' ? '#047857' : '#1D4ED8',
+                    }}
+                  >
+                    {pickupGeocodeSource === 'supabase_cache' ? 'cache BD' : 'Google'}
+                  </span>
+                </div>
               )}
             </div>
 
@@ -380,7 +437,24 @@ export default function NewTripModal({
                 accentColor="#059669"
                 inputIcon={<DestDotSmall />}
                 onChange={(text) => { setDestLabel(text); setDestLat(null); setDestLng(null); }}
-                onSelect={(place) => { setDestLabel(place.formattedAddress); setDestLat(place.lat); setDestLng(place.lng); }}
+                onSelect={(place) => {
+                  const lat = Number(place?.lat);
+                  const lng = Number(place?.lng);
+                  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                    setError('No se pudo ubicar el destino. Elegilo de nuevo de la lista.');
+                    setDestLabel(''); setDestLat(null); setDestLng(null);
+                    return;
+                  }
+                  if (!isWithinSaltaCapital(lat, lng)) {
+                    setError('La dirección debe estar dentro de Salta Capital.');
+                    setDestLabel(''); setDestLat(null); setDestLng(null);
+                    return;
+                  }
+                  setDestLabel(place.formattedAddress);
+                  setDestLat(lat);
+                  setDestLng(lng);
+                  setError('');
+                }}
               />
             </div>
           </div>
@@ -493,20 +567,24 @@ export default function NewTripModal({
               </button>
               <button
                 type="button" onClick={handleVerRuta}
-                disabled={!routeInfo?.polylineCoords?.length || routeLoading}
-                title={!routeInfo?.polylineCoords?.length ? 'Ingresá recogida y destino para ver la ruta' : 'Ver ruta en el mapa'}
+                disabled={!canShowOnMap || routeLoading}
+                title={
+                  !canShowOnMap
+                    ? 'Confirmá la dirección de recogida para verla en el mapa'
+                    : (hasFullRoute ? 'Ver ruta en el mapa' : 'Ver punto de recogida en el mapa')
+                }
                 style={{
                   flex: 1, padding: '10px 14px',
-                  background: routeInfo?.polylineCoords?.length
+                  background: canShowOnMap
                     ? 'linear-gradient(135deg,#0EA5E9 0%,#0284C7 100%)'
                     : '#F1F5F9',
-                  border: routeInfo?.polylineCoords?.length ? 'none' : '1px solid #E2E8F0',
+                  border: canShowOnMap ? 'none' : '1px solid #E2E8F0',
                   borderRadius: 12,
-                  color: routeInfo?.polylineCoords?.length ? '#FFFFFF' : '#94A3B8',
+                  color: canShowOnMap ? '#FFFFFF' : '#94A3B8',
                   fontSize: 13, fontWeight: 700,
-                  cursor: routeInfo?.polylineCoords?.length ? 'pointer' : 'not-allowed',
+                  cursor: canShowOnMap && !routeLoading ? 'pointer' : 'not-allowed',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  boxShadow: routeInfo?.polylineCoords?.length ? '0 4px 12px rgba(14,165,233,0.35)' : 'none',
+                  boxShadow: canShowOnMap ? '0 4px 12px rgba(14,165,233,0.35)' : 'none',
                 }}
               >
                 {routeLoading

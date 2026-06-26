@@ -63,8 +63,11 @@ export default function DriverManagement({ onBack }) {
     try {
       if (editDriver) {
         const { email, password, ...profile } = formData;
-        await updateDriver(editDriver.id, profile);
-        toast.success(`Chofer "${profile.full_name || editDriver.full_name}" actualizado`);
+        const updates = { ...profile };
+        if (password) updates.password = password;
+        await updateDriver(editDriver.id, updates);
+        const passwordMsg = password ? ' Contraseña de ingreso actualizada.' : '';
+        toast.success(`Chofer "${profile.full_name || editDriver.full_name}" actualizado.${passwordMsg}`);
       } else {
         await createDriver(formData);
         toast.success(`Chofer "${formData.full_name}" creado correctamente`);
@@ -121,9 +124,9 @@ export default function DriverManagement({ onBack }) {
   }
 
   return (
-    <div className="h-full flex bg-light-100">
+    <div className="h-full min-h-0 flex overflow-hidden bg-light-100">
       {/* Main content */}
-      <div className={`flex-1 flex flex-col overflow-hidden transition-all ${detailDriver ? 'mr-0' : ''}`}>
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Header */}
         <div className="bg-light-50 border-b border-light-300/50 px-6 py-4">
           <div className="flex items-center justify-between mb-4">

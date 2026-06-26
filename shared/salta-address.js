@@ -4,7 +4,7 @@
  */
 
 const { SALTA_STREETS_FALLBACK } = require('./salta-streets-fallback');
-const { resolveSaltaKnownPoi, getKnownPoiSearchQueries } = require('./salta-known-pois');
+const { resolveSaltaKnownPoi, getKnownPoiSearchQueries, looksLikeSaltaKnownPoi } = require('./salta-known-pois');
 
 function sanitizeAddressInput(address) {
   if (!address || typeof address !== 'string') return '';
@@ -240,7 +240,14 @@ function applyPhoneticCorrections(text) {
 
 function applyStreetNameExpansions(text) {
   let result = String(text || '');
+  const fold = (value) => String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
   for (const [pattern, replacement] of SALTA_STREET_EXPANSIONS) {
+    // Evitar duplicar nombres ya completos (ej. "Bartolomé Mitre" → "Bartolomé Bartolomé Mitre").
+    if (fold(result).includes(fold(replacement))) continue;
     result = result.replace(pattern, replacement);
   }
   return result;
@@ -703,6 +710,36 @@ function formatNominatimLabelForQuery(mapped, query) {
   return applyQueryHouseNumberToLabel(base, query);
 }
 
+const INTERSECTION_POI_BLOCK_RE = /\b(shopping|hospital|terminal|axion|ypf|shell|supermercado|hiper|libertad|anonima|estacion\s+de\s+servicio)\b/i;
+
+/**
+ * Detecta direcciones tipo "Calle A y Calle B" (intersección / esquina).
+ * @returns {{ street1: string, street2: string } | null}
+ */
+function parseStreetIntersection(value) {
+  const raw = sanitizeAddressInput(value);
+  if (!raw) return null;
+
+  const normalized = normalizeAddressPhrase(raw) || raw;
+  const cleaned = normalized
+    .replace(/,?\s*salta(?:\s+capital)?(?:\s*,?\s*argentina)?\s*$/i, '')
+    .trim();
+
+  const match = cleaned.match(/^(.+?)\s+y\s+(.+)$/i);
+  if (!match) return null;
+
+  const street1 = sanitizeAddressInput(match[1]);
+  const street2 = sanitizeAddressInput(match[2]);
+  if (!street1 || !street2 || street1.length < 2 || street2.length < 2) return null;
+
+  const combined = `${street1} ${street2}`;
+  if (INTERSECTION_POI_BLOCK_RE.test(combined)) return null;
+  if (looksLikeSaltaKnownPoi(cleaned)) return null;
+  if (pickPrimaryHouseNumber(street1) != null || pickPrimaryHouseNumber(street2) != null) return null;
+
+  return { street1, street2 };
+}
+
 module.exports = {
   sanitizeAddressInput,
   normalizeAddressPhrase,
@@ -716,5 +753,6 @@ module.exports = {
   applyQueryHouseNumberToLabel,
   parseStreetHouseFromQuery,
   pickPrimaryHouseNumber,
+  parseStreetIntersection,
   ensureStreetCatalog,
 };

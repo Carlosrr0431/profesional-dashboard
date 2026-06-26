@@ -5,7 +5,12 @@ import {
   listEmulators,
   setEmulatorGeo,
 } from '../../../../src/lib/adb.js';
-import { getSimulatorDriverOrigin } from '../../../../src/lib/emulatorDriverOrigin.js';
+import {
+  getSimulatorDriverOrigin,
+  listSimulatorDrivers,
+  setGpsSimulationMode,
+  setSimulatorDriverPosition,
+} from '../../../../src/lib/emulatorDriverOrigin.js';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -20,28 +25,44 @@ function devOnlyResponse() {
   );
 }
 
-export async function GET() {
+function parseCoords(latitude, longitude) {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null;
+  }
+  return { lat, lng };
+}
+
+export async function GET(request) {
   if (!isDevGpsApiEnabled()) return devOnlyResponse();
 
+  const driverId = new URL(request.url).searchParams.get('driverId') || undefined;
+
   const adbStatus = await checkAdbAvailable();
-  if (!adbStatus.ok) {
-    return NextResponse.json({
-      adb: adbStatus,
-      emulators: [],
-      hint:
-        'Instalá Android SDK Platform-Tools o definí ADB_PATH / ANDROID_HOME apuntando al SDK de Android Studio.',
-    });
-  }
 
   try {
-    const [emulators, driverOrigin] = await Promise.all([
-      listEmulators(),
-      getSimulatorDriverOrigin().catch(() => null),
+    const [emulators, driverOrigin, drivers] = await Promise.all([
+      adbStatus.ok ? listEmulators() : Promise.resolve([]),
+      getSimulatorDriverOrigin({ driverId }).catch(() => null),
+      listSimulatorDrivers().catch(() => []),
     ]);
-    return NextResponse.json({ adb: adbStatus, emulators, driverOrigin });
+
+    if (!adbStatus.ok) {
+      return NextResponse.json({
+        adb: adbStatus,
+        emulators: [],
+        drivers,
+        driverOrigin,
+        hint:
+          'Sin emulador ADB: podés simular igual arrastrando el pin (actualiza current_lat/lng en Supabase).',
+      });
+    }
+
+    return NextResponse.json({ adb: adbStatus, emulators, driverOrigin, drivers });
   } catch (err) {
     return NextResponse.json(
-      { adb: adbStatus, emulators: [], error: err.message },
+      { adb: adbStatus, emulators: [], drivers: [], error: err.message },
       { status: 500 },
     );
   }
@@ -57,20 +78,71 @@ export async function POST(request) {
     return NextResponse.json({ error: 'JSON inválido' }, { status: 400 });
   }
 
-  const { deviceId, latitude, longitude } = body || {};
-  if (!deviceId || typeof deviceId !== 'string') {
-    return NextResponse.json({ error: 'deviceId es obligatorio' }, { status: 400 });
+  const { deviceId, driverId, latitude, longitude } = body || {};
+  const coords = parseCoords(latitude, longitude);
+  if (!coords) {
+    return NextResponse.json({ error: 'latitude y longitude son obligatorias' }, { status: 400 });
   }
-  if (!deviceId.startsWith('emulator-')) {
+
+  const hasEmulator = typeof deviceId === 'string' && deviceId.startsWith('emulator-');
+  const hasDriver = typeof driverId === 'string' && driverId.length > 0;
+
+  if (!hasEmulator && !hasDriver) {
+    return NextResponse.json(
+      { error: 'Indicá driverId (celular/APK) o deviceId (emulador Android)' },
+      { status: 400 },
+    );
+  }
+
+  if (hasEmulator && !deviceId.startsWith('emulator-')) {
     return NextResponse.json({ error: 'Solo se permiten emuladores Android' }, { status: 400 });
   }
 
   try {
-    const position = await setEmulatorGeo(deviceId, latitude, longitude);
-    return NextResponse.json({ ok: true, deviceId, position });
+    const result = { ok: true, position: coords };
+
+    if (hasDriver) {
+      result.database = await setSimulatorDriverPosition(driverId, coords.lat, coords.lng);
+    }
+
+    if (hasEmulator) {
+      result.emulator = await setEmulatorGeo(deviceId, coords.lat, coords.lng);
+      result.deviceId = deviceId;
+    }
+
+    return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(
-      { error: err.message || 'No se pudo actualizar la ubicación del emulador' },
+      { error: err.message || 'No se pudo actualizar la ubicación simulada' },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PATCH(request) {
+  if (!isDevGpsApiEnabled()) return devOnlyResponse();
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'JSON inválido' }, { status: 400 });
+  }
+
+  const { driverId, active } = body || {};
+  if (!driverId || typeof driverId !== 'string') {
+    return NextResponse.json({ error: 'driverId es obligatorio' }, { status: 400 });
+  }
+  if (typeof active !== 'boolean') {
+    return NextResponse.json({ error: 'active (boolean) es obligatorio' }, { status: 400 });
+  }
+
+  try {
+    const result = await setGpsSimulationMode(driverId, active);
+    return NextResponse.json({ ok: true, ...result });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err.message || 'No se pudo cambiar el modo simulación' },
       { status: 500 },
     );
   }

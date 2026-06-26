@@ -10,12 +10,15 @@ import {
 
 describe('driverRoles (dashboard)', () => {
   it('normaliza teléfonos argentinos', () => {
-    expect(normalizeDriverPhone('3878630173')).toBe('543878630173');
+    expect(normalizeDriverPhone('3878630173')).toBe('5493878630173');
+    expect(normalizeDriverPhone('93878630173')).toBe('5493878630173');
+    expect(normalizeDriverPhone('5493875105250')).toBe('5493875105250');
+    expect(normalizeDriverPhone('543875105250')).toBe('5493875105250');
   });
 
   it('genera email sintético de chofer asignado', () => {
-    expect(buildAssignedDriverAuthEmail('543878630173')).toBe(
-      'assigned.543878630173@profesional.test',
+    expect(buildAssignedDriverAuthEmail('5493878630173')).toBe(
+      'assigned.5493878630173@profesional.test',
     );
   });
 
@@ -47,8 +50,8 @@ describe('driverRoles (dashboard)', () => {
     const payload = buildAssignedDriverInsertPayload(owner, {
       fullName: 'Charly Brown',
       phone: '3878630173',
-      phoneNormalized: '543878630173',
-      authEmail: 'assigned.543878630173@profesional.test',
+      phoneNormalized: '5493878630173',
+      authEmail: 'assigned.5493878630173@profesional.test',
     });
 
     expect(payload.driver_number).toBe(2);

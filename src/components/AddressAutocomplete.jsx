@@ -31,6 +31,34 @@ function LocationIcon({ color = '#94A3B8' }) {
   );
 }
 
+function firstAddressLine(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.split(',')[0]?.trim() || '';
+}
+
+function buildSelectedAddressLabel({ title, line, fallback }) {
+  const t = String(title || '').trim();
+  const l = String(line || '').trim();
+  const f = String(fallback || '').trim();
+  if (t && l) {
+    if (t.toLowerCase() === l.toLowerCase()) return t;
+    return `${t}, ${l}`;
+  }
+  return t || l || f;
+}
+
+function filterSuggestionsByQuery(items, normalizedQuery) {
+  const q = String(normalizedQuery || '').trim();
+  if (!q) return [];
+  return items.filter((item) => {
+    const title = String(item?.title || '').toLowerCase();
+    const subtitle = String(item?.subtitle || '').toLowerCase();
+    const address = String(item?.address || '').toLowerCase();
+    return title.includes(q) || subtitle.includes(q) || address.includes(q);
+  });
+}
+
 export default function AddressAutocomplete({
   id,
   label,
@@ -51,6 +79,16 @@ export default function AddressAutocomplete({
   const debounceRef = useRef(null);
   const wrapRef = useRef(null);
   const inputRef = useRef(null);
+  const abortRef = useRef(null);
+  const requestSeqRef = useRef(0);
+  const suggestionsCacheRef = useRef(new Map());
+  const sessionTokenRef = useRef(null);
+
+  const beginSession = useCallback(() => {
+    sessionTokenRef.current = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `sess-${Date.now()}`;
+  }, []);
 
   useEffect(() => {
     setQuery(value || '');
@@ -64,37 +102,146 @@ export default function AddressAutocomplete({
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+  }, []);
+
   const fetchSuggestions = useCallback(async (text) => {
     const q = String(text || '').trim();
-    if (q.length < 3) { setSuggestions([]); return; }
+    if (q.length < 2) { setSuggestions([]); setOpen(false); return; }
+
+    const normalized = q.toLowerCase().replace(/\s+/g, ' ').trim();
+    const cached = suggestionsCacheRef.current.get(normalized);
+    if (cached) {
+      setSuggestions(cached);
+      setOpen(cached.length > 0);
+      setLoading(false);
+      return;
+    }
+
+    // Reutiliza cache de prefijos para mostrar algo instantáneo mientras llega red.
+    const prefixEntries = Array.from(suggestionsCacheRef.current.entries())
+      .filter(([key]) => normalized.startsWith(key))
+      .sort((a, b) => b[0].length - a[0].length);
+    if (prefixEntries.length > 0) {
+      const optimistic = filterSuggestionsByQuery(prefixEntries[0][1], normalized);
+      if (optimistic.length > 0) {
+        setSuggestions(optimistic.slice(0, 6));
+        setOpen(true);
+      }
+    }
+
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const requestId = ++requestSeqRef.current;
+
     setLoading(true);
     try {
-      const res = await fetch(`/api/geo/autocomplete?q=${encodeURIComponent(q)}&limit=6`);
+      if (!sessionTokenRef.current) beginSession();
+      const qs = new URLSearchParams({
+        q,
+        limit: '6',
+        sessionToken: sessionTokenRef.current,
+      });
+      const res = await fetch(`/api/geo/autocomplete?${qs.toString()}`, {
+        signal: controller.signal,
+      });
       const payload = await res.json();
-      setSuggestions(payload?.ok ? payload.data : []);
+      if (requestId !== requestSeqRef.current) return;
+      const nextSuggestions = payload?.ok ? payload.data : [];
+      setSuggestions(nextSuggestions);
+      suggestionsCacheRef.current.set(normalized, nextSuggestions);
+      if (suggestionsCacheRef.current.size > 80) {
+        const firstKey = suggestionsCacheRef.current.keys().next().value;
+        if (firstKey) suggestionsCacheRef.current.delete(firstKey);
+      }
       setOpen(true);
     } catch {
+      if (controller.signal.aborted) return;
       setSuggestions([]);
+      setOpen(false);
     } finally {
-      setLoading(false);
+      if (requestId === requestSeqRef.current) setLoading(false);
     }
-  }, []);
+  }, [beginSession]);
 
   const handleInput = (e) => {
     const text = e.target.value;
     setQuery(text);
     onChange?.(text);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fetchSuggestions(text), 300);
+    debounceRef.current = setTimeout(() => fetchSuggestions(text), 200);
   };
 
-  const handlePick = (item) => {
-    const labelText = item.address || '';
+  const handlePick = async (item) => {
+    const baseTitle = item.title || String(item.address || '').split(',')[0];
+    const baseLine = firstAddressLine(item.subtitle || item.address);
+    const labelText = buildSelectedAddressLabel({
+      title: baseTitle,
+      line: baseLine,
+      fallback: item.address || '',
+    });
     setQuery(labelText);
     onChange?.(labelText);
-    onSelect?.({ formattedAddress: labelText, lat: item.lat, lng: item.lng, placeId: item.placeId || null });
     setOpen(false);
     setSuggestions([]);
+
+    const hasCoords = Number.isFinite(item.lat) && Number.isFinite(item.lng);
+    if (hasCoords) {
+      sessionTokenRef.current = null;
+      onSelect?.({
+        formattedAddress: labelText,
+        lat: item.lat,
+        lng: item.lng,
+        placeId: item.placeId || null,
+        title: item.title || null,
+        subtitle: item.subtitle || null,
+      });
+      return;
+    }
+
+    if (!item.placeId) {
+      onSelect?.({ formattedAddress: labelText, lat: null, lng: null, placeId: null });
+      return;
+    }
+
+    try {
+      const token = item.sessionToken || sessionTokenRef.current;
+      const qs = new URLSearchParams({
+        placeId: String(item.placeId),
+        formattedAddress: labelText,
+      });
+      if (item.title) qs.set('title', item.title);
+      if (item.subtitle) qs.set('subtitle', item.subtitle);
+      if (token) qs.set('sessionToken', token);
+      const res = await fetch(`/api/geo/geocode?${qs.toString()}`);
+      const payload = await res.json();
+      if (!payload?.ok) throw new Error(payload?.error || 'No se pudo obtener la ubicación');
+      const resolvedTitle = payload.data?.title || item.title || null;
+      const resolvedLine = firstAddressLine(payload.data?.formattedAddress || item.subtitle || item.address || '');
+      const selectedLabel = buildSelectedAddressLabel({
+        title: resolvedTitle,
+        line: resolvedLine,
+        fallback: payload.data?.formattedAddress || labelText,
+      });
+      setQuery(selectedLabel);
+      onChange?.(selectedLabel);
+      sessionTokenRef.current = null;
+      onSelect?.({
+        formattedAddress: selectedLabel,
+        lat: payload.data?.lat,
+        lng: payload.data?.lng,
+        placeId: item.placeId,
+        title: resolvedTitle,
+        subtitle: payload.data?.subtitle || item.subtitle || null,
+        fullFormattedAddress: payload.data?.formattedAddress || null,
+        geocodeSource: payload.data?.geocodeSource || null,
+      });
+    } catch {
+      onSelect?.({ formattedAddress: labelText, lat: null, lng: null, placeId: item.placeId || null });
+    }
   };
 
   const borderColor = focused ? accentColor : '#E2E8F0';
@@ -127,7 +274,7 @@ export default function AddressAutocomplete({
           type="text"
           value={query}
           onChange={handleInput}
-          onFocus={() => { setFocused(true); if (suggestions.length > 0) setOpen(true); }}
+          onFocus={() => { beginSession(); setFocused(true); if (suggestions.length > 0) setOpen(true); }}
           onBlur={() => setFocused(false)}
           placeholder={placeholder}
           disabled={disabled}
