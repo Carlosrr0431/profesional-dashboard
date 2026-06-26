@@ -23,6 +23,7 @@ describe('driverRoles (dashboard)', () => {
     expect(isFleetRoot({ role: 'driver' })).toBe(true);
     expect(isFleetRoot({ is_assigned_driver: true, owner_id: 'x' })).toBe(false);
     expect(isAssignedDriver({ owner_id: 'x' })).toBe(true);
+    expect(isAssignedDriver({ isAssignedDriver: true })).toBe(true);
   });
 
   it('calcula estado de registro', () => {

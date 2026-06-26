@@ -61,7 +61,9 @@ export function buildAssignedDriverInsertPayload(owner, { fullName, phone, phone
 }
 
 export function isAssignedDriver(driver) {
-  return Boolean(driver?.owner_id) || driver?.is_assigned_driver === true;
+  return Boolean(driver?.owner_id)
+    || driver?.is_assigned_driver === true
+    || driver?.isAssignedDriver === true;
 }
 
 export function isFleetRoot(driver) {
@@ -69,7 +71,7 @@ export function isFleetRoot(driver) {
 }
 
 export function isFleetOwner(driver) {
-  return driver?.role === 'owner' && !driver?.owner_id;
+  return (driver?.role === 'owner' || driver?.isFleetOwner === true) && !isAssignedDriver(driver);
 }
 
 export function getAssignedDriverRegistrationStatus(driver) {

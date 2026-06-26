@@ -45,6 +45,7 @@ import {
   getRouteMetricsByAddress as osrmGetRouteMetricsByAddress,
 } from '../../../src/lib/geo/index.js';
 import { scoreCandidateAgainstQuery } from '../../../shared/salta-address.js';
+import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -6057,7 +6058,7 @@ async function chooseDriver(
     .in('status', DRIVER_BUSY_TRIP_STATUSES);
   if (activeTripsError) throw activeTripsError;
 
-  const busyDriverIds = new Set();
+  let busyDriverIds = new Set();
   let ignoredStalePending = 0;
   for (const trip of activeTrips || []) {
     if (!trip?.driver_id) continue;
@@ -6076,6 +6077,12 @@ async function chooseDriver(
       ignoredStalePending += 1;
     }
   }
+
+  const { data: fleetRows, error: fleetRowsError } = await getSupabase()
+    .from('drivers')
+    .select('id, owner_id, is_assigned_driver');
+  if (fleetRowsError) throw fleetRowsError;
+  busyDriverIds = expandBusyDriverIdsToFleet(fleetRows || [], busyDriverIds);
 
   const nonBusyDrivers = availableDriversForDispatch.filter((driver) => !busyDriverIds.has(driver.id));
   let candidateDrivers = nonBusyDrivers.filter((driver) => !excludedDriverIdSet.has(driver.id));

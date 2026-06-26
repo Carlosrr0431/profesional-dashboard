@@ -4,6 +4,8 @@ import {
   buildFleetOwnersById,
   mergeAssignedDriverWithOwner,
 } from '../../../src/lib/fleetDriverEnrichment';
+import { buildFleetActiveTripByRoot, resolveFleetActiveTrip } from '../../../src/lib/fleetDispatch';
+import { isFleetOwner } from '../../../src/lib/driverRoles';
 
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 
@@ -56,10 +58,12 @@ export async function GET() {
       if (loc?.driver_id) locationsMap[loc.driver_id] = loc;
     });
 
+    const activeTripsList = activeTripsRes.data || [];
     const activeTripsMap = {};
-    (activeTripsRes.data || []).forEach((trip) => {
+    activeTripsList.forEach((trip) => {
       if (trip?.driver_id) activeTripsMap[trip.driver_id] = trip;
     });
+    const fleetActiveTripByRoot = buildFleetActiveTripByRoot(driversRes.data, activeTripsList);
 
     const vehicleTypeMap = {};
     (vtRes.data || []).forEach((setting) => {
@@ -75,7 +79,9 @@ export async function GET() {
       const owner = driver.owner_id ? ownersById[driver.owner_id] : null;
       const merged = mergeAssignedDriverWithOwner(driver, owner);
       const loc = locationsMap[merged.id];
-      const activeTrip = activeTripsMap[merged.id] || null;
+      const activeTrip =
+        activeTripsMap[merged.id]
+        || resolveFleetActiveTrip(merged, fleetActiveTripByRoot);
       const pendingCommission = Math.max(0, toNumber(merged.pending_commission, 0));
       const assigned = Boolean(merged.is_assigned_driver && merged.owner_id);
 
@@ -109,6 +115,7 @@ export async function GET() {
           merged.last_commission_payment_at,
         ),
         isAssignedDriver: assigned,
+        isFleetOwner: isFleetOwner(merged),
         ownerId: merged.owner_id || null,
         ownerName: assigned ? (owner?.full_name || 'Propietario') : null,
         ownerPhone: assigned ? (owner?.phone || '') : null,

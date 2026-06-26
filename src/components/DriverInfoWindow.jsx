@@ -40,6 +40,13 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onClose }) {
                 borderRadius: '5px',
               }}>Asignado</span>
             ) : null}
+            {driver.isFleetOwner ? (
+              <span style={{
+                fontSize: '9px', fontWeight: 800, color: '#B45309',
+                background: 'rgba(245,158,11,0.15)', padding: '1px 6px',
+                borderRadius: '5px',
+              }}>Titular</span>
+            ) : null}
             {driver.driverNumber != null && !driver.isAssignedDriver ? (
               <span style={{
                 fontSize: '10px', fontWeight: 800, color: '#EF4444',
