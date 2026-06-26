@@ -331,15 +331,38 @@ function DriverRow({ driver, isSelected, onClick }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <p className="text-sm font-semibold text-navy-900 truncate">{driver.fullName}</p>
+          {driver.isAssignedDriver ? (
+            <span
+              className="text-[8px] font-bold text-indigo-700 bg-indigo-500/10 px-1.5 py-0.5 rounded-md shrink-0 border border-indigo-500/15"
+              title={`Chofer asignado · Móvil de ${driver.ownerName || 'propietario'}`}
+            >
+              Asignado
+            </span>
+          ) : null}
           {driver.commissionOverdue && (
             <span className="text-[9px] font-bold text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded-md shrink-0">⚠</span>
           )}
         </div>
         <p className="text-xs text-gray-500 truncate mt-0.5">
-          {driver.vehicleBrand} {driver.vehicleModel}
-          <span className="text-gray-300 mx-1">·</span>
-          <span className="font-semibold text-gray-400">{driver.vehiclePlate}</span>
+          {[driver.vehicleBrand, driver.vehicleModel].filter(Boolean).join(' ') || 'Sin vehículo'}
+          {driver.vehiclePlate ? (
+            <>
+              <span className="text-gray-300 mx-1">·</span>
+              <span className="font-semibold text-gray-400">{driver.vehiclePlate}</span>
+            </>
+          ) : null}
         </p>
+        {driver.isAssignedDriver ? (
+          <p className="text-[10px] text-indigo-600/90 truncate mt-0.5">
+            Móvil {driver.driverNumber != null ? `#${driver.driverNumber}` : '—'}
+            {driver.ownerPhone ? (
+              <>
+                <span className="text-gray-300 mx-1">·</span>
+                Titular {driver.ownerPhone}
+              </>
+            ) : null}
+          </p>
+        ) : null}
         {driver.isOnline && driver.speed > 0.5 && (
           <p className="text-[10px] text-accent font-medium mt-1">{formatSpeed(driver.speed)} en movimiento</p>
         )}

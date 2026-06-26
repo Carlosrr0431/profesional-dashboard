@@ -1,5 +1,5 @@
 /**
- * Utilidades de coordenadas para react-native-maps.
+ * Utilidades de coordenadas para MapLibre / navegación.
  */
 
 export function normalizeCoordinate(point) {

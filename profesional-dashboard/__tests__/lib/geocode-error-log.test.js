@@ -7,6 +7,7 @@ describe('geocodeErrorLog', () => {
   it('detecta errores OSM/Nominatim y fuera de Salta Capital', () => {
     expect(shouldTrackGeocodeError('No se encontró la dirección en OSM/Nominatim')).toBe(true);
     expect(shouldTrackGeocodeError('La dirección debe estar en Salta Capital')).toBe(true);
+    expect(shouldTrackGeocodeError('Coordenadas OSM incorrectas para el lugar')).toBe(true);
     expect(shouldTrackGeocodeError('address o placeId requerido')).toBe(false);
   });
 

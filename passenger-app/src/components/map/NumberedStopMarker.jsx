@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Marker } from 'react-native-maps';
+import MapLibreGL from '../../lib/maplibre';
 import { colors } from '../../theme/colors';
 import { normalizeCoordinate } from '../../utils/mapCoords';
 
@@ -9,21 +9,30 @@ export default function NumberedStopMarker({
   coordinate,
   index,
   isFinal = false,
+  caption,
 }) {
   const coord = normalizeCoordinate(coordinate);
   if (!coord) return null;
 
+  const label = caption || (isFinal ? 'Destino' : `Parada ${index}`);
+
   return (
-    <Marker coordinate={coord} anchor={{ x: 0.5, y: 1 }} tracksViewChanges={false}>
+    <MapLibreGL.MarkerView
+      id={`stop-${index}-${coord.latitude.toFixed(5)}-${coord.longitude.toFixed(5)}`}
+      coordinate={[coord.longitude, coord.latitude]}
+    >
       <View style={styles.wrap} collapsable={false}>
         <View style={[styles.badge, isFinal && styles.badgeFinal]}>
           <Text style={[styles.badgeText, isFinal && styles.badgeTextFinal]}>
             {index}
           </Text>
         </View>
+        <Text style={[styles.caption, isFinal && styles.captionFinal]} numberOfLines={1}>
+          {label}
+        </Text>
         <View style={[styles.stem, isFinal && styles.stemFinal]} />
       </View>
-    </Marker>
+    </MapLibreGL.MarkerView>
   );
 }
 
@@ -61,6 +70,22 @@ const styles = StyleSheet.create({
   },
   badgeTextFinal: {
     fontSize: 12,
+  },
+  caption: {
+    marginTop: 2,
+    fontSize: 9,
+    fontFamily: 'Inter_600SemiBold',
+    color: colors.primary,
+    maxWidth: 72,
+    textAlign: 'center',
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  captionFinal: {
+    color: colors.accent,
   },
   stem: {
     width: 2,

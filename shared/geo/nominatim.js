@@ -29,7 +29,9 @@ const {
   normalizePoiText,
 } = require('../salta-known-pois');
 const { searchGeorefAddress, resolveGeorefPlaceId } = require('./georef');
-const { fuzzySearch: tomtomFuzzySearch } = require('./tomtomClient');
+const { fuzzySearch: tomtomFuzzySearch, reverseGeocodeCoords: tomtomReverseGeocode } = require('./tomtomClient');
+
+const PUBLIC_NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
 const {
   searchPoiSalta: googleSearchPoi,
   getGooglePlaceDetails,
@@ -484,24 +486,102 @@ async function geocodeAddressMultiple(address, limit = 5) {
   return results;
 }
 
-async function reverseGeocode(lat, lng) {
-  const fallback = `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
+function isCoordinateLikeAddress(text) {
+  return /^-?\d+\.\d{4,},\s*-?\d+\.\d{4,}$/.test(String(text || '').trim());
+}
+
+function formatReverseGeocodeResult(data) {
+  const mapped = mapNominatimResult(data);
+  if (!mapped) return null;
+  const label = formatNominatimDisplayLabel(mapped);
+  const formatted = String(label.full || label.title || '').trim();
+  if (!formatted || isCoordinateLikeAddress(formatted)) return null;
+  return formatted;
+}
+
+async function publicNominatimReverseFetch(lat, lng) {
+  const qs = new URLSearchParams({
+    format: 'jsonv2',
+    lat: String(lat),
+    lon: String(lng),
+    addressdetails: '1',
+    zoom: '18',
+    'accept-language': 'es',
+  });
+
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller
+    ? setTimeout(() => controller.abort(), NOMINATIM_TIMEOUT_MS)
+    : null;
 
   try {
+    const elapsed = Date.now() - lastRequestAt;
+    if (elapsed < REQUEST_MIN_INTERVAL_MS) {
+      await sleep(REQUEST_MIN_INTERVAL_MS - elapsed);
+    }
+
+    const response = await fetch(`${PUBLIC_NOMINATIM_BASE_URL}/reverse?${qs.toString()}`, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': NOMINATIM_USER_AGENT,
+      },
+      signal: controller?.signal,
+    });
+
+    lastRequestAt = Date.now();
+
+    if (!response.ok) {
+      throw new Error(`Nominatim público HTTP ${response.status}`);
+    }
+
+    return response.json();
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function reverseGeocode(lat, lng) {
+  const fallback = `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return fallback;
+
+  // 1) Nominatim self-hosted (Railway)
+  try {
     const data = await nominatimFetch('/reverse', {
-      lat: String(lat),
-      lon: String(lng),
+      lat: String(parsedLat),
+      lon: String(parsedLng),
       addressdetails: '1',
       zoom: '18',
     });
-
-    const mapped = mapNominatimResult(data);
-    if (!mapped) return fallback;
-    const label = formatNominatimDisplayLabel(mapped);
-    return label.full || label.title || fallback;
+    const formatted = formatReverseGeocodeResult(data);
+    if (formatted) return formatted;
   } catch {
-    return fallback;
+    // continuar con fallbacks
   }
+
+  // 2) TomTom reverse (si hay clave en servidor)
+  try {
+    const tomtomHit = await tomtomReverseGeocode(parsedLat, parsedLng);
+    if (tomtomHit) {
+      const label = formatNominatimDisplayLabel(tomtomHit);
+      const formatted = String(label.full || label.title || tomtomHit.formattedAddress || '').trim();
+      if (formatted && !isCoordinateLikeAddress(formatted)) return formatted;
+    }
+  } catch {
+    // continuar
+  }
+
+  // 3) Nominatim público (cuando el self-hosted está caído o sin datos)
+  try {
+    const data = await publicNominatimReverseFetch(parsedLat, parsedLng);
+    const formatted = formatReverseGeocodeResult(data);
+    if (formatted) return formatted;
+  } catch {
+    // último recurso: coordenadas
+  }
+
+  return fallback;
 }
 
 function collectAutocompleteCandidates(items, query, merged, seenPlaceIds, seenCoords, seenLabels, bonusScore = 0, titleOverride = null) {

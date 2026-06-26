@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import { clearInvalidAuthSession, isInvalidRefreshTokenError } from '../services/authSession';
 import { fetchOwnerVehicleProfile } from '../services/assignedDriverService';
-import { isAssignedDriver } from '../utils/driverRoles';
+import { isAssignedDriver, normalizeDriverPhone } from '../utils/driverRoles';
 import { useAuthStore } from '../stores/authStore';
 import { registerForPushNotifications, subscribeToTokenRefresh } from '../services/notifications';
 import Toast from 'react-native-toast-message';
@@ -77,9 +77,9 @@ export const useAuth = (options = {}) => {
           profile = {
             ...profile,
             owner_name: ownerVehicle.full_name,
+            owner_phone: ownerVehicle.phone || profile.owner_phone,
             vehicle_brand: ownerVehicle.vehicle_brand || profile.vehicle_brand,
             vehicle_model: ownerVehicle.vehicle_model || profile.vehicle_model,
-            vehicle_year: ownerVehicle.vehicle_year ?? profile.vehicle_year,
             vehicle_plate: ownerVehicle.vehicle_plate || profile.vehicle_plate,
             vehicle_color: ownerVehicle.vehicle_color || profile.vehicle_color,
             vehicle_photo_url: ownerVehicle.vehicle_photo_url || profile.vehicle_photo_url,
@@ -277,9 +277,17 @@ export const useAuth = (options = {}) => {
     try {
       if (!driver?.id) return { success: false };
 
+      const payload = { ...updates };
+      if (payload.phone != null) {
+        const normalized = normalizeDriverPhone(payload.phone);
+        if (normalized) {
+          payload.phone_normalized = normalized;
+        }
+      }
+
       const { data, error } = await supabase
         .from('drivers')
-        .update(updates)
+        .update(payload)
         .eq('id', driver.id)
         .select()
         .single();

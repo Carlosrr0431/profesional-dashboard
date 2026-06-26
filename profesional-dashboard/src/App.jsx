@@ -56,7 +56,7 @@ export default function App() {
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [multiSelectedIds,setMultiSelectedIds]= useState(new Set());
   const [showBroadcast,   setShowBroadcast]   = useState(false);
-  // Ruta de preview al asignar viaje: { polylineCoords, origin, destination } | null
+  // Ruta de preview al asignar viaje: { polylineCoords?, origin, destination? } | null
   const [previewRoute,    setPreviewRoute]    = useState(null);
 
   const mapRef = useRef(null);

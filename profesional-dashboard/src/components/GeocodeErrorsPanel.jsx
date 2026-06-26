@@ -92,7 +92,7 @@ export default function GeocodeErrorsPanel({ onBack }) {
           <div className="min-w-0 flex-1">
             <h1 className="text-lg font-bold text-navy-900 tracking-tight">Errores de geocodificación</h1>
             <p className="text-[12px] text-gray-500 mt-0.5">
-              Búsquedas que fallaron en OSM/Nominatim al confirmar dirección en el dashboard.
+              Búsquedas que fallaron o devolvieron coordenadas incorrectas en OSM/Nominatim.
             </p>
           </div>
           <button
@@ -191,6 +191,12 @@ export default function GeocodeErrorsPanel({ onBack }) {
                         {item.formatted_address ? (
                           <p className="sm:col-span-2 break-words">
                             <span className="font-medium text-gray-600">formattedAddress:</span> {item.formatted_address}
+                          </p>
+                        ) : null}
+                        {item.result_lat != null && item.result_lng != null ? (
+                          <p className="sm:col-span-2 break-all">
+                            <span className="font-medium text-gray-600">Coordenadas OSM reportadas:</span>{' '}
+                            {Number(item.result_lat).toFixed(5)}, {Number(item.result_lng).toFixed(5)}
                           </p>
                         ) : null}
                       </div>

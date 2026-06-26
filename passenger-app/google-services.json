@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "459777078436",
+    "project_id": "profesionaapp",
+    "storage_bucket": "profesionaapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:459777078436:android:d9d0cbc346cabf0d19a231",
+        "android_client_info": {
+          "package_name": "com.remises.driverapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCxtYWqD-huTu8gULDaWUurOzH5nm_ocLo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:459777078436:android:90577d53e502779819a231",
+        "android_client_info": {
+          "package_name": "com.remises.passengerapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCxtYWqD-huTu8gULDaWUurOzH5nm_ocLo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

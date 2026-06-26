@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '../../../../../../src/lib/supabaseAdmin';
 import {
   MAX_ASSIGNED_DRIVERS,
   buildAssignedDriverAuthEmail,
+  buildAssignedDriverInsertPayload,
   getAssignedDriverRegistrationStatus,
   normalizeDriverPhone,
 } from '../../../../../../src/lib/driverRoles';
@@ -88,28 +89,14 @@ export async function POST(request, { params }) {
 
     const { data: newDriver, error: insertError } = await supabase
       .from('drivers')
-      .insert({
-        owner_id: driverId,
-        user_id: null,
-        role: 'driver',
-        is_assigned_driver: true,
-        password_initialized: false,
-        full_name: fullName,
-        phone,
-        phone_normalized: normalizedPhone,
-        auth_email: authEmail,
-        vehicle_brand: owner.vehicle_brand,
-        vehicle_model: owner.vehicle_model,
-        vehicle_year: owner.vehicle_year,
-        vehicle_plate: owner.vehicle_plate,
-        vehicle_color: owner.vehicle_color,
-        vehicle_photo_url: owner.vehicle_photo_url,
-        vehicle_type: owner.vehicle_type,
-        is_available: false,
-        rating: 5.0,
-        total_trips: 0,
-        total_km: 0,
-      })
+      .insert(
+        buildAssignedDriverInsertPayload(owner, {
+          fullName,
+          phone,
+          phoneNormalized: normalizedPhone,
+          authEmail,
+        }),
+      )
       .select()
       .single();
 

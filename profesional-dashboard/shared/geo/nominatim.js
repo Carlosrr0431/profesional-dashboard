@@ -29,7 +29,9 @@ const {
   normalizePoiText,
 } = require('../salta-known-pois');
 const { searchGeorefAddress, resolveGeorefPlaceId } = require('./georef');
-const { fuzzySearch: tomtomFuzzySearch } = require('./tomtomClient');
+const { fuzzySearch: tomtomFuzzySearch, reverseGeocodeCoords: tomtomReverseGeocode } = require('./tomtomClient');
+
+const PUBLIC_NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
 const {
   searchPoiSalta: googleSearchPoi,
   getGooglePlaceDetails,
@@ -484,24 +486,102 @@ async function geocodeAddressMultiple(address, limit = 5) {
   return results;
 }
 
-async function reverseGeocode(lat, lng) {
-  const fallback = `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
+function isCoordinateLikeAddress(text) {
+  return /^-?\d+\.\d{4,},\s*-?\d+\.\d{4,}$/.test(String(text || '').trim());
+}
+
+function formatReverseGeocodeResult(data) {
+  const mapped = mapNominatimResult(data);
+  if (!mapped) return null;
+  const label = formatNominatimDisplayLabel(mapped);
+  const formatted = String(label.full || label.title || '').trim();
+  if (!formatted || isCoordinateLikeAddress(formatted)) return null;
+  return formatted;
+}
+
+async function publicNominatimReverseFetch(lat, lng) {
+  const qs = new URLSearchParams({
+    format: 'jsonv2',
+    lat: String(lat),
+    lon: String(lng),
+    addressdetails: '1',
+    zoom: '18',
+    'accept-language': 'es',
+  });
+
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller
+    ? setTimeout(() => controller.abort(), NOMINATIM_TIMEOUT_MS)
+    : null;
 
   try {
+    const elapsed = Date.now() - lastRequestAt;
+    if (elapsed < REQUEST_MIN_INTERVAL_MS) {
+      await sleep(REQUEST_MIN_INTERVAL_MS - elapsed);
+    }
+
+    const response = await fetch(`${PUBLIC_NOMINATIM_BASE_URL}/reverse?${qs.toString()}`, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': NOMINATIM_USER_AGENT,
+      },
+      signal: controller?.signal,
+    });
+
+    lastRequestAt = Date.now();
+
+    if (!response.ok) {
+      throw new Error(`Nominatim público HTTP ${response.status}`);
+    }
+
+    return response.json();
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function reverseGeocode(lat, lng) {
+  const fallback = `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return fallback;
+
+  // 1) Nominatim self-hosted (Railway)
+  try {
     const data = await nominatimFetch('/reverse', {
-      lat: String(lat),
-      lon: String(lng),
+      lat: String(parsedLat),
+      lon: String(parsedLng),
       addressdetails: '1',
       zoom: '18',
     });
-
-    const mapped = mapNominatimResult(data);
-    if (!mapped) return fallback;
-    const label = formatNominatimDisplayLabel(mapped);
-    return label.full || label.title || fallback;
+    const formatted = formatReverseGeocodeResult(data);
+    if (formatted) return formatted;
   } catch {
-    return fallback;
+    // continuar con fallbacks
   }
+
+  // 2) TomTom reverse (si hay clave en servidor)
+  try {
+    const tomtomHit = await tomtomReverseGeocode(parsedLat, parsedLng);
+    if (tomtomHit) {
+      const label = formatNominatimDisplayLabel(tomtomHit);
+      const formatted = String(label.full || label.title || tomtomHit.formattedAddress || '').trim();
+      if (formatted && !isCoordinateLikeAddress(formatted)) return formatted;
+    }
+  } catch {
+    // continuar
+  }
+
+  // 3) Nominatim público (cuando el self-hosted está caído o sin datos)
+  try {
+    const data = await publicNominatimReverseFetch(parsedLat, parsedLng);
+    const formatted = formatReverseGeocodeResult(data);
+    if (formatted) return formatted;
+  } catch {
+    // último recurso: coordenadas
+  }
+
+  return fallback;
 }
 
 function collectAutocompleteCandidates(items, query, merged, seenPlaceIds, seenCoords, seenLabels, bonusScore = 0, titleOverride = null) {
@@ -601,6 +681,45 @@ async function autocompleteAddressSalta(query, limit = 8) {
     const seenCoords = new Set();
     const seenLabels = new Set();
 
+    // Fast-path: calle + altura (caso más común en despacho) con mínimo costo/latencia.
+    if (hasHouseNumber) {
+      const [georefHits, structuredHits, geocodeHits] = await Promise.all([
+        searchGeorefAddress(trimmed, 4).catch(() => []),
+        searchStructuredAddress(trimmed).catch(() => []),
+        searchNominatimVariant(buildSearchQuery(trimmed), Math.max(limit, 6)).catch(() => []),
+      ]);
+
+      collectGeorefCandidates(georefHits, trimmed, merged, seenPlaceIds, seenCoords);
+      collectAutocompleteCandidates(
+        structuredHits,
+        trimmed,
+        merged,
+        seenPlaceIds,
+        seenCoords,
+        seenLabels,
+        0.28,
+      );
+      collectAutocompleteCandidates(
+        geocodeHits,
+        trimmed,
+        merged,
+        seenPlaceIds,
+        seenCoords,
+        seenLabels,
+        0.22,
+      );
+
+      merged.sort((a, b) => {
+        const aGeoref = String(a.placeId || '').startsWith('georef:');
+        const bGeoref = String(b.placeId || '').startsWith('georef:');
+        if (aGeoref && !bGeoref) return -1;
+        if (!aGeoref && bGeoref) return 1;
+        return b.score - a.score;
+      });
+
+      return merged.slice(0, limit).map(({ score, ...item }) => item);
+    }
+
     // 1) Fast-path principal para POIs: Google Places Autocomplete (New).
     const googlePoiHits = shouldUseGooglePoi
       ? await googleSearchPoi(trimmed, Math.max(limit + 4, 12)).catch(() => [])
@@ -621,25 +740,15 @@ async function autocompleteAddressSalta(query, limit = 8) {
       merged.sort((a, b) => b.score - a.score);
       return merged.slice(0, limit).map(({ score, ...item }) => item);
     }
-    // Para consultas con altura, si Google ya dio al menos 1 match, priorizamos velocidad.
-    if (hasHouseNumber && merged.length >= 1) {
-      merged.sort((a, b) => b.score - a.score);
-      return merged.slice(0, limit).map(({ score, ...item }) => item);
-    }
-
     // 2) Fuentes complementarias: Nominatim (OSM), GeoRef, TomTom.
     const [primaryHits, structuredHits, georefHits, poiHits, geocodeHits] = await Promise.all([
       searchNominatimVariant(primaryQuery, limit).catch(() => []),
-      hasHouseNumber
-        ? searchStructuredAddress(trimmed).catch(() => [])
-        : Promise.resolve([]),
-      hasHouseNumber ? searchGeorefAddress(trimmed, 3).catch(() => []) : Promise.resolve([]),
+      Promise.resolve([]),
+      Promise.resolve([]),
       (useOsmPoi || forcePoiSearch)
         ? searchNominatimPoi(trimmed, Math.max(limit + 2, 8)).catch(() => [])
         : Promise.resolve([]),
-      hasHouseNumber
-        ? searchNominatimVariant(buildSearchQuery(trimmed), Math.max(limit, 6)).catch(() => [])
-        : Promise.resolve([]),
+      Promise.resolve([]),
     ]);
 
     // ── 2. Georef (precisión para direcciones con número de calle) ─────────

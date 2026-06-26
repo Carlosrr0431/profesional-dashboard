@@ -18,9 +18,19 @@ function getMarkerStyle(isMultiSelected, driver) {
     return { fill: '#EF4444', ring: '#B91C1C', text: '#ffffff', opacity: 1 };
   }
   if (driver.isOnline) {
-    return { fill: '#22C55E', ring: '#15803D', text: '#ffffff', opacity: 1 };
+    return {
+      fill: '#22C55E',
+      ring: driver.isAssignedDriver ? '#4F46E5' : '#15803D',
+      text: '#ffffff',
+      opacity: 1,
+    };
   }
-  return { fill: '#94A3B8', ring: '#64748B', text: '#ffffff', opacity: 0.72 };
+  return {
+    fill: '#94A3B8',
+    ring: driver.isAssignedDriver ? '#6366F1' : '#64748B',
+    text: '#ffffff',
+    opacity: 0.72,
+  };
 }
 
 export function buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected) {
@@ -30,7 +40,9 @@ export function buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected) {
   const height = Math.round(36 * scale);
   const badgeText = isMultiSelected
     ? '✓'
-    : (driver.driverNumber != null ? String(driver.driverNumber) : '');
+    : driver.isAssignedDriver
+      ? 'A'
+      : (driver.driverNumber != null ? String(driver.driverNumber) : '');
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 32 36">
     <defs>

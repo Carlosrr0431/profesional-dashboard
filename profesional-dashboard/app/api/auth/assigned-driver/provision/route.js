@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { provisionAssignedDriverAuth } from '../../../../../src/lib/assignedDriverProvision';
+import { provisionDriverPhoneAuth } from '../../../../../src/lib/driverPhoneProvision';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ export async function POST(req) {
       );
     }
 
-    const result = await provisionAssignedDriverAuth({ driverId, phone, password });
+    const result = await provisionDriverPhoneAuth({ driverId, phone, password });
     if (!result.ok) {
       return NextResponse.json(
         { ok: false, message: result.message },

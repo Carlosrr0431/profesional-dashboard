@@ -16,6 +16,8 @@ yarn-error.*
 # Secrets / credentials
 **/firebase-adminsdk*.json
 **/google-services.json
+!passenger-app/google-services.json
+!passenger-app/android/app/google-services.json
 profesionaapp-firebase-adminsdk*.json
 
 .env.local

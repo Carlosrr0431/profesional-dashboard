@@ -653,6 +653,50 @@ const SALTA_KNOWN_POIS = [
     geocodeQuery: 'Colegio de Jesús, Salta, Argentina',
     patterns: [/\bcolegio\s+de\s+jesus\b/],
   },
+  {
+    id: 'escuela_emprendedores',
+    label: 'Escuela de Emprendedores Salta',
+    geocodeQuery: 'Avenida Independencia 910, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Escuela de Emprendedores, Avenida Independencia 910, Salta',
+      'Oficina de empleo, Avenida Independencia 910, Salta, Argentina',
+    ],
+    patterns: [
+      /\bescuela\s+de\s+emprendedores\b/,
+      /\bemprendedores\s+salta\b/,
+    ],
+    branches: [
+      {
+        subtitlePatterns: [/independencia/],
+        geocodeQuery: 'Avenida Independencia 910, Salta, Argentina',
+        shortLabel: 'Escuela de Emprendedores, Independencia 910, Salta',
+      },
+    ],
+  },
+  {
+    id: 'incaa_hogar_escuela',
+    label: 'Espacio INCAA Hogar Escuela',
+    geocodeQuery: 'Escuela Hogar 4660, Avenida Hipólito Yrigoyen, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Espacio INCAA Hogar Escuela, Avenida Hipólito Yrigoyen, Salta',
+      'Escuela Hogar 4660 Carmen Puch de Güemes, Salta, Argentina',
+      'Pasaje Feliciano Chiclana y Avenida Hipólito Yrigoyen, Salta, Argentina',
+    ],
+    patterns: [
+      /\bincaa\b/,
+      /\bespacio\s+incaa\b/,
+      /\bhogar\s+escuela\b/,
+      /\bcarmen\s+puch\b/,
+    ],
+    excludePatterns: [/\bemprendedores\b/],
+    branches: [
+      {
+        subtitlePatterns: [/yrigoyen/],
+        geocodeQuery: 'Escuela Hogar 4660, Avenida Hipólito Yrigoyen, Salta, Argentina',
+        shortLabel: 'Espacio INCAA Hogar Escuela, Yrigoyen, Salta',
+      },
+    ],
+  },
 
   // ── Gobierno / Servicios públicos ─────────────────────────────────────────
   {
@@ -670,7 +714,7 @@ const SALTA_KNOWN_POIS = [
 ];
 
 const POI_KEYWORD_RE =
-  /\b(hospital|terminal|shopping|aeropuerto|catedral|plaza|casino|estacion|cementerio|sanatorio|apass|banco|farmacia|supermercado|colegio|escuela|universidad|unsa|ucasal|municipalidad|correo|edificio|oficina|galeria|centro\s+comercial|nuevo\s+centro|macro|carrefour|walmart|hiper|tren|estadio|mercado|feria|museo|cabildo|parque|cerro|telef[eé]rico|balcarce|martearena|milagro|materno|militarr|pediatric[ao]|maam|bellas\s+artes|ciencias\s+naturales|siglo\s+21|gigante|antoniana|san\s+bernardo|san\s+miguel|artesanal)\b/;
+  /\b(hospital|terminal|shopping|aeropuerto|catedral|plaza|casino|estacion|cementerio|sanatorio|apass|banco|farmacia|supermercado|colegio|escuela|universidad|unsa|ucasal|municipalidad|correo|edificio|oficina|galeria|centro\s+comercial|nuevo\s+centro|macro|carrefour|walmart|hiper|tren|estadio|mercado|feria|museo|cabildo|parque|cerro|telef[eé]rico|balcarce|martearena|milagro|materno|militarr|pediatric[ao]|maam|bellas\s+artes|ciencias\s+naturales|siglo\s+21|gigante|antoniana|san\s+bernardo|san\s+miguel|artesanal|incaa|hogar\s+escuela|carmen\s+puch)\b/;
 
 function poiMatchesEntry(poi, norm) {
   if (poi.excludePatterns?.some((pattern) => pattern.test(norm))) return false;

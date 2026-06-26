@@ -34,6 +34,7 @@ export default function ZoneManagement({ onBack }) {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [error, setError] = useState('');
+  const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [viewState, setViewState] = useState({
     ...DEFAULT_MAP_VIEW,
     longitude: SALTA_CENTER.lng,
@@ -46,6 +47,7 @@ export default function ZoneManagement({ onBack }) {
 
   const onMapLoad = useCallback((event) => {
     mapRef.current = event.target;
+    setIsMapLoaded(true);
   }, []);
 
   const finishDrawing = useCallback(() => {
@@ -219,7 +221,7 @@ export default function ZoneManagement({ onBack }) {
 
         <button
           onClick={handleStartDrawing}
-          disabled={isDrawing || !isLoaded}
+          disabled={isDrawing || !isMapLoaded}
           className="flex items-center gap-2 bg-accent text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-accent-light transition-all shadow-md shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -10,7 +10,7 @@ import {
   useWindowDimensions,
   Alert,
 } from 'react-native';
-import MapView from 'react-native-maps';
+import MapLibreGL from '../lib/maplibre';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,9 +28,7 @@ import ExpandableTripSheet from '../components/home/ExpandableTripSheet';
 import TripPlanRouteOverlay from '../components/map/TripPlanRouteOverlay';
 import ActiveTripMapOverlay from '../components/map/ActiveTripMapOverlay';
 import { TripCompletedOverlay } from '../components/trip/TripCompletedOverlay';
-import { MAP_PROVIDER } from '../utils/mapProvider';
 import { createMapCameraController } from '../utils/mapCamera';
-import { PASSENGER_MAP_STYLE } from '../constants/mapStyle';
 
 const SALTA_DELTA = { latitudeDelta: 0.04, longitudeDelta: 0.04 };
 const SALTA_CENTER = { latitude: -24.7829, longitude: -65.4122 };
@@ -52,9 +50,10 @@ export default function HomeScreen() {
   const { width: screenW, height: screenH } = useWindowDimensions();
   const navigation = useNavigation();
   const mapViewRef = useRef(null);
+  const cameraRef = useRef(null);
   const mapRef = useRef(null);
   if (!mapRef.current) {
-    mapRef.current = createMapCameraController(mapViewRef);
+    mapRef.current = createMapCameraController(cameraRef);
   }
   const appStateRef = useRef(AppState.currentState);
 
@@ -248,30 +247,30 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-      <MapView
+      <MapLibreGL.MapView
         ref={mapViewRef}
-        provider={MAP_PROVIDER}
         style={StyleSheet.absoluteFill}
-        initialRegion={initialRegion}
-        customMapStyle={PASSENGER_MAP_STYLE}
-        showsUserLocation={!tripLive.showDriverOnMap}
-        showsCompass={false}
-        showsMyLocationButton={false}
-        zoomEnabled
-        zoomTapEnabled
-        scrollEnabled
+        compassEnabled={false}
+        logoEnabled={false}
+        attributionEnabled={false}
         rotateEnabled={false}
         pitchEnabled={false}
-        minZoomLevel={11}
-        maxZoomLevel={20}
-        mapPadding={mapPadding}
-        onRegionChangeStart={(event) => {
-          if (event?.nativeEvent?.isGesture) {
-            routeMapUserGestureRef.current = true;
-          }
+        zoomEnabled
+        scrollEnabled
+        onTouchStart={() => {
+          routeMapUserGestureRef.current = true;
         }}
         pointerEvents={sheetExpanded ? 'none' : 'auto'}
       >
+        <MapLibreGL.Camera
+          ref={cameraRef}
+          defaultSettings={{
+            centerCoordinate: [initialRegion.longitude, initialRegion.latitude],
+            zoomLevel: 13,
+          }}
+        />
+        {!tripLive.showDriverOnMap ? <MapLibreGL.UserLocation visible /> : null}
+
         {hasLiveTripMap ? (
           <ActiveTripMapOverlay
             pickupCoord={tripLive.pickupCoord}
@@ -298,7 +297,7 @@ export default function HomeScreen() {
             userMovedMapRef={routeMapUserGestureRef}
           />
         ) : null}
-      </MapView>
+      </MapLibreGL.MapView>
 
       <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]}>
         <Pressable

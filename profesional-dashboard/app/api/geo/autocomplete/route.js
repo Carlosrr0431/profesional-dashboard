@@ -41,9 +41,9 @@ export async function GET(request) {
 
     const sessionToken = String(searchParams.get('sessionToken') || '').trim() || undefined;
 
-    const cacheKey = sessionToken
-      ? getCacheKey(`${query}::${sessionToken}`, limit)
-      : getCacheKey(query, limit);
+    // Cache por texto + límite (independiente de sessionToken) para maximizar hit-rate
+    // entre búsquedas repetidas y reducir latencia percibida.
+    const cacheKey = getCacheKey(query, limit);
     const cached = getCached(cacheKey);
     if (cached) {
       return NextResponse.json({ ok: true, data: cached });

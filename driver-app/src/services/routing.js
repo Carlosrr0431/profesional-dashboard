@@ -1,8 +1,11 @@
 import { decodePolyline } from '../utils/polyline';
-
-const OSRM_BASE_URL =
-  process.env.EXPO_PUBLIC_OSRM_URL
-  || 'https://profesional-osrm-production.up.railway.app';
+import { classifyStepOneway } from '../utils/routeOneway';
+import {
+  buildRouteCacheKey,
+  routeCache,
+  withCachedFetch,
+} from '../lib/geoCache';
+import { OSRM_BASE_URL } from '../utils/mapConfig';
 
 function toLatLng(point) {
   const lat = Number(point?.lat ?? point?.latitude);
@@ -46,8 +49,7 @@ function mapOsrmStep(step, index, previousLocation) {
   const endLat = Array.isArray(maneuverLoc) ? Number(maneuverLoc[1]) : null;
   const startLat = previousLocation?.lat ?? endLat;
   const startLng = previousLocation?.lng ?? endLng;
-  const encodedPolyline = step?.geometry || '';
-  const decodedPolyline = encodedPolyline ? decodePolyline(encodedPolyline) : [];
+  const stepPolylineCoords = step?.geometry ? decodePolyline(step.geometry) : [];
 
   return {
     index,
@@ -59,30 +61,13 @@ function mapOsrmStep(step, index, previousLocation) {
     maneuver: formatOsrmManeuver(step?.maneuver),
     startLocation: { lat: startLat, lng: startLng },
     endLocation: { lat: endLat, lng: endLng },
-    polyline: encodedPolyline,
-    polylineCoords: decodedPolyline,
+    polyline: step?.geometry || '',
+    polylineCoords: stepPolylineCoords,
+    likelyOneway: classifyStepOneway(step),
   };
 }
 
-/**
- * Obtiene ruta de manejo vía OSRM (navegación guiada turn-by-turn).
- */
-export async function getDirections(origin, destination) {
-  const from = toLatLng(origin);
-  const to = toLatLng(destination);
-
-  if (![from.lat, from.lng, to.lat, to.lng].every(Number.isFinite)) {
-    throw new Error('Coordenadas de ruta inválidas');
-  }
-
-  const coordinates = `${from.lng},${from.lat};${to.lng},${to.lat}`;
-  const params = new URLSearchParams({
-    steps: 'true',
-    overview: 'full',
-    geometries: 'polyline',
-    annotations: 'false',
-  });
-
+async function fetchOsrmJson(coordinates, params) {
   const response = await fetch(
     `${OSRM_BASE_URL}/route/v1/driving/${coordinates}?${params.toString()}`,
     { headers: { Accept: 'application/json' } },
@@ -91,8 +76,22 @@ export async function getDirections(origin, destination) {
   if (!response.ok || data?.code !== 'Ok' || !data?.routes?.[0]) {
     throw new Error(data?.message || data?.code || 'No se encontró ruta');
   }
+  return data.routes[0];
+}
 
-  const route = data.routes[0];
+/**
+ * Navegación guiada: pasos + polilínea simplificada (menos puntos que overview=full).
+ */
+async function fetchOsrmRoute(from, to) {
+  const coordinates = `${from.lng},${from.lat};${to.lng},${to.lat}`;
+  const params = new URLSearchParams({
+    steps: 'true',
+    overview: 'simplified',
+    geometries: 'polyline',
+    annotations: 'false',
+  });
+
+  const route = await fetchOsrmJson(coordinates, params);
   const leg = route?.legs?.[0];
   if (!leg) {
     throw new Error('Ruta sin tramos');
@@ -118,4 +117,71 @@ export async function getDirections(origin, destination) {
     steps,
     polylineCoords,
   };
+}
+
+/**
+ * Solo distancia/duración — sin geometría ni pasos (tarifas, previews).
+ */
+async function fetchOsrmSummary(from, to) {
+  const coordinates = `${from.lng},${from.lat};${to.lng},${to.lat}`;
+  const params = new URLSearchParams({
+    steps: 'false',
+    overview: 'false',
+    annotations: 'false',
+  });
+
+  const route = await fetchOsrmJson(coordinates, params);
+  const leg = route?.legs?.[0];
+  if (!leg) {
+    throw new Error('Ruta sin tramos');
+  }
+
+  return {
+    distance: formatMeters(leg.distance || 0),
+    duration: formatSeconds(leg.duration || 0),
+    distanceValue: Math.round(Number(leg.distance) || 0),
+    durationValue: Math.round(Number(leg.duration) || 0),
+  };
+}
+
+function summaryCacheKey(origin, destination) {
+  return `summary:${buildRouteCacheKey(origin, destination)}`;
+}
+
+/**
+ * Obtiene ruta de manejo vía OSRM (navegación guiada turn-by-turn).
+ */
+export async function getDirections(origin, destination, { bypassCache = false } = {}) {
+  const from = toLatLng(origin);
+  const to = toLatLng(destination);
+
+  if (![from.lat, from.lng, to.lat, to.lng].every(Number.isFinite)) {
+    throw new Error('Coordenadas de ruta inválidas');
+  }
+
+  if (bypassCache) {
+    return fetchOsrmRoute(from, to);
+  }
+
+  const cacheKey = buildRouteCacheKey(from, to);
+  return withCachedFetch(routeCache, cacheKey, () => fetchOsrmRoute(from, to));
+}
+
+/**
+ * Distancia y tiempo estimado sin polilínea — mucho más liviano para OSRM.
+ */
+export async function getRouteSummary(origin, destination, { bypassCache = false } = {}) {
+  const from = toLatLng(origin);
+  const to = toLatLng(destination);
+
+  if (![from.lat, from.lng, to.lat, to.lng].every(Number.isFinite)) {
+    throw new Error('Coordenadas de ruta inválidas');
+  }
+
+  if (bypassCache) {
+    return fetchOsrmSummary(from, to);
+  }
+
+  const cacheKey = summaryCacheKey(from, to);
+  return withCachedFetch(routeCache, cacheKey, () => fetchOsrmSummary(from, to));
 }

@@ -12,13 +12,13 @@ function getDriverStatusInfo(driver) {
   return { label: 'Desconectado', color: '#94A3B8', bg: 'rgba(148,163,184,0.1)', busy: true };
 }
 
-export default function DriverInfoWindow({ driver, onAssignTrip }) {
+export default function DriverInfoWindow({ driver, onAssignTrip, onClose }) {
   const initials = driver.fullName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
   const status = getDriverStatusInfo(driver);
   const canAssign = !status.busy;
 
   return (
-    <div style={{ background: '#FFFFFF', color: '#0F172A', padding: '14px', minWidth: '250px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
+    <div style={{ background: '#FFFFFF', color: '#0F172A', padding: '14px', minWidth: '250px', borderRadius: '12px', boxShadow: '0 8px 32px rgba(15,23,42,0.18)', border: '1px solid rgba(226,232,240,0.9)' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid #E2E8F0' }}>
         <div style={{
@@ -33,15 +33,45 @@ export default function DriverInfoWindow({ driver, onAssignTrip }) {
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <p style={{ color: '#0F172A', fontSize: '14px', fontWeight: 700, margin: 0 }}>{driver.fullName}</p>
-            {driver.driverNumber && (
+            {driver.isAssignedDriver ? (
+              <span style={{
+                fontSize: '9px', fontWeight: 800, color: '#4F46E5',
+                background: 'rgba(79,70,229,0.12)', padding: '1px 6px',
+                borderRadius: '5px',
+              }}>Asignado</span>
+            ) : null}
+            {driver.isFleetOwner ? (
+              <span style={{
+                fontSize: '9px', fontWeight: 800, color: '#B45309',
+                background: 'rgba(245,158,11,0.15)', padding: '1px 6px',
+                borderRadius: '5px',
+              }}>Titular</span>
+            ) : null}
+            {driver.driverNumber != null && !driver.isAssignedDriver ? (
               <span style={{
                 fontSize: '10px', fontWeight: 800, color: '#EF4444',
                 background: 'rgba(220,38,38,0.15)', padding: '1px 6px',
                 borderRadius: '5px',
               }}>#{driver.driverNumber}</span>
-            )}
+            ) : null}
+            {driver.isAssignedDriver && driver.driverNumber != null ? (
+              <span style={{
+                fontSize: '10px', fontWeight: 800, color: '#4F46E5',
+                background: 'rgba(79,70,229,0.12)', padding: '1px 6px',
+                borderRadius: '5px',
+              }}>Móvil #{driver.driverNumber}</span>
+            ) : null}
           </div>
-          <p style={{ color: '#94A3B8', fontSize: '11px', margin: '2px 0 0' }}>{driver.phone || 'Sin teléfono'}</p>
+          <p style={{ color: '#94A3B8', fontSize: '11px', margin: '2px 0 0' }}>
+            {driver.isAssignedDriver
+              ? `Titular: ${driver.ownerPhone || driver.fleetContactPhone || 'Sin teléfono'}`
+              : (driver.phone || 'Sin teléfono')}
+          </p>
+          {driver.isAssignedDriver && driver.ownerName ? (
+            <p style={{ color: '#6366F1', fontSize: '10px', margin: '2px 0 0' }}>
+              Vehículo de {driver.ownerName}
+            </p>
+          ) : null}
         </div>
         <span style={{
           fontSize: '10px', fontWeight: 600, padding: '3px 8px', borderRadius: '20px',
@@ -49,6 +79,28 @@ export default function DriverInfoWindow({ driver, onAssignTrip }) {
         }}>
           {status.label}
         </span>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
+            aria-label="Cerrar"
+            style={{
+              marginLeft: '2px',
+              width: '28px',
+              height: '28px',
+              border: 'none',
+              borderRadius: '8px',
+              background: '#F1F5F9',
+              color: '#64748B',
+              cursor: 'pointer',
+              fontSize: '16px',
+              lineHeight: 1,
+              flexShrink: 0,
+            }}
+          >
+            ×
+          </button>
+        ) : null}
       </div>
 
       {/* Vehicle info */}

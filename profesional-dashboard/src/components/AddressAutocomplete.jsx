@@ -31,6 +31,34 @@ function LocationIcon({ color = '#94A3B8' }) {
   );
 }
 
+function firstAddressLine(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.split(',')[0]?.trim() || '';
+}
+
+function buildSelectedAddressLabel({ title, line, fallback }) {
+  const t = String(title || '').trim();
+  const l = String(line || '').trim();
+  const f = String(fallback || '').trim();
+  if (t && l) {
+    if (t.toLowerCase() === l.toLowerCase()) return t;
+    return `${t}, ${l}`;
+  }
+  return t || l || f;
+}
+
+function filterSuggestionsByQuery(items, normalizedQuery) {
+  const q = String(normalizedQuery || '').trim();
+  if (!q) return [];
+  return items.filter((item) => {
+    const title = String(item?.title || '').toLowerCase();
+    const subtitle = String(item?.subtitle || '').toLowerCase();
+    const address = String(item?.address || '').toLowerCase();
+    return title.includes(q) || subtitle.includes(q) || address.includes(q);
+  });
+}
+
 export default function AddressAutocomplete({
   id,
   label,
@@ -92,6 +120,18 @@ export default function AddressAutocomplete({
       return;
     }
 
+    // Reutiliza cache de prefijos para mostrar algo instantáneo mientras llega red.
+    const prefixEntries = Array.from(suggestionsCacheRef.current.entries())
+      .filter(([key]) => normalized.startsWith(key))
+      .sort((a, b) => b[0].length - a[0].length);
+    if (prefixEntries.length > 0) {
+      const optimistic = filterSuggestionsByQuery(prefixEntries[0][1], normalized);
+      if (optimistic.length > 0) {
+        setSuggestions(optimistic.slice(0, 6));
+        setOpen(true);
+      }
+    }
+
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -132,11 +172,17 @@ export default function AddressAutocomplete({
     setQuery(text);
     onChange?.(text);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fetchSuggestions(text), 350);
+    debounceRef.current = setTimeout(() => fetchSuggestions(text), 200);
   };
 
   const handlePick = async (item) => {
-    const labelText = item.address || '';
+    const baseTitle = item.title || String(item.address || '').split(',')[0];
+    const baseLine = firstAddressLine(item.subtitle || item.address);
+    const labelText = buildSelectedAddressLabel({
+      title: baseTitle,
+      line: baseLine,
+      fallback: item.address || '',
+    });
     setQuery(labelText);
     onChange?.(labelText);
     setOpen(false);
@@ -145,7 +191,14 @@ export default function AddressAutocomplete({
     const hasCoords = Number.isFinite(item.lat) && Number.isFinite(item.lng);
     if (hasCoords) {
       sessionTokenRef.current = null;
-      onSelect?.({ formattedAddress: labelText, lat: item.lat, lng: item.lng, placeId: item.placeId || null });
+      onSelect?.({
+        formattedAddress: labelText,
+        lat: item.lat,
+        lng: item.lng,
+        placeId: item.placeId || null,
+        title: item.title || null,
+        subtitle: item.subtitle || null,
+      });
       return;
     }
 
@@ -166,12 +219,25 @@ export default function AddressAutocomplete({
       const res = await fetch(`/api/geo/geocode?${qs.toString()}`);
       const payload = await res.json();
       if (!payload?.ok) throw new Error(payload?.error || 'No se pudo obtener la ubicación');
+      const resolvedTitle = payload.data?.title || item.title || null;
+      const resolvedLine = firstAddressLine(payload.data?.formattedAddress || item.subtitle || item.address || '');
+      const selectedLabel = buildSelectedAddressLabel({
+        title: resolvedTitle,
+        line: resolvedLine,
+        fallback: payload.data?.formattedAddress || labelText,
+      });
+      setQuery(selectedLabel);
+      onChange?.(selectedLabel);
       sessionTokenRef.current = null;
       onSelect?.({
-        formattedAddress: payload.data?.formattedAddress || labelText,
+        formattedAddress: selectedLabel,
         lat: payload.data?.lat,
         lng: payload.data?.lng,
         placeId: item.placeId,
+        title: resolvedTitle,
+        subtitle: payload.data?.subtitle || item.subtitle || null,
+        fullFormattedAddress: payload.data?.formattedAddress || null,
+        geocodeSource: payload.data?.geocodeSource || null,
       });
     } catch {
       onSelect?.({ formattedAddress: labelText, lat: null, lng: null, placeId: item.placeId || null });

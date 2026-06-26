@@ -1,5 +1,5 @@
 /**
- * Controlador de cámara compatible con react-native-maps MapView.
+ * Controlador de cámara para Google Maps (react-native-maps).
  */
 import { getRouteBounds, regionFromRouteBounds } from './mapCoords';
 
@@ -33,9 +33,29 @@ function adjustRegionForEdgePadding(region, edgePadding = {}, mapSize = {}) {
 }
 
 export function createMapCameraController(mapViewRef) {
+  const toPaddingArray = (edgePadding = {}) => {
+    const p = buildEdgePadding(edgePadding);
+    return [p.top, p.right, p.bottom, p.left];
+  };
+
+  const regionToZoom = (latitudeDelta) => {
+    const latDelta = Number(latitudeDelta) || 0.02;
+    const zoom = Math.log2(360 / latDelta);
+    return Math.max(11, Math.min(18.5, zoom));
+  };
+
   return {
     animateToRegion(region, duration = 400) {
-      mapViewRef.current?.animateToRegion(region, duration);
+      if (!mapViewRef.current || !region) return;
+      const latitude = Number(region.latitude);
+      const longitude = Number(region.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+      mapViewRef.current.setCamera({
+        centerCoordinate: [longitude, latitude],
+        zoomLevel: regionToZoom(region.latitudeDelta),
+        animationDuration: duration,
+        animationMode: 'easeTo',
+      });
     },
 
     fitToCoordinates(coords = [], { edgePadding = {}, animated = true } = {}) {
@@ -43,10 +63,23 @@ export function createMapCameraController(mapViewRef) {
         (p) => Number.isFinite(p?.latitude) && Number.isFinite(p?.longitude),
       );
       if (!mapViewRef?.current || points.length === 0) return;
-      mapViewRef.current.fitToCoordinates(points, {
-        edgePadding: buildEdgePadding(edgePadding),
-        animated,
-      });
+      if (points.length === 1) {
+        mapViewRef.current.setCamera({
+          centerCoordinate: [points[0].longitude, points[0].latitude],
+          zoomLevel: 16,
+          animationDuration: animated ? 350 : 0,
+          animationMode: 'easeTo',
+        });
+        return;
+      }
+      const lngs = points.map((p) => p.longitude);
+      const lats = points.map((p) => p.latitude);
+      mapViewRef.current.fitBounds(
+        [Math.max(...lngs), Math.max(...lats)],
+        [Math.min(...lngs), Math.min(...lats)],
+        toPaddingArray(edgePadding),
+        animated ? 450 : 0,
+      );
     },
 
     /**
@@ -74,7 +107,12 @@ export function createMapCameraController(mapViewRef) {
       if (!baseRegion) return;
 
       const region = adjustRegionForEdgePadding(baseRegion, edgePadding);
-      mapViewRef.current.animateToRegion(region, animated ? 480 : 0);
+      mapViewRef.current.setCamera({
+        centerCoordinate: [region.longitude, region.latitude],
+        zoomLevel: regionToZoom(region.latitudeDelta),
+        animationDuration: animated ? 480 : 0,
+        animationMode: 'easeTo',
+      });
     },
   };
 }

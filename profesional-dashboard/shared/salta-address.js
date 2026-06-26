@@ -240,7 +240,14 @@ function applyPhoneticCorrections(text) {
 
 function applyStreetNameExpansions(text) {
   let result = String(text || '');
+  const fold = (value) => String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
   for (const [pattern, replacement] of SALTA_STREET_EXPANSIONS) {
+    // Evitar duplicar nombres ya completos (ej. "Bartolomé Mitre" → "Bartolomé Bartolomé Mitre").
+    if (fold(result).includes(fold(replacement))) continue;
     result = result.replace(pattern, replacement);
   }
   return result;

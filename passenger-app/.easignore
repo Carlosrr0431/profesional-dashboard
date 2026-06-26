@@ -19,3 +19,7 @@ yarn-error.*
 
 .env
 .env.local
+
+# Necesario para compilar Firebase en EAS Android
+!google-services.json
+!android/app/google-services.json

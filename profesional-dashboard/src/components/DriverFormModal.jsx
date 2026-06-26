@@ -15,7 +15,6 @@ export default function DriverFormModal({ driver, onClose, onSave, saving, error
     vehicle_type: 'auto',
     vehicle_brand: '',
     vehicle_model: '',
-    vehicle_year: '',
     vehicle_plate: '',
     vehicle_color: '',
     license_expiry: '',
@@ -32,7 +31,6 @@ export default function DriverFormModal({ driver, onClose, onSave, saving, error
         vehicle_type: driver.vehicle_type || 'auto',
         vehicle_brand: driver.vehicle_brand || '',
         vehicle_model: driver.vehicle_model || '',
-        vehicle_year: driver.vehicle_year?.toString() || '',
         vehicle_plate: driver.vehicle_plate || '',
         vehicle_color: driver.vehicle_color || '',
         license_expiry: driver.license_expiry || '',
@@ -49,8 +47,6 @@ export default function DriverFormModal({ driver, onClose, onSave, saving, error
     const data = { ...form };
     if (data.driver_number) data.driver_number = parseInt(data.driver_number);
     else data.driver_number = null;
-    if (data.vehicle_year) data.vehicle_year = parseInt(data.vehicle_year);
-    else data.vehicle_year = null;
     if (!data.license_expiry) data.license_expiry = null;
     onSave(data);
   };
@@ -206,18 +202,6 @@ export default function DriverFormModal({ driver, onClose, onSave, saving, error
                   value={form.vehicle_model}
                   onChange={(e) => handleChange('vehicle_model', e.target.value)}
                   placeholder="Corolla"
-                  className={FIELD_CLASS}
-                />
-              </div>
-              <div>
-                <label className={LABEL_CLASS}>Año</label>
-                <input
-                  type="number"
-                  value={form.vehicle_year}
-                  onChange={(e) => handleChange('vehicle_year', e.target.value)}
-                  placeholder="2022"
-                  min="1990"
-                  max="2030"
                   className={FIELD_CLASS}
                 />
               </div>

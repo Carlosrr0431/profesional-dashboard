@@ -1,0 +1,40 @@
+server {
+  listen ${NGINX_PORT};
+  server_name _;
+
+  client_max_body_size 1m;
+
+  location = /status {
+    proxy_pass http://127.0.0.1:${BACKEND_PORT};
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_cache off;
+    access_log off;
+  }
+
+  location ~ ^/(search|reverse|lookup)(/|$) {
+    proxy_pass http://127.0.0.1:${BACKEND_PORT};
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_connect_timeout 10s;
+    proxy_read_timeout 30s;
+
+    proxy_cache nominatim_geo;
+    proxy_cache_methods GET HEAD;
+    proxy_cache_key "$request_uri";
+    proxy_cache_valid 200 4h;
+    proxy_cache_valid 404 5m;
+    proxy_cache_valid 500 502 503 504 0;
+    proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+    proxy_cache_lock on;
+    add_header X-Cache-Status $upstream_cache_status always;
+  }
+
+  location / {
+    proxy_pass http://127.0.0.1:${BACKEND_PORT};
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_cache off;
+  }
+}

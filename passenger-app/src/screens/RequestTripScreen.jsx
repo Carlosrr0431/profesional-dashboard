@@ -23,7 +23,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useLocation } from '../hooks/useLocation';
 import { useTrip } from '../hooks/useTrip';
 import { useTripStore } from '../stores/tripStore';
-import { reverseGeocode } from '../services/googleMaps';
+import { reverseGeocode, isCoordinateFallbackText } from '../services/googleMaps';
 import AddressSearchInput from '../components/ui/AddressSearchInput';
 import MapPinPickerModal from '../components/map/MapPinPickerModal';
 
@@ -53,7 +53,11 @@ export default function RequestTripScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       const loc = await getCurrentLocation();
-      const address = await reverseGeocode(loc.latitude, loc.longitude);
+      let address = await reverseGeocode(loc.latitude, loc.longitude);
+      if (isCoordinateFallbackText(address)) {
+        const retry = await reverseGeocode(loc.latitude, loc.longitude);
+        if (!isCoordinateFallbackText(retry)) address = retry;
+      }
       setPickup({
         address,
         lat: loc.latitude,

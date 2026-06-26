@@ -10,7 +10,7 @@ import {
   Platform,
   Dimensions,
 } from 'react-native';
-import MapView from 'react-native-maps';
+import MapLibreGL from '../../lib/maplibre';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -24,7 +24,6 @@ import { colors } from '../../theme/colors';
 import { radius, shadow, spacing } from '../../theme/layout';
 import { reverseGeocode } from '../../services/googleMaps';
 import { useLocation } from '../../hooks/useLocation';
-import { MAP_PROVIDER } from '../../utils/mapProvider';
 import { createMapCameraController } from '../../utils/mapCamera';
 
 const { height: SCREEN_H } = Dimensions.get('window');
@@ -94,6 +93,37 @@ function CenterMapPin({ fieldType, isDragging, topInset }) {
   );
 }
 
+function extractCenterFromMapEvent(event) {
+  const geometryCoords = event?.geometry?.coordinates;
+  if (Array.isArray(geometryCoords) && geometryCoords.length >= 2) {
+    const lng = Number(geometryCoords[0]);
+    const lat = Number(geometryCoords[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { latitude: lat, longitude: lng };
+    }
+  }
+
+  const center = event?.properties?.center || event?.nativeEvent?.centerCoordinate;
+  if (Array.isArray(center) && center.length >= 2) {
+    const lng = Number(center[0]);
+    const lat = Number(center[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { latitude: lat, longitude: lng };
+    }
+  }
+
+  const region = event?.nativeEvent?.region;
+  if (region) {
+    const lat = Number(region.latitude);
+    const lng = Number(region.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { latitude: lat, longitude: lng };
+    }
+  }
+
+  return null;
+}
+
 export default function MapPinPickerModal({
   visible,
   fieldType = 'destination',
@@ -103,9 +133,10 @@ export default function MapPinPickerModal({
 }) {
   const insets = useSafeAreaInsets();
   const mapViewRef = useRef(null);
+  const mapCameraRef = useRef(null);
   const mapRef = useRef(null);
   if (!mapRef.current) {
-    mapRef.current = createMapCameraController(mapViewRef);
+    mapRef.current = createMapCameraController(mapCameraRef);
   }
   const regionRef = useRef(null);
   const geocodeTimerRef = useRef(null);
@@ -121,9 +152,6 @@ export default function MapPinPickerModal({
   const [mapReady, setMapReady] = useState(false);
 
   const config = FIELD_CONFIG[fieldType] || FIELD_CONFIG.destination;
-  const mapTopPad = insets.top + 88;
-  const mapBottomPad = BOTTOM_CARD_H + Math.max(insets.bottom, spacing.lg);
-
   const runReverseGeocode = useCallback(async (lat, lng) => {
     const requestId = ++geocodeRequestIdRef.current;
     setGeocoding(true);
@@ -219,10 +247,15 @@ export default function MapPinPickerModal({
   }, []);
 
   const handleRegionChangeComplete = useCallback(
-    (region) => {
+    (event) => {
       if (!hasInitializedRef.current) return;
+      const center = extractCenterFromMapEvent(event);
+      if (!center) return;
       setIsDragging(false);
-      scheduleGeocode(region);
+      scheduleGeocode({
+        latitude: center.latitude,
+        longitude: center.longitude,
+      });
     },
     [scheduleGeocode],
   );
@@ -275,23 +308,27 @@ export default function MapPinPickerModal({
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-        <MapView
+        <MapLibreGL.MapView
           ref={mapViewRef}
-          provider={MAP_PROVIDER}
           style={StyleSheet.absoluteFill}
-          initialRegion={{ ...SALTA_CENTER, ...PICKER_DELTA }}
-          onMapReady={() => setMapReady(true)}
-          onRegionChange={handleRegionChange}
-          onRegionChangeComplete={handleRegionChangeComplete}
-          mapPadding={{
-            top: mapTopPad,
-            bottom: mapBottomPad,
-            left: 0,
-            right: 0,
-          }}
-          showsUserLocation
-          showsCompass={false}
-        />
+          logoEnabled={false}
+          attributionEnabled={false}
+          compassEnabled={false}
+          rotateEnabled={false}
+          pitchEnabled={false}
+          onDidFinishLoadingMap={() => setMapReady(true)}
+          onRegionIsChanging={handleRegionChange}
+          onRegionDidChange={handleRegionChangeComplete}
+        >
+          <MapLibreGL.Camera
+            ref={mapCameraRef}
+            defaultSettings={{
+              centerCoordinate: [SALTA_CENTER.longitude, SALTA_CENTER.latitude],
+              zoomLevel: 15,
+            }}
+          />
+          <MapLibreGL.UserLocation visible />
+        </MapLibreGL.MapView>
 
         {!mapReady ? (
           <View style={styles.mapLoading}>

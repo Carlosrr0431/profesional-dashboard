@@ -5,15 +5,10 @@ const googleMapsApiKey =
   || process.env.GOOGLE_MAPS_API_KEY
   || '';
 
-const plugins = (appJson.expo.plugins || []).filter(
-  (plugin) => plugin !== '@maplibre/maplibre-react-native'
-    && !(Array.isArray(plugin) && plugin[0] === '@maplibre/maplibre-react-native'),
-);
-
 module.exports = {
   expo: {
     ...appJson.expo,
-    plugins,
+    plugins: appJson.expo.plugins || [],
     android: {
       ...appJson.expo.android,
       config: {

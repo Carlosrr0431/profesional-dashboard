@@ -7,6 +7,7 @@ Este repositorio contiene **dos sub-proyectos** que comparten un único backend 
 | Sub-proyecto | Carpeta | Stack principal | Función |
 |---|---|---|---|
 | `driver-app` | `driver-app/` | Expo 54 / React Native 0.81 | App móvil para conductores |
+| `passenger-app` | `passenger-app/` | Expo 54 / React Native 0.81 | App móvil para pasajeros |
 | `profesional-dashboard` | `profesional-dashboard/` | Next.js 15 App Router | Panel de operadores + agente IA de reservas por WhatsApp |
 
 ### Contexto geográfico
@@ -67,6 +68,17 @@ npm test                 # Corre todos los tests una vez
 npm run test:watch       # Modo watch (re-corre al guardar)
 npm run test:coverage    # Genera reporte de cobertura en driver-app/coverage/
 ```
+
+### Passenger App (móvil)
+
+```bash
+cd passenger-app
+npm run start:android          # Emulador + APK + Metro (puerto 8082) — comando habitual
+npm run start:android:install  # Igual, pero fuerza recompilar el APK
+npm start                      # Solo Metro (si el emulador y el APK ya están listos)
+```
+
+El script canónico es [`passenger-app/scripts/start-android.ps1`](passenger-app/scripts/start-android.ps1). Metro usa el puerto **8082** para no chocar con driver-app (8081).
 
 ### Dashboard (web)
 

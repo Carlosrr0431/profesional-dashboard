@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS public.geocode_error_logs (
   error_message       text        NOT NULL,
   http_status         integer     NOT NULL DEFAULT 404,
 
+  -- Coordenadas devueltas por OSM cuando el operador reporta ubicación incorrecta
+  result_lat          double precision,
+  result_lng          double precision,
+
   -- Seguimiento de resolución en el dashboard
   resolved            boolean     NOT NULL DEFAULT false,
   resolved_at         timestamptz,

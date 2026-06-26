@@ -11,17 +11,18 @@ const FORBIDDEN_GOOGLE_URL_PATTERNS = [
 ];
 
 const FORBIDDEN_PLACE_DETAILS_MASK_FRAGMENTS = [
-  'location',
   'displayName',
-  'shortFormattedAddress',
-  'addressComponents',
-  'formattedAddress',
-  'photos',
+  'googleMapsUri',
   'rating',
-  'viewport',
+  'reviews',
+  'photos',
+  'websiteUri',
+  'nationalPhoneNumber',
 ];
 
-function assertOnlyFreeGooglePlacesSkus(fetchMock) {
+const ALLOWED_PLACE_DETAILS_ESSENTIALS_FIELDS = ['id', 'formattedAddress', 'location', 'types'];
+
+function assertAllowedGooglePlacesSkus(fetchMock) {
   const googleCalls = fetchMock.mock.calls.filter(([url]) => (
     String(url).includes('googleapis.com')
   ));
@@ -35,10 +36,16 @@ function assertOnlyFreeGooglePlacesSkus(fetchMock) {
 
     if (urlStr.includes('places.googleapis.com/v1/places/') && !urlStr.includes('autocomplete')) {
       const mask = String(options?.headers?.['X-Goog-FieldMask'] || '');
-      expect(mask).toBe('id');
+      const fields = mask.split(',').map((field) => field.trim()).filter(Boolean);
+      expect(fields.length).toBeGreaterThan(0);
+      for (const field of fields) {
+        expect(ALLOWED_PLACE_DETAILS_ESSENTIALS_FIELDS).toContain(field);
+      }
       for (const fragment of FORBIDDEN_PLACE_DETAILS_MASK_FRAGMENTS) {
         expect(mask).not.toContain(fragment);
       }
+      expect(mask).toContain('location');
+      expect(mask).toContain('formattedAddress');
     }
   }
 
@@ -97,7 +104,7 @@ describe('geo autocomplete', () => {
     expect(basicDataCalls.length).toBe(0);
   });
 
-  it('confirma place_id con mask id ($0) y geocodifica coords vía Nominatim', async () => {
+  it('obtiene coords vía Place Details Essentials sin Nominatim', async () => {
     const details = await getPlaceDetails('google:google-unsa', {
       sessionToken: 'test-session-4',
       formattedAddress: 'Universidad Nacional de Salta, Av. Bolivia, Salta, Argentina',
@@ -105,26 +112,21 @@ describe('geo autocomplete', () => {
       subtitle: 'Av. Bolivia, Salta, Argentina',
     });
 
-    expect(details.lat).toBeDefined();
-    expect(details.lng).toBeDefined();
+    expect(details.lat).toBeCloseTo(-24.735437, 3);
+    expect(details.lng).toBeCloseTo(-65.386858, 3);
     expect(/unsa|universidad nacional de salta/i.test(details.formattedAddress)).toBe(true);
 
-    const idsOnlyCalls = global.fetch.mock.calls.filter(([url, options]) => (
+    const essentialsCalls = global.fetch.mock.calls.filter(([url, options]) => (
       String(url).includes('places.googleapis.com/v1/places/google-unsa')
-      && options?.headers?.['X-Goog-FieldMask'] === 'id'
+      && String(options?.headers?.['X-Goog-FieldMask'] || '').includes('location')
     ));
-    expect(idsOnlyCalls.length).toBe(1);
-
-    const locationMaskCalls = global.fetch.mock.calls.filter(([, options]) => (
-      String(options?.headers?.['X-Goog-FieldMask'] || '').includes('location')
-    ));
-    expect(locationMaskCalls.length).toBe(0);
+    expect(essentialsCalls.length).toBe(1);
 
     const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
-    expect(nominatimCalls.length).toBeGreaterThan(0);
+    expect(nominatimCalls.length).toBe(0);
   });
 
-  it('para jaraba conserva el nombre del POI y no geocodifica solo la calle', async () => {
+  it('para jaraba conserva el nombre del POI desde Google Places', async () => {
     const details = await getPlaceDetails('google:google-jaraba-poi', {
       sessionToken: 'test-session-jaraba',
       formattedAddress: 'Imagenes Jaraba, Pueyrredón, Salta',
@@ -132,33 +134,25 @@ describe('geo autocomplete', () => {
       subtitle: 'Pueyrredón, Salta',
     });
 
-    expect(details.formattedAddress).toBe('Imagenes Jaraba, Pueyrredón, Salta');
+    expect(details.formattedAddress).toContain('Imagenes Jaraba');
     expect(details.lat).toBeCloseTo(-24.7833, 3);
     expect(details.lng).toBeCloseTo(-65.4063, 3);
-    expect(details.formattedAddress).not.toMatch(/juan mart[ií]n de pueyrred[oó]n/i);
-    assertOnlyFreeGooglePlacesSkus(global.fetch);
+    assertAllowedGooglePlacesSkus(global.fetch);
   });
 
-  it('no usa Place Details Pro, Text Search Pro ni Places API Legacy en el flujo completo', async () => {
+  it('no usa Place Details Pro, Text Search Pro ni Places API Legacy en Autocomplete', async () => {
     await autocompleteAddressSalta('jaraba', 5, { sessionToken: 'billing-audit-session' });
-    await getPlaceDetails('google:google-jaraba-poi', {
-      sessionToken: 'billing-audit-session',
-      formattedAddress: 'Imagenes Jaraba, Pueyrredón, Salta',
-      title: 'Imagenes Jaraba',
-      subtitle: 'Pueyrredón, Salta',
-    });
 
-    assertOnlyFreeGooglePlacesSkus(global.fetch);
+    assertAllowedGooglePlacesSkus(global.fetch);
 
-    const placeDetailsCalls = global.fetch.mock.calls.filter(([url, options]) => (
+    const placeDetailsCalls = global.fetch.mock.calls.filter(([url]) => (
       String(url).includes('places.googleapis.com/v1/places/')
       && !String(url).includes('autocomplete')
     ));
-    expect(placeDetailsCalls.length).toBe(1);
-    expect(placeDetailsCalls[0][1]?.headers?.['X-Goog-FieldMask']).toBe('id');
+    expect(placeDetailsCalls.length).toBe(0);
 
     const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
-    expect(nominatimCalls.length).toBeGreaterThan(0);
+    expect(nominatimCalls.length).toBe(0);
   });
 
   it('para plaza ceferino no geocodifica en plaza 9 de julio', async () => {
@@ -190,7 +184,7 @@ describe('geo autocomplete', () => {
     expect(details.lng).not.toBeCloseTo(-65.4024, 3);
   });
 
-  it('para la fransisca geocodifica vía POI conocido + Nominatim sin TomTom', async () => {
+  it('para la fransisca geocodifica vía Place Details Essentials sin TomTom', async () => {
     const details = await getPlaceDetails('google:google-francisca-arenales', {
       sessionToken: 'test-session-francisca',
       formattedAddress: 'La Fransisca, Arenales, Salta',
@@ -198,7 +192,7 @@ describe('geo autocomplete', () => {
       subtitle: 'Arenales, Salta',
     });
 
-    expect(details.formattedAddress).toBe('La Fransisca, Arenales, Salta');
+    expect(details.formattedAddress).toContain('La Fransisca');
     expect(details.lat).toBeCloseTo(-24.7704, 3);
     expect(details.lng).toBeCloseTo(-65.4211, 3);
 
@@ -206,7 +200,7 @@ describe('geo autocomplete', () => {
     expect(tomtomCalls.length).toBe(0);
   });
 
-  it('para hiper libertad geocodifica en Paseo Salta aunque Google devuelva calles inexistentes en OSM', async () => {
+  it('para hiper libertad geocodifica sucursales vía Place Details Essentials', async () => {
     const balcon = await getPlaceDetails('google:google-el-balcon-paseo', {
       sessionToken: 'test-session-hiper-libertad',
       formattedAddress: 'El Balcón - Paseo Libertad Salta, Avenida Ex Combatientes de Malvinas, Salta',
@@ -244,7 +238,7 @@ describe('geo autocomplete', () => {
     expect(tomtomCalls.length).toBe(0);
   });
 
-  it('para axion y ypf geocodifica sucursales vía OSM aunque Google use AXION energy', async () => {
+  it('para axion y ypf geocodifica sucursales vía Place Details Essentials', async () => {
     const axionRural = await getPlaceDetails('google:google-axion-rural', {
       sessionToken: 'test-session-axion',
       formattedAddress: 'AXION energy - Octano Srl (La Rural), Avenida Paraguay, Salta',
@@ -277,7 +271,7 @@ describe('geo autocomplete', () => {
     expect(ypf.lng).toBeCloseTo(-65.4292, 3);
   });
 
-  it('para intersección Juan Galvez y Domingo Marimon geocodifica vía geometría OSM', async () => {
+  it('para intersección Juan Galvez y Domingo Marimon geocodifica vía Place Details Essentials', async () => {
     const details = await getPlaceDetails('google:google-intersection-galvez-marimon', {
       sessionToken: 'test-session-intersection',
       formattedAddress: 'Juan Galvez y Domingo Marimon, Salta',
@@ -290,7 +284,24 @@ describe('geo autocomplete', () => {
     expect(details.lng).toBeCloseTo(-65.3774, 3);
   });
 
-  it('geocodifica Escuela Normal de Maestras (nombre largo de Google) vía OSM', async () => {
+  it('geocodifica Escuela de Emprendedores vía Place Details Essentials', async () => {
+    const details = await getPlaceDetails('google:google-escuela-emprendedores', {
+      sessionToken: 'test-session-emprendedores',
+      formattedAddress: 'Escuela de Emprendedores Salta, Avenida Independencia, Salta',
+      title: 'Escuela de Emprendedores Salta',
+      subtitle: 'Avenida Independencia, Salta',
+    });
+
+    expect(details.formattedAddress).toContain('Emprendedores');
+    expect(details.lat).toBeCloseTo(-24.7985777, 3);
+    expect(details.lng).toBeCloseTo(-65.4162771, 3);
+    expect(details.lat).not.toBeCloseTo(-24.82919, 2);
+
+    const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
+    expect(nominatimCalls.length).toBe(0);
+  });
+
+  it('geocodifica Escuela Normal de Maestras vía Place Details Essentials', async () => {
     const details = await getPlaceDetails('google:ChIJXeY5zbjDG5QRsstuzg8yVow', {
       sessionToken: 'test-session-escuela-normal',
       formattedAddress: 'Escuela Normal de Maestras General Manuel Belgrano, Bartolomé Mitre, Salta',
@@ -301,6 +312,19 @@ describe('geo autocomplete', () => {
     expect(details.formattedAddress).toContain('Escuela Normal');
     expect(details.lat).toBeCloseTo(-24.78048, 3);
     expect(details.lng).toBeCloseTo(-65.410809, 3);
+  });
+
+  it('geocodifica Espacio INCAA Hogar Escuela vía Place Details Essentials', async () => {
+    const details = await getPlaceDetails('google:ChIJU-J5iy7DG5QRces48wzsYl8', {
+      sessionToken: 'test-session-incaa-hogar',
+      formattedAddress: 'Espacio INCAA Hogar Escuela, Avenida Hipólito Yrigoyen, Salta',
+      title: 'Espacio INCAA Hogar Escuela',
+      subtitle: 'Avenida Hipólito Yrigoyen, Salta',
+    });
+
+    expect(details.formattedAddress).toContain('INCAA');
+    expect(details.lat).toBeCloseTo(-24.7965187, 3);
+    expect(details.lng).toBeCloseTo(-65.4006911, 3);
   });
 
   it('devuelve direcciones con altura vía Nominatim/GeoRef', async () => {

@@ -38,6 +38,7 @@ export function shouldTrackGeocodeError(errorMessage) {
   if (/no se encontr[oó]/i.test(message)) return true;
   if (/debe estar en salta capital/i.test(message)) return true;
   if (/no se pudo geocodificar/i.test(message)) return true;
+  if (/coordenadas osm incorrectas/i.test(message)) return true;
 
   return false;
 }
@@ -54,6 +55,8 @@ export async function recordGeocodeError({
   errorMessage,
   httpStatus = 404,
   requestPath = '/api/geo/geocode',
+  resultLat = null,
+  resultLng = null,
 }) {
   const message = String(errorMessage || '').trim();
   if (!shouldTrackGeocodeError(message)) return null;
@@ -78,20 +81,27 @@ export async function recordGeocodeError({
 
   if (selectError) throw selectError;
 
+  const rowPayload = {
+    search_fingerprint: searchFingerprint,
+    place_id: placeId,
+    formatted_address: formattedAddress,
+    title,
+    subtitle,
+    address,
+    error_message: message,
+    http_status: httpStatus,
+    request_path: requestPath,
+    last_seen_at: now,
+    result_lat: Number.isFinite(Number(resultLat)) ? Number(resultLat) : null,
+    result_lng: Number.isFinite(Number(resultLng)) ? Number(resultLng) : null,
+  };
+
   if (existing?.id) {
     const { data, error } = await supabase
       .from('geocode_error_logs')
       .update({
-        last_seen_at: now,
+        ...rowPayload,
         occurrence_count: Number(existing.occurrence_count || 1) + 1,
-        place_id: placeId,
-        formatted_address: formattedAddress,
-        title,
-        subtitle,
-        address,
-        error_message: message,
-        http_status: httpStatus,
-        request_path: requestPath,
         resolved: false,
         resolved_at: null,
         resolved_note: null,
@@ -106,18 +116,7 @@ export async function recordGeocodeError({
 
   const { data, error } = await supabase
     .from('geocode_error_logs')
-    .insert({
-      search_fingerprint: searchFingerprint,
-      place_id: placeId,
-      formatted_address: formattedAddress,
-      title,
-      subtitle,
-      address,
-      error_message: message,
-      http_status: httpStatus,
-      request_path: requestPath,
-      last_seen_at: now,
-    })
+    .insert(rowPayload)
     .select('id')
     .single();
 

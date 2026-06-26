@@ -9,17 +9,21 @@ process.env.EXPO_PUBLIC_SUPABASE_URL         = 'https://test.supabase.co';
 process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY    = 'test-anon-key';
 process.env.EXPO_PUBLIC_OSRM_URL = 'https://test-osrm.example';
 process.env.EXPO_PUBLIC_NOMINATIM_URL = 'https://test-nominatim.example';
-process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY = 'test-google-maps-key';
 
 // ── Mocks de módulos nativos de Expo ─────────────────────────────────────────
 jest.mock('expo-location', () => ({
   requestForegroundPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
   requestBackgroundPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+  getForegroundPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+  getBackgroundPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
   getCurrentPositionAsync: jest.fn().mockResolvedValue({
     coords: { latitude: -24.79, longitude: -65.41, accuracy: 5, speed: 0 },
   }),
   watchPositionAsync: jest.fn().mockReturnValue({ remove: jest.fn() }),
-  Accuracy: { BestForNavigation: 6, High: 4, Balanced: 3 },
+  hasStartedLocationUpdatesAsync: jest.fn().mockResolvedValue(false),
+  startLocationUpdatesAsync: jest.fn().mockResolvedValue(undefined),
+  stopLocationUpdatesAsync: jest.fn().mockResolvedValue(undefined),
+  Accuracy: { BestForNavigation: 6, High: 4, Balanced: 3, Low: 2 },
 }));
 
 jest.mock('expo-notifications', () => ({
@@ -40,7 +44,9 @@ jest.mock('expo-notifications', () => ({
 
 jest.mock('expo-task-manager', () => ({
   defineTask: jest.fn(),
+  isTaskDefined: jest.fn(() => true),
   isTaskRegisteredAsync: jest.fn().mockResolvedValue(false),
+  isAvailableAsync: jest.fn().mockResolvedValue(true),
 }));
 
 jest.mock('expo-haptics', () => ({
@@ -156,32 +162,6 @@ jest.mock('react-native-reanimated', () => {
   const Reanimated = require('react-native-reanimated/mock');
   Reanimated.default.call = () => {};
   return Reanimated;
-});
-
-jest.mock('react-native-maps', () => {
-  const React = require('react');
-  const { View } = require('react-native');
-
-  const MockMapView = React.forwardRef((props, ref) => {
-    React.useImperativeHandle(ref, () => ({
-      animateToRegion: jest.fn(),
-      fitToCoordinates: jest.fn(),
-      animateCamera: jest.fn(),
-    }));
-    return React.createElement(View, props, props.children);
-  });
-
-  const PassThrough = (props) => React.createElement(View, props, props.children);
-
-  MockMapView.Animated = MockMapView;
-  return {
-    __esModule: true,
-    default: MockMapView,
-    Marker: PassThrough,
-    Polyline: PassThrough,
-    PROVIDER_GOOGLE: 'google',
-    MapView: MockMapView,
-  };
 });
 
 jest.mock('@gorhom/bottom-sheet', () => {

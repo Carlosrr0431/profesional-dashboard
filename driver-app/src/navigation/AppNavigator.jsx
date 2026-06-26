@@ -3,10 +3,16 @@ import { View, Text } from 'react-native';
 import { Image } from 'expo-image';
 import { NavigationContainer } from '@react-navigation/native';
 import { useAuthStore } from '../stores/authStore';
+import { useGpsSimulation } from '../hooks/useGpsSimulation';
 import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
 import { colors } from '../theme/colors';
 import { navigationRef } from './navigationRef';
+
+function GpsSimulationBridge() {
+  useGpsSimulation();
+  return null;
+}
 
 const AppNavigator = () => {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -70,7 +76,14 @@ const AppNavigator = () => {
         },
       }}
     >
-      {isAuthenticated ? <MainNavigator /> : <AuthNavigator />}
+      {isAuthenticated ? (
+        <>
+          <GpsSimulationBridge />
+          <MainNavigator />
+        </>
+      ) : (
+        <AuthNavigator />
+      )}
     </NavigationContainer>
   );
 };

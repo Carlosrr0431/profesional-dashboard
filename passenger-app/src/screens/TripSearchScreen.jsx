@@ -21,7 +21,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useLocation } from '../hooks/useLocation';
 import { useTrip } from '../hooks/useTrip';
 import { useTripStore } from '../stores/tripStore';
-import { reverseGeocode, getPlaceDetails } from '../services/googleMaps';
+import { reverseGeocode, resolvePlaceFromSuggestion, isCoordinateFallbackText } from '../services/googleMaps';
 import { loadFrequentPlaces, addRecentPlace } from '../services/recentPlaces';
 import AddressSearchInput from '../components/ui/AddressSearchInput';
 import MapPinPickerModal from '../components/map/MapPinPickerModal';
@@ -51,7 +51,11 @@ export default function TripSearchScreen() {
     setPickupLoading(true);
     try {
       const loc = await getCurrentLocation();
-      const address = await reverseGeocode(loc.latitude, loc.longitude);
+      let address = await reverseGeocode(loc.latitude, loc.longitude);
+      if (isCoordinateFallbackText(address)) {
+        const retry = await reverseGeocode(loc.latitude, loc.longitude);
+        if (!isCoordinateFallbackText(retry)) address = retry;
+      }
       setPickup({
         address,
         lat: loc.latitude,
@@ -86,18 +90,16 @@ export default function TripSearchScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSuggestions([]);
 
-    let place = {
-      address: suggestion.address,
-      lat: null,
-      lng: null,
-      placeId: suggestion.placeId,
-    };
-
+    let place;
     try {
-      const details = await getPlaceDetails(suggestion.placeId);
-      place = { ...place, lat: details.lat, lng: details.lng };
+      place = await resolvePlaceFromSuggestion(suggestion);
     } catch {
-      /* usar solo texto */
+      place = {
+        address: suggestion.address,
+        lat: Number.isFinite(suggestion.lat) ? suggestion.lat : null,
+        lng: Number.isFinite(suggestion.lng) ? suggestion.lng : null,
+        placeId: suggestion.placeId,
+      };
     }
 
     if (field === ACTIVE_FIELD.pickup) {
@@ -365,7 +367,7 @@ export default function TripSearchScreen() {
                 <Ionicons name="search-outline" size={40} color={colors.textLight} />
                 <Text style={styles.emptyTitle}>Buscá tu destino</Text>
                 <Text style={styles.emptyDesc}>
-                  Escribí al menos 3 letras para ver sugerencias en Salta.
+                  Escribí al menos 2 letras para ver sugerencias en Salta.
                 </Text>
               </View>
             ) : null

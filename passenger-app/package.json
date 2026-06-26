@@ -4,6 +4,8 @@
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "node scripts/start-expo.js",
+    "start:android": "powershell -ExecutionPolicy Bypass -File ./scripts/start-android.ps1",
+    "start:android:install": "powershell -ExecutionPolicy Bypass -File ./scripts/start-android.ps1 -Install",
     "start:dev-client": "node scripts/start-expo.js",
     "start:clean": "node scripts/start-expo.js --clear",
     "qr": "node scripts/print-qr.js",

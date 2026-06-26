@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Marker } from 'react-native-maps';
+import MapLibreGL from '../../lib/maplibre';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { normalizeCoordinate } from '../../utils/mapCoords';
 
@@ -12,10 +12,10 @@ const DriverMarker = React.memo(({ coordinate, heading = 0 }) => {
   const rotation = Number.isFinite(heading) ? heading : 0;
 
   return (
-    <Marker
-      coordinate={coord}
-      anchor={{ x: 0.5, y: 0.5 }}
-      tracksViewChanges={false}
+    <MapLibreGL.MarkerView
+      id={`driver-${coord.latitude.toFixed(5)}-${coord.longitude.toFixed(5)}`}
+      coordinate={[coord.longitude, coord.latitude]}
+      tracksViewChanges
     >
       <View
         style={[styles.root, { transform: [{ rotate: `${rotation}deg` }] }]}
@@ -29,7 +29,7 @@ const DriverMarker = React.memo(({ coordinate, heading = 0 }) => {
         />
         <MaterialCommunityIcons name="car" size={30} color="#0F172A" />
       </View>
-    </Marker>
+    </MapLibreGL.MarkerView>
   );
 });
 

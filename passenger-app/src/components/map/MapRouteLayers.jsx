@@ -1,8 +1,8 @@
 /**
- * Polilíneas de ruta OSRM sobre react-native-maps (borde + línea estilo Google Maps).
+ * Polilíneas de ruta sobre Google Maps nativo (borde + línea estilo Google Maps).
  */
 import React, { useMemo } from 'react';
-import { Polyline } from 'react-native-maps';
+import MapLibreGL from '../../lib/maplibre';
 import { densifyRouteCoords, normalizeCoords } from '../../utils/mapCoords';
 import {
   ROUTE_ACTIVE_STYLE,
@@ -18,6 +18,7 @@ export function MapRouteLayers({
   coords = [],
   navigationMode = false,
   variant = 'preview',
+  idPrefix = 'route',
   lineColor,
   casingColor,
   outlineColor,
@@ -34,7 +35,19 @@ export function MapRouteLayers({
     return densifyRouteCoords(normalized, navigationMode ? 14 : 18);
   }, [coords, navigationMode, smooth]);
 
-  if (coordinates.length < 2) return null;
+  const routeFeature = useMemo(() => {
+    if (coordinates.length < 2) return null;
+    return {
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'LineString',
+        coordinates: coordinates.map((point) => [point.longitude, point.latitude]),
+      },
+    };
+  }, [coordinates]);
+
+  if (!routeFeature) return null;
 
   const resolvedOutlineColor = outlineColor ?? preset.outlineColor;
   const resolvedCasingColor = casingColor ?? preset.casingColor;
@@ -48,31 +61,34 @@ export function MapRouteLayers({
     ?? (navigationMode ? preset.outlineWidth + 2 : preset.outlineWidth);
 
   return (
-    <>
-      <Polyline
-        coordinates={coordinates}
-        strokeColor={resolvedOutlineColor}
-        strokeWidth={resolvedOutlineWidth}
-        lineCap="round"
-        lineJoin="round"
-        geodesic
+    <MapLibreGL.ShapeSource id={`${idPrefix}-source`} shape={routeFeature}>
+      <MapLibreGL.LineLayer
+        id={`${idPrefix}-outline`}
+        style={{
+          lineColor: resolvedOutlineColor,
+          lineWidth: resolvedOutlineWidth,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }}
       />
-      <Polyline
-        coordinates={coordinates}
-        strokeColor={resolvedCasingColor}
-        strokeWidth={resolvedCasingWidth}
-        lineCap="round"
-        lineJoin="round"
-        geodesic
+      <MapLibreGL.LineLayer
+        id={`${idPrefix}-casing`}
+        style={{
+          lineColor: resolvedCasingColor,
+          lineWidth: resolvedCasingWidth,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }}
       />
-      <Polyline
-        coordinates={coordinates}
-        strokeColor={resolvedLineColor}
-        strokeWidth={resolvedLineWidth}
-        lineCap="round"
-        lineJoin="round"
-        geodesic
+      <MapLibreGL.LineLayer
+        id={`${idPrefix}-line`}
+        style={{
+          lineColor: resolvedLineColor,
+          lineWidth: resolvedLineWidth,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }}
       />
-    </>
+    </MapLibreGL.ShapeSource>
   );
 }

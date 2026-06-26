@@ -30,7 +30,7 @@ export async function fetchFleetRoot(supabase, driverId) {
 export async function assertFleetRootOwner(supabase, ownerId) {
   const { data: owner, error } = await supabase
     .from('drivers')
-    .select('id, owner_id, is_assigned_driver, role')
+    .select('*')
     .eq('id', ownerId)
     .maybeSingle();
 

@@ -1,6 +1,7 @@
 const {
   resolveTripPickupCoords,
   resolveTripFinalDestCoords,
+  resolveTripWaypoints,
   needsDriverDestinationChoice,
   shouldPreservePickupOriginOnAssign,
 } = require('../../shared/trip-contract');
@@ -144,5 +145,17 @@ describe('resolveTripPickupCoords', () => {
 
     expect(needsDriverDestinationChoice(trip)).toBe(false);
     expect(resolveTripFinalDestCoords(trip)?.address).toBe('San Martín 500, Salta');
+  });
+
+  it('passenger-app multi-stop: extrae WAYPOINTS_JSON desde notes', () => {
+    const notes = [
+      '[APPROACH_ONLY]',
+      '[PASSENGER_APP]',
+      '[WAYPOINTS_JSON:[{"address":"Bartolomé Mitre 200-298, Salta, Argentina","lat":-24.7874909,"lng":-65.41072919999999}]]',
+    ].join('\n');
+
+    const waypoints = resolveTripWaypoints({ notes, waypoints: null });
+    expect(waypoints).toHaveLength(1);
+    expect(waypoints[0].address).toContain('Mitre 200');
   });
 });

@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Marker } from 'react-native-maps';
+import { View, Text, StyleSheet } from 'react-native';
+import MapLibreGL from '../../lib/maplibre';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -11,7 +11,7 @@ import Animated, {
 import { normalizeCoordinate } from '../../utils/mapCoords';
 
 /** Punto de retiro con pulso cuando el conductor se acerca. */
-export default function PickupMarker({ coordinate, pulse = false }) {
+export default function PickupMarker({ coordinate, pulse = false, showLabel = false }) {
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0.5);
   const coord = normalizeCoordinate(coordinate);
@@ -42,14 +42,21 @@ export default function PickupMarker({ coordinate, pulse = false }) {
   if (!coord) return null;
 
   return (
-    <Marker coordinate={coord} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={pulse}>
+    <MapLibreGL.MarkerView
+      id={`pickup-${coord.latitude.toFixed(5)}-${coord.longitude.toFixed(5)}`}
+      coordinate={[coord.longitude, coord.latitude]}
+      tracksViewChanges={pulse}
+    >
       <View style={styles.wrap} collapsable={false}>
         {pulse ? <Animated.View style={[styles.ring, ringStyle]} /> : null}
         <View style={[styles.dotOuter, pulse && styles.dotOuterPulse]}>
           <View style={[styles.dotInner, pulse && styles.dotInnerPulse]} />
         </View>
+        {showLabel ? (
+          <Text style={styles.caption} numberOfLines={1}>Recogida</Text>
+        ) : null}
       </View>
-    </Marker>
+    </MapLibreGL.MarkerView>
   );
 }
 
@@ -92,5 +99,16 @@ const styles = StyleSheet.create({
   },
   dotInnerPulse: {
     backgroundColor: '#22C55E',
+  },
+  caption: {
+    marginTop: 2,
+    fontSize: 9,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#16A34A',
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+    overflow: 'hidden',
   },
 });

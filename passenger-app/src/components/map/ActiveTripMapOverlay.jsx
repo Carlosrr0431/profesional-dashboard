@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Marker } from 'react-native-maps';
+import MapLibreGL from '../../lib/maplibre';
 import DriverMarker from './DriverMarker';
 import PickupMarker from './PickupMarker';
 import { MapRouteLayers } from './MapRouteLayers';
@@ -34,15 +34,14 @@ export default function ActiveTripMapOverlay({
       ) : null}
 
       {destinationCoordNorm && (isEnRouteToDestination || isSearching || isEnRouteToPickup) ? (
-        <Marker
-          coordinate={destinationCoordNorm}
-          anchor={{ x: 0.5, y: 0.5 }}
-          tracksViewChanges={false}
+        <MapLibreGL.MarkerView
+          id={`destination-${destinationCoordNorm.latitude.toFixed(5)}-${destinationCoordNorm.longitude.toFixed(5)}`}
+          coordinate={[destinationCoordNorm.longitude, destinationCoordNorm.latitude]}
         >
           <View style={[styles.destPin, (isSearching || isEnRouteToPickup) && styles.destPinMuted]}>
             <View style={styles.destPinInner} />
           </View>
-        </Marker>
+        </MapLibreGL.MarkerView>
       ) : null}
 
       {smoothDriverCoord && showDriver ? (
@@ -52,6 +51,7 @@ export default function ActiveTripMapOverlay({
       {!isSearching && fullTripRoute?.length > 1 ? (
         <MapRouteLayers
           coords={fullTripRoute}
+          idPrefix="full-trip-route"
           lineColor="#94A3B8"
           casingColor="#E2E8F0"
           casingWidth={6}
@@ -62,6 +62,7 @@ export default function ActiveTripMapOverlay({
       {!isSearching && !isFinished && remainingPath?.length > 1 ? (
         <MapRouteLayers
           coords={remainingPath}
+          idPrefix="remaining-trip-route"
           variant="active"
           navigationMode
         />

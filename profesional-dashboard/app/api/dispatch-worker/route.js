@@ -31,6 +31,7 @@ import {
   getTripDispatchExcludedDriverIds,
   normalizeDispatchExclusionState,
 } from '../../../src/lib/dispatchExclusions';
+import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -663,6 +664,12 @@ async function chooseDriverForClaim(
 
     if (activeTripsError) throw activeTripsError;
     busyDriverIds = new Set((activeTrips || []).map((item) => item.driver_id).filter(Boolean));
+
+    const { data: fleetRows, error: fleetRowsError } = await getSupabaseAdmin()
+      .from('drivers')
+      .select('id, owner_id, is_assigned_driver');
+    if (fleetRowsError) throw fleetRowsError;
+    busyDriverIds = expandBusyDriverIdsToFleet(fleetRows || [], busyDriverIds);
   }
 
   if (!withoutExcluded.length) {

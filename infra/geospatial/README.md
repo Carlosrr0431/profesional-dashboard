@@ -11,4 +11,6 @@ Cada uno se sube a su propio repo en GitHub y se conecta a Railway sin configura
 
 La carpeta `infra/geospatial/` conserva la infra activa y scripts de importación.
 
+**Caché en servidor:** nginx delante de OSRM/Nominatim — ver [`RAILWAY_COST.md`](./RAILWAY_COST.md).
+
 **Importar datos OSM:** ver [`IMPORT_OSM.md`](./IMPORT_OSM.md) — el PBF `argentina-260618.osm.pbf` ya está en `data/`.

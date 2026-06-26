@@ -1,17 +1,39 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { AppState } from 'react-native';
+import { AppState, InteractionManager } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { supabase } from '../services/supabase';
 import { useLocationStore } from '../stores/locationStore';
 import { useAuthStore } from '../stores/authStore';
 import { GPS_CONFIG } from '../utils/constants';
+import { isGpsSimulationActive } from '../lib/gpsSimulation';
+import { BACKGROUND_LOCATION_TASK } from '../tasks/backgroundLocationTask';
 import Toast from 'react-native-toast-message';
-
-const BACKGROUND_LOCATION_TASK = 'background-location-task';
 const NAV_MAX_ACCURACY_METERS = 30;
 const WATCH_MAX_ACCURACY_METERS = 25;
 const MAP_BOOTSTRAP_MAX_ACCURACY_METERS = 150;
+const BACKGROUND_START_MAX_RETRIES = 5;
+
+function isBackgroundLocationNativeError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return (
+    message.includes('sharedpreferences')
+    || message.includes('nullpointerexception')
+    || message.includes('null object reference')
+    || message.includes('taskmanager.definetask')
+    || message.includes("couldn't start the foreground service")
+    || message.includes('foreground service cannot be started')
+  );
+}
+
+async function safeHasStartedLocationUpdates(taskName) {
+  try {
+    return await Location.hasStartedLocationUpdatesAsync(taskName);
+  } catch (error) {
+    if (isBackgroundLocationNativeError(error)) return false;
+    throw error;
+  }
+}
 
 function getDistanceMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -21,34 +43,6 @@ function getDistanceMeters(lat1, lng1, lat2, lng2) {
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
     Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-try {
-  TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
-    if (error) {
-      console.error('Error en tarea de ubicación:', error);
-      return;
-    }
-    if (data) {
-      const { locations } = data;
-      const location = locations[0];
-      if (location) {
-        // Descartar lecturas con mala precisión en background también
-        const accuracy = location.coords.accuracy ?? 99;
-        if (accuracy > 30) return;
-        const { setCurrentLocation } = useLocationStore.getState();
-        setCurrentLocation({
-          lat: location.coords.latitude,
-          lng: location.coords.longitude,
-          speed: location.coords.speed ?? 0,
-          heading: location.coords.heading ?? 0,
-          accuracy,
-        });
-      }
-    }
-  });
-} catch (e) {
-  console.warn('Background location task registration failed:', e);
 }
 
 export const useLocation = () => {
@@ -70,6 +64,7 @@ export const useLocation = () => {
   const navWatchSubscriptionRef = useRef(null);
   const navLastLocationRef = useRef(null);
   const pendingBackgroundStartRef = useRef(false);
+  const backgroundStartAttemptRef = useRef({ failCount: 0, nextRetryAt: 0 });
   const isNavigationWatchActiveRef = useRef(false);
   const lastLocationRef = useRef(null);
   const lastSupabasePushRef = useRef(0);
@@ -99,7 +94,7 @@ export const useLocation = () => {
   }, []);
 
   const updateDriverLocation = useCallback(async (location) => {
-    if (!driver?.id || !location) return;
+    if (!driver?.id || !location || isGpsSimulationActive()) return;
     try {
       await supabase
         .from('drivers')
@@ -115,7 +110,7 @@ export const useLocation = () => {
 
   const pushLocationToSupabase = useCallback(async (pos, options = {}) => {
     const { force = false } = options;
-    if (!driver?.id) return;
+    if (!driver?.id || isGpsSimulationActive()) return;
     const now = Date.now();
     if (!force && now - lastSupabasePushRef.current < 5000) return;
     lastSupabasePushRef.current = now;
@@ -139,7 +134,7 @@ export const useLocation = () => {
 
   const syncLocationToBackend = useCallback(async (pos, options = {}) => {
     const { force = false } = options;
-    if (!driver?.id || !pos) return;
+    if (!driver?.id || !pos || isGpsSimulationActive()) return;
     hasSyncedToSupabaseRef.current = true;
     await updateDriverLocation(pos);
     await pushLocationToSupabase(pos, { force });
@@ -162,6 +157,9 @@ export const useLocation = () => {
 
   const getCurrentPosition = useCallback(async (options = {}) => {
     const { syncToSupabase = false, force = false } = options;
+    if (isGpsSimulationActive()) {
+      return useLocationStore.getState().currentLocation;
+    }
     try {
       // Verificar permisos antes de pedir ubicación
       const { status } = await Location.getForegroundPermissionsAsync();
@@ -223,17 +221,37 @@ export const useLocation = () => {
   }, [driver]);
 
   const maybeStartBackgroundUpdates = useCallback(async () => {
+    if (!TaskManager.isTaskDefined(BACKGROUND_LOCATION_TASK)) {
+      pendingBackgroundStartRef.current = true;
+      return false;
+    }
+
     try {
-      const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      const isAvailable = await TaskManager.isAvailableAsync();
+      if (!isAvailable) return false;
+    } catch {
+      return false;
+    }
+
+    const { status: backgroundStatus } = await Location.getBackgroundPermissionsAsync();
+    if (backgroundStatus !== 'granted') return false;
+
+    if (AppState.currentState !== 'active') {
+      pendingBackgroundStartRef.current = true;
+      return false;
+    }
+
+    const now = Date.now();
+    if (backgroundStartAttemptRef.current.nextRetryAt > now) {
+      return false;
+    }
+
+    try {
+      const hasStarted = await safeHasStartedLocationUpdates(BACKGROUND_LOCATION_TASK);
       if (hasStarted) {
         pendingBackgroundStartRef.current = false;
+        backgroundStartAttemptRef.current = { failCount: 0, nextRetryAt: 0 };
         return true;
-      }
-
-      // Android foreground service can only be started while app is active.
-      if (AppState.currentState !== 'active') {
-        pendingBackgroundStartRef.current = true;
-        return false;
       }
 
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
@@ -249,8 +267,27 @@ export const useLocation = () => {
       });
 
       pendingBackgroundStartRef.current = false;
+      backgroundStartAttemptRef.current = { failCount: 0, nextRetryAt: 0 };
       return true;
     } catch (error) {
+      if (isBackgroundLocationNativeError(error)) {
+        const failCount = backgroundStartAttemptRef.current.failCount + 1;
+        const backoffMs = Math.min(30000, 1500 * failCount);
+        backgroundStartAttemptRef.current = {
+          failCount,
+          nextRetryAt: Date.now() + backoffMs,
+        };
+        pendingBackgroundStartRef.current = failCount < BACKGROUND_START_MAX_RETRIES;
+
+        if (failCount <= 2) {
+          console.warn(
+            'Tracking en background no listo; se reintentará. El viaje sigue con GPS en primer plano.',
+            error?.message,
+          );
+        }
+        return false;
+      }
+
       const message = String(error?.message || '').toLowerCase();
       const isForegroundServiceTimingError =
         message.includes('foreground service cannot be started when the application is in the background') ||
@@ -274,6 +311,14 @@ export const useLocation = () => {
     setIsTracking(true);
 
     trackingIntervalRef.current = setInterval(async () => {
+      if (isGpsSimulationActive()) {
+        const simulated = useLocationStore.getState().currentLocation;
+        if (simulated && activeTripIdRef.current) {
+          await sendTrackingPoint(activeTripIdRef.current, simulated);
+        }
+        return;
+      }
+
       const position = await getCurrentPosition();
       if (position) {
         await updateDriverLocation(position);
@@ -283,12 +328,18 @@ export const useLocation = () => {
       }
     }, GPS_CONFIG.TRACKING_INTERVAL);
 
+    await new Promise((resolve) => {
+      InteractionManager.runAfterInteractions(() => {
+        setTimeout(resolve, 300);
+      });
+    });
     await maybeStartBackgroundUpdates();
   }, [requestPermissions, getCurrentPosition, updateDriverLocation, sendTrackingPoint, maybeStartBackgroundUpdates]);
 
   const stopTracking = useCallback(async () => {
     activeTripIdRef.current = null;
     pendingBackgroundStartRef.current = false;
+    backgroundStartAttemptRef.current = { failCount: 0, nextRetryAt: 0 };
     setIsTracking(false);
 
     if (trackingIntervalRef.current) {
@@ -297,7 +348,7 @@ export const useLocation = () => {
     }
 
     try {
-      const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      const hasStarted = await safeHasStartedLocationUpdates(BACKGROUND_LOCATION_TASK);
       if (hasStarted) {
         await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
       }
@@ -307,6 +358,8 @@ export const useLocation = () => {
   }, []);
 
   const applyLocationUpdate = useCallback((pos, options = {}) => {
+    if (isGpsSimulationActive()) return false;
+
     const {
       minMovingMeters = 8,
       minStoppedMeters = 15,
@@ -466,7 +519,9 @@ export const useLocation = () => {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active' && pendingBackgroundStartRef.current && activeTripIdRef.current) {
-        maybeStartBackgroundUpdates();
+        setTimeout(() => {
+          maybeStartBackgroundUpdates();
+        }, 500);
       }
     });
 

@@ -270,6 +270,32 @@ function googleAutocompleteResponse(query) {
     };
   }
 
+  if (lower.includes('emprendedor')) {
+    return {
+      suggestions: [
+        makePred(
+          'google-escuela-emprendedores',
+          'Escuela de Emprendedores Salta',
+          'Avenida Independencia, Salta',
+          ['school'],
+        ),
+      ],
+    };
+  }
+
+  if (lower.includes('incaa') || (lower.includes('hogar') && lower.includes('escuela'))) {
+    return {
+      suggestions: [
+        makePred(
+          'google-incaa-hogar-escuela',
+          'Espacio INCAA Hogar Escuela',
+          'Avenida Hipólito Yrigoyen, Salta',
+          ['school'],
+        ),
+      ],
+    };
+  }
+
   if (lower.includes('axion') || lower.includes('ypf')) {
     return {
       suggestions: [
@@ -290,6 +316,101 @@ function googleAutocompleteResponse(query) {
   }
 
   return { suggestions: [] };
+}
+
+function googlePlaceDetailsEssentialsResponse(placeId) {
+  const id = String(placeId || '').trim();
+  if (!id) return null;
+
+  const fixtures = {
+    'google-unsa': {
+      formattedAddress: 'Universidad Nacional de Salta, Av. Bolivia, Salta, Argentina',
+      location: { latitude: -24.735437, longitude: -65.386858 },
+      types: ['university', 'point_of_interest'],
+    },
+    'google-jaraba-poi': {
+      formattedAddress: 'Imagenes Jaraba, Pueyrredón, Salta, Argentina',
+      location: { latitude: -24.7833423, longitude: -65.406269 },
+      types: ['establishment', 'point_of_interest'],
+    },
+    'google-plaza-ceferino': {
+      formattedAddress: 'Plaza Ceferino, Barrio Don Ceferino, Salta, Argentina',
+      location: { latitude: -24.8122, longitude: -65.4101 },
+      types: ['park', 'point_of_interest'],
+    },
+    'google-punto-shopping': {
+      formattedAddress: 'El Punto Shopping, Av. Finca Yerba Buena 4401, San Lorenzo, Salta, Argentina',
+      location: { latitude: -24.7918, longitude: -65.4854 },
+      types: ['shopping_mall', 'point_of_interest'],
+    },
+    'google-francisca-arenales': {
+      formattedAddress: 'La Fransisca, Arenales, Salta, Argentina',
+      location: { latitude: -24.7704, longitude: -65.4211 },
+      types: ['restaurant', 'point_of_interest'],
+    },
+    'google-el-balcon-paseo': {
+      formattedAddress: 'El Balcón - Paseo Libertad Salta, Avenida Ex Combatientes de Malvinas, Salta, Argentina',
+      location: { latitude: -24.8321, longitude: -65.4276 },
+      types: ['restaurant', 'point_of_interest'],
+    },
+    'google-hiper-libertad-paseo': {
+      formattedAddress: 'Hiper Libertad - Libertad SA, Batalla de Suipacha, Salta, Argentina',
+      location: { latitude: -24.8321, longitude: -65.4276 },
+      types: ['supermarket', 'point_of_interest'],
+    },
+    'google-la-anonima-paseo': {
+      formattedAddress: 'La Anónima, Scalabrini Ortiz Norte, Salta, Argentina',
+      location: { latitude: -24.8321, longitude: -65.4276 },
+      types: ['supermarket', 'point_of_interest'],
+    },
+    'google-axion-rural': {
+      formattedAddress: 'AXION energy - Octano Srl (La Rural), Avenida Paraguay, Salta, Argentina',
+      location: { latitude: -24.8130, longitude: -65.4235 },
+      types: ['gas_station', 'point_of_interest'],
+    },
+    'google-axion-paseo': {
+      formattedAddress: 'AXION energy - DEL PASEO, Avenida Ex Combatientes de Malvinas, Salta, Argentina',
+      location: { latitude: -24.8304, longitude: -65.4309 },
+      types: ['gas_station', 'point_of_interest'],
+    },
+    'google-ypf-entre-rios': {
+      formattedAddress: 'YPF, Avenida Entre Ríos, Salta, Argentina',
+      location: { latitude: -24.7797, longitude: -65.4292 },
+      types: ['gas_station', 'point_of_interest'],
+    },
+    'google-intersection-galvez-marimon': {
+      formattedAddress: 'Juan Galvez y Domingo Marimon, Salta, Argentina',
+      location: { latitude: -24.7954063, longitude: -65.3774346 },
+      types: ['route'],
+    },
+    'google-escuela-emprendedores': {
+      formattedAddress: 'Escuela de Emprendedores Salta, Avenida Independencia 910, Salta, Argentina',
+      location: { latitude: -24.7985777, longitude: -65.4162771 },
+      types: ['school', 'point_of_interest'],
+    },
+    'ChIJXeY5zbjDG5QRsstuzg8yVow': {
+      formattedAddress: 'Escuela Normal de Maestras General Manuel Belgrano, Bartolomé Mitre, Salta, Argentina',
+      location: { latitude: -24.78048, longitude: -65.410809 },
+      types: ['school', 'point_of_interest'],
+    },
+    'ChIJU-J5iy7DG5QRces48wzsYl8': {
+      formattedAddress: 'Espacio INCAA Hogar Escuela, Avenida Hipólito Yrigoyen, Salta, Argentina',
+      location: { latitude: -24.7965187, longitude: -65.4006911 },
+      types: ['school', 'point_of_interest'],
+    },
+  };
+
+  const fixture = fixtures[id];
+  if (!fixture) {
+    return {
+      id,
+      formattedAddress: `Lugar de prueba ${id}, Salta, Argentina`,
+      location: { latitude: -24.7829, longitude: -65.4122 },
+      types: ['point_of_interest'],
+    };
+  }
+
+  return { id, ...fixture };
 }
 
 function googlePlaceIdsOnlyResponse(placeId) {
@@ -436,6 +557,49 @@ function createGeoFetchHandler(baseHandler) {
       const params = parseUrlParams(urlStr);
       const query = String(params.get('q') || '').toLowerCase();
 
+      if (
+        query.includes('independencia')
+        && (query.includes('910') || query.includes('emprendedor'))
+      ) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ([{
+            lat: '-24.7985777',
+            lon: '-65.4162771',
+            display_name: '910, Avenida Independencia, Salta, Argentina',
+            place_id: 'test-independencia-910',
+            importance: 0.9,
+            class: 'place',
+            type: 'house',
+            name: '',
+            address: {
+              house_number: '910',
+              road: 'Avenida Independencia',
+              city: 'Salta',
+            },
+          }]),
+        };
+      }
+
+      if (query.includes('emprendedor') && !query.includes('910')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ([{
+            lat: '-24.82919',
+            lon: '-65.42161',
+            display_name: 'Escuela de Emprendedores, Avenida Paraguay, Salta, Argentina',
+            place_id: 'test-emprendedores-wrong',
+            importance: 0.75,
+            class: 'amenity',
+            type: 'school',
+            name: 'Escuela de Emprendedores',
+            address: { road: 'Avenida Paraguay', city: 'Salta' },
+          }]),
+        };
+      }
+
       if (query.includes('escuela normal')) {
         return {
           ok: true,
@@ -450,6 +614,29 @@ function createGeoFetchHandler(baseHandler) {
             type: 'school',
             name: 'Escuela Normal',
             address: { road: 'Bartolomé Mitre', city: 'Salta' },
+          }]),
+        };
+      }
+
+      if (
+        query.includes('4660')
+        || query.includes('carmen puch')
+        || (query.includes('incaa') && query.includes('yrigoyen'))
+        || (query.includes('escuela hogar') && query.includes('yrigoyen'))
+      ) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ([{
+            lat: '-24.7965187',
+            lon: '-65.4006911',
+            display_name: 'Escuela Hogar N° 4660 Carmen Puch de Güemes, Avenida Hipólito Yrigoyen, Salta, Argentina',
+            place_id: 'test-incaa-hogar-escuela',
+            importance: 0.88,
+            class: 'amenity',
+            type: 'school',
+            name: 'Escuela Hogar N° 4660 Carmen Puch de Güemes',
+            address: { road: 'Avenida Hipólito Yrigoyen', city: 'Salta' },
           }]),
         };
       }
@@ -933,6 +1120,15 @@ function createGeoFetchHandler(baseHandler) {
 
     if (urlStr.includes('places.googleapis.com/v1/places/')) {
       const placeId = decodeURIComponent(urlStr.split('/places/')[1]?.split('?')[0] || '');
+      const fieldMask = String(options?.headers?.['X-Goog-FieldMask'] || '');
+      if (fieldMask.includes('location')) {
+        const payload = googlePlaceDetailsEssentialsResponse(placeId);
+        if (!payload) {
+          return { ok: false, status: 404, json: async () => ({ error: { code: 404 } }) };
+        }
+        return { ok: true, status: 200, json: async () => payload };
+      }
+
       const payload = googlePlaceIdsOnlyResponse(placeId);
       if (!payload) {
         return { ok: false, status: 404, json: async () => ({ error: { code: 404 } }) };

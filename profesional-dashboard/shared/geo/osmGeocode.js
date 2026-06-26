@@ -62,6 +62,44 @@ function tokenizeForMatch(text) {
     .filter((token) => token.length >= 3 && !GENERIC_GEO_TOKENS.has(token));
 }
 
+/** Calle indicada por Google (subtítulo / dirección formateada), ej. "Avenida Independencia". */
+function extractStreetHint(...parts) {
+  for (const raw of parts) {
+    const text = normalizeGeocodeText(raw);
+    if (!text) continue;
+
+    const withNumber = text.match(
+      /((?:avenida|av\.?|calle|c\.?|boulevard|bv\.?|pasaje|ruta|rn)\s+[^,]+?\d+[a-zA-Z]?)/i,
+    );
+    if (withNumber) return foldText(withNumber[1]);
+
+    const streetOnly = text.match(
+      /(?:^|,\s*)((?:avenida|av\.?|calle|c\.?|boulevard|bv\.?|pasaje)\s+[^,]+?)(?:\s*,\s*|\s+salta\b|$)/i,
+    );
+    if (streetOnly) {
+      const name = streetOnly[1].trim();
+      if (name.length >= 8) return foldText(name);
+    }
+  }
+  return '';
+}
+
+function streetHintTokens(streetHint) {
+  if (!streetHint) return [];
+  const stripped = streetHint.replace(/^(avenida|av|calle|c|boulevard|bv|pasaje|ruta|rn)\s+/i, '');
+  return tokenizeForMatch(stripped || streetHint);
+}
+
+function hitMatchesStreetHint(hit, streetHint) {
+  if (!streetHint) return true;
+  const tokens = streetHintTokens(streetHint);
+  if (!tokens.length) return true;
+  const road = foldText(hit.road);
+  const display = foldText(hit.formattedAddress);
+  const name = foldText(hit.name);
+  return tokens.some((token) => road.includes(token) || display.includes(token) || name.includes(token));
+}
+
 function buildSearchQuery(address) {
   const text = normalizeGeocodeText(address);
   if (!text) return '';
@@ -91,7 +129,7 @@ function mapSearchHit(item) {
   };
 }
 
-function scorePoiHit(hit, { title, subtitle }) {
+function scorePoiHit(hit, { title, subtitle, label }) {
   const titleFold = foldText(title);
   const subtitleFold = foldText(subtitle);
   const nameFold = foldText(hit.name);
@@ -139,6 +177,9 @@ function scorePoiHit(hit, { title, subtitle }) {
   }
 
   if (isWithinSaltaCapital(hit.lat, hit.lng)) score += 0.5;
+
+  const streetHint = extractStreetHint(subtitle, label);
+  if (streetHint && !hitMatchesStreetHint(hit, streetHint)) score -= 10;
 
   return score;
 }
@@ -254,13 +295,36 @@ function hasNamedQualifier(title) {
 async function geocodeFromNominatimPoiLabel(poiTitle, poiSubtitle, label) {
   const queries = buildPoiGeocodeQueries(poiTitle, poiSubtitle, label);
   const allHits = await fetchHitsForQueries(queries, 8);
-  const best = pickBestHit(allHits, { title: poiTitle, subtitle: poiSubtitle });
+  const context = { title: poiTitle, subtitle: poiSubtitle, label };
+  const best = pickBestHit(allHits, context);
   if (!best) return null;
 
   return {
     lat: best.lat,
     lng: best.lng,
     formattedAddress: label,
+  };
+}
+
+/** Devuelve si las coordenadas parecen estar en otra calle que la indicada por Google. */
+function assessStreetHintConsistency({ subtitle, formattedAddress, lat, lng, road = '' }) {
+  const streetHint = extractStreetHint(subtitle, formattedAddress);
+  if (!streetHint) return { ok: true };
+
+  const hit = {
+    lat,
+    lng,
+    road: String(road || ''),
+    formattedAddress: String(formattedAddress || ''),
+    name: '',
+  };
+
+  if (hitMatchesStreetHint(hit, streetHint)) return { ok: true };
+
+  return {
+    ok: false,
+    message: `Coordenadas OSM incorrectas: el lugar no está en ${subtitle || formattedAddress}`,
+    streetHint,
   };
 }
 
@@ -370,11 +434,24 @@ async function fetchHitsForQueries(queries, limit = 8) {
   return dedupeHits(merged);
 }
 
+function shouldEnforceStreetHint(title, subtitle, label) {
+  const titleNorm = foldText(title);
+  const isInstitution = /\b(escuela|colegio|instituto|universidad|facultad|hospital|clinica|sanatorio)\b/.test(titleNorm);
+  return isInstitution && Boolean(extractStreetHint(subtitle, label));
+}
+
 function pickBestHit(hits, context = {}, options = {}) {
   const { minScore = 0.5, allowRelaxed = true } = options;
+  const streetHint = extractStreetHint(context.subtitle, context.label);
+  const enforceStreet = shouldEnforceStreetHint(context.title, context.subtitle, context.label);
   const pool = hits.filter((hit) => isWithinSaltaCapital(hit.lat, hit.lng));
-  const candidates = pool.length ? pool : hits;
+  let candidates = pool.length ? pool : hits;
   if (!candidates.length) return null;
+
+  if (enforceStreet && streetHint) {
+    const streetMatched = candidates.filter((hit) => hitMatchesStreetHint(hit, streetHint));
+    if (streetMatched.length) candidates = streetMatched;
+  }
 
   const scored = candidates
     .map((hit) => ({ hit, score: scorePoiHit(hit, context) }))
@@ -386,7 +463,7 @@ function pickBestHit(hits, context = {}, options = {}) {
   if (!allowRelaxed) return null;
 
   const titleTokens = tokenizeForMatch(context.title);
-  const relaxedPoi = pool.find((hit) => {
+  const relaxedPoi = candidates.find((hit) => {
     const nameFold = foldText(hit.name);
     const displayFold = foldText(hit.formattedAddress);
     const tokenHit = titleTokens.length === 0
@@ -395,12 +472,12 @@ function pickBestHit(hits, context = {}, options = {}) {
   });
   if (relaxedPoi) return relaxedPoi;
 
-  const soft = scored.find(({ score, hit }) => score >= 0 && pool.includes(hit));
+  const soft = scored.find(({ score, hit }) => score >= 0 && candidates.includes(hit));
   if (soft) return soft.hit;
 
-  if (pool.length === 1) return pool[0];
+  if (candidates.length === 1) return candidates[0];
 
-  if (!context.title && pool.length > 0) return pool[0];
+  if (!context.title && candidates.length > 0) return candidates[0];
 
   return null;
 }
@@ -903,4 +980,7 @@ module.exports = {
   scorePoiHit,
   pickBestHit,
   normalizeGeocodeText,
+  extractStreetHint,
+  hitMatchesStreetHint,
+  assessStreetHintConsistency,
 };

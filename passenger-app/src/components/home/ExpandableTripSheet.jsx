@@ -37,7 +37,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useLocation } from '../../hooks/useLocation';
 import { useTrip } from '../../hooks/useTrip';
 import { useTripStore } from '../../stores/tripStore';
-import { reverseGeocode, getPlaceDetails } from '../../services/googleMaps';
+import { reverseGeocode, resolvePlaceFromSuggestion } from '../../services/googleMaps';
 import { estimatePassengerTripFare } from '../../services/tripPricing';
 import { loadFrequentPlaces, addRecentPlace } from '../../services/recentPlaces';
 import { formatArs } from '../../utils/formatMoney';
@@ -889,21 +889,16 @@ export default function ExpandableTripSheet({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setSuggestions([]);
 
-      let place = {
-        address: suggestion.address,
-        lat: Number.isFinite(suggestion.lat) ? suggestion.lat : null,
-        lng: Number.isFinite(suggestion.lng) ? suggestion.lng : null,
-        placeId: suggestion.placeId,
-      };
-
-      const hasCoords = Number.isFinite(place.lat) && Number.isFinite(place.lng);
-      if (!hasCoords && place.placeId) {
-        try {
-          const details = await getPlaceDetails(suggestion.placeId);
-          place = { ...place, lat: details.lat, lng: details.lng };
-        } catch {
-          /* solo texto */
-        }
+      let place;
+      try {
+        place = await resolvePlaceFromSuggestion(suggestion);
+      } catch {
+        place = {
+          address: suggestion.address,
+          lat: Number.isFinite(suggestion.lat) ? suggestion.lat : null,
+          lng: Number.isFinite(suggestion.lng) ? suggestion.lng : null,
+          placeId: suggestion.placeId,
+        };
       }
 
       if (field === ACTIVE_FIELD.pickup) {
@@ -1378,15 +1373,26 @@ export default function ExpandableTripSheet({
             },
           ]}
         />
-        <Text
-          style={[styles.reviewRouteStopText, { fontSize: reviewUi.routeTextSize }]}
-          numberOfLines={needsRouteScroll ? 2 : 1}
-          maxFontSizeMultiplier={1.2}
-        >
-          {pickup?.address?.split(',')[0] || 'Recogida'}
-        </Text>
+        <View style={styles.reviewRouteStopTextCol}>
+          <Text style={[styles.reviewRouteStopLabel, { fontSize: reviewUi.routeTextSize - 2 }]}>
+            Recogida
+          </Text>
+          <Text
+            style={[styles.reviewRouteStopText, { fontSize: reviewUi.routeTextSize }]}
+            numberOfLines={needsRouteScroll ? 2 : 1}
+            maxFontSizeMultiplier={1.2}
+          >
+            {pickup?.address?.split(',')[0] || 'Punto de retiro'}
+          </Text>
+        </View>
       </View>
-      {paradas.map((parada, index) => (
+      {paradas.map((parada, index) => {
+        const isFinal = index === paradas.length - 1;
+        const hasIntermediateStops = paradas.length > 1;
+        const stopLabel = isFinal
+          ? (hasIntermediateStops ? 'Destino final' : 'Destino')
+          : `Parada ${index + 1}`;
+        return (
         <View
           key={`review-route-${index}`}
           style={[styles.reviewRouteStop, { minHeight: reviewUi.stopMinHeight }]}
@@ -1394,25 +1400,31 @@ export default function ExpandableTripSheet({
           <View
             style={[
               styles.reviewRouteDot,
-              index === paradas.length - 1
+              isFinal
                 ? styles.reviewRouteDotDest
                 : styles.reviewRouteDotStop,
               {
                 width: reviewUi.dotSize,
                 height: reviewUi.dotSize,
-                borderRadius: index === paradas.length - 1 ? 2 : reviewUi.dotSize / 2,
+                borderRadius: isFinal ? 2 : reviewUi.dotSize / 2,
               },
             ]}
           />
-          <Text
-            style={[styles.reviewRouteStopText, { fontSize: reviewUi.routeTextSize }]}
-            numberOfLines={needsRouteScroll ? 2 : 1}
-            maxFontSizeMultiplier={1.2}
-          >
-            {parada?.address?.split(',')[0] || `Parada ${index + 1}`}
-          </Text>
+          <View style={styles.reviewRouteStopTextCol}>
+            <Text style={[styles.reviewRouteStopLabel, { fontSize: reviewUi.routeTextSize - 2 }]}>
+              {stopLabel}
+            </Text>
+            <Text
+              style={[styles.reviewRouteStopText, { fontSize: reviewUi.routeTextSize }]}
+              numberOfLines={needsRouteScroll ? 2 : 1}
+              maxFontSizeMultiplier={1.2}
+            >
+              {parada?.address?.split(',')[0] || stopLabel}
+            </Text>
+          </View>
         </View>
-      ))}
+        );
+      })}
     </>
   );
 
@@ -1613,7 +1625,7 @@ export default function ExpandableTripSheet({
         <View style={styles.emptyHint}>
           <Ionicons name="search-outline" size={28} color={colors.accentLight} />
           <Text style={styles.hintText}>
-            Escribí al menos 3 letras para ver direcciones en Salta.
+            Escribí al menos 2 letras para ver direcciones en Salta.
           </Text>
         </View>
       ) : null}
@@ -1891,6 +1903,16 @@ const styles = StyleSheet.create({
   reviewRouteDotDest: {
     backgroundColor: colors.primary,
     borderRadius: 2,
+  },
+  reviewRouteStopTextCol: {
+    flex: 1,
+    gap: 1,
+  },
+  reviewRouteStopLabel: {
+    fontFamily: 'Inter_700Bold',
+    color: colors.textMuted,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
   reviewRouteStopText: {
     flex: 1,

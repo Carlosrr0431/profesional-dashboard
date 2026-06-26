@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, Image } from 'react-native';
+import { DRIVER_PUCK_SIZE_NAV } from './driverPuckSizes';
 
 const DRIVER_NAV_PUCK = require('../../../assets/driver-nav-puck.png');
 
@@ -19,8 +20,10 @@ export default DriverNavMarker;
 
 const styles = StyleSheet.create({
   puckWrap: {
-    width: 52, height: 52,
-    alignItems: 'center', justifyContent: 'center',
+    width: DRIVER_PUCK_SIZE_NAV,
+    height: DRIVER_PUCK_SIZE_NAV,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  puckImage: { width: 52, height: 52 },
+  puckImage: { width: DRIVER_PUCK_SIZE_NAV, height: DRIVER_PUCK_SIZE_NAV },
 });

@@ -1,16 +1,18 @@
 /**
- * Servicios geoespaciales (OSRM + Nominatim). El mapa base usa Google Maps vía react-native-maps.
+ * Servicios geoespaciales del chofer: OSRM (rutas) + Nominatim (direcciones).
+ * El mapa base usa MapLibre + tiles Carto/OSM (ver mapProvider.js).
  */
-export const OSRM_BASE_URL =
+
+export const OSRM_BASE_URL = (
   process.env.EXPO_PUBLIC_OSRM_URL
-  || 'https://profesional-osrm-production.up.railway.app';
+  || 'https://profesional-osrm-production.up.railway.app'
+).replace(/\/$/, '');
 
-/** API de geocodificación Nominatim. Producción: Railway. */
-export const NOMINATIM_BASE_URL =
+export const NOMINATIM_BASE_URL = (
   process.env.EXPO_PUBLIC_NOMINATIM_URL
-  || 'https://profesional-nominatim-production.up.railway.app';
+  || 'https://profesional-nominatim-production.up.railway.app'
+).replace(/\/$/, '');
 
-/** User-Agent exigido por la política de uso de Nominatim. */
 export const NOMINATIM_USER_AGENT =
   process.env.EXPO_PUBLIC_NOMINATIM_USER_AGENT
   || 'ProfesionalConductorDriverApp/1.0';

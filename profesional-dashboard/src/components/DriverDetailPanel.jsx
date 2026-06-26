@@ -318,7 +318,6 @@ function InfoTab({ driver, stats }) {
     { label: 'Vehículo', value: `${driver.vehicle_brand || ''} ${driver.vehicle_model || ''}`.trim() || '—' },
     { label: 'Patente', value: driver.vehicle_plate || '—' },
     { label: 'Color', value: driver.vehicle_color || '—' },
-    { label: 'Año', value: driver.vehicle_year || '—' },
     { label: 'Licencia', value: driver.license_expiry || '—' },
     { label: 'Rating', value: `⭐ ${parseFloat(driver.rating || 5).toFixed(1)}` },
     { label: 'Registrado', value: driver.created_at ? new Date(driver.created_at).toLocaleDateString('es-AR') : '—' },

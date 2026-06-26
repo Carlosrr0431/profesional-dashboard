@@ -130,21 +130,31 @@ export default function TripPlanRouteOverlay({
 
   return (
     <>
-      <PickupMarker coordinate={pickupCoord} />
+      <PickupMarker coordinate={pickupCoord} showLabel />
 
-      {stopCoords.map((coord, index) => (
-        <NumberedStopMarker
-          key={`stop-${index}-${coord.latitude}-${coord.longitude}`}
-          coordinate={coord}
-          index={index + 1}
-          isFinal={index === stopCoords.length - 1}
-        />
-      ))}
+      {stopCoords.map((coord, index) => {
+        const isFinal = index === stopCoords.length - 1;
+        const hasIntermediateStops = stopCoords.length > 1;
+        return (
+          <NumberedStopMarker
+            key={`stop-${index}-${coord.latitude}-${coord.longitude}`}
+            coordinate={coord}
+            index={index + 1}
+            isFinal={isFinal}
+            caption={
+              isFinal
+                ? (hasIntermediateStops ? 'Destino final' : 'Destino')
+                : `Parada ${index + 1}`
+            }
+          />
+        );
+      })}
 
       {routeCoords.length > 1 ? (
         <MapRouteLayers
           coords={routeCoords}
           variant="preview"
+          idPrefix="trip-preview-route"
         />
       ) : null}
     </>

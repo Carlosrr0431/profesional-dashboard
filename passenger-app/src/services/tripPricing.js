@@ -5,6 +5,10 @@ const DASHBOARD_URL =
   process.env.EXPO_PUBLIC_DASHBOARD_URL || 'https://profesional-dashboard.vercel.app';
 
 const DEFAULT_TARIFF_PER_KM = 1000;
+const ESTIMATE_CACHE_MS = 45 * 1000;
+const ESTIMATE_CACHE_MAX = 120;
+const fareEstimateCache = new Map();
+const inFlightFareEstimate = new Map();
 
 export const PASSENGER_APP_TARIFF_SETTING_KEYS = [
   'passenger_app_tariff_per_km',
@@ -124,6 +128,35 @@ function normalizeRouteWaypoints(stops = []) {
     .filter(Boolean);
 }
 
+function buildFareEstimateKey(pickup, destination, waypoints = []) {
+  const pLat = Number(pickup?.lat).toFixed(5);
+  const pLng = Number(pickup?.lng).toFixed(5);
+  const dLat = Number(destination?.lat).toFixed(5);
+  const dLng = Number(destination?.lng).toFixed(5);
+  const wp = (waypoints || [])
+    .map((w) => `${Number(w?.latitude).toFixed(5)},${Number(w?.longitude).toFixed(5)}`)
+    .join('|');
+  return `${pLat},${pLng}->${dLat},${dLng}::${wp}`;
+}
+
+function getCachedEstimate(key) {
+  const hit = fareEstimateCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    fareEstimateCache.delete(key);
+    return null;
+  }
+  return hit.data;
+}
+
+function setCachedEstimate(key, data) {
+  fareEstimateCache.set(key, { data, expiresAt: Date.now() + ESTIMATE_CACHE_MS });
+  if (fareEstimateCache.size > ESTIMATE_CACHE_MAX) {
+    const oldestKey = fareEstimateCache.keys().next().value;
+    if (oldestKey) fareEstimateCache.delete(oldestKey);
+  }
+}
+
 /**
  * Estima precio del viaje (tarifa app pasajeros) entre recogida, paradas y destino final.
  */
@@ -147,33 +180,49 @@ export async function estimatePassengerTripFare(pickup, destination, stops = [])
     return null;
   }
 
-  const route = await getDirections(
-    { latitude: pickupLat, longitude: pickupLng },
-    { latitude: destLat, longitude: destLng },
-    waypoints
-  );
+  const estimateKey = buildFareEstimateKey(pickup, destination, waypoints);
+  const cached = getCachedEstimate(estimateKey);
+  if (cached) return cached;
+  if (inFlightFareEstimate.has(estimateKey)) return inFlightFareEstimate.get(estimateKey);
 
-  if (!route?.distanceValue) return null;
+  const requestPromise = (async () => {
+    const route = await getDirections(
+      { latitude: pickupLat, longitude: pickupLng },
+      { latitude: destLat, longitude: destLng },
+      waypoints
+    );
 
-  const distanceKm = route.distanceValue / 1000;
-  const tariff = await fetchPassengerAppTariff();
-  const price = calculateTripPrice({
-    base: tariff.base,
-    perKm: tariff.perKm,
-    distanceKm,
-  });
+    if (!route?.distanceValue) return null;
 
-  if (price == null) return null;
+    const distanceKm = route.distanceValue / 1000;
+    const tariff = await fetchPassengerAppTariff();
+    const price = calculateTripPrice({
+      base: tariff.base,
+      perKm: tariff.perKm,
+      distanceKm,
+    });
 
-  return {
-    price,
-    distanceKm,
-    distanceText: route.distance,
-    durationText: route.duration,
-    tariffBase: tariff.base,
-    tariffPerKm: tariff.perKm,
-    commissionPercent: tariff.commissionPercent,
-  };
+    if (price == null) return null;
+
+    const estimate = {
+      price,
+      distanceKm,
+      distanceText: route.distance,
+      durationText: route.duration,
+      tariffBase: tariff.base,
+      tariffPerKm: tariff.perKm,
+      commissionPercent: tariff.commissionPercent,
+    };
+    setCachedEstimate(estimateKey, estimate);
+    return estimate;
+  })();
+
+  inFlightFareEstimate.set(estimateKey, requestPromise);
+  try {
+    return await requestPromise;
+  } finally {
+    inFlightFareEstimate.delete(estimateKey);
+  }
 }
 
 /** @deprecated Usar estimatePassengerTripFare */

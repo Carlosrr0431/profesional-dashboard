@@ -13,10 +13,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { radius, spacing } from '../../theme/layout';
-import { autocompleteAddressSalta, getPlaceDetails } from '../../services/googleMaps';
+import { autocompleteAddressSalta, resolvePlaceFromSuggestion } from '../../services/googleMaps';
 import MapPickerIcon from './MapPickerIcon';
 
-const DEBOUNCE_MS = 280;
+const DEBOUNCE_MS = 350;
 
 const AddressSearchInput = forwardRef(({
   label,
@@ -49,6 +49,10 @@ const AddressSearchInput = forwardRef(({
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionAtStart, setSelectionAtStart] = useState(null);
   const debounceRef = useRef(null);
+  const abortRef = useRef(null);
+  const requestSeqRef = useRef(0);
+  const suggestionsCacheRef = useRef(new Map());
+  const sessionTokenRef = useRef(null);
   const inputRef = useRef(null);
   const isFocusedRef = useRef(false);
   const queryRef = useRef(value?.address || '');
@@ -141,8 +145,20 @@ const AddressSearchInput = forwardRef(({
     };
   }, [value?.address, scrollInputToStart]);
 
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+    clearScrollTimeouts();
+  }, [clearScrollTimeouts]);
+
   const notifySuggestions = useCallback((items, meta) => {
     onSuggestionsChangeRef.current?.(items, meta);
+  }, []);
+
+  const beginSession = useCallback(() => {
+    sessionTokenRef.current = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `sess-${Date.now()}`;
   }, []);
 
   const handleChange = useCallback((text) => {
@@ -152,24 +168,50 @@ const AddressSearchInput = forwardRef(({
     setSearchError(null);
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
 
-    if (text.trim().length < 3) {
+    const normalized = String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+    if (text.trim().length < 2) {
       if (hideDropdown) {
         notifySuggestions([], { isSearching: false, isFocused: true });
       }
       return;
     }
 
+    const cached = suggestionsCacheRef.current.get(normalized);
+    if (cached) {
+      setIsSearching(false);
+      setSuggestions(cached);
+      setSearchError(cached.length === 0 ? 'No se encontraron direcciones en Salta Capital' : null);
+      notifySuggestions(cached, { isSearching: false, isFocused: true });
+      return;
+    }
+
     debounceRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const requestId = ++requestSeqRef.current;
       setIsSearching(true);
       setSearchError(null);
       notifySuggestions([], { isSearching: true, isFocused: true });
       try {
-        const results = await autocompleteAddressSalta(text.trim());
+        if (!sessionTokenRef.current) beginSession();
+        const results = await autocompleteAddressSalta(text.trim(), 6, {
+          signal: controller.signal,
+          sessionToken: sessionTokenRef.current,
+        });
+        if (controller.signal.aborted || requestId !== requestSeqRef.current) return;
+        suggestionsCacheRef.current.set(normalized, results);
+        if (suggestionsCacheRef.current.size > 80) {
+          const firstKey = suggestionsCacheRef.current.keys().next().value;
+          if (firstKey) suggestionsCacheRef.current.delete(firstKey);
+        }
         setSuggestions(results);
         setSearchError(results.length === 0 ? 'No se encontraron direcciones en Salta Capital' : null);
         notifySuggestions(results, { isSearching: false, isFocused: true });
       } catch (error) {
+        if (controller.signal.aborted || requestId !== requestSeqRef.current) return;
         const message = error?.message?.includes('TOMTOM')
           ? 'El servidor de búsqueda no está configurado. Contactá al operador.'
           : (error?.message || 'No se pudo buscar la dirección');
@@ -177,46 +219,37 @@ const AddressSearchInput = forwardRef(({
         setSuggestions([]);
         notifySuggestions([], { isSearching: false, isFocused: true, error: message });
       } finally {
-        setIsSearching(false);
+        if (requestId === requestSeqRef.current) setIsSearching(false);
       }
     }, DEBOUNCE_MS);
-  }, [hideDropdown, notifySuggestions]);
+  }, [hideDropdown, notifySuggestions, beginSession]);
 
   const handleSelect = useCallback(async (suggestion) => {
     setIsSelecting(true);
-    queryRef.current = suggestion.address;
-    setQuery(suggestion.address);
     scrollInputToStart();
     setSuggestions([]);
     notifySuggestions([], { isSearching: false, isFocused: false });
     Keyboard.dismiss();
 
-    const hasCoords = Number.isFinite(suggestion.lat) && Number.isFinite(suggestion.lng);
-
     try {
-      if (hasCoords) {
-        onSelect?.({
-          address: suggestion.address,
-          lat: suggestion.lat,
-          lng: suggestion.lng,
-          placeId: suggestion.placeId,
-        });
-        return;
-      }
-
-      const details = await getPlaceDetails(suggestion.placeId);
-      onSelect?.({
-        address: suggestion.address,
-        lat: details.lat,
-        lng: details.lng,
-        placeId: suggestion.placeId,
-      });
+      const place = await resolvePlaceFromSuggestion(
+        suggestion,
+        suggestion.sessionToken || sessionTokenRef.current,
+      );
+      sessionTokenRef.current = null;
+      queryRef.current = place.address;
+      setQuery(place.address);
+      onSelect?.(place);
     } catch {
+      queryRef.current = suggestion.address;
+      setQuery(suggestion.address);
       onSelect?.({
         address: suggestion.address,
-        lat: hasCoords ? suggestion.lat : null,
-        lng: hasCoords ? suggestion.lng : null,
+        lat: Number.isFinite(suggestion.lat) ? suggestion.lat : null,
+        lng: Number.isFinite(suggestion.lng) ? suggestion.lng : null,
         placeId: suggestion.placeId,
+        title: suggestion.title || null,
+        subtitle: suggestion.subtitle || null,
       });
     } finally {
       setIsSelecting(false);
@@ -284,6 +317,7 @@ const AddressSearchInput = forwardRef(({
             onChangeText={handleChange}
             onFocus={() => {
               clearScrollTimeouts();
+              beginSession();
               isFocusedRef.current = true;
               setIsFocused(true);
               setSelectionAtStart(null);
@@ -404,7 +438,7 @@ const AddressSearchInput = forwardRef(({
         </View>
       ) : null}
 
-      {!hideDropdown && searchError && suggestions.length === 0 && query.trim().length >= 3 && !isSearching ? (
+      {!hideDropdown && searchError && suggestions.length === 0 && query.trim().length >= 2 && !isSearching ? (
         <View style={styles.errorBanner}>
           <Text style={styles.errorText}>{searchError}</Text>
         </View>

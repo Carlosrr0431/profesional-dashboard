@@ -16,7 +16,7 @@ import * as Haptics from 'expo-haptics';
 import { colors } from '../../theme/colors';
 import { radius, spacing } from '../../theme/layout';
 import AddressSearchInput from '../ui/AddressSearchInput';
-import { getPlaceDetails } from '../../services/googleMaps';
+import { resolvePlaceFromSuggestion } from '../../services/googleMaps';
 
 /**
  * Sheet dedicado para buscar cada parada intermedia (estilo DiDi).
@@ -56,23 +56,19 @@ export default function StopDestinationSheet({
     Keyboard.dismiss();
     setSuggestions([]);
 
-    let place = {
-      address: suggestion.address,
-      lat: null,
-      lng: null,
-      placeId: suggestion.placeId,
-      title: suggestion.title,
-      subtitle: suggestion.subtitle,
-    };
-
     try {
-      const details = await getPlaceDetails(suggestion.placeId);
-      place = { ...place, lat: details.lat, lng: details.lng };
+      const place = await resolvePlaceFromSuggestion(suggestion);
+      onSelect?.(place, stopIndex);
     } catch {
-      /* solo texto */
+      onSelect?.({
+        address: suggestion.address,
+        lat: Number.isFinite(suggestion.lat) ? suggestion.lat : null,
+        lng: Number.isFinite(suggestion.lng) ? suggestion.lng : null,
+        placeId: suggestion.placeId,
+        title: suggestion.title,
+        subtitle: suggestion.subtitle,
+      }, stopIndex);
     }
-
-    onSelect?.(place, stopIndex);
   }, [onSelect, stopIndex]);
 
   const handleRecentSelect = useCallback((place) => {
@@ -208,7 +204,7 @@ export default function StopDestinationSheet({
             <View style={styles.emptyHint}>
               <Ionicons name="search-outline" size={28} color={colors.accentLight} />
               <Text style={styles.emptyText}>
-                Escribí al menos 3 letras para ver direcciones en Salta.
+                Escribí al menos 2 letras para ver direcciones en Salta.
               </Text>
             </View>
           ) : null}

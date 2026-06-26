@@ -4,24 +4,24 @@
  * SKUs permitidos EXCLUSIVAMENTE:
  *   1) Autocomplete Requests          → POST /v1/places:autocomplete
  *   2) Autocomplete Session Usage     → requests 13+ de la misma sesión ($0)
- *   3) Place Details Essentials (IDs Only) → GET places/{id} con mask "id" ($0)
+ *   3) Place Details Essentials       → GET places/{id} con mask mínimo Essentials
  *
- * PROHIBIDO (disparan Place Details Pro / Essentials de pago):
- *   - location, displayName, shortFormattedAddress, addressComponents
+ * Geocodificación de POIs (placeId): SOLO Place Details Essentials (location + formattedAddress).
+ * Autocomplete solo sugiere nombres; no se usa para obtener coordenadas.
+ *
+ * PROHIBIDO:
+ *   - Place Details Pro (displayName, googleMapsUri, rating, etc.)
  *   - Find Place, Text Search, Legacy Places, Google Geocoding API
- *
- * Nombres/subtítulos: Autocomplete structuredFormat (cacheados por placeId).
- * Coordenadas: Nominatim/OSM únicamente (osmGeocode.js).
  */
 
 const { isWithinSaltaCapital } = require('./mapConfig');
-const { geocodeCoordsFromAddress, geocodeCoordsFromPoiLabel } = require('./osmGeocode');
 
 const PLACES_NEW_BASE = 'https://places.googleapis.com/v1';
 
 const PLACES_TIMEOUT_MS = 8000;
 const AUTOCOMPLETE_TTL_MS = 45 * 1000;
 const LABEL_CACHE_TTL_MS = 30 * 60 * 1000;
+const PLACE_DETAILS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const CACHE_MAX_ITEMS = 300;
 
 const SALTA_BIAS = {
@@ -38,18 +38,25 @@ const AUTOCOMPLETE_FIELD_MASK = [
   'suggestions.placePrediction.types',
 ].join(',');
 
-/** SKU: Place Details Essentials (IDs Only) — solo devuelve id, $0. */
-const PLACE_DETAILS_IDS_ONLY_MASK = 'id';
+/**
+ * SKU: Place Details Essentials — mínimo para coords + dirección + tipo de POI.
+ * Sin displayName (dispara Place Details Pro).
+ */
+const PLACE_DETAILS_ESSENTIALS_MASK = 'id,formattedAddress,location,types';
 
 const FORBIDDEN_PLACE_DETAILS_FIELDS = [
-  'location',
   'displayName',
-  'shortFormattedAddress',
-  'formattedAddress',
-  'addressComponents',
-  'viewport',
+  'googleMapsUri',
   'rating',
+  'userRatingCount',
+  'reviews',
   'photos',
+  'websiteUri',
+  'nationalPhoneNumber',
+  'regularOpeningHours',
+  'businessStatus',
+  'priceLevel',
+  'editorialSummary',
 ];
 
 const FORBIDDEN_URL_PATTERNS = [
@@ -63,8 +70,9 @@ const FORBIDDEN_URL_PATTERNS = [
 
 const autocompleteCache = new Map();
 const placeLabelCache = new Map();
+const placeDetailsCache = new Map();
 const inFlightAutocomplete = new Map();
-const inFlightPlaceIdConfirm = new Map();
+const inFlightPlaceDetails = new Map();
 const activeSessions = new Map();
 
 function normalizeQuery(text) {
@@ -127,24 +135,19 @@ function assertAllowedUrl(url) {
   }
 }
 
-function assertPlaceDetailsIdsOnlyMask(fieldMask) {
+function assertPlaceDetailsEssentialsMask(fieldMask) {
   const normalized = String(fieldMask || '').replace(/\s/g, '');
-  if (normalized !== 'id') {
-    throw new Error(
-      `Field mask no permitido. Solo: ${PLACE_DETAILS_IDS_ONLY_MASK} (SKU: IDs Only)`,
-    );
+  const fields = normalized.split(',').filter(Boolean);
+  if (!fields.length) {
+    throw new Error('Field mask vacío para Place Details');
   }
   for (const forbidden of FORBIDDEN_PLACE_DETAILS_FIELDS) {
     if (normalized.includes(forbidden)) {
-      throw new Error(`Campo prohibido en Place Details: ${forbidden}`);
+      throw new Error(`Campo prohibido en Place Details (Pro): ${forbidden}`);
     }
   }
-}
-
-function assertSessionForPlaceDetails(sessionToken) {
-  const token = String(sessionToken || '').trim();
-  if (!token) {
-    throw new Error('sessionToken requerido para cerrar sesión de Autocomplete');
+  if (!fields.includes('location')) {
+    throw new Error('Place Details Essentials requiere el campo location');
   }
 }
 
@@ -194,6 +197,22 @@ function cachePlaceLabel(rawPlaceId, label) {
 function lookupPlaceLabel(rawPlaceId) {
   const id = String(rawPlaceId || '').replace(/^google:/, '').trim();
   return getCached(placeLabelCache, id);
+}
+
+function parseFormattedAddressParts(formattedAddress) {
+  const parts = String(formattedAddress || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return { title: '', subtitle: '' };
+
+  const title = parts[0] || '';
+  const subtitle = parts
+    .slice(1)
+    .filter((part) => !/^salta$/i.test(part) && !/^argentina$/i.test(part) && !/^a4400/i.test(part))
+    .join(', ');
+
+  return { title, subtitle };
 }
 
 function mapGoogleTypes(types) {
@@ -334,25 +353,62 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
 
 const searchPoiSalta = autocompleteAddressSalta;
 
+function mapPlaceDetailsEssentials(data, fallback = {}) {
+  const id = String(data?.id || '').trim();
+  const lat = Number(data?.location?.latitude);
+  const lng = Number(data?.location?.longitude);
+  const formattedAddress = String(data?.formattedAddress || '').trim();
+  const types = Array.isArray(data?.types) ? data.types : [];
+
+  if (!id || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error('Google Places no devolvió ubicación válida');
+  }
+
+  const parsed = parseFormattedAddressParts(formattedAddress);
+  const title = String(fallback.title || parsed.title || '').trim();
+  const subtitle = String(fallback.subtitle || parsed.subtitle || '').trim();
+
+  return {
+    placeId: `google:${id}`,
+    lat,
+    lng,
+    formattedAddress: formattedAddress || fallback.formattedAddress || title,
+    title,
+    subtitle,
+    types,
+  };
+}
+
 /**
- * SKU: Place Details Essentials (IDs Only) — solo confirma el place_id ($0).
+ * SKU: Place Details Essentials — coords + dirección desde Google (1 request por placeId, cacheado).
  */
-async function confirmPlaceIdOnly(rawPlaceId, sessionToken) {
-  const placeId = String(rawPlaceId || '').trim();
-  const token = String(sessionToken || '').trim();
-  if (!placeId || !token || !isGoogleConfigured()) return null;
+async function fetchPlaceDetailsEssentials(rawPlaceId, options = {}) {
+  const placeId = String(rawPlaceId || '').replace(/^google:/, '').trim();
+  if (!placeId || !isGoogleConfigured()) {
+    throw new Error('GOOGLE_MAPS_API_KEY no configurada');
+  }
 
-  assertSessionForPlaceDetails(token);
-  assertPlaceDetailsIdsOnlyMask(PLACE_DETAILS_IDS_ONLY_MASK);
+  assertPlaceDetailsEssentialsMask(PLACE_DETAILS_ESSENTIALS_MASK);
 
-  const cacheKey = `${placeId}::${token}`;
-  const cached = getCached(placeLabelCache, `confirm:${cacheKey}`);
+  const cached = getCached(placeDetailsCache, placeId);
   if (cached) return cached;
-  if (inFlightPlaceIdConfirm.has(cacheKey)) return inFlightPlaceIdConfirm.get(cacheKey);
+
+  const cacheKey = placeId;
+  if (inFlightPlaceDetails.has(cacheKey)) return inFlightPlaceDetails.get(cacheKey);
+
+  const sessionToken = String(options?.sessionToken || '').trim();
+  const fallback = {
+    title: options?.title,
+    subtitle: options?.subtitle,
+    formattedAddress: options?.formattedAddress,
+  };
 
   const requestPromise = (async () => {
     const key = readGoogleApiKey();
-    const url = `${PLACES_NEW_BASE}/places/${encodeURIComponent(placeId)}?sessionToken=${encodeURIComponent(token)}`;
+    const query = sessionToken
+      ? `?sessionToken=${encodeURIComponent(sessionToken)}`
+      : '';
+    const url = `${PLACES_NEW_BASE}/places/${encodeURIComponent(placeId)}${query}`;
     assertAllowedUrl(url);
 
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -364,37 +420,40 @@ async function confirmPlaceIdOnly(rawPlaceId, sessionToken) {
         headers: {
           Accept: 'application/json',
           'X-Goog-Api-Key': key,
-          'X-Goog-FieldMask': PLACE_DETAILS_IDS_ONLY_MASK,
+          'X-Goog-FieldMask': PLACE_DETAILS_ESSENTIALS_MASK,
         },
         signal: controller?.signal,
       });
-      if (!response.ok) return null;
+
+      if (!response.ok) {
+        throw new Error('No se pudo obtener el lugar en Google Places');
+      }
 
       const data = await response.json();
-      const confirmedId = String(data?.id || placeId).trim();
-      if (!confirmedId) return null;
+      const mapped = mapPlaceDetailsEssentials(data, {
+        ...fallback,
+        ...lookupPlaceLabel(placeId),
+      });
 
-      completeSession(token);
-      const result = { placeId: confirmedId };
-      setCached(placeLabelCache, `confirm:${cacheKey}`, result, LABEL_CACHE_TTL_MS);
-      return result;
-    } catch {
-      return null;
+      if (sessionToken) completeSession(sessionToken);
+
+      setCached(placeDetailsCache, placeId, mapped, PLACE_DETAILS_CACHE_TTL_MS);
+      return mapped;
+    } catch (err) {
+      if (err?.message?.includes('Google Places')) throw err;
+      throw new Error('No se pudo obtener el lugar en Google Places');
     } finally {
       if (timer) clearTimeout(timer);
     }
   })();
 
-  inFlightPlaceIdConfirm.set(cacheKey, requestPromise);
+  inFlightPlaceDetails.set(cacheKey, requestPromise);
   try {
     return await requestPromise;
   } finally {
-    inFlightPlaceIdConfirm.delete(cacheKey);
+    inFlightPlaceDetails.delete(cacheKey);
   }
 }
-
-/** @deprecated alias */
-const confirmPlaceInSession = confirmPlaceIdOnly;
 
 function buildGoogleMapsSubtitle(item) {
   return cleanAutocompleteSubtitle(item?.subtitle || item?.shortAddress || '');
@@ -413,119 +472,51 @@ function resolveFormattedAddress(rawPlaceId, options = {}) {
   return title || '';
 }
 
-function buildGeocodeQueries(formattedAddress, options = {}) {
-  const title = String(options?.title || '').trim();
-  const subtitle = String(options?.subtitle || '').trim();
-  const seen = new Set();
-  const queries = [];
-
-  const push = (value) => {
-    const text = String(value || '').trim();
-    if (!text) return;
-    const key = text.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    queries.push(text);
-  };
-
-  if (title) push(`${title}, Salta, Argentina`);
-  if (title && subtitle) push(`${title}, ${subtitle}`);
-  push(formattedAddress);
-  if (title) push(title);
-  return queries;
-}
-
-async function resolveCoordsFallback(formattedAddress, options = {}) {
-  const title = String(options?.title || '').trim();
-  const subtitle = String(options?.subtitle || '').trim();
-
-  if (title) {
-    try {
-      const coords = await geocodeCoordsFromPoiLabel({ title, subtitle, formattedAddress });
-      if (isWithinSaltaCapital(coords.lat, coords.lng)) {
-        return coords;
-      }
-    } catch {
-      // fallback a búsqueda por dirección
-    }
-  }
-
-  const queries = buildGeocodeQueries(formattedAddress, options);
-
-  for (const query of queries) {
-    try {
-      const coords = await geocodeCoordsFromAddress(query);
-      if (isWithinSaltaCapital(coords.lat, coords.lng)) {
-        return {
-          ...coords,
-          formattedAddress: formattedAddress || coords.formattedAddress,
-        };
-      }
-    } catch {
-      // siguiente variante
-    }
-  }
-
-  throw new Error('No se encontró la dirección en OSM/Nominatim');
-}
-
 /**
- * Confirma place_id (IDs Only) y obtiene coordenadas vía Nominatim/OSM.
+ * Obtiene coordenadas y dirección vía Place Details Essentials (sin Nominatim).
  */
 async function getGooglePlaceDetails(placeId, options = {}) {
   const rawId = String(placeId || '').replace(/^google:/, '').trim();
   if (!rawId) throw new Error('place_id de Google inválido');
   if (!isGoogleConfigured()) throw new Error('GOOGLE_MAPS_API_KEY no configurada');
 
-  const sessionToken = String(options?.sessionToken || '').trim();
-  const formattedAddress = resolveFormattedAddress(rawId, options);
-  if (!formattedAddress) {
-    throw new Error('Dirección no disponible para geocodificar con OSM');
-  }
+  const details = await fetchPlaceDetailsEssentials(rawId, {
+    sessionToken: options?.sessionToken,
+    title: options?.title,
+    subtitle: options?.subtitle,
+    formattedAddress: resolveFormattedAddress(rawId, options),
+  });
 
-  const confirmed = await confirmPlaceIdOnly(rawId, sessionToken);
-  if (!confirmed?.placeId) {
-    throw new Error('No se pudo confirmar el lugar en Google Places');
-  }
-
-  const coords = await resolveCoordsFallback(formattedAddress, options);
-  if (!isWithinSaltaCapital(coords.lat, coords.lng)) {
+  if (!isWithinSaltaCapital(details.lat, details.lng)) {
     throw new Error('La dirección debe estar en Salta Capital');
   }
 
+  const formattedAddress = details.formattedAddress
+    || resolveFormattedAddress(rawId, options);
+
   return {
-    lat: coords.lat,
-    lng: coords.lng,
+    lat: details.lat,
+    lng: details.lng,
     formattedAddress,
-    placeId: `google:${confirmed.placeId}`,
+    title: details.title || options?.title || null,
+    subtitle: details.subtitle || options?.subtitle || null,
+    placeId: details.placeId,
+    types: details.types,
   };
 }
 
-async function geocodeAddressGoogle(address, options = {}) {
-  const text = String(address || '').trim();
-  if (!text) throw new Error('Dirección vacía');
-
-  const sessionToken = resolveSessionToken(options);
-  const suggestions = await autocompleteAddressSalta(text, 1, { sessionToken });
-  const best = suggestions[0];
-  if (!best?.placeId) {
-    throw new Error('No se encontró la dirección');
-  }
-
-  return getGooglePlaceDetails(best.placeId, {
-    sessionToken,
-    formattedAddress: best.poiName && best.formattedAddress
-      ? `${best.poiName}, ${best.formattedAddress}`
-      : (best.formattedAddress || best.poiName),
-    title: best.poiName,
-    subtitle: best.formattedAddress,
-  });
+async function geocodeAddressGoogle() {
+  throw new Error(
+    'Geocodificar por texto requiere elegir una sugerencia (placeId). '
+    + 'Usá Autocomplete para buscar y Place Details Essentials para coords.',
+  );
 }
 
 module.exports = {
   autocompleteAddressSalta,
   searchPoiSalta,
   getGooglePlaceDetails,
+  fetchPlaceDetailsEssentials,
   geocodeAddressGoogle,
   isGooglePlaceId,
   isGoogleConfigured,
@@ -534,4 +525,5 @@ module.exports = {
   registerAutocompleteSession,
   completeSession,
   lookupPlaceLabel,
+  PLACE_DETAILS_ESSENTIALS_MASK,
 };

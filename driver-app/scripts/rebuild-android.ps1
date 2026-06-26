@@ -1,4 +1,4 @@
-# Compila e instala el APK de desarrollo (react-native-maps + Google).
+# Compila e instala el APK de desarrollo (MapLibre + OSRM + Nominatim).
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot\..
 

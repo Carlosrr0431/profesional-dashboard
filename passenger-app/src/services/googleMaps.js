@@ -5,6 +5,11 @@ export {
   reverseGeocode,
   autocompleteAddressSalta,
   getPlaceDetails,
+  readDashboardUrl,
+  firstAddressLine,
+  buildSelectedAddressLabel,
+  isCoordinateFallbackText,
+  resolvePlaceFromSuggestion,
 } from './nominatim';
 
 export function decodePolyline(encoded = '') {
