@@ -26,17 +26,11 @@ const renderReturnHtml = (status) => {
 <body style="margin:0;background:${isFinal ? '#fff' : 'transparent'};font-family:sans-serif;text-align:center;padding-top:${isFinal ? '60px' : '0'}">
   ${uiMessage ? `<p style="font-size:18px;color:#374151">${uiMessage}</p>` : ''}
   <script>
-    if (window.ReactNativeWebView) {
-      window.ReactNativeWebView.postMessage(${JSON.stringify(message)});
-    }
     if (!${JSON.stringify(isFinal)}) {
       try { history.back(); } catch (e) {}
-      setTimeout(function () {
-        try { history.back(); } catch (e) {}
-      }, 0);
-      setTimeout(function () {
-        try { history.back(); } catch (e) {}
-      }, 50);
+    }
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(${JSON.stringify(message)});
     }
   </script>
 </body>
