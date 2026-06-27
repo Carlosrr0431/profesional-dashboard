@@ -10,23 +10,33 @@ const renderReturnHtml = (status) => {
   const isBack = normalized === 'back';
   const isFinal = isApproved || isRejected || isBack;
   const message = JSON.stringify({ type: 'paypertic_result', status });
+  const uiMessage = isApproved
+    ? '✅ Pago aprobado. Volviendo a la app...'
+    : isFinal
+      ? 'Operación finalizada. Volviendo a la app...'
+      : '';
 
   return new NextResponse(
     `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"/></head>
-<body style="background:#fff;font-family:sans-serif;text-align:center;padding-top:60px">
-  <p style="font-size:18px;color:#374151">
-    ${isApproved ? '✅ Pago aprobado. Volviendo a la app...' : isFinal ? 'Operación finalizada. Volviendo a la app...' : 'Operación en proceso. Volviendo al pago...'}
-  </p>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body style="margin:0;background:${isFinal ? '#fff' : 'transparent'};font-family:sans-serif;text-align:center;padding-top:${isFinal ? '60px' : '0'}">
+  ${uiMessage ? `<p style="font-size:18px;color:#374151">${uiMessage}</p>` : ''}
   <script>
     if (window.ReactNativeWebView) {
       window.ReactNativeWebView.postMessage(${JSON.stringify(message)});
     }
     if (!${JSON.stringify(isFinal)}) {
+      try { history.back(); } catch (e) {}
       setTimeout(function () {
         try { history.back(); } catch (e) {}
-      }, 60);
+      }, 0);
+      setTimeout(function () {
+        try { history.back(); } catch (e) {}
+      }, 50);
     }
   </script>
 </body>
