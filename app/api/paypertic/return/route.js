@@ -4,7 +4,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const renderReturnHtml = (status) => {
-  const isApproved = status === 'approved' || status === 'paid';
+  const normalized = String(status || '').toLowerCase();
+  const isApproved = normalized === 'approved' || normalized === 'paid';
+  const isRejected = ['rejected', 'cancelled', 'refunded', 'overdue', 'failed', 'denied'].includes(normalized);
+  const isBack = normalized === 'back';
+  const isFinal = isApproved || isRejected || isBack;
   const message = JSON.stringify({ type: 'paypertic_result', status });
 
   return new NextResponse(
@@ -13,11 +17,16 @@ const renderReturnHtml = (status) => {
 <head><meta charset="utf-8"/></head>
 <body style="background:#fff;font-family:sans-serif;text-align:center;padding-top:60px">
   <p style="font-size:18px;color:#374151">
-    ${isApproved ? '✅ Pago aprobado. Volviendo a la app...' : 'Operación procesada. Volviendo a la app...'}
+    ${isApproved ? '✅ Pago aprobado. Volviendo a la app...' : isFinal ? 'Operación finalizada. Volviendo a la app...' : 'Operación en proceso. Volviendo al pago...'}
   </p>
   <script>
     if (window.ReactNativeWebView) {
       window.ReactNativeWebView.postMessage(${JSON.stringify(message)});
+    }
+    if (!${JSON.stringify(isFinal)}) {
+      setTimeout(function () {
+        try { history.back(); } catch (e) {}
+      }, 60);
     }
   </script>
 </body>
