@@ -151,19 +151,39 @@ export async function POST(request) {
   }
 
   const userToken = authHeader.slice(7);
-
-  // Validar token con Supabase
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser(userToken);
 
-  if (authError || !user) {
-    console.error('[paypertic] Token de Supabase inválido:', authError?.message);
-    return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
+  // Paralelizar: validar token Supabase + obtener token Paypertic + leer body
+  // simult?neamente para reducir la latencia total del endpoint.
+  let user, body, payperticToken;
+  try {
+    const [authResult, bodyResult, tokenResult] = await Promise.all([
+      supabase.auth.getUser(userToken),
+      request.json().catch(() => null),
+      getPayperticToken(),
+    ]);
+
+    const { data: { user: authUser }, error: authError } = authResult;
+    if (authError || !authUser) {
+      console.error('[paypertic] Token de Supabase inv?lido:', authError?.message);
+      return NextResponse.json({ error: 'Token inv?lido' }, { status: 401 });
+    }
+    user = authUser;
+    body = bodyResult;
+    payperticToken = tokenResult;
+    console.log('[paypertic] Usuario autenticado:', user.id);
+    console.log('[paypertic] Token de Paypertic obtenido OK');
+  } catch (err) {
+    console.error('[paypertic] Error en inicializaci?n paralela:', err.message);
+    return NextResponse.json({ error: err.message }, { status: 502 });
   }
-  console.log('[paypertic] Usuario autenticado:', user.id);
+
+  const amount = Number(body?.amount);
+  console.log('[paypertic] Monto recibido:', amount);
+  if (!amount || amount <= 0) {
+    console.error('[paypertic] Monto inv?lido:', body?.amount);
+    return NextResponse.json({ error: 'Monto inv?lido' }, { status: 400 });
+  }
 
   // Obtener datos del conductor
   const { data: driver, error: driverError } = await supabase
@@ -178,34 +198,10 @@ export async function POST(request) {
   }
   console.log('[paypertic] Conductor encontrado:', driver.id, driver.full_name);
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: 'Cuerpo de la solicitud inválido' }, { status: 400 });
-  }
-
-  const amount = Number(body?.amount);
-  console.log('[paypertic] Monto recibido:', amount);
-  if (!amount || amount <= 0) {
-    console.error('[paypertic] Monto inválido:', body?.amount);
-    return NextResponse.json({ error: 'Monto inválido' }, { status: 400 });
-  }
-
-  let payperticToken;
-  try {
-    console.log('[paypertic] Obteniendo token de Paypertic...');
-    payperticToken = await getPayperticToken();
-    console.log('[paypertic] Token de Paypertic obtenido OK');
-  } catch (err) {
-    console.error('[paypertic] Error al obtener token de Paypertic:', err.message);
-    return NextResponse.json({ error: err.message }, { status: 502 });
-  }
-
   const externalTransactionId = `comision-${driver.id}-${Date.now()}`;
   console.log('[paypertic] external_transaction_id:', externalTransactionId);
 
-  // URLs de retorno — el WebView del app detecta estas URLs para cerrar el formulario
+  // URLs de retorno ��� el WebView del app detecta estas URLs para cerrar el formulario
   const returnUrl = `${DASHBOARD_URL}/api/paypertic/return?status=approved&ext=${externalTransactionId}`;
   const backUrl = `${DASHBOARD_URL}/api/paypertic/return?status=back&ext=${externalTransactionId}`;
   console.log('[paypertic] return_url:', returnUrl);
