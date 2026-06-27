@@ -199,8 +199,10 @@ export async function POST(request) {
   const externalTransactionId = `comision-${driver.id}-${Date.now()}`;
   console.log('[paypertic] external_transaction_id:', externalTransactionId);
 
-  // URLs de retorno: el WebView de la app detecta estas URLs para cerrar el formulario
-  const returnUrl = `${DASHBOARD_URL}/api/paypertic/return?status=approved&ext=${externalTransactionId}`;
+  // return_url: NO forzar status por query.
+  // Paypertic define el estado real del pago; si enviamos approved fijo
+  // la app recibe una se?al falsa de "aprobado" en transferencias pendientes.
+  const returnUrl = `${DASHBOARD_URL}/api/paypertic/return?ext=${externalTransactionId}`;
   const backUrl = `${DASHBOARD_URL}/api/paypertic/return?status=back&ext=${externalTransactionId}`;
   console.log('[paypertic] return_url:', returnUrl);
   console.log('[paypertic] back_url:', backUrl);
