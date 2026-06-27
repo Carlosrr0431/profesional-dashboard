@@ -1051,11 +1051,40 @@ export default function CommissionPaymentScreen() {
     }
   };
 
+  // Intercepta la navegación ANTES de que el WebView cargue la URL.
+  // Cuando Paypertic redirige al return_url, retornamos false para bloquear
+  // la carga y manejamos el resultado directamente en la app.
+  // Esto evita el error ERR_HTTP_RESPONSE_CODE_FAILURE si el servidor no responde.
+  const handleShouldStartLoadWithRequest = (request) => {
+    const url = request.url || '';
+    if (!url.startsWith(RETURN_URL_PREFIX)) return true;
+    if (returnHandled.current) return false;
+
+    try {
+      const urlObj = new URL(url);
+      const status = urlObj.searchParams.get('status');
+
+      if (status === 'back') {
+        returnHandled.current = true;
+        resetToIdle();
+      } else {
+        setShowVerifyingOverlay(true);
+        resolvePaymentFromProvider();
+      }
+    } catch {
+      setShowVerifyingOverlay(true);
+      resolvePaymentFromProvider();
+    }
+
+    return false; // bloquea la carga de la página de retorno
+  };
+
   const handleNavigationChange = (navState) => {
     const url = navState.url || '';
 
-    // Solo mostramos el banner de verificación cuando la URL es la de retorno de Paypertic
-    // (no en cualquier navegación interna, para no cubrir datos de CVU/CBU en transferencias)
+    // Fallback: si por alguna razón onShouldStartLoadWithRequest no bloqueó la
+    // navegación (algunos builds de react-native-webview en Android lo ignoran),
+    // manejamos igualmente el return_url aquí.
     if (!url.startsWith(RETURN_URL_PREFIX)) return;
     if (returnHandled.current) return;
 
@@ -1069,13 +1098,10 @@ export default function CommissionPaymentScreen() {
         return;
       }
 
-      if (status === 'approved' || status === 'paid') {
-        resolvePaymentFromProvider();
-        return;
-      }
-
+      setShowVerifyingOverlay(true);
       resolvePaymentFromProvider();
     } catch {
+      setShowVerifyingOverlay(true);
       resolvePaymentFromProvider();
     }
   };
@@ -1231,13 +1257,18 @@ export default function CommissionPaymentScreen() {
           source={{ uri: formUrl }}
           injectedJavaScript={INJECTED_JS}
           onMessage={handlePayperticMessage}
+          onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
           onNavigationStateChange={handleNavigationChange}
           onLoad={() => setTimeout(() => setWebviewLoaded(true), 5000)}
           javaScriptEnabled
           domStorageEnabled
           thirdPartyCookiesEnabled
           setSupportMultipleWindows={false}
-          onError={() => {
+          onError={(syntheticEvent) => {
+            const { url } = syntheticEvent.nativeEvent;
+            // Si el error es en la URL de retorno, ya fue manejado por
+            // onShouldStartLoadWithRequest; ignoramos este error.
+            if (url && url.startsWith(RETURN_URL_PREFIX)) return;
             setFormUrl(null);
             setPaymentId(null);
             setPhase('idle');
