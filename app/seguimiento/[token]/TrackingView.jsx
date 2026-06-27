@@ -121,24 +121,26 @@ function useSmoothHeading(targetHeading) {
   return heading;
 }
 
-/* ── SVG del auto ────────────────────────────────────────────────────────── */
+/* ── SVG del auto (vista lateral Material, igual que passenger-app) ─────── */
+const CAR_ICON_PATH =
+  'M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z';
+
 function CarSvg({ heading }) {
+  const rotation = (Number.isFinite(heading) ? heading : 0) - 90;
   return (
     <div style={{
-      width: 36,
-      height: 36,
+      width: 40,
+      height: 40,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      transform: `rotate(${heading}deg)`,
+      transform: `rotate(${rotation}deg)`,
       filter: 'drop-shadow(0 2px 6px rgba(15,23,42,0.40))',
       transition: 'transform 0.15s linear',
     }}>
-      <svg width="26" height="34" viewBox="0 0 22 28" fill="none" aria-hidden>
-        <rect x="1" y="1" width="20" height="26" rx="5" fill="#0F172A" stroke="#fff" strokeWidth="2"/>
-        <rect x="5" y="4" width="12" height="7" rx="2.5" fill="#E2E8F0"/>
-        <rect x="6" y="13" width="10" height="5" rx="1.5" fill="#1E293B"/>
-        <rect x="5.5" y="20" width="11" height="4" rx="1.5" fill="#334155"/>
+      <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden>
+        <path d={CAR_ICON_PATH} fill="#FFFFFF" stroke="#FFFFFF" strokeWidth="0.8" />
+        <path d={CAR_ICON_PATH} fill="#0F172A" />
       </svg>
     </div>
   );
