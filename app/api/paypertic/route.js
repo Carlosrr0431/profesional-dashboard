@@ -35,12 +35,15 @@ const extractTransferInfo = (payData) => {
   const instructions = transfer?.instructions || payData?.instructions || {};
   const payer = transfer?.payer || payData?.payer || {};
   const destination = payData?.destination || {};
+  const metadata = payData?.metadata || {};
+  const firstPaymentMethod = Array.isArray(payData?.payment_methods) ? payData.payment_methods[0] : null;
 
   const cvu = pickFirstText(
     transfer?.cvu,
     account?.cvu,
     payData?.cvu,
     instructions?.cvu,
+    metadata?.cvu,
   );
   const cbu = pickFirstText(
     transfer?.cbu,
@@ -53,6 +56,7 @@ const extractTransferInfo = (payData) => {
     account?.alias,
     payData?.alias,
     instructions?.alias,
+    metadata?.alias,
   );
   const holderName = pickFirstText(
     transfer?.holder_name,
@@ -67,6 +71,7 @@ const extractTransferInfo = (payData) => {
     transfer?.bank_name,
     transfer?.bankName,
     bank?.name,
+    firstPaymentMethod?.gateway?.name,
     destination?.bank_name,
     payData?.bank_name,
   );
