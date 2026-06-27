@@ -50,7 +50,7 @@ const NOMINATIM_SELF_HOSTED = readEnv(
 ) !== 'false';
 
 /**
- * Google Places Autocomplete para POIs.
+ * Google Places Autocomplete para POIs y direcciones (calle + altura).
  * Se puede desactivar explícitamente en env si querés operar solo con OSM/Nominatim.
  */
 const GOOGLE_POI_AUTOCOMPLETE_ENABLED = readEnv(

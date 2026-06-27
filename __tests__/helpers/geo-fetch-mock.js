@@ -315,6 +315,51 @@ function googleAutocompleteResponse(query) {
     };
   }
 
+  if (lower.includes('guemes') || lower.includes('güemes')) {
+    return {
+      suggestions: [
+        makePred(
+          'google-guemes-general-200',
+          'General Martín Miguel de Güemes 200',
+          'Bº El Pilar, Salta',
+          ['street_address'],
+        ),
+        makePred(
+          'google-guemes-adolfo-200',
+          'Adolfo Güemes 200',
+          'Barrio Don Bosco, Salta',
+          ['street_address'],
+        ),
+      ],
+    };
+  }
+
+  if (lower.includes('entre rios') && /\b200\b/.test(lower)) {
+    return {
+      suggestions: [
+        makePred(
+          'google-entre-rios-200',
+          'Avenida Entre Ríos 200',
+          'Salta, Argentina',
+          ['street_address'],
+        ),
+      ],
+    };
+  }
+
+  if (lower.includes('bolivia') && /\b200\b/.test(lower)) {
+    return {
+      suggestions: [
+        makePred(
+          'google-bolivia-200',
+          'Avenida Bolivia 200',
+          'Salta, Argentina',
+          ['street_address'],
+        ),
+      ],
+    };
+  }
+
   return { suggestions: [] };
 }
 
@@ -377,6 +422,26 @@ function googlePlaceDetailsEssentialsResponse(placeId) {
       formattedAddress: 'YPF, Avenida Entre Ríos, Salta, Argentina',
       location: { latitude: -24.7797, longitude: -65.4292 },
       types: ['gas_station', 'point_of_interest'],
+    },
+    'google-guemes-general-200': {
+      formattedAddress: 'General Martín Miguel de Güemes 200, Bº El Pilar, Salta, Argentina',
+      location: { latitude: -24.7812, longitude: -65.4156 },
+      types: ['street_address'],
+    },
+    'google-guemes-adolfo-200': {
+      formattedAddress: 'Adolfo Güemes 200, Barrio Don Bosco, Salta, Argentina',
+      location: { latitude: -24.7923, longitude: -65.4089 },
+      types: ['street_address'],
+    },
+    'google-entre-rios-200': {
+      formattedAddress: 'Avenida Entre Ríos 200, Salta, Argentina',
+      location: { latitude: -24.7797, longitude: -65.4292 },
+      types: ['street_address'],
+    },
+    'google-bolivia-200': {
+      formattedAddress: 'Avenida Bolivia 200, Salta, Argentina',
+      location: { latitude: -24.7850, longitude: -65.4100 },
+      types: ['street_address'],
     },
     'google-intersection-galvez-marimon': {
       formattedAddress: 'Juan Galvez y Domingo Marimon, Salta, Argentina',

@@ -36,6 +36,7 @@ const {
   searchPoiSalta: googleSearchPoi,
   getGooglePlaceDetails,
   isGooglePlaceId,
+  isGoogleConfigured,
 } = require('./googlePlaces');
 
 // Fallback a TomTom — solo cuando ni Nominatim ni Google Places encontraron
@@ -658,13 +659,36 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   if (trimmed.length < 2) return [];
 
   try {
+    // Autocomplete exclusivo vía Google Places (New) + Place Details Essentials al elegir.
+    if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
+      const googleHits = await googleSearchPoi(trimmed, Math.max(limit + 4, 12), {
+        sessionToken: options?.sessionToken,
+      }).catch(() => []);
+
+      const merged = [];
+      const seenPlaceIds = new Set();
+      const seenCoords = new Set();
+      const seenLabels = new Set();
+
+      collectAutocompleteCandidates(
+        googleHits,
+        trimmed,
+        merged,
+        seenPlaceIds,
+        seenCoords,
+        seenLabels,
+        2.1,
+      );
+
+      merged.sort((a, b) => b.score - a.score);
+      return merged.slice(0, limit).map(({ score, ...item }) => item);
+    }
+
     const searchQueries = buildAddressSearchQueries(trimmed).slice(0, MAX_AUTOCOMPLETE_VARIANTS);
     const knownPoi = resolveSaltaKnownPoi(trimmed);
     const hasHouseNumber = pickPrimaryHouseNumber(trimmed) != null;
     const useOsmPoi = shouldSearchOsmPoi(trimmed);
-    const shouldUseGooglePoi = GOOGLE_POI_AUTOCOMPLETE_ENABLED && !hasHouseNumber && trimmed.length >= 3;
-    // Para texto libre sin altura (ej: "jaraba"), forzamos una pasada POI aunque
-    // no matchee keyword conocida; evita perder comercios populares.
+    // Fallback legacy sin Google: Nominatim/Georef/TomTom.
     const forcePoiSearch = !hasHouseNumber && trimmed.length >= 4;
     ensureStreetCatalog();
     const catalogVariantCount = getCatalogAddressVariants(trimmed, 8).length;
@@ -720,29 +744,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       return merged.slice(0, limit).map(({ score, ...item }) => item);
     }
 
-    // 1) Fast-path principal para POIs: Google Places Autocomplete (New).
-    const googlePoiHits = shouldUseGooglePoi
-      ? await googleSearchPoi(trimmed, Math.max(limit + 4, 12), {
-        sessionToken: options?.sessionToken,
-      }).catch(() => [])
-      : [];
-    collectAutocompleteCandidates(
-      googlePoiHits,
-      trimmed,
-      merged,
-      seenPlaceIds,
-      seenCoords,
-      seenLabels,
-      2.1,
-    );
-
-    // Si Google resolvió una consulta POI (sin altura), devolvemos enseguida:
-    // evita que resultados de calles degraden la relevancia.
-    if (shouldUseGooglePoi && merged.length >= 1) {
-      merged.sort((a, b) => b.score - a.score);
-      return merged.slice(0, limit).map(({ score, ...item }) => item);
-    }
-    // 2) Fuentes complementarias: Nominatim (OSM), GeoRef, TomTom.
+    // Legacy sin Google: POIs y calles vía Nominatim/Georef.
     const [primaryHits, structuredHits, georefHits, poiHits, geocodeHits] = await Promise.all([
       searchNominatimVariant(primaryQuery, limit).catch(() => []),
       Promise.resolve([]),
