@@ -71,9 +71,10 @@ const INJECTED_JS = `
     document.addEventListener('DOMContentLoaded', notifyIfReturnUrl);
     notifyIfReturnUrl();
 
-    // Detectar cuando el contenido real está renderizado (cubre SPAs que renderizan post-onLoad)
+    // Detectar cuando el contenido real ya está renderizado.
+    // Poll cada 80ms, máximo 3s de espera.
     var contentNotified = false;
-    var maxWait = 9000;
+    var maxWait = 3000;
     var started = Date.now();
     var checkContent = setInterval(function() {
       try {
@@ -81,16 +82,16 @@ const INJECTED_JS = `
         var elapsed = Date.now() - started;
         var body = document.body;
         var ready = body &&
-          body.scrollHeight > 150 &&
+          body.scrollHeight > 100 &&
           body.innerText &&
-          body.innerText.trim().length > 20;
+          body.innerText.trim().length > 10;
         if (ready || elapsed >= maxWait) {
           clearInterval(checkContent);
           contentNotified = true;
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'content_ready' }));
         }
       } catch(e) { clearInterval(checkContent); }
-    }, 250);
+    }, 80);
   })();
   true;
 `;
@@ -1259,7 +1260,11 @@ export default function CommissionPaymentScreen() {
           onMessage={handlePayperticMessage}
           onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
           onNavigationStateChange={handleNavigationChange}
-          onLoad={() => setTimeout(() => setWebviewLoaded(true), 5000)}
+          onLoadEnd={() => {
+            // Fallback: si el JS inyectado no disparó content_ready en 1.5s,
+            // mostramos el WebView igual para no bloquear al usuario.
+            setTimeout(() => setWebviewLoaded(true), 1500);
+          }}
           javaScriptEnabled
           domStorageEnabled
           thirdPartyCookiesEnabled
