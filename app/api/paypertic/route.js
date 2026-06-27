@@ -21,6 +21,82 @@ const SUPABASE_URL =
   'https://xzabzbrolmkezljsyycr.supabase.co';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+const pickFirstText = (...values) => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+};
+
+const extractTransferInfo = (payData) => {
+  const transfer = payData?.transfer || {};
+  const account = transfer?.account || payData?.account || {};
+  const bank = transfer?.bank || payData?.bank || {};
+  const instructions = transfer?.instructions || payData?.instructions || {};
+  const payer = transfer?.payer || payData?.payer || {};
+  const destination = payData?.destination || {};
+
+  const cvu = pickFirstText(
+    transfer?.cvu,
+    account?.cvu,
+    payData?.cvu,
+    instructions?.cvu,
+  );
+  const cbu = pickFirstText(
+    transfer?.cbu,
+    account?.cbu,
+    payData?.cbu,
+    instructions?.cbu,
+  );
+  const alias = pickFirstText(
+    transfer?.alias,
+    account?.alias,
+    payData?.alias,
+    instructions?.alias,
+  );
+  const holderName = pickFirstText(
+    transfer?.holder_name,
+    transfer?.holderName,
+    account?.holder_name,
+    account?.holderName,
+    payer?.name,
+    destination?.holder_name,
+    payData?.holder_name,
+  );
+  const bankName = pickFirstText(
+    transfer?.bank_name,
+    transfer?.bankName,
+    bank?.name,
+    destination?.bank_name,
+    payData?.bank_name,
+  );
+  const reference = pickFirstText(
+    transfer?.reference,
+    transfer?.payment_reference,
+    payData?.payment_reference,
+    payData?.external_transaction_id,
+  );
+  const expirationDate = pickFirstText(
+    transfer?.expiration_date,
+    transfer?.expires_at,
+    payData?.due_date,
+    payData?.last_due_date,
+  );
+
+  const hasAnyTransferField = Boolean(cvu || cbu || alias || holderName || bankName || reference);
+  if (!hasAnyTransferField) return null;
+
+  return {
+    cvu,
+    cbu,
+    alias,
+    holder_name: holderName,
+    bank_name: bankName,
+    reference,
+    expiration_date: expirationDate,
+  };
+};
+
 async function getPayperticToken() {
   const body = new URLSearchParams({
     username: PAYPERTIC_USERNAME,
@@ -138,6 +214,7 @@ export async function GET(request) {
     paid_date: payData.paid_date || null,
     external_transaction_id: payData.external_transaction_id || null,
     receipt_url: receiptUrl,
+    transfer_info: extractTransferInfo(payData),
   });
 }
 
