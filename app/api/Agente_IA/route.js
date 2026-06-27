@@ -13,6 +13,11 @@ import {
 } from '../../../src/lib/firebaseAdmin';
 import { buildAddressPollPayload, formatAddressForWhatsAppPoll } from '../../../src/lib/formatPollAddressLabel';
 import {
+  GUEMES_POLL_OPTION_LIMIT,
+  isGuemesHomonymQuery,
+  sortGuemesStreetCandidates,
+} from '../../../src/lib/saltaStreetHomonyms';
+import {
   messageConfirmsTripCancel,
   messageDeniesTripCancel,
   messageRequestsTripCancel,
@@ -37,7 +42,6 @@ import { triggerDispatchWorker } from '../../../src/lib/triggerDispatchWorker';
 import { isPassengerAppTrip, resolveTripPickupCoords } from '../../../shared/trip-contract.js';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
 import {
-  geocodeAddress as dashboardGeocodeAddress,
   reverseGeocode as nominatimReverseGeocode,
   getRouteMetrics as osrmGetRouteMetrics,
   getRouteMetricsByAddress as osrmGetRouteMetricsByAddress,
@@ -5072,9 +5076,11 @@ async function geocodeAddress(address) {
 
   logWebhook('dashboard_geocode_start', { query: safeAddress, googlePlaces: isGoogleConfigured() });
   try {
-    const result = isGoogleConfigured()
-      ? await geocodeAddressViaPlaces(safeAddress)
-      : await dashboardGeocodeAddress(safeAddress);
+    if (!isGoogleConfigured()) {
+      throw new Error('Google Places no configurado');
+    }
+
+    const result = await geocodeAddressViaPlaces(safeAddress);
     const resultPayload = {
       formattedAddress: result.formattedAddress,
       lat: result.lat,
@@ -5085,7 +5091,7 @@ async function geocodeAddress(address) {
       formattedAddress: resultPayload.formattedAddress,
       lat: resultPayload.lat,
       lng: resultPayload.lng,
-      geocodeSource: result.geocodeSource || (isGoogleConfigured() ? 'google_places' : 'nominatim'),
+      geocodeSource: result.geocodeSource || 'google_place_details_essentials',
     });
     return resultPayload;
   } catch (err) {

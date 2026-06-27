@@ -416,9 +416,53 @@ function toAutocompleteSuggestion(item, query, bonusScore = 0, titleOverride = n
   };
 }
 
-async function geocodeAddress(address) {
+async function geocodeAddressGoogleViaAutocomplete(query, options = {}) {
+  const { createSessionToken } = require('./googlePlaces');
+  const sessionToken = options.sessionToken || createSessionToken();
+  const suggestions = await autocompleteAddressSalta(query, 5, { sessionToken });
+
+  for (const hit of suggestions) {
+    if (Number.isFinite(hit?.lat) && Number.isFinite(hit?.lng)) {
+      return {
+        lat: hit.lat,
+        lng: hit.lng,
+        formattedAddress: hit.address,
+        placeId: hit.placeId || null,
+        geocodeSource: null,
+      };
+    }
+
+    if (!isGooglePlaceId(hit?.placeId)) continue;
+
+    try {
+      const details = await getGooglePlaceDetails(hit.placeId, {
+        sessionToken: hit.sessionToken || sessionToken,
+        formattedAddress: hit.address,
+        title: hit.title,
+        subtitle: hit.subtitle,
+      });
+      return {
+        lat: details.lat,
+        lng: details.lng,
+        formattedAddress: details.formattedAddress || hit.address,
+        placeId: details.placeId || hit.placeId,
+        geocodeSource: details.geocodeSource || 'google_place_details_essentials',
+      };
+    } catch {
+      // Probar la siguiente sugerencia del autocomplete.
+    }
+  }
+
+  throw new Error('No se encontró la dirección');
+}
+
+async function geocodeAddress(address, options = {}) {
   const query = String(address || '').trim();
   if (!query) throw new Error('Dirección vacía');
+
+  if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
+    return geocodeAddressGoogleViaAutocomplete(query, options);
+  }
 
   const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
   if (hasHouseNumber) {
@@ -876,6 +920,20 @@ async function getPlaceDetails(placeId, options = {}) {
     });
   }
 
+  if (id.startsWith('coord:')) {
+    const [latRaw, lngRaw] = id.slice(6).split(',');
+    const lat = Number(latRaw);
+    const lng = Number(lngRaw);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new Error('No se pudo obtener detalles del lugar');
+    }
+    return { lat, lng, formattedAddress: await reverseGeocode(lat, lng) };
+  }
+
+  if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
+    throw new Error('Se requiere un placeId de Google Places (google:...)');
+  }
+
   if (id.startsWith('georef:')) {
     const mapped = await resolveGeorefPlaceId(id);
     if (!mapped) {
@@ -887,16 +945,6 @@ async function getPlaceDetails(placeId, options = {}) {
       lng: mapped.lng,
       formattedAddress: label.full || mapped.formattedAddress,
     };
-  }
-
-  if (id.startsWith('coord:')) {
-    const [latRaw, lngRaw] = id.slice(6).split(',');
-    const lat = Number(latRaw);
-    const lng = Number(lngRaw);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      throw new Error('No se pudo obtener detalles del lugar');
-    }
-    return { lat, lng, formattedAddress: await reverseGeocode(lat, lng) };
   }
 
   const data = await nominatimFetch('/lookup', {

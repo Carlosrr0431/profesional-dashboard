@@ -41,12 +41,16 @@ export async function GET(request) {
 
     const sessionToken = String(searchParams.get('sessionToken') || '').trim() || undefined;
 
-    // Cache por texto + límite (independiente de sessionToken) para maximizar hit-rate
-    // entre búsquedas repetidas y reducir latencia percibida.
+    // Cache por texto + límite (sin sessionToken) para maximizar hit-rate.
+    // Al devolver desde cache se re-inyecta el sessionToken del request actual
+    // para que el Place Details posterior cierre correctamente la sesión activa.
     const cacheKey = getCacheKey(query, limit);
     const cached = getCached(cacheKey);
     if (cached) {
-      return NextResponse.json({ ok: true, data: cached });
+      const data = sessionToken
+        ? cached.map((item) => ({ ...item, sessionToken }))
+        : cached;
+      return NextResponse.json({ ok: true, data });
     }
 
     const results = await autocompleteAddressSalta(query, limit, { sessionToken });

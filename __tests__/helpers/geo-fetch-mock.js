@@ -332,22 +332,51 @@ function googleAutocompleteResponse(query) {
   }
 
   if (lower.includes('guemes') || lower.includes('güemes')) {
-    return {
-      suggestions: [
+    const suggestions = [
+      makePred(
+        'google-guemes-general-200',
+        'General Martín Miguel de Güemes 200',
+        'Bº El Pilar, Salta',
+        ['street_address'],
+      ),
+      makePred(
+        'google-guemes-adolfo-200',
+        'Adolfo Güemes 200',
+        'Barrio Don Bosco, Salta',
+        ['street_address'],
+      ),
+    ];
+
+    if (/\b700\b/.test(lower)) {
+      suggestions.unshift(
         makePred(
-          'google-guemes-general-200',
-          'General Martín Miguel de Güemes 200',
-          'Bº El Pilar, Salta',
+          'google-guemes-martin-700',
+          'General Martin Güemes 700',
+          'Salta',
           ['street_address'],
         ),
         makePred(
-          'google-guemes-adolfo-200',
-          'Adolfo Güemes 200',
-          'Barrio Don Bosco, Salta',
+          'google-guemes-jujuy-700',
+          'General Güemes 700',
+          'San Salvador de Jujuy, Salta',
           ['street_address'],
         ),
-      ],
-    };
+        makePred(
+          'google-guemes-vaqueros-700',
+          'Avenida General Güemes 700',
+          'Vaqueros, Salta',
+          ['street_address'],
+        ),
+        makePred(
+          'google-guemes-cerrillos-700',
+          'Avenida General Güemes 700',
+          'Cerrillos, Salta',
+          ['street_address'],
+        ),
+      );
+    }
+
+    return { suggestions };
   }
 
   if (lower.includes('entre rios') && /\b200\b/.test(lower)) {

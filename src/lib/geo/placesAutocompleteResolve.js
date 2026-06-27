@@ -9,10 +9,6 @@ import {
   createSessionToken,
 } from '../../../shared/geo/googlePlaces.js';
 import { scoreCandidateAgainstQuery } from '../../../shared/salta-address.js';
-import {
-  getCachedGooglePlaceDetails,
-  upsertGooglePlaceDetailsCache,
-} from '../googlePlaceDetailsCache.js';
 
 function firstAddressLine(value) {
   const text = String(value || '').trim();
@@ -62,49 +58,16 @@ export async function resolvePlaceSuggestion(hit, sessionToken) {
   const placeId = String(hit?.placeId || '').trim();
   if (!placeId) return null;
 
-  let result;
-  let geocodeSource = 'google_place_details_essentials';
-
-  if (isGooglePlaceId(placeId)) {
-    let cached = null;
-    try {
-      cached = await getCachedGooglePlaceDetails(placeId);
-    } catch {
-      cached = null;
-    }
-    if (cached) {
-      result = cached;
-      geocodeSource = 'supabase_cache';
-    } else {
-      result = await getPlaceDetails(placeId, {
-        sessionToken: hit?.sessionToken || sessionToken,
-        formattedAddress: labelText,
-        title: hit?.title,
-        subtitle: hit?.subtitle,
-      });
-      try {
-        await upsertGooglePlaceDetailsCache({
-          placeId: placeId || result.placeId,
-          formattedAddress: result.formattedAddress || labelText,
-          lat: result.lat,
-          lng: result.lng,
-          title: result.title || hit.title || null,
-          subtitle: result.subtitle || hit.subtitle || null,
-          types: result.types || [],
-        });
-      } catch {
-        // La caché es opcional; no bloquear la geocodificación.
-      }
-    }
-  } else {
-    result = await getPlaceDetails(placeId, {
-      sessionToken: hit?.sessionToken || sessionToken,
-      formattedAddress: labelText,
-      title: hit?.title,
-      subtitle: hit?.subtitle,
-    });
-    geocodeSource = 'place_details';
+  if (isGoogleConfigured() && !isGooglePlaceId(placeId) && !placeId.startsWith('coord:')) {
+    throw new Error('Se requiere un placeId de Google Places (google:...)');
   }
+
+  const result = await getPlaceDetails(placeId, {
+    sessionToken: hit?.sessionToken || sessionToken,
+    formattedAddress: labelText,
+    title: hit?.title,
+    subtitle: hit?.subtitle,
+  });
 
   const resolvedTitle = result.title || hit.title || null;
   const resolvedLine = firstAddressLine(
@@ -123,12 +86,17 @@ export async function resolvePlaceSuggestion(hit, sessionToken) {
     placeId: result.placeId || placeId,
     title: resolvedTitle,
     subtitle: result.subtitle || hit.subtitle || null,
-    geocodeSource,
+    geocodeSource: result.geocodeSource || null,
   };
 }
 
 /**
  * Autocomplete + resolución de cada sugerencia (misma pila que NewTripModal).
+ *
+ * BILLING: el sessionToken principal cierra la sesión con el PRIMER Place Details.
+ * Las sugerencias restantes son calls independientes (sin token propio o con token
+ * nuevo) para no mezclar sesiones ya cerradas — Google las cobra como Essentials
+ * individuales, pero el cache Supabase/in-memory evita la mayoría de esas calls.
  */
 export async function autocompleteAndResolveAddresses(query, maxResults = 5, options = {}) {
   const text = String(query || '').trim();
@@ -140,9 +108,18 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
   });
 
   const resolved = [];
+  let sessionUsed = false;
   for (const hit of suggestions.slice(0, maxResults)) {
     try {
-      const place = await resolvePlaceSuggestion(hit, sessionToken);
+      // El sessionToken del hit ya lleva el token actual (re-inyectado en autocomplete).
+      // Solo la primera call usa ese token para cerrar la sesión; las demás reciben
+      // undefined y fetchPlaceDetailsEssentials no añade sessionToken a la URL.
+      const effectiveToken = sessionUsed ? undefined : (hit?.sessionToken || sessionToken);
+      const place = await resolvePlaceSuggestion(
+        { ...hit, sessionToken: effectiveToken },
+        effectiveToken,
+      );
+      sessionUsed = true;
       if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
       resolved.push({
         ...place,

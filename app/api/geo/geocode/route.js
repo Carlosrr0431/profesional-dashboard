@@ -2,10 +2,7 @@ import { NextResponse } from 'next/server';
 import { geocodeAddress, getPlaceDetails } from '../../../../src/lib/geo/index.js';
 import { isWithinSaltaCapital } from '../../../../src/lib/constants';
 import { logGeocodeErrorAsync } from '../../../../src/lib/geocodeErrorLog';
-import {
-  getCachedGooglePlaceDetails,
-  upsertGooglePlaceDetailsCache,
-} from '../../../../src/lib/googlePlaceDetailsCache';
+import { isGoogleConfigured } from '../../../../shared/geo/googlePlaces.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,46 +30,23 @@ export async function GET(request) {
     const placeId = String(searchParams.get('placeId') || '').trim();
     const sessionToken = String(searchParams.get('sessionToken') || '').trim() || undefined;
     const formattedAddress = context.formattedAddress || undefined;
-    const isGooglePlaceId = placeId.startsWith('google:');
 
     let result;
-    let geocodeSource = null;
     if (placeId) {
-      if (isGooglePlaceId) {
-        const cached = await getCachedGooglePlaceDetails(placeId);
-        if (cached) {
-          result = cached;
-          geocodeSource = 'supabase_cache';
-        } else {
-          result = await getPlaceDetails(placeId, {
-            sessionToken,
-            formattedAddress,
-            title: context.title || undefined,
-            subtitle: context.subtitle || undefined,
-          });
-          geocodeSource = 'google_place_details_essentials';
-          await upsertGooglePlaceDetailsCache({
-            placeId: placeId || result.placeId,
-            formattedAddress: result.formattedAddress || formattedAddress || null,
-            lat: result.lat,
-            lng: result.lng,
-            title: result.title || context.title || null,
-            subtitle: result.subtitle || context.subtitle || null,
-            types: result.types || [],
-          });
-        }
-      } else {
-        result = await getPlaceDetails(placeId, {
-          sessionToken,
-          formattedAddress,
-          title: context.title || undefined,
-          subtitle: context.subtitle || undefined,
-        });
-        geocodeSource = 'place_details';
-      }
+      result = await getPlaceDetails(placeId, {
+        sessionToken,
+        formattedAddress,
+        title: context.title || undefined,
+        subtitle: context.subtitle || undefined,
+      });
     } else if (address) {
-      result = await geocodeAddress(address);
-      geocodeSource = 'address_geocode';
+      if (!isGoogleConfigured()) {
+        return NextResponse.json(
+          { ok: false, error: 'Google Places no configurado' },
+          { status: 503 },
+        );
+      }
+      result = await geocodeAddress(address, { sessionToken });
     } else {
       return NextResponse.json(
         { ok: false, error: 'address o placeId requerido' },
@@ -103,7 +77,7 @@ export async function GET(request) {
         placeId: placeId || result.placeId || null,
         title: result.title || context.title || null,
         subtitle: result.subtitle || context.subtitle || null,
-        geocodeSource,
+        geocodeSource: result.geocodeSource || null,
       },
     });
   } catch (err) {

@@ -1,9 +1,12 @@
 /**
- * Servicios geoespaciales del dashboard (Nominatim/OSM + Georef + OSRM routing).
+ * Servicios geoespaciales del dashboard (Google Places + OSRM routing).
  */
 import { createRequire } from 'module';
+import { registerGooglePlaceSupabaseCache } from './registerGooglePlaceCache.js';
 
 const require = createRequire(import.meta.url);
+
+registerGooglePlaceSupabaseCache();
 
 const mapConfig = require('../../../shared/geo/mapConfig');
 const nominatim = require('../../../shared/geo/nominatim');

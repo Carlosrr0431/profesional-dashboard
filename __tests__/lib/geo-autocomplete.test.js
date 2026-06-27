@@ -341,6 +341,23 @@ describe('geo autocomplete', () => {
     assertAllowedGooglePlacesSkus(global.fetch);
   });
 
+  it('restringe guemes 700 a Salta Capital (sin Jujuy, Vaqueros ni Cerrillos)', async () => {
+    const results = await autocompleteAddressSalta('guemes 700', 8, { sessionToken: 'test-guemes-700' });
+    expect(results.length).toBeGreaterThan(0);
+
+    const subtitles = results.map((item) => item.subtitle || '').join(' | ');
+    expect(subtitles).not.toMatch(/jujuy/i);
+    expect(subtitles).not.toMatch(/vaqueros/i);
+    expect(subtitles).not.toMatch(/cerrillos/i);
+    expect(results.some((item) => /g[uü]emes/i.test(item.title) && /salta/i.test(item.subtitle || ''))).toBe(true);
+
+    const autocompleteCall = global.fetch.mock.calls.find(([url]) => String(url).includes('places:autocomplete'));
+    expect(autocompleteCall).toBeTruthy();
+    const body = JSON.parse(autocompleteCall[1].body);
+    expect(body.locationRestriction?.rectangle).toBeDefined();
+    expect(body.locationBias).toBeUndefined();
+  });
+
   it('resuelve calle con altura vía Place Details Essentials al elegir sugerencia', async () => {
     const suggestions = await autocompleteAddressSalta('entre rios 200', 3, { sessionToken: 'test-entre-rios' });
     expect(suggestions.length).toBeGreaterThan(0);
@@ -362,7 +379,7 @@ describe('geo autocomplete', () => {
     expect(nominatimCalls.length).toBe(0);
   });
 
-  it('devuelve direcciones con altura vía Nominatim/GeoRef', async () => {
+  it('devuelve direcciones con altura vía Google Autocomplete + Place Details Essentials', async () => {
     const entreRios = await geocodeAddress('Entre Rios 200');
     expect(entreRios.lat).toBeDefined();
     expect(entreRios.lng).toBeDefined();
@@ -372,5 +389,8 @@ describe('geo autocomplete', () => {
     expect(bolivia.lat).toBeDefined();
     expect(bolivia.lng).toBeDefined();
     expect(/bolivia/i.test(bolivia.formattedAddress)).toBe(true);
+
+    const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
+    expect(nominatimCalls.length).toBe(0);
   });
 });
