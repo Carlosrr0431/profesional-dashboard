@@ -47,10 +47,25 @@ export async function POST(request) {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
+  // Idempotencia básica: si ya registramos este paypertic_id previamente,
+  // evitamos duplicar inserts y side-effects.
+  const paymentNote = `Pago online via Paypertic - ID: ${paypertic_id}`;
+  const { data: existingPayment } = await supabase
+    .from('commission_payments')
+    .select('id')
+    .eq('driver_id', driver_id)
+    .eq('notes', paymentNote)
+    .maybeSingle();
+
+  if (existingPayment?.id) {
+    console.log('[paypertic/webhook] Pago ya procesado previamente. payment_id local:', existingPayment.id);
+    return NextResponse.json({ received: true, duplicated: true });
+  }
+
   const { error: insertError } = await supabase.from('commission_payments').insert({
     driver_id,
     amount,
-    notes: `Pago online via Paypertic - ID: ${paypertic_id}`,
+    notes: paymentNote,
   });
 
   if (insertError) {
@@ -70,6 +85,48 @@ export async function POST(request) {
     // No devolvemos error — el pago ya quedó registrado
   } else {
     console.log('[paypertic/webhook] pending_commission reseteado a 0 para driver_id:', driver_id);
+  }
+
+  // Mantener consistencia con el flujo de pago manual:
+  // marcar acumulaciones pendientes como pagadas por el monto acreditado.
+  // Esto evita que paneles basados en acumulación/trips muestren deuda "fantasma".
+  const { data: pendingAccumulations, error: fetchAccumError } = await supabase
+    .from('commission_accumulation_log')
+    .select('id, commission_amount')
+    .eq('driver_id', driver_id)
+    .eq('status', 'pending')
+    .order('accumulated_at', { ascending: true });
+
+  if (fetchAccumError) {
+    console.error('[paypertic/webhook] Error al leer commission_accumulation_log:', fetchAccumError.message);
+  } else if (Array.isArray(pendingAccumulations) && pendingAccumulations.length > 0) {
+    let remaining = amount;
+    const idsToMarkPaid = [];
+    for (const row of pendingAccumulations) {
+      if (remaining <= 0) break;
+      const rowAmount = Number(row?.commission_amount || 0);
+      if (rowAmount <= 0) continue;
+      idsToMarkPaid.push(row.id);
+      remaining = Number((remaining - rowAmount).toFixed(2));
+    }
+
+    if (idsToMarkPaid.length > 0) {
+      const { error: markPaidError } = await supabase
+        .from('commission_accumulation_log')
+        .update({ status: 'paid' })
+        .in('id', idsToMarkPaid);
+
+      if (markPaidError) {
+        console.error('[paypertic/webhook] Error al marcar acumulaciones como paid:', markPaidError.message);
+      } else {
+        console.log(
+          '[paypertic/webhook] commission_accumulation_log actualizado a paid. filas:',
+          idsToMarkPaid.length,
+          '| remanente:',
+          Math.max(0, remaining),
+        );
+      }
+    }
   }
 
   console.log('[paypertic/webhook] Proceso completado OK para driver_id:', driver_id, '| monto:', amount);
