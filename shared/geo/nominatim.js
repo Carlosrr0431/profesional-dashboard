@@ -653,7 +653,7 @@ function collectGeorefCandidates(items, query, merged, seenPlaceIds, seenCoords)
   }
 }
 
-async function autocompleteAddressSalta(query, limit = 8) {
+async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   const trimmed = String(query || '').trim();
   if (trimmed.length < 2) return [];
 
@@ -722,7 +722,9 @@ async function autocompleteAddressSalta(query, limit = 8) {
 
     // 1) Fast-path principal para POIs: Google Places Autocomplete (New).
     const googlePoiHits = shouldUseGooglePoi
-      ? await googleSearchPoi(trimmed, Math.max(limit + 4, 12)).catch(() => [])
+      ? await googleSearchPoi(trimmed, Math.max(limit + 4, 12), {
+        sessionToken: options?.sessionToken,
+      }).catch(() => [])
       : [];
     collectAutocompleteCandidates(
       googlePoiHits,

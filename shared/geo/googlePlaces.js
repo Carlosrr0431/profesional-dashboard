@@ -390,13 +390,16 @@ async function fetchPlaceDetailsEssentials(rawPlaceId, options = {}) {
 
   assertPlaceDetailsEssentialsMask(PLACE_DETAILS_ESSENTIALS_MASK);
 
+  const sessionToken = String(options?.sessionToken || '').trim();
   const cached = getCached(placeDetailsCache, placeId);
-  if (cached) return cached;
+  if (cached) {
+    if (sessionToken) completeSession(sessionToken);
+    return cached;
+  }
 
   const cacheKey = placeId;
   if (inFlightPlaceDetails.has(cacheKey)) return inFlightPlaceDetails.get(cacheKey);
 
-  const sessionToken = String(options?.sessionToken || '').trim();
   const fallback = {
     title: options?.title,
     subtitle: options?.subtitle,
