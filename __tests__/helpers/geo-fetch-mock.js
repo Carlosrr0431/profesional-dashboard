@@ -216,10 +216,26 @@ function googleAutocompleteResponse(query) {
     };
   }
 
+  if (lower.includes('mitre') && /\b200\b/.test(lower)) {
+    return {
+      suggestions: [
+        makePred('google-mitre-200', 'Bartolomé Mitre 200', 'A4400 Salta, Argentina', ['street_address']),
+      ],
+    };
+  }
+
   if (lower.includes('mitre')) {
     return {
       suggestions: [
         makePred('google-mitre', 'Bartolomé Mitre', 'Salta, Argentina', ['route']),
+      ],
+    };
+  }
+
+  if (lower.includes('chacabuco')) {
+    return {
+      suggestions: [
+        makePred('google-chacabuco-350', 'Chacabuco 350', 'A4400 Salta, Argentina', ['street_address']),
       ],
     };
   }
@@ -441,6 +457,21 @@ function googlePlaceDetailsEssentialsResponse(placeId) {
     'google-bolivia-200': {
       formattedAddress: 'Avenida Bolivia 200, Salta, Argentina',
       location: { latitude: -24.7850, longitude: -65.4100 },
+      types: ['street_address'],
+    },
+    'google-mitre-200': {
+      formattedAddress: 'Bartolomé Mitre 200, A4400 Salta, Argentina',
+      location: { latitude: -24.7874909, longitude: -65.4107292 },
+      types: ['street_address'],
+    },
+    'google-mitre': {
+      formattedAddress: 'Bartolomé Mitre, Salta, Argentina',
+      location: { latitude: -24.7874909, longitude: -65.4107292 },
+      types: ['route'],
+    },
+    'google-chacabuco-350': {
+      formattedAddress: 'Chacabuco 350, A4400 Salta, Argentina',
+      location: { latitude: -24.7889, longitude: -65.4042 },
       types: ['street_address'],
     },
     'google-intersection-galvez-marimon': {

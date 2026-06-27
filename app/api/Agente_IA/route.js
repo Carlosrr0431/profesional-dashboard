@@ -38,12 +38,15 @@ import { isPassengerAppTrip, resolveTripPickupCoords } from '../../../shared/tri
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
 import {
   geocodeAddress as dashboardGeocodeAddress,
-  geocodeAddressMultiple as dashboardGeocodeAddressMultiple,
-  autocompleteAddressSalta,
   reverseGeocode as nominatimReverseGeocode,
   getRouteMetrics as osrmGetRouteMetrics,
   getRouteMetricsByAddress as osrmGetRouteMetricsByAddress,
 } from '../../../src/lib/geo/index.js';
+import {
+  autocompleteAndResolveAddresses,
+  geocodeAddressViaPlaces,
+  isGoogleConfigured,
+} from '../../../src/lib/geo/placesAutocompleteResolve.js';
 import { scoreCandidateAgainstQuery } from '../../../shared/salta-address.js';
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 
@@ -5067,9 +5070,11 @@ async function geocodeAddress(address) {
     throw new Error(`No se pudo geocodificar: ${address}`);
   }
 
-  logWebhook('dashboard_geocode_start', { query: safeAddress });
+  logWebhook('dashboard_geocode_start', { query: safeAddress, googlePlaces: isGoogleConfigured() });
   try {
-    const result = await dashboardGeocodeAddress(safeAddress);
+    const result = isGoogleConfigured()
+      ? await geocodeAddressViaPlaces(safeAddress)
+      : await dashboardGeocodeAddress(safeAddress);
     const resultPayload = {
       formattedAddress: result.formattedAddress,
       lat: result.lat,
@@ -5080,6 +5085,7 @@ async function geocodeAddress(address) {
       formattedAddress: resultPayload.formattedAddress,
       lat: resultPayload.lat,
       lng: resultPayload.lng,
+      geocodeSource: result.geocodeSource || (isGoogleConfigured() ? 'google_places' : 'nominatim'),
     });
     return resultPayload;
   } catch (err) {
@@ -5167,17 +5173,7 @@ async function geocodeAddressMultiple(address, maxResults = 5) {
   if (!safeQuery) return [];
 
   try {
-    const hits = await dashboardGeocodeAddressMultiple(safeQuery, maxResults);
-    return hits
-      .map((hit) => ({
-        formattedAddress: hit.formattedAddress,
-        lat: hit.lat,
-        lng: hit.lng,
-        score: scoreCandidateAgainstQuery(hit.formattedAddress, safeQuery),
-      }))
-      .filter((item) => item.score >= 0.10)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, maxResults);
+    return await autocompleteAndResolveAddresses(safeQuery, maxResults);
   } catch (err) {
     logWebhook('dashboard_geocode_multi_fail', {
       query: safeQuery,
@@ -5189,29 +5185,22 @@ async function geocodeAddressMultiple(address, maxResults = 5) {
 
 /**
  * Búsqueda de direcciones/POIs en Salta Capital.
- * Misma fuente que NewTripModal: autocomplete + /api/geo/geocode (Google Places + OSM).
+ * Misma fuente que NewTripModal: autocomplete + Place Details Essentials + caché Supabase.
  */
 async function autocompleteAndGeocodeAddress(query, maxResults = 5) {
   const safeQuery = sanitizeAddressInput(query);
   if (!safeQuery) return [];
 
   try {
-    const hits = await autocompleteAddressSalta(safeQuery, maxResults);
+    const hits = await autocompleteAndResolveAddresses(safeQuery, maxResults);
     const googleCount = hits.filter((hit) => String(hit?.placeId || '').startsWith('google:')).length;
     logWebhook('geo_autocomplete_ok', {
       query: safeQuery,
       count: hits.length,
       googleCount,
-      fallbackCount: Math.max(0, hits.length - googleCount),
+      resolvedCount: hits.filter((hit) => Number.isFinite(hit.lat) && Number.isFinite(hit.lng)).length,
     });
-    return hits
-      .map((hit) => ({
-        formattedAddress: hit.address,
-        lat: hit.lat,
-        lng: hit.lng,
-        score: scoreCandidateAgainstQuery(hit.address, safeQuery),
-      }))
-      .filter((item) => item.score >= 0.10);
+    return hits;
   } catch (err) {
     logWebhook('geo_autocomplete_error', { query: safeQuery, error: err?.message || 'unknown' });
     return [];
@@ -5303,20 +5292,18 @@ async function getAddressCandidates(query, maxResults = 5) {
     }),
   ]);
 
-  const [geocodeResult, autocompleteResult, catalogResult] = await Promise.allSettled([
-    geocodeAddressMultiple(query, maxResults),
+  const [autocompleteResult, catalogResult] = await Promise.allSettled([
     autocompleteAndGeocodeAddress(query, maxResults),
     catalogWithTimeout,
   ]);
 
-  const geocodeCandidates = geocodeResult.status === 'fulfilled' ? geocodeResult.value : [];
   const autocompleteCandidates = autocompleteResult.status === 'fulfilled' ? autocompleteResult.value : [];
   const catalogCandidates = catalogResult.status === 'fulfilled' ? catalogResult.value : [];
 
   // Merge and deduplicate — first by formatted address string, then by lat/lng proximity (~100m)
   const seenKeys = new Set();
   const merged = [];
-  for (const c of [...geocodeCandidates, ...autocompleteCandidates, ...catalogCandidates]) {
+  for (const c of [...autocompleteCandidates, ...catalogCandidates]) {
     const key = (c.formattedAddress || '').toLowerCase().trim();
     if (!key || seenKeys.has(key)) continue;
     // Also skip if a previous candidate is within ~100m (different string, same place)
@@ -5334,7 +5321,6 @@ async function getAddressCandidates(query, maxResults = 5) {
   merged.sort((a, b) => b.score - a.score);
   logWebhook('maps_address_candidates_merged', {
     query,
-    geocodeCount: geocodeCandidates.length,
     autocompleteCount: autocompleteCandidates.length,
     catalogCount: catalogCandidates.length,
     mergedCount: merged.length,
@@ -10031,6 +10017,32 @@ async function processClaimedConversation(batch) {
   const shouldSendPoiConfirmPoll =
     Boolean(knownPoiMatch) && addressPollCandidates.length === 1;
 
+  if (
+    pendingScheduleInfo
+    && !tripExtracted._preGeocodedPickup?.lat
+    && normalizedPickupForGeo
+  ) {
+    try {
+      const directGeo = await geocodeAddress(normalizedPickupForGeo);
+      tripExtracted._preGeocodedPickup = {
+        formattedAddress: directGeo.formattedAddress,
+        lat: directGeo.lat,
+        lng: directGeo.lng,
+      };
+      logWebhook('conversation_schedule_pre_geocode_ok', {
+        conversationId: batch?.id || null,
+        pickup: normalizedPickupForGeo,
+        formattedAddress: tripExtracted._preGeocodedPickup.formattedAddress,
+      });
+    } catch (err) {
+      logWebhook('conversation_schedule_pre_geocode_fail', {
+        conversationId: batch?.id || null,
+        pickup: normalizedPickupForGeo,
+        error: err?.message || 'unknown',
+      });
+    }
+  }
+
   if (addressPollCandidates.length === 1 && !knownPoiMatch) {
     const onlyCandidate = addressPollCandidates[0];
     if (Number.isFinite(onlyCandidate?.lat) && Number.isFinite(onlyCandidate?.lng)) {
@@ -10045,7 +10057,10 @@ async function processClaimedConversation(batch) {
       totalCandidates: distinctCandidates.length,
     });
     }
-  } else if (shouldSendAddressPoll || shouldSendPoiConfirmPoll) {
+  } else if (
+    !tripExtracted._preGeocodedPickup?.lat
+    && (shouldSendAddressPoll || shouldSendPoiConfirmPoll)
+  ) {
     const orderedPollCandidates = [...addressPollCandidates].sort((a, b) => {
       const scoreDiff = Number(b?.score || 0) - Number(a?.score || 0);
       if (scoreDiff !== 0) return scoreDiff;
@@ -10155,7 +10170,33 @@ async function processClaimedConversation(batch) {
   }
 
   if (pendingScheduleInfo) {
-    const preGeo = tripExtracted._preGeocodedPickup;
+    let preGeo = tripExtracted._preGeocodedPickup;
+    if (!preGeo?.formattedAddress || preGeo.lat == null || preGeo.lng == null) {
+      const queryLabel =
+        normalizeAddressPhrase(nextContext.pickup_location) || nextContext.pickup_location || '';
+      if (queryLabel) {
+        try {
+          const directGeo = await geocodeAddress(queryLabel);
+          preGeo = {
+            formattedAddress: directGeo.formattedAddress,
+            lat: directGeo.lat,
+            lng: directGeo.lng,
+          };
+          logWebhook('conversation_schedule_trip_direct_geocode_ok', {
+            conversationId: batch?.id || null,
+            pickup: queryLabel,
+            formattedAddress: preGeo.formattedAddress,
+          });
+        } catch (directGeoErr) {
+          logWebhook('conversation_schedule_trip_direct_geocode_fail', {
+            conversationId: batch?.id || null,
+            pickup: queryLabel,
+            error: directGeoErr?.message || 'unknown',
+          });
+        }
+      }
+    }
+
     if (!preGeo?.formattedAddress || preGeo.lat == null || preGeo.lng == null) {
       const queryLabel =
         normalizeAddressPhrase(nextContext.pickup_location) || nextContext.pickup_location || 'esa dirección';
