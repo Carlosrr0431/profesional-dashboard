@@ -169,4 +169,38 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
   throw new Error('No se encontró la dirección');
 }
 
+/**
+ * Candidatos de poll desde Google Autocomplete (New) — misma fuente que AddressAutocomplete
+ * del dashboard. No geocodifica: las coords se resuelven al elegir la opción en el poll.
+ */
+export async function getAutocompletePollCandidates(query, maxResults = 5, options = {}) {
+  const text = String(query || '').trim();
+  if (!text) return [];
+
+  const sessionToken = options.sessionToken || createSessionToken();
+  const suggestions = await autocompleteAddressSalta(text, Math.max(maxResults, 5), {
+    sessionToken,
+  });
+
+  return suggestions.slice(0, maxResults).map((hit) => {
+    const title = String(hit?.title || '').trim();
+    const subtitle = String(hit?.subtitle || '').trim();
+    const formattedAddress = String(hit?.address || '').trim()
+      || (subtitle ? `${title}, ${subtitle}` : title);
+
+    return {
+      formattedAddress,
+      pollLabel: title,
+      title,
+      subtitle,
+      placeId: hit?.placeId || null,
+      sessionToken: hit?.sessionToken || sessionToken,
+      lat: null,
+      lng: null,
+      score: scoreCandidateAgainstQuery(formattedAddress, text),
+      source: 'google_autocomplete',
+    };
+  });
+}
+
 export { isGoogleConfigured, createSessionToken };

@@ -74,17 +74,23 @@ export function formatAddressForWhatsAppPoll(formattedAddress) {
 }
 
 /**
- * @param {{ formattedAddress?: string, lat?: number, lng?: number, score?: number }} geoCandidate
+ * @param {{ formattedAddress?: string, lat?: number, lng?: number, score?: number, pollLabel?: string, title?: string, placeId?: string, sessionToken?: string, subtitle?: string }} geoCandidate
  */
 export function toPollAddressCandidate(geoCandidate) {
   const formattedAddress = geoCandidate?.formattedAddress || '';
-  const customLabel = String(geoCandidate?.pollLabel || '').trim();
+  const customLabel = String(
+    geoCandidate?.pollLabel || geoCandidate?.title || '',
+  ).trim();
   return {
     label: customLabel || formatAddressForWhatsAppPoll(formattedAddress),
     formattedAddress,
     lat: geoCandidate?.lat,
     lng: geoCandidate?.lng,
     score: geoCandidate?.score,
+    placeId: geoCandidate?.placeId || null,
+    sessionToken: geoCandidate?.sessionToken || null,
+    title: geoCandidate?.title || null,
+    subtitle: geoCandidate?.subtitle || null,
   };
 }
 

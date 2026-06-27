@@ -45,10 +45,12 @@ import {
   reverseGeocode as nominatimReverseGeocode,
   getRouteMetrics as osrmGetRouteMetrics,
   getRouteMetricsByAddress as osrmGetRouteMetricsByAddress,
+  getPlaceDetails,
 } from '../../../src/lib/geo/index.js';
 import {
   autocompleteAndResolveAddresses,
   geocodeAddressViaPlaces,
+  getAutocompletePollCandidates,
   isGoogleConfigured,
 } from '../../../src/lib/geo/placesAutocompleteResolve.js';
 import { scoreCandidateAgainstQuery } from '../../../shared/salta-address.js';
@@ -2178,6 +2180,19 @@ function inferSaltaCapitalFromFormattedAddress(formattedAddress) {
 
 function isSaltaCapitalCandidate(candidate) {
   const formatted = candidate?.formattedAddress || '';
+
+  // Sugerencias de Google Autocomplete ya vienen restringidas a Salta Capital.
+  if (
+    candidate?.source === 'google_autocomplete'
+    || String(candidate?.placeId || '').startsWith('google:')
+  ) {
+    const subtitle = String(candidate?.subtitle || '').trim();
+    if (subtitle && /\b(jujuy|vaqueros|cerrillos)\b/i.test(subtitle)) return false;
+    const byAddress = inferSaltaCapitalFromFormattedAddress(formatted);
+    if (typeof byAddress === 'boolean') return byAddress;
+    return true;
+  }
+
   const postalCode = extractPostalCodeFromAddress(formatted);
   if (postalCode) {
     return postalCode.startsWith(SALTA_CAPITAL_POSTAL_CODE);
@@ -5108,6 +5123,30 @@ async function geocodeAddress(address) {
  * Geocodifica un candidato de poll probando la dirección completa antes que la etiqueta corta.
  */
 async function geocodePollCandidate(candidate, votedLabel = '') {
+  const placeId = String(candidate?.placeId || '').trim();
+  if (placeId.startsWith('google:')) {
+    try {
+      const details = await getPlaceDetails(placeId, {
+        sessionToken: candidate?.sessionToken,
+        formattedAddress: candidate?.formattedAddress,
+        title: candidate?.title,
+        subtitle: candidate?.subtitle,
+      });
+      return {
+        label: candidate?.label || candidate?.pollLabel || votedLabel || candidate?.title,
+        formattedAddress: details.formattedAddress || candidate?.formattedAddress,
+        lat: details.lat,
+        lng: details.lng,
+        placeId: details.placeId || placeId,
+      };
+    } catch (err) {
+      logWebhook('poll_candidate_place_details_fail', {
+        placeId,
+        error: err?.message || 'unknown',
+      });
+    }
+  }
+
   const queries = [
     candidate?.formattedAddress,
     candidate?.pollLabel,
@@ -9970,11 +10009,12 @@ async function processClaimedConversation(batch) {
     resolveSaltaKnownPoi(nextContext.pickup_location) ||
     resolveSaltaKnownPoi(normalizedPickupForGeo);
 
-  const [addressCandidatesResult, catalogStreetPollCandidates] = await Promise.all([
-    getAddressCandidates(normalizedPickupForGeo, 5).catch(() => []),
+  const [googlePollCandidates, catalogStreetPollCandidates, addressCandidatesResult] = await Promise.all([
+    getAutocompletePollCandidates(normalizedPickupForGeo, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
     buildCatalogAmbiguityPollCandidates(normalizedPickupForGeo, 4)
       .then((items) => items.filter(isSaltaCapitalCandidate))
       .catch(() => []),
+    getAddressCandidates(normalizedPickupForGeo, 5).catch(() => []),
   ]);
   let addressCandidates = addressCandidatesResult;
   if (knownPoiMatch) {
@@ -9999,13 +10039,21 @@ async function processClaimedConversation(batch) {
 
   const saltaCapitalCandidates = filterSaltaCapitalCandidates(distinctCandidates);
 
-  let addressPollCandidates = saltaCapitalCandidates;
+  // Poll: misma fuente que NewTripModal (Google Autocomplete sin pre-geocodificar).
+  let addressPollCandidates = filterSaltaCapitalCandidates(googlePollCandidates);
   if (addressPollCandidates.length < 2 && catalogStreetPollCandidates.length >= 2) {
     addressPollCandidates = catalogStreetPollCandidates;
     logWebhook('conversation_catalog_street_poll_fallback', {
       conversationId: batch?.id || null,
       pickup: normalizedPickupForGeo,
+      googleCount: googlePollCandidates.length,
       optionCount: catalogStreetPollCandidates.length,
+    });
+  } else {
+    logWebhook('conversation_google_autocomplete_poll', {
+      conversationId: batch?.id || null,
+      pickup: normalizedPickupForGeo,
+      optionCount: addressPollCandidates.length,
     });
   }
 
@@ -10062,6 +10110,24 @@ async function processClaimedConversation(batch) {
       formattedAddress: tripExtracted._preGeocodedPickup.formattedAddress,
       totalCandidates: distinctCandidates.length,
     });
+    } else if (onlyCandidate?.placeId) {
+      try {
+        const geocoded = await geocodePollCandidate(onlyCandidate);
+        if (geocoded?.lat && geocoded?.lng) {
+          tripExtracted._preGeocodedPickup = {
+            formattedAddress: geocoded.formattedAddress,
+            lat: geocoded.lat,
+            lng: geocoded.lng,
+          };
+          logWebhook('conversation_address_auto_resolved_via_place_id', {
+            conversationId: batch?.id || null,
+            placeId: onlyCandidate.placeId,
+            formattedAddress: geocoded.formattedAddress,
+          });
+        }
+      } catch {
+        // continuar al poll si falla
+      }
     }
   } else if (
     !tripExtracted._preGeocodedPickup?.lat
@@ -10073,7 +10139,7 @@ async function processClaimedConversation(batch) {
       return String(a?.formattedAddress || '').localeCompare(String(b?.formattedAddress || ''));
     });
 
-    const pollTopCandidates = orderedPollCandidates.slice(0, 4);
+    const pollTopCandidates = orderedPollCandidates.slice(0, GUEMES_POLL_OPTION_LIMIT);
     const { pollOptions, pollCandidates: pollCandidatesForTrip } =
       buildAddressPollPayload(pollTopCandidates);
 
