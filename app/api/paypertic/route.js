@@ -281,21 +281,16 @@ export async function POST(request) {
   const externalTransactionId = `comision-${driver.id}-${Date.now()}`;
   console.log('[paypertic] external_transaction_id:', externalTransactionId);
 
-  // return_url: NO forzar status por query.
-  // Paypertic define el estado real del pago; si enviamos approved fijo
-  // la app recibe una se?al falsa de "aprobado" en transferencias pendientes.
-  const returnUrl = `${DASHBOARD_URL}/api/paypertic/return?ext=${externalTransactionId}`;
-  const backUrl = `${DASHBOARD_URL}/api/paypertic/return?status=back&ext=${externalTransactionId}`;
-  console.log('[paypertic] return_url:', returnUrl);
-  console.log('[paypertic] back_url:', backUrl);
-  console.log('[paypertic] notification_url:', `${DASHBOARD_URL}/api/paypertic/webhook`);
+  // Sin return_url ni back_url: Pagotic maneja la navegaci?n dentro de checkout.paypertic.com.
+  // El WebView nunca debe salir a nuestro dominio (evita pantalla blanca).
+  // La confirmaci?n del pago llega por webhook + consulta de estado en la app.
+  const notificationUrl = `${DASHBOARD_URL}/api/paypertic/webhook`;
+  console.log('[paypertic] notification_url:', notificationUrl);
 
   const paymentPayload = {
     external_transaction_id: externalTransactionId,
     currency_id: 'ARS',
-    return_url: returnUrl,
-    back_url: backUrl,
-    notification_url: `${DASHBOARD_URL}/api/paypertic/webhook`,
+    notification_url: notificationUrl,
     details: [
       {
         external_reference: driver.id,
@@ -345,6 +340,5 @@ export async function POST(request) {
     form_url: payData.form_url,
     payment_id: payData.id,
     external_transaction_id: externalTransactionId,
-    return_url_prefix: `${DASHBOARD_URL}/api/paypertic/return`,
   });
 }

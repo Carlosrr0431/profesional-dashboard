@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+// DEPRECATED: pagos nuevos ya no usan return_url del dashboard.
+// Se mantiene solo por sesiones de pago creadas antes del cambio.
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
