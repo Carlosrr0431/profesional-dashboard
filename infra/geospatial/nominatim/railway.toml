@@ -8,7 +8,7 @@ restartPolicyMaxRetries = 5
 healthcheckPath = "/status"
 healthcheckTimeout = 600
 
-# Runtime tunado: ~0.8–1.2 GB real. Subir a 4294967296 solo durante FORCE_REIMPORT.
+# Runtime: 2 GB (2147483648). Subir a 4294967296 solo durante FORCE_REIMPORT.
 [deploy.limitOverride.containers]
-memoryBytes = 1610612736
-cpu = 1
+memoryBytes = 2147483648
+cpu = 2
