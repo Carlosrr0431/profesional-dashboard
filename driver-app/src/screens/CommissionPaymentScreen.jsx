@@ -333,6 +333,96 @@ const VerifyingPaymentCard = () => (
   </View>
 );
 
+// Banner minimalista que flota sobre el WebView sin tapar el contenido (CVU, etc.)
+const PaymentVerifyingBanner = React.memo(function PaymentVerifyingBanner() {
+  const dot1 = useRef(new Animated.Value(0.35)).current;
+  const dot2 = useRef(new Animated.Value(0.35)).current;
+  const dot3 = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    const makeDot = (anim, delay) => {
+      setTimeout(() => {
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(anim, { toValue: 1, duration: 450, useNativeDriver: true }),
+            Animated.timing(anim, { toValue: 0.35, duration: 450, useNativeDriver: true }),
+          ])
+        ).start();
+      }, delay);
+    };
+    makeDot(dot1, 0);
+    makeDot(dot2, 200);
+    makeDot(dot3, 400);
+  }, []);
+
+  return (
+    <View style={verifyingBannerStyles.wrapper}>
+      <View style={verifyingBannerStyles.card}>
+        <View style={verifyingBannerStyles.dotsCol}>
+          <Animated.View style={[verifyingBannerStyles.dot, { opacity: dot1 }]} />
+          <Animated.View style={[verifyingBannerStyles.dot, { opacity: dot2 }]} />
+          <Animated.View style={[verifyingBannerStyles.dot, { opacity: dot3 }]} />
+        </View>
+        <View style={verifyingBannerStyles.textGroup}>
+          <Text style={verifyingBannerStyles.title}>Esperando confirmación de pago</Text>
+          <Text style={verifyingBannerStyles.subtitle}>
+            Verificando en tiempo real con el proveedor...
+          </Text>
+        </View>
+        <ActivityIndicator size="small" color={colors.primary} />
+      </View>
+    </View>
+  );
+});
+
+const verifyingBannerStyles = StyleSheet.create({
+  wrapper: {
+    position: 'absolute',
+    bottom: 28,
+    left: 12,
+    right: 12,
+  },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    boxShadow: '0 6px 24px rgba(40,46,105,0.18)',
+  },
+  dotsCol: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 2,
+  },
+  dot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: colors.primary,
+  },
+  textGroup: {
+    flex: 1,
+  },
+  title: {
+    fontSize: 13,
+    fontFamily: 'Inter_700Bold',
+    color: colors.text,
+    marginBottom: 2,
+  },
+  subtitle: {
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+    color: colors.textMuted,
+    lineHeight: 15,
+  },
+});
+
 const PaymentRejectedCard = React.memo(function PaymentRejectedCard({
   title,
   message,
@@ -787,11 +877,16 @@ export default function CommissionPaymentScreen() {
       }
 
       if (showPendingToast) {
+        const statusLabels = {
+          issued: 'Transferencia registrada, esperando acreditación bancaria.',
+          pending: 'El pago está pendiente de confirmación.',
+          in_process: 'El pago está siendo procesado.',
+        };
         Toast.show({
           type: 'info',
           text1: 'Pago en proceso',
-          text2: `Estado actual: ${status || 'pending'}`,
-          visibilityTime: 3000,
+          text2: statusLabels[status] || `Estado: ${status || 'pendiente'}`,
+          visibilityTime: 3500,
         });
       }
     } catch {
@@ -959,17 +1054,8 @@ export default function CommissionPaymentScreen() {
   const handleNavigationChange = (navState) => {
     const url = navState.url || '';
 
-    // En cuanto el WebView sale del formulario de pago, mostramos overlay "Verificando"
-    if (
-      navState.loading &&
-      formUrl &&
-      url &&
-      url !== formUrl &&
-      !returnHandled.current
-    ) {
-      setShowVerifyingOverlay(true);
-    }
-
+    // Solo mostramos el banner de verificación cuando la URL es la de retorno de Paypertic
+    // (no en cualquier navegación interna, para no cubrir datos de CVU/CBU en transferencias)
     if (!url.startsWith(RETURN_URL_PREFIX)) return;
     if (returnHandled.current) return;
 
@@ -1160,10 +1246,19 @@ export default function CommissionPaymentScreen() {
           }}
           style={{ flex: 1 }}
         />
-        {(!webviewLoaded || showVerifyingOverlay) && (
+
+        {/* Overlay completo de carga inicial: cubre la pantalla hasta que Paypertic renderice */}
+        {!webviewLoaded && (
           <View style={[StyleSheet.absoluteFill, styles.webviewOverlay]}>
             {showVerifyingOverlay ? <VerifyingPaymentCard /> : <PaymentLoadingCard />}
           </View>
+        )}
+
+        {/* Banner flotante de verificación: aparece sobre el WebView SIN tapar el contenido.
+            Permite al usuario ver y copiar los datos de CBU/CVU en pagos por transferencia
+            mientras la app espera confirmación en tiempo real. */}
+        {webviewLoaded && showVerifyingOverlay && (
+          <PaymentVerifyingBanner />
         )}
       </View>
     );
