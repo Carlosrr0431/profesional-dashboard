@@ -55,6 +55,11 @@ import {
 } from '../../../src/lib/geo/placesAutocompleteResolve.js';
 import { scoreCandidateAgainstQuery } from '../../../shared/salta-address.js';
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
+import {
+  extractFullTripByPattern,
+  splitAddressFromIntentPhrase,
+  stripTrailingTripRouteTail,
+} from '../../../src/lib/whatsappTripAddressParse.js';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -3087,46 +3092,6 @@ function normalizeAddressPhrase(value) {
   );
 }
 
-function splitAddressFromIntentPhrase(text, cueRegex) {
-  const src = String(text || '');
-  const cueMatch = src.match(cueRegex);
-  if (!cueMatch) return null;
-
-  const startIdx = cueMatch.index + cueMatch[0].length;
-  const tail = src.slice(startIdx).trim();
-  if (!tail) return null;
-
-  // Cortar cuando aparece una segunda intención clara en la misma oración.
-  const stopPattern = /\b(?:voy\s+(?:para|a)|me\s+llev(?:a|as|en)\s+a|destino(?:\s+es)?|hasta|hacia|despu[eé]s\s+a)\b/i;
-  const stopMatch = tail.match(stopPattern);
-  const segment = stopMatch ? tail.slice(0, stopMatch.index).trim() : tail;
-  return normalizeAddressPhrase(segment);
-}
-
-function extractFullTripByPattern(text) {
-  const src = String(text || '').trim();
-  if (!src) return null;
-
-  const patterns = [
-    /(?:remis|movil|m[oó]vil|taxi|auto)\s+(?:para|a|en)\s+(.+?)\s*(?:,|\.)?\s*(?:voy\s+(?:para|a)|me\s+llev(?:a|as|en)\s+a|destino(?:\s+es)?|hasta|hacia)\s+(.+)$/i,
-    /(?:pasame\s+a\s+buscar(?:me)?|buscame|retiro\s+en|estoy\s+en|desde)\s*[:,-]?\s*(.+?)\s*(?:,|\.)?\s*(?:voy\s+(?:para|a)|me\s+llev(?:a|as|en)\s+a|destino(?:\s+es)?|hasta|hacia)\s+(.+)$/i,
-    /\bde\s+(.+?)\s+a\s+(.+)$/i,
-  ];
-
-  for (const regex of patterns) {
-    const match = src.match(regex);
-    if (!match) continue;
-
-    const pickup = normalizeAddressPhrase(match[1]);
-    const destination = normalizeAddressPhrase(match[2]);
-    if (pickup && destination) {
-      return { pickup, destination };
-    }
-  }
-
-  return null;
-}
-
 function rankAddresses(entries, max = MAX_KNOWLEDGE_ADDRESSES) {
   const byKey = new Map();
 
@@ -3668,7 +3633,7 @@ function inferTripHeuristics(combinedText) {
   // Tomamos explícitamente lo que sigue después de "a/para/en" como pickup.
   const directRequestPickupMatch = splitAddressFromIntentPhrase(
     text,
-    /(?:mand[aá](?:me|as|an)?|necesito|quiero|pedido)\s+(?:un|una|uno|el|la)?\s*(?:remis|m[oó]vil|movil|taxi|auto|coche|viaje)?\s*(?:para|a|en)\s+/i
+    /(?:mand[aá](?:me|as|an|s)?|necesito|quiero|pedido)\s+(?:un|una|uno|el|la)?\s*(?:remis|m[oó]vil|movil|taxi|auto|coche|viaje)?\s*(?:para|a|en)\s+/i
   );
   if (directRequestPickupMatch && looksLikeTripRequest) {
     return {
@@ -3716,7 +3681,7 @@ function inferTripHeuristics(combinedText) {
     }
   }
 
-  if (pickup) pickup = normalizeAddressPhrase(pickup);
+  if (pickup) pickup = normalizeAddressPhrase(stripTrailingTripRouteTail(pickup));
   if (destination) destination = normalizeAddressPhrase(destination);
 
   return {
@@ -9846,7 +9811,21 @@ async function processClaimedConversation(batch) {
   }
 
   // Normalizar pickup con correcciones fonéticas antes de cualquier geocodificación/validación
-  const normalizedPickupForGeo = normalizeAddressPhrase(nextContext.pickup_location) || nextContext.pickup_location;
+  const normalizedPickupForGeo =
+    normalizeAddressPhrase(stripTrailingTripRouteTail(nextContext.pickup_location)) ||
+    normalizeAddressPhrase(nextContext.pickup_location) ||
+    nextContext.pickup_location;
+  if (
+    normalizedPickupForGeo &&
+    normalizedPickupForGeo !== nextContext.pickup_location
+  ) {
+    nextContext.pickup_location = normalizedPickupForGeo;
+    tripExtracted.pickup_location = normalizedPickupForGeo;
+    logWebhook('conversation_pickup_route_tail_stripped', {
+      conversationId: batch?.id || null,
+      pickup: normalizedPickupForGeo,
+    });
+  }
 
   // --- Caso 25/26/27: Pasaje, Manzana/Lote, Km de ruta → GPS obligatorio ---
   // Google Maps no indexa pasajes angostos, el sistema catastral manzana/lote,
