@@ -5173,14 +5173,74 @@ function findPollCandidateByVote(candidates, votedName) {
   }) || null;
 }
 
-async function clearPendingPollFromTrip(tripId, pollTripWaCtx = {}) {
+async function clearPendingPollFromTrip(tripId) {
   if (!tripId) return;
-  const cleanTripCtx = { ...(pollTripWaCtx || {}) };
-  delete cleanTripCtx.pending_poll;
+
+  const { data: row } = await getSupabase()
+    .from('trips')
+    .select('wa_context')
+    .eq('id', tripId)
+    .maybeSingle();
+
+  const ctx = safeJsonParse(row?.wa_context, {});
+  if (!ctx?.pending_poll) return;
+
+  delete ctx.pending_poll;
+  const nextCtx = Object.keys(ctx).length > 0 ? ctx : null;
+
   await getSupabase()
     .from('trips')
-    .update({ wa_context: Object.keys(cleanTripCtx).length ? cleanTripCtx : null })
+    .update({ wa_context: nextCtx })
     .eq('id', tripId);
+}
+
+async function findTripRowForPollResults({ voterPhone, pollMsgId, lastTripId }) {
+  const activeStatuses = ['queued', 'pending', 'scheduled'];
+
+  if (pollMsgId) {
+    const { data: byPricePollMsg } = await getSupabase()
+      .from('trips')
+      .select('id, wa_context')
+      .filter('wa_context->>poll_msg_id', 'eq', pollMsgId)
+      .in('status', activeStatuses)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (byPricePollMsg?.id) return byPricePollMsg;
+
+    const { data: byAddressPollMsg } = await getSupabase()
+      .from('trips')
+      .select('id, wa_context')
+      .filter('wa_context->pending_poll->>msg_id', 'eq', pollMsgId)
+      .in('status', activeStatuses)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (byAddressPollMsg?.id) return byAddressPollMsg;
+  }
+
+  if (lastTripId) {
+    const { data: byLastTrip } = await getSupabase()
+      .from('trips')
+      .select('id, wa_context')
+      .eq('id', lastTripId)
+      .in('status', activeStatuses)
+      .not('wa_context', 'is', null)
+      .maybeSingle();
+    if (byLastTrip?.id) return byLastTrip;
+  }
+
+  const { data: byPhone } = await getSupabase()
+    .from('trips')
+    .select('id, wa_context')
+    .eq('passenger_phone', normalizePhone(voterPhone))
+    .in('status', activeStatuses)
+    .not('wa_context', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return byPhone || null;
 }
 
 async function geocodeAddressMultiple(address, maxResults = 5) {
@@ -5730,9 +5790,16 @@ async function activateTripAfterPriceConfirmation(tripId, priceCtx, passengerPho
     driver_id: null,
     notes,
   };
-  if (originData.address) updatePayload.destination_address = originData.address;
-  if (originData.lat != null) updatePayload.destination_lat = originData.lat;
-  if (originData.lng != null) updatePayload.destination_lng = originData.lng;
+  if (originData.address) updatePayload.origin_address = originData.address;
+  if (originData.lat != null) {
+    updatePayload.origin_lat = originData.lat;
+    updatePayload.origin_lng = originData.lng;
+  }
+  if (destData.address) updatePayload.destination_address = destData.address;
+  if (destData.lat != null) {
+    updatePayload.destination_lat = destData.lat;
+    updatePayload.destination_lng = destData.lng;
+  }
   if (priceCtx?.pricing?.price != null) updatePayload.price = priceCtx.pricing.price;
   if (priceCtx?.route?.distanceKm != null) updatePayload.distance_km = priceCtx.route.distanceKm;
   if (priceCtx?.route?.durationMinutes != null) updatePayload.duration_minutes = priceCtx.route.durationMinutes;
@@ -8824,7 +8891,7 @@ async function processClaimedConversation(batch) {
           await dispatchQueuedPassengers();
         }
 
-        await clearPendingPollFromTrip(pollTrip?.id, pollTripWaCtx).catch(() => {});
+        await clearPendingPollFromTrip(pollTrip?.id).catch(() => {});
 
         logWebhook('conversation_trip_result', {
           conversationId: batch?.id || null,
@@ -10812,23 +10879,24 @@ async function processWebhookBody(body, requestMeta = {}) {
         .maybeSingle();
 
       // Buscar pending_poll en trips.wa_context (fuente de verdad)
-      const { data: pollTripRow } = await getSupabase()
-        .from('trips')
-        .select('id, wa_context')
-        .eq('passenger_phone', normalizePhone(voterPhone))
-        .in('status', ['queued', 'pending', 'scheduled'])
-        .not('wa_context', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const pollTripRow = await findTripRowForPollResults({
+        voterPhone,
+        pollMsgId,
+        lastTripId: pollConv?.last_trip_id || null,
+      });
       const pollTripWaCtxResults = safeJsonParse(pollTripRow?.wa_context, {});
       const pendingPoll = pollTripWaCtxResults?.pending_poll || safeJsonParse(pollConv?.context, {})?.pending_poll;
       const pollCandidates = pendingPoll?.candidates || [];
       const pollExtracted = pendingPoll?.extracted || {};
 
       // Encuesta de confirmación de precio (retiro + destino ya definidos)
+      const pricePollMsgMatches =
+        !pollTripWaCtxResults.poll_msg_id ||
+        pollTripWaCtxResults.poll_msg_id === pollMsgId;
+
       if (
         pollTripRow?.id
+        && pricePollMsgMatches
         && (pollTripWaCtxResults.pending_price_confirm || pollTripWaCtxResults.price_inquiry)
         && pollTripWaCtxResults.origin
         && pollTripWaCtxResults.destination
@@ -10912,7 +10980,7 @@ async function processWebhookBody(body, requestMeta = {}) {
 
       // "Ninguna de estas opciones" → pedir GPS/calle directamente
       if (normalizeForMatch(voted.name || '').startsWith('ninguna')) {
-        await clearPendingPollFromTrip(pollTripRow?.id, pollTripWaCtxResults);
+        await clearPendingPollFromTrip(pollTripRow?.id);
         if (pollConv?.id) {
           try {
             await getSupabase()
@@ -11021,7 +11089,7 @@ async function processWebhookBody(body, requestMeta = {}) {
           } catch (_) {}
         }
 
-        await clearPendingPollFromTrip(pollTripRow?.id, pollTripWaCtxResults).catch(() => {});
+        await clearPendingPollFromTrip(pollTripRow?.id).catch(() => {});
 
         return {
           status: 200,
@@ -11122,7 +11190,7 @@ async function processWebhookBody(body, requestMeta = {}) {
         driverId: tripResult?.driver?.id || null,
       });
 
-      await clearPendingPollFromTrip(pollTripRow?.id, pollTripWaCtxResults).catch(() => {});
+      await clearPendingPollFromTrip(pollTripRow?.id).catch(() => {});
 
       // 5️⃣ Actualizar la conversación: last_trip_id + contexto del resultado + estado 'open'
       if (pollConv?.id) {
