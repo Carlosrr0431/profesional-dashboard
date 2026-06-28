@@ -238,9 +238,10 @@ export async function GET(request) {
     status_detail: payData.status_detail || null,
     final_amount: payData.final_amount || null,
     process_date: payData.process_date || null,
-    paid_date: payData.paid_date || null,
+    paid_date: payData.paid_date || payData.accreditation_date || payData.last_update_date || null,
     external_transaction_id: payData.external_transaction_id || null,
     receipt_url: receiptUrl,
+    form_url: payData.form_url || null,
     transfer_info: extractTransferInfo(payData),
   });
 }
