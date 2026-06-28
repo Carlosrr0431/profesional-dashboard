@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { registerCommissionPayment } from '../../../src/lib/commissionPaymentRegister';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -209,6 +210,27 @@ export async function GET(request) {
     receiptCandidates.find(
       (value) => typeof value === 'string' && value.trim().toLowerCase().startsWith('http'),
     ) || null;
+
+  const normalizedStatus = String(payData?.status || '').toLowerCase();
+  if (normalizedStatus === 'approved' || normalizedStatus === 'paid') {
+    const payAmount = Number(payData?.final_amount);
+    if (payAmount > 0) {
+      try {
+        await registerCommissionPayment(supabase, {
+          driverId: driver.id,
+          amount: payAmount,
+          paymentSource: 'paypertic',
+          payperticId: payData?.id ? String(payData.id) : null,
+          externalTransactionId: payData?.external_transaction_id
+            ? String(payData.external_transaction_id)
+            : null,
+          resetPendingToZero: true,
+        });
+      } catch (registerErr) {
+        console.error('[paypertic] Fallback registro de pago falló:', registerErr?.message || registerErr);
+      }
+    }
+  }
 
   return NextResponse.json({
     id: payData.id,

@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatPrice, formatKm, formatDuration, formatDateTime, formatTime, getTripStatus, timeAgo } from '../lib/utils';
+import { filterPaymentsByPeriod, sumPaymentAmounts, paymentSourceLabel, toAnchorString } from '../lib/commissionPaymentPeriods';
+import CommissionPeriodPicker from './CommissionPeriodPicker';
 import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
 import { isFleetRoot } from '../lib/driverRoles';
@@ -441,9 +443,22 @@ function CommissionTab({
   payments, showPayForm, setShowPayForm, payAmount, setPayAmount, payNotes, setPayNotes,
   paying, onPay, onPayFull, onToggleBlock, blocking,
 }) {
+  const [paymentPeriod, setPaymentPeriod] = useState('all');
+  const [paymentAnchor, setPaymentAnchor] = useState(() => toAnchorString(new Date()));
   const isBlocked = driver?.commission_blocked || false;
   const pendingFromDB = parseFloat(driver?.pending_commission || 0);
   const displayPending = pendingFromDB > 0 ? pendingFromDB : Math.max(0, commissionBalance);
+  const filteredPayments = filterPaymentsByPeriod(payments, paymentPeriod, new Date(), paymentAnchor);
+  const periodPaid = sumPaymentAmounts(filteredPayments);
+  const weekPaid = sumPaymentAmounts(filterPaymentsByPeriod(payments, 'week', new Date(), toAnchorString(new Date())));
+  const monthPaid = sumPaymentAmounts(filterPaymentsByPeriod(payments, 'month', new Date(), toAnchorString(new Date())));
+
+  const handlePaymentModeChange = (nextMode) => {
+    setPaymentPeriod(nextMode);
+    if (nextMode !== 'all') {
+      setPaymentAnchor(toAnchorString(new Date()));
+    }
+  };
 
   return (
     <div className="p-5 pb-8 space-y-4">
@@ -502,12 +517,12 @@ function CommissionTab({
           <p className="text-sm font-bold text-navy-900">{formatPrice(totalCommission)}</p>
         </div>
         <div className="bg-light-200/50 rounded-xl border border-light-300/30 p-3 text-center">
-          <p className="text-[10px] text-gray-500">Total Pagado</p>
-          <p className="text-sm font-bold text-online">{formatPrice(totalPaid)}</p>
+          <p className="text-[10px] text-gray-500">Pagado (semana)</p>
+          <p className="text-sm font-bold text-online">{formatPrice(weekPaid)}</p>
         </div>
         <div className="bg-light-200/50 rounded-xl border border-light-300/30 p-3 text-center">
-          <p className="text-[10px] text-gray-500">Hoy</p>
-          <p className="text-sm font-bold text-amber-600">{formatPrice(todayCommission)}</p>
+          <p className="text-[10px] text-gray-500">Pagado (mes)</p>
+          <p className="text-sm font-bold text-online">{formatPrice(monthPaid)}</p>
         </div>
       </div>
 
@@ -575,15 +590,32 @@ function CommissionTab({
       {/* Payment history */}
       <div>
         <h4 className="text-xs font-semibold text-navy-900 mb-2">Historial de Pagos</h4>
-        {payments.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-6">Sin pagos registrados</p>
+        <CommissionPeriodPicker
+          compact
+          useModal
+          mode={paymentPeriod}
+          onModeChange={handlePaymentModeChange}
+          anchorDate={paymentAnchor}
+          onAnchorChange={setPaymentAnchor}
+        />
+        {paymentPeriod !== 'all' ? (
+          <p className="text-[10px] text-gray-500 mt-2 mb-2">
+            Total del período: <span className="font-semibold text-online">{formatPrice(periodPaid)}</span>
+            {' · '}Histórico: {formatPrice(totalPaid)}
+          </p>
+        ) : null}
+        {filteredPayments.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-6">Sin pagos en este período</p>
         ) : (
-          <div className="space-y-1.5">
-            {payments.map((p) => (
+          <div className="space-y-1.5 mt-2">
+            {filteredPayments.map((p) => (
               <div key={p.id} className="flex items-center justify-between bg-light-200/50 border border-light-300/20 rounded-lg px-3 py-2.5">
                 <div>
                   <p className="text-xs font-medium text-online">{formatPrice(p.amount)}</p>
-                  <p className="text-[10px] text-gray-500">{p.notes || 'Sin notas'}</p>
+                  <p className="text-[10px] text-gray-500">
+                    {paymentSourceLabel(p.payment_source, p.notes)}
+                    {p.notes && p.payment_source !== 'paypertic' ? ` · ${p.notes}` : ''}
+                  </p>
                 </div>
                 <span className="text-[10px] text-gray-400">{formatDateTime(p.created_at)}</span>
               </div>
