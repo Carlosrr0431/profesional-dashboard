@@ -4296,6 +4296,77 @@ async function resolvePhoneFromJid(jid) {
   return null;
 }
 
+function isWasenderInternalMsgId(value) {
+  return /^\d+$/.test(String(value || '').trim());
+}
+
+function extractWhatsAppKeyIdFromPayload(payload) {
+  const data = payload?.data ?? payload ?? {};
+  const candidates = [
+    data?.key?.id,
+    data?.messageKey?.id,
+    data?.messages?.key?.id,
+    data?.waMessageId,
+  ];
+
+  for (const candidate of candidates) {
+    const id = String(candidate || '').trim();
+    if (id && !isWasenderInternalMsgId(id)) return id;
+  }
+
+  return null;
+}
+
+async function resolveOutgoingWhatsAppKeyId(payload) {
+  const direct = extractWhatsAppKeyIdFromPayload(payload);
+  if (direct) return direct;
+
+  const internalMsgId = payload?.data?.msgId;
+  if (internalMsgId == null || internalMsgId === '') return null;
+
+  try {
+    const response = await fetchWithRetry(
+      `${WASENDER_BASE_URL}/messages/${internalMsgId}/info`,
+      {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${WASENDER_API_KEY}` },
+      },
+    );
+    if (!response.ok) return null;
+    const info = await response.json();
+    return extractWhatsAppKeyIdFromPayload(info) || extractWhatsAppKeyIdFromPayload(info?.data);
+  } catch (err) {
+    logWebhook('wasender_message_info_fail', {
+      msgId: String(internalMsgId),
+      error: err?.message || 'unknown',
+    });
+    return null;
+  }
+}
+
+function buildStoredPollMessageIds(pollSendResult) {
+  const wasenderMsgId = pollSendResult?.wasenderMsgId != null
+    ? String(pollSendResult.wasenderMsgId)
+    : null;
+  const waKeyId = pollSendResult?.waKeyId ? String(pollSendResult.waKeyId) : null;
+  const fallbackMsgId = pollSendResult?.msgId ? String(pollSendResult.msgId) : null;
+
+  return {
+    msg_id: waKeyId || wasenderMsgId || fallbackMsgId,
+    wasender_msg_id: wasenderMsgId,
+    wa_key_id: waKeyId || (!isWasenderInternalMsgId(fallbackMsgId) ? fallbackMsgId : null),
+  };
+}
+
+function isAwaitingTripPriceConfirmation(ctx, pollCandidates = []) {
+  return Boolean(
+    (ctx?.pending_price_confirm || ctx?.price_inquiry)
+    && ctx?.origin
+    && ctx?.destination
+    && !(pollCandidates || []).length,
+  );
+}
+
 async function sendWhatsAppPoll(phone, question, options) {
   const to = toWhatsAppJid(phone);
   if (!to) {
@@ -4324,14 +4395,22 @@ async function sendWhatsAppPoll(phone, question, options) {
   }
 
   const payload = await response.json();
-  const msgId = String(payload?.data?.msgId || `poll_${Date.now()}`);
+  const wasenderMsgId = payload?.data?.msgId != null ? String(payload.data.msgId) : null;
+  const waKeyId = await resolveOutgoingWhatsAppKeyId(payload);
+  const msgId = waKeyId || wasenderMsgId || `poll_${Date.now()}`;
   await insertOutgoingMessage({
     phone,
     messageId: msgId,
     content: `[ENCUESTA] ${question}: ${options.join(' | ')}`,
     rawPayload: payload,
   });
-  return { msgId, payload };
+  logWebhook('whatsapp_poll_sent', {
+    phone: maskPhone(phone),
+    wasenderMsgId,
+    waKeyId,
+    msgId,
+  });
+  return { msgId, wasenderMsgId, waKeyId, payload };
 }
 
 async function claimConversationBatch(conversationId) {
@@ -5198,25 +5277,24 @@ async function findTripRowForPollResults({ voterPhone, pollMsgId, lastTripId }) 
   const activeStatuses = ['queued', 'pending', 'scheduled'];
 
   if (pollMsgId) {
-    const { data: byPricePollMsg } = await getSupabase()
-      .from('trips')
-      .select('id, wa_context')
-      .filter('wa_context->>poll_msg_id', 'eq', pollMsgId)
-      .in('status', activeStatuses)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (byPricePollMsg?.id) return byPricePollMsg;
+    const pollIdQueries = [
+      ['wa_context->>poll_msg_id', pollMsgId],
+      ['wa_context->>poll_wa_key_id', pollMsgId],
+      ['wa_context->pending_poll->>msg_id', pollMsgId],
+      ['wa_context->pending_poll->>wa_key_id', pollMsgId],
+    ];
 
-    const { data: byAddressPollMsg } = await getSupabase()
-      .from('trips')
-      .select('id, wa_context')
-      .filter('wa_context->pending_poll->>msg_id', 'eq', pollMsgId)
-      .in('status', activeStatuses)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (byAddressPollMsg?.id) return byAddressPollMsg;
+    for (const [column, value] of pollIdQueries) {
+      const { data: byPollId } = await getSupabase()
+        .from('trips')
+        .select('id, wa_context')
+        .filter(column, 'eq', value)
+        .in('status', activeStatuses)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (byPollId?.id) return byPollId;
+    }
   }
 
   if (lastTripId) {
@@ -5662,8 +5740,7 @@ function buildTripPriceSummaryMessage({ pickupAddress, destAddress, distanceKm, 
 }
 
 async function sendTripPriceConfirmationPoll(phone) {
-  const pollResult = await sendWhatsAppPoll(phone, '¿Confirmás el viaje?', TRIP_PRICE_CONFIRM_OPTIONS);
-  return pollResult?.msgId || null;
+  return sendWhatsAppPoll(phone, '¿Confirmás el viaje?', TRIP_PRICE_CONFIRM_OPTIONS);
 }
 
 async function sendTripPriceSummaryAndConfirmPoll(phone, summaryMsg) {
@@ -5876,12 +5953,14 @@ async function requestTripPriceConfirmation({
     durationMinutes: passengerRouteFare.duration_minutes,
     price: passengerRouteFare.price,
   });
-  let pollMsgId = null;
+  let pollSendResult = null;
   try {
-    pollMsgId = await sendTripPriceSummaryAndConfirmPoll(phone, priceMsg);
+    pollSendResult = await sendTripPriceSummaryAndConfirmPoll(phone, priceMsg);
   } catch (err) {
     logWebhook('trip_price_confirm_poll_error', { error: err?.message || 'unknown' });
   }
+
+  const pollIds = buildStoredPollMessageIds(pollSendResult);
 
   const finalDestJson = buildFinalDestJsonTag({
     address: destAddress,
@@ -5892,7 +5971,8 @@ async function requestTripPriceConfirmation({
   const priceWaCtx = {
     price_inquiry: true,
     pending_price_confirm: true,
-    poll_msg_id: pollMsgId,
+    poll_msg_id: pollIds.wasender_msg_id || pollIds.msg_id,
+    poll_wa_key_id: pollIds.wa_key_id || pollIds.msg_id,
     origin: {
       address: pickupAddress,
       lat: pickupLocation.lat,
@@ -5964,7 +6044,9 @@ async function requestTripPriceConfirmation({
     phone: maskPhone(phone),
     price: passengerRouteFare.price,
     distanceKm: passengerRouteFare.distance_km,
-    pollMsgId,
+    pollMsgId: pollIds.msg_id,
+    pollWasenderMsgId: pollIds.wasender_msg_id,
+    pollWaKeyId: pollIds.wa_key_id,
   });
 
   return {
@@ -7049,7 +7131,7 @@ async function maybeSendDestinationAddressPoll({
   const { pollOptions: destPollOptions, pollCandidates: destPollCandidatesForTrip } =
     buildAddressPollPayload(destPollTop);
 
-  let destPollMsgId = null;
+  let destPollIds = null;
   const destPollPhone = conversation?.phone || extracted?.phone;
   try {
     const destPollResult = await sendWhatsAppPoll(
@@ -7057,16 +7139,18 @@ async function maybeSendDestinationAddressPoll({
       '¿Cuál es la dirección de destino?',
       destPollOptions,
     );
-    destPollMsgId = destPollResult.msgId;
+    destPollIds = buildStoredPollMessageIds(destPollResult);
   } catch (err) {
     logWebhook('dest_poll_send_error', { error: err?.message });
   }
 
-  if (!destPollMsgId) return null;
+  if (!destPollIds?.msg_id) return null;
 
   logWebhook('destination_address_poll_sent', {
     hint: finalDestinationHint,
-    pollMsgId: destPollMsgId,
+    pollMsgId: destPollIds.msg_id,
+    pollWasenderMsgId: destPollIds.wasender_msg_id,
+    pollWaKeyId: destPollIds.wa_key_id,
     optionCount: destPollOptions.length,
     guemesHomonym: destIsGuemesHomonym,
     catalogOptions: catalogDestPoll.length,
@@ -7075,7 +7159,9 @@ async function maybeSendDestinationAddressPoll({
 
   const destPollWaContext = {
     pending_poll: {
-      msg_id: destPollMsgId,
+      msg_id: destPollIds.msg_id,
+      wasender_msg_id: destPollIds.wasender_msg_id,
+      wa_key_id: destPollIds.wa_key_id,
       phone: destPollPhone,
       type: 'destination',
       candidates: destPollCandidatesForTrip,
@@ -10301,7 +10387,7 @@ async function processClaimedConversation(batch) {
     const { pollOptions, pollCandidates: pollCandidatesForTrip } =
       buildAddressPollPayload(pollTopCandidates);
 
-    let pollMsgId = null;
+    let pollIds = null;
     try {
       const pollResult = await sendWhatsAppPoll(
         batch.phone,
@@ -10310,15 +10396,17 @@ async function processClaimedConversation(batch) {
           : '¿Cuál es tu dirección de retiro?',
         pollOptions
       );
-      pollMsgId = pollResult.msgId;
+      pollIds = buildStoredPollMessageIds(pollResult);
     } catch (err) {
       logWebhook('poll_send_error', { conversationId: batch?.id || null, error: err?.message });
     }
 
-    if (pollMsgId) {
+    if (pollIds?.msg_id) {
       logWebhook('conversation_address_poll_sent', {
         conversationId: batch?.id || null,
-        pollMsgId,
+        pollMsgId: pollIds.msg_id,
+        pollWasenderMsgId: pollIds.wasender_msg_id,
+        pollWaKeyId: pollIds.wa_key_id,
         optionCount: pollOptions.length,
         saltaCapitalOptionsCount: pollTopCandidates.length,
         filteredOutCount: distinctCandidates.length - addressPollCandidates.length,
@@ -10330,7 +10418,9 @@ async function processClaimedConversation(batch) {
       // para que la fuente de verdad sea la tabla trips.
       const pollWaContext = withScheduleWaContext({
         pending_poll: {
-          msg_id: pollMsgId,
+          msg_id: pollIds.msg_id,
+          wasender_msg_id: pollIds.wasender_msg_id,
+          wa_key_id: pollIds.wa_key_id,
           phone: batch.phone,
           type: 'pickup',
           candidates: pollCandidatesForTrip,
@@ -10888,22 +10978,17 @@ async function processWebhookBody(body, requestMeta = {}) {
       const pendingPoll = pollTripWaCtxResults?.pending_poll || safeJsonParse(pollConv?.context, {})?.pending_poll;
       const pollCandidates = pendingPoll?.candidates || [];
       const pollExtracted = pendingPoll?.extracted || {};
+      const votedName = voted.name || '';
+      const isPriceConfirmVote =
+        isTripPriceConfirmYesVote(votedName) || isTripPriceConfirmNoVote(votedName);
 
       // Encuesta de confirmación de precio (retiro + destino ya definidos)
-      const pricePollMsgMatches =
-        !pollTripWaCtxResults.poll_msg_id ||
-        pollTripWaCtxResults.poll_msg_id === pollMsgId;
-
       if (
         pollTripRow?.id
-        && pricePollMsgMatches
-        && (pollTripWaCtxResults.pending_price_confirm || pollTripWaCtxResults.price_inquiry)
-        && pollTripWaCtxResults.origin
-        && pollTripWaCtxResults.destination
-        && !pollCandidates.length
+        && isAwaitingTripPriceConfirmation(pollTripWaCtxResults, pollCandidates)
+        && isPriceConfirmVote
       ) {
         const pollPassengerPhone = normalizePhone(voterPhone);
-        const votedName = voted.name || '';
 
         if (isTripPriceConfirmYesVote(votedName)) {
           try {
