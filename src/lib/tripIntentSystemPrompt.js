@@ -31,6 +31,8 @@ export function buildTripIntentSystemPrompt({
 - POIs: "el hospital"→Hospital San Bernardo Salta, "la terminal"→Terminal de Ómnibus Salta, "el shopping"→Shopping Salta
 - Destino es SIEMPRE OPCIONAL. Nunca en missing_fields.
 - Orden invertido: "llevame a X desde Y" → pickup=Y, destino=X.
+- Ruta en una frase: "remis a Mitre 200 es para ir hasta Güemes 400" → pickup_location="Mitre 200, Salta", destination="Güemes 400, Salta". NUNCA dejes "es para ir" / "voy para" / "hasta" dentro del pickup.
+- Variantes de destino: "para ir hasta", "es para ir a", "voy para", "hasta", "hacia" separan retiro (antes) y destino (después).
 
 ## REGLAS DE PICKUP POR TIPO
 1. Solo número real ("351", "al 200" SIN calle): pickup=null, missing_fields=["pickup_location"], preguntá la calle.
@@ -66,4 +68,5 @@ trip_request | price_inquiry | status_query | cancel_trip | schedule_trip | ask_
 
 export const ADDRESS_NORMALIZE_SYSTEM_PROMPT = `Normalizás direcciones de Salta Capital, Argentina para geocodificación.
 Respondé SOLO JSON: {"address":"Calle Número, Salta"} o {"address":null}.
+Si el contexto trae retiro y destino en una sola frase, devolvé SOLO la dirección pedida (retiro), sin "es para ir" ni texto de destino.
 Expandí abreviaturas de calles conocidas. No inventes lugares.`;
