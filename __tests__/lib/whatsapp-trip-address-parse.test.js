@@ -2,6 +2,8 @@ const {
   extractFullTripByPattern,
   splitAddressFromIntentPhrase,
   stripTrailingTripRouteTail,
+  collapseEquivalentPollCandidates,
+  getAddressPollIdentityKey,
 } = require('../../src/lib/whatsappTripAddressParse');
 
 describe('whatsappTripAddressParse', () => {
@@ -27,5 +29,47 @@ describe('whatsappTripAddressParse', () => {
   it('limpia restos de frase de ruta en el pickup', () => {
     expect(stripTrailingTripRouteTail('Mitre 200 es para ir')).toBe('Mitre 200');
     expect(stripTrailingTripRouteTail('Belgrano 300 voy para')).toBe('Belgrano 300');
+  });
+
+  it('colapsa candidatos de poll equivalentes (Mitre 200 duplicado)', () => {
+    const candidates = [
+      {
+        formattedAddress: 'Calle Gral Bartolomé Mitre 200, Salta, Argentina',
+        pollLabel: 'Calle Gral Bartolomé Mitre 200',
+        score: 0.9,
+      },
+      {
+        formattedAddress: 'Gral Bartolomé Mitre 200, Salta, Argentina',
+        pollLabel: 'Gral Bartolomé Mitre 200',
+        score: 0.85,
+      },
+    ];
+
+    const collapsed = collapseEquivalentPollCandidates(candidates);
+
+    expect(collapsed).toHaveLength(1);
+    expect(collapsed[0].pollLabel).toBe('Calle Gral Bartolomé Mitre 200');
+    expect(getAddressPollIdentityKey(candidates[0])).toBe(getAddressPollIdentityKey(candidates[1]));
+  });
+
+  it('conserva calles homónimas distintas (Güemes)', () => {
+    const candidates = [
+      {
+        formattedAddress: 'Gral Martin Güemes 400, Salta, Argentina',
+        pollLabel: 'Gral Martin Güemes 400',
+        score: 0.9,
+        street: { nameKey: 'gral-martin-guemes' },
+      },
+      {
+        formattedAddress: 'Dr Adolfo Güemes 400, Salta, Argentina',
+        pollLabel: 'Dr Adolfo Güemes 400',
+        score: 0.88,
+        street: { nameKey: 'dr-adolfo-guemes' },
+      },
+    ];
+
+    const collapsed = collapseEquivalentPollCandidates(candidates);
+
+    expect(collapsed).toHaveLength(2);
   });
 });

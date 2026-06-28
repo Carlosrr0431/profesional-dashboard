@@ -67,9 +67,48 @@ function extractFullTripByPattern(text) {
   return null;
 }
 
+function normalizePollStreetKey(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\b(gral|general|calle|av(?:enida)?|avda|dr|doctor|prof|profesor|boulevard|bv|bvd)\b/g, ' ')
+    .replace(/\bbartolome\b/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getAddressPollIdentityKey(candidate) {
+  const raw = candidate?.pollLabel || candidate?.title || candidate?.formattedAddress || '';
+  const normalized = normalizePollStreetKey(raw);
+  const numMatch = normalized.match(/\b(\d{1,5})\b/);
+  const number = numMatch ? numMatch[1] : '';
+  const street = normalized.replace(/\b\d{1,5}\b/g, ' ').replace(/\s+/g, ' ').trim();
+  if (candidate?.street?.nameKey) {
+    return `${candidate.street.nameKey}|${number}`;
+  }
+  return `${street}|${number}`;
+}
+
+function collapseEquivalentPollCandidates(candidates) {
+  const seen = new Map();
+  for (const candidate of candidates || []) {
+    const key = getAddressPollIdentityKey(candidate);
+    if (!key || key === '|') continue;
+    const prev = seen.get(key);
+    if (!prev || Number(candidate?.score || 0) > Number(prev?.score || 0)) {
+      seen.set(key, candidate);
+    }
+  }
+  return [...seen.values()].sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
+}
+
 module.exports = {
   TRIP_DESTINATION_STOP_PATTERN,
   stripTrailingTripRouteTail,
   splitAddressFromIntentPhrase,
   extractFullTripByPattern,
+  collapseEquivalentPollCandidates,
+  getAddressPollIdentityKey,
 };
