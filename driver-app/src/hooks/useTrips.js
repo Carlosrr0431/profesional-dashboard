@@ -6,7 +6,7 @@ import { useTripStore } from '../stores/tripStore';
 import { TRIP_STATUS, PAGINATION_LIMIT, TRIP_ACCEPT_TIMEOUT } from '../utils/constants';
 import Toast from 'react-native-toast-message';
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
-import { notifyTripAcceptedTransition } from '../services/tripTransition';
+import { notifyTripAcceptedTransition, notifyPassengerTripAccepted } from '../services/tripTransition';
 import {
   rejectTripViaDashboard,
   rejectTripViaRpc,
@@ -356,9 +356,19 @@ export const useTrips = () => {
         text2: 'Dirígete al punto de recogida',
       });
 
+      // Push directo al pasajero (rápido, sin overhead de Agente_IA)
+      notifyPassengerTripAccepted(data.id).then((pushResult) => {
+        if (!pushResult.ok) {
+          console.warn('[acceptTrip] Push pasajero falló:', pushResult.reason, '| tripId:', data.id);
+        } else {
+          console.log('[acceptTrip] Push pasajero enviado:', pushResult.pushStatus, '| tripId:', data.id);
+        }
+      });
+
+      // Agente_IA como respaldo (WhatsApp + transiciones de ciclo de vida)
       notifyTripAcceptedTransition(data.id).catch((notifyError) => {
         console.warn(
-          'No se pudo disparar la confirmacion inmediata por WhatsApp:',
+          '[acceptTrip] Agente_IA transition falló (no crítico):',
           notifyError?.message || notifyError
         );
       });

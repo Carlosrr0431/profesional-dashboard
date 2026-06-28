@@ -1750,13 +1750,18 @@ const ActiveTripScreen = () => {
   }, [isNearDestination, isRerouting]);
 
   const canArriveAtWaypoint = flowStep === FLOW_STEP.IN_PROGRESS
+    && activeTrip?.status === TRIP_STATUS.IN_PROGRESS
     && hasPlannedMultiStopRoute
     && !allPlannedWaypointsVisited
     && activeNavTarget?.kind === 'waypoint'
     && Number.isFinite(distanceToActiveNavTarget)
     && distanceToActiveNavTarget <= FINISH_TRIP_MAX_DISTANCE_METERS;
 
+  // Requiere que tanto el flowStep local como el status en BD sean in_progress,
+  // evitando que el botón parpadee mientras el flowStep se actualiza optimistamente
+  // antes de que Supabase confirme la transición de estado.
   const canFinishTripNearby = flowStep === FLOW_STEP.IN_PROGRESS
+    && activeTrip?.status === TRIP_STATUS.IN_PROGRESS
     && hasActiveTripDestination
     && isNavigatingToFinalDestination
     && (isFreeRideActive || isNearFinalDestination);

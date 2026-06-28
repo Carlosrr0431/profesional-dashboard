@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { radius, shadow, spacing } from '../../theme/layout';
 import AddressSearchInput from '../ui/AddressSearchInput';
+import PickupCoverageBanner from '../ui/PickupCoverageBanner';
 
 const ACTIVE_FIELD = {
   pickup: 'pickup',
@@ -169,6 +170,7 @@ function TripRouteInputs({
   pickup,
   paradas = [],
   pickupLoading,
+  pickupCoverageWarning = false,
   compactLayout = false,
   canAddParada = true,
   onPickupSelect,
@@ -217,6 +219,7 @@ function TripRouteInputs({
         onFocusChange={onPickupFocus}
         onSuggestionsChange={onPickupSuggestionsChange}
       />
+      <PickupCoverageBanner visible={pickupCoverageWarning} />
 
       {intermediateParadas.map((parada, index) => (
         <ParadaRow

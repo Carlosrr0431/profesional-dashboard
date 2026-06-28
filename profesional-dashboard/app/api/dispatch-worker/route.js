@@ -1236,7 +1236,9 @@ async function processDispatchClaim(claim) {
       attemptNo > MAX_DISPATCH_ATTEMPTS || dispatchAttempts > MAX_DISPATCH_ATTEMPTS;
 
     if (exceededMaxAttempts) {
-      const { error: cancelErr } = await supabase
+      // Guardar solo si el viaje aún está en estado 'queued'; si el conductor ya lo aceptó
+      // entre la lectura y este punto (.eq status check), no cancelar ni notificar al pasajero.
+      const { data: cancelledTrip, error: cancelErr } = await supabase
         .from('trips')
         .update({
           status: 'cancelled',
@@ -1244,7 +1246,10 @@ async function processDispatchClaim(claim) {
           dispatch_status: 'dead_letter',
           status_updated_at: new Date().toISOString(),
         })
-        .eq('id', tripId);
+        .eq('id', tripId)
+        .eq('status', 'queued')
+        .select('id')
+        .maybeSingle();
       if (cancelErr) {
         logWorker('claim_max_attempts_cancel_error', { tripId, error: summarizeDbError(cancelErr) });
       }
@@ -1261,8 +1266,10 @@ async function processDispatchClaim(claim) {
         effectiveAttemptNo,
         queueAgeSeconds,
         maxAttempts: MAX_DISPATCH_ATTEMPTS,
+        cancelled: Boolean(cancelledTrip?.id),
       });
-      if (!cancelErr && trip.passenger_phone) {
+      // Solo notificar al pasajero si el cancel fue efectivo (el viaje aún estaba en queued)
+      if (!cancelErr && cancelledTrip?.id && trip.passenger_phone) {
         await sendWhatsAppText(
           trip.passenger_phone,
           '😔 Lamentablemente no encontramos un chofer disponible para tu viaje en este momento. Podés intentarlo de nuevo en unos minutos.'
@@ -1396,6 +1403,38 @@ async function processDispatchClaim(claim) {
     }
 
     const selectedDriver = driverSelection.driver;
+
+    // Re-verificación justo antes de asignar: dos instancias Vercel pueden seleccionar el
+    // mismo conductor para viajes distintos si ambas leen "is_available=true" antes de que
+    // cualquiera haga commit. Este check reduce drásticamente esa ventana de race condition.
+    {
+      const { data: driverBusy, error: driverBusyErr } = await supabase
+        .from('trips')
+        .select('id')
+        .eq('driver_id', selectedDriver.id)
+        .in('status', DRIVER_BUSY_TRIP_STATUSES)
+        .limit(1)
+        .maybeSingle();
+
+      if (driverBusyErr) throw driverBusyErr;
+
+      if (driverBusy) {
+        await releaseDispatchClaim({
+          tripId,
+          lockToken,
+          result: 'retry',
+          retrySeconds: DISPATCH_RETRY_SECONDS,
+          errorCode: 'driver_became_busy',
+        });
+        logWorkerVerbose('claim_driver_became_busy_retry', {
+          tripId,
+          attemptNo,
+          driverId: selectedDriver.id,
+        });
+        return { status: 'no_driver_available' };
+      }
+    }
+
     const assignedAt = new Date().toISOString();
 
     const tripIsPassengerApp = isPassengerAppTrip(trip);

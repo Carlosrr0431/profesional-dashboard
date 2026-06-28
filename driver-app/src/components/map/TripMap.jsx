@@ -354,7 +354,8 @@ const FOLLOW_ZOOM_TIERS = [
   { minKmh: 65, zoom: 17.2 },
   { minKmh: 40, zoom: 17.6 },
   { minKmh: 20, zoom: 17.9 },
-  { minKmh: 0,  zoom: MAP_MAX_ZOOM },
+  // MAP_MAX_ZOOM (18) causaba mapa en blanco al llegar al punto de retiro (0 km/h)
+  { minKmh: 0,  zoom: 17.4 },
 ];
 
 const FREE_RIDE_ZOOM_TIERS = [
@@ -706,7 +707,8 @@ export const TripMap = React.memo(({
 
     let zoom = getZoomForSpeed(speedKmh, threeDEnabled);
     if (Number.isFinite(remainingDistanceMeters) && remainingDistanceMeters < 250) {
-      zoom = Math.max(zoom, threeDEnabled ? MAP_MAX_ZOOM : 17.8);
+      // 17.4 en 3D para no exceder el techo de FOLLOW_ZOOM_TIERS al llegar al destino
+      zoom = Math.max(zoom, threeDEnabled ? 17.4 : 17.8);
     }
     if (lastZoomTierRef.current !== null && Math.abs(lastZoomTierRef.current - zoom) < 0.15) {
       zoom = lastZoomTierRef.current;

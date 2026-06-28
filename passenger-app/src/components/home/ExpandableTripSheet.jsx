@@ -8,7 +8,6 @@ import {
   Keyboard,
   Platform,
   ActivityIndicator,
-  Alert,
   useWindowDimensions,
   PixelRatio,
   Dimensions,
@@ -37,10 +36,12 @@ import { useAuthStore } from '../../stores/authStore';
 import { useLocation } from '../../hooks/useLocation';
 import { useTrip } from '../../hooks/useTrip';
 import { useTripStore } from '../../stores/tripStore';
+import { useServiceZoneCoverage } from '../../hooks/useServiceZoneCoverage';
 import { reverseGeocode, resolvePlaceFromSuggestion } from '../../services/googleMaps';
 import { estimatePassengerTripFare } from '../../services/tripPricing';
 import { loadFrequentPlaces, addRecentPlace } from '../../services/recentPlaces';
 import { formatArs } from '../../utils/formatMoney';
+import PickupCoverageBanner from '../ui/PickupCoverageBanner';
 import TripRouteInputs, {
   ACTIVE_FIELD,
   MAX_PARADAS,
@@ -99,10 +100,10 @@ function computeReviewSheetMetrics({
   const innerPadV = spacing.sm * 2;
   const sectionGap = spacing.sm;
   const handleH = scale(22);
-  const stopRowH = scale(26);
+  const stopRowH = scale(48);
   const routeCardPadV = scale(16);
   const editRowH = scale(34);
-  const routeRowGap = scale(6);
+  const routeRowGap = scale(8);
   const totalRows = 1 + Math.max(0, stopCount);
   const routeCardH =
     routeCardPadV
@@ -122,9 +123,9 @@ function computeReviewSheetMetrics({
     };
   }
 
-  const routeCardBudget = Math.max(scale(96), maxSheetH - fixedChrome);
+  const routeCardBudget = Math.max(scale(120), maxSheetH - fixedChrome);
   const routeStopsMaxHeight = Math.max(
-    scale(48),
+    scale(96),
     routeCardBudget - editRowH - routeCardPadV
   );
 
@@ -138,7 +139,7 @@ function computeReviewSheetMetrics({
 function buildReviewUiScale(fontScale) {
   const scale = (base) => scaleByFont(base, fontScale);
   return {
-    stopMinHeight: scale(24),
+    stopMinHeight: scale(48),
     editRowMinHeight: scale(30),
     routeTextSize: scale(13),
     editHintSize: scale(12),
@@ -198,13 +199,6 @@ function computeSheetMetrics({
   const fareH = scaleByFont(120, fontScale);
   const footerH = scaleByFont(140, fontScale);
 
-  const searchContentH =
-    chromeH
-    + routeH
-    + (listItemCount > 0 ? 28 : 0)
-    + Math.max(listItemCount, suggestionsLoading ? 1 : 0) * listRowH
-    + spacing.lg;
-
   const confirmationContentH =
     chromeH + routeH + fareH + footerH + spacing.xl * 3 + spacing.lg;
 
@@ -215,12 +209,6 @@ function computeSheetMetrics({
     Math.max(confirmationContentH, Math.round(maxSheetHeight * SHEET_RATIOS.confirmationMin)),
     Math.round(maxSheetHeight * SHEET_RATIOS.absoluteMin),
     maxSheetHeight
-  );
-
-  const searchResultsMaxHeight = clamp(
-    searchContentH,
-    Math.round(maxSheetHeight * SHEET_RATIOS.searchMin),
-    searchSheetMaxH
   );
 
   let expandedSheetHeight;
@@ -234,37 +222,15 @@ function computeSheetMetrics({
       minHeight: Math.min(confirmationContentH, maxSheetHeight),
     };
   } else if (activeSearchMode) {
-    const listRowsForLayout = keyboardSearchMode
-      ? Math.min(listItemCount, 4)
-      : listItemCount;
-    const activeSearchContentH =
-      chromeH
-      + routeH
-      + (listRowsForLayout > 0 ? 28 : 0)
-      + Math.max(listRowsForLayout, suggestionsLoading ? 1 : 0) * listRowH
-      + spacing.md;
-
-    if (keyboardSearchMode) {
-      expandedSheetHeight = clamp(
-        activeSearchContentH,
-        scaleByFont(200, fontScale),
-        maxHeightAboveKeyboard
-      );
-      expandedSheetSizeStyle = {
-        height: expandedSheetHeight,
-        maxHeight: maxHeightAboveKeyboard,
-      };
-    } else {
-      expandedSheetHeight = clamp(
-        activeSearchContentH,
-        Math.round(maxSheetHeight * SHEET_RATIOS.searchMin),
-        searchSheetMaxH
-      );
-      expandedSheetSizeStyle = {
-        height: expandedSheetHeight,
-        maxHeight: maxSheetHeight,
-      };
-    }
+    // Altura fija mientras se busca: el scroll va dentro del listado, no redimensiona el sheet.
+    const fixedSearchH = searchSheetMaxH;
+    expandedSheetHeight = keyboardSearchMode
+      ? Math.min(fixedSearchH, maxHeightAboveKeyboard)
+      : fixedSearchH;
+    expandedSheetSizeStyle = {
+      height: expandedSheetHeight,
+      maxHeight: keyboardSearchMode ? maxHeightAboveKeyboard : maxSheetHeight,
+    };
   } else {
     const footerBrowseH = scaleByFont(72, fontScale);
     const browseContentH =
@@ -327,8 +293,14 @@ export default function ExpandableTripSheet({
   const dragY = useSharedValue(0);
   const scrollY = useSharedValue(0);
   const dismissAnchorSv = useSharedValue(400);
+  const isSearchingSv = useSharedValue(0);
   const [expanded, setExpanded] = useState(false);
   const [pickup, setPickup] = useState(null);
+  const {
+    pickupOutsideCoverage,
+    validatePickupForTrip,
+    notifyPickupOutsideCoverage,
+  } = useServiceZoneCoverage(pickup);
   const [paradas, setParadas] = useState([]);
   const [pickupLoading, setPickupLoading] = useState(false);
   const [recentPlaces, setRecentPlaces] = useState([]);
@@ -425,6 +397,9 @@ export default function ExpandableTripSheet({
 
   const activeSearchMode =
     keyboardSearchMode || showSuggestions || suggestionsLoading;
+
+  // Shared value para el gesto de pan (worklet, no puede leer JS state).
+  isSearchingSv.value = activeSearchMode ? 1 : 0;
 
   const layout = useMemo(
     () => computeSheetMetrics({
@@ -792,12 +767,18 @@ export default function ExpandableTripSheet({
     .activeOffsetY(10)
     .failOffsetX([-28, 28])
     .onUpdate((event) => {
+      // Bloquear dismiss mientras hay búsqueda activa de POIs o el listado tiene scroll.
+      if (isSearchingSv.value === 1) return;
       if (scrollY.value > 2) return;
       if (event.translationY > 0) {
         dragY.value = event.translationY;
       }
     })
     .onEnd((event) => {
+      if (isSearchingSv.value === 1) {
+        dragY.value = withSpring(0, { damping: 24, stiffness: 300, mass: 0.85 });
+        return;
+      }
       const shouldMinimize =
         dragY.value > DISMISS_DRAG_PX || event.velocityY > DISMISS_VELOCITY;
       if (shouldMinimize) {
@@ -966,6 +947,12 @@ export default function ExpandableTripSheet({
   );
 
   const submitTrip = useCallback(async () => {
+    const coverage = validatePickupForTrip(pickup?.lat, pickup?.lng);
+    if (!coverage.allowed) {
+      notifyPickupOutsideCoverage();
+      return;
+    }
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     Keyboard.dismiss();
 
@@ -1012,7 +999,7 @@ export default function ExpandableTripSheet({
         text2: result.error || 'Intentá de nuevo.',
       });
     }
-  }, [pickup, finalParada, intermediateWaypoints, profile, fareEstimate, requestTrip, finishSheetMotion, onTripCreated]);
+  }, [pickup, finalParada, intermediateWaypoints, profile, fareEstimate, requestTrip, finishSheetMotion, onTripCreated, validatePickupForTrip, notifyPickupOutsideCoverage]);
 
   const handleConfirm = useCallback(() => {
     if (!pickup?.address || !Number.isFinite(pickup?.lat)) {
@@ -1021,6 +1008,11 @@ export default function ExpandableTripSheet({
         text1: 'Definí dónde te buscamos',
         text2: 'Elegí una dirección de recogida del listado.',
       });
+      return;
+    }
+
+    if (pickupOutsideCoverage) {
+      notifyPickupOutsideCoverage();
       return;
     }
 
@@ -1035,23 +1027,8 @@ export default function ExpandableTripSheet({
 
     if (isCreating) return;
 
-    const paradasLine = `\n\nParadas:\n${paradas.map((parada, index) => `${index + 1}. ${parada.address}`).join('\n')}`;
-    const priceLine =
-      fareEstimate?.price != null ? `\n\nPrecio del viaje: ${formatArs(fareEstimate.price)}` : '';
-    const metaLine =
-      fareEstimate?.distanceText || fareEstimate?.durationText
-        ? `\n${[fareEstimate.distanceText, fareEstimate.durationText].filter(Boolean).join(' · ')}`
-        : '';
-
-    Alert.alert(
-      '¿Confirmás el viaje?',
-      `Te buscamos en:\n${pickup.address}${paradasLine}${priceLine}${metaLine}`,
-      [
-        { text: 'Volver', style: 'cancel' },
-        { text: 'Sí, solicitar viaje', onPress: submitTrip },
-      ]
-    );
-  }, [pickup, paradas, finalParada, paradasAreComplete, fareEstimate, isCreating, submitTrip]);
+    submitTrip();
+  }, [pickup, paradas, finalParada, paradasAreComplete, isCreating, submitTrip, pickupOutsideCoverage, notifyPickupOutsideCoverage]);
 
   const sheetDragStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: Math.max(0, dragY.value) }],
@@ -1095,6 +1072,7 @@ export default function ExpandableTripSheet({
     !!pickup?.address
     && Number.isFinite(pickup?.lat)
     && paradasAreComplete
+    && !pickupOutsideCoverage
     && !isCreating;
 
   const handlePickupSuggestionsChange = useCallback((items, meta) => {
@@ -1301,7 +1279,7 @@ export default function ExpandableTripSheet({
   const compactSearchLayout = activeSearchMode;
   const showFrequentLabel =
     !activeSearchMode && recentPlaces.length > 0 && (paradas.length === 0 || isEditingRoute);
-  const showBrowseFooter = sheetIsOpen && !keyboardSearchMode;
+  const showBrowseFooter = sheetIsOpen && !activeSearchMode;
 
   useEffect(() => {
     const collapsedSheetH = activeTripMode
@@ -1335,6 +1313,7 @@ export default function ExpandableTripSheet({
         pickup={pickup}
         paradas={paradas}
         pickupLoading={pickupLoading}
+        pickupCoverageWarning={pickupOutsideCoverage}
         compactLayout={compactSearchLayout}
         canAddParada={paradas.length < MAX_PARADAS}
         onPickupSelect={setPickup}
@@ -1379,7 +1358,7 @@ export default function ExpandableTripSheet({
           </Text>
           <Text
             style={[styles.reviewRouteStopText, { fontSize: reviewUi.routeTextSize }]}
-            numberOfLines={needsRouteScroll ? 2 : 1}
+            numberOfLines={2}
             maxFontSizeMultiplier={1.2}
           >
             {pickup?.address?.split(',')[0] || 'Punto de retiro'}
@@ -1416,7 +1395,7 @@ export default function ExpandableTripSheet({
             </Text>
             <Text
               style={[styles.reviewRouteStopText, { fontSize: reviewUi.routeTextSize }]}
-              numberOfLines={needsRouteScroll ? 2 : 1}
+              numberOfLines={2}
               maxFontSizeMultiplier={1.2}
             >
               {parada?.address?.split(',')[0] || stopLabel}
@@ -1512,6 +1491,8 @@ export default function ExpandableTripSheet({
           ) : null}
         </View>
       )}
+
+      <PickupCoverageBanner visible={pickupOutsideCoverage} />
 
       <Pressable
         onPress={handleConfirm}
@@ -1720,7 +1701,7 @@ export default function ExpandableTripSheet({
                     showBrowseFooter && styles.resultsListContentWithFooter,
                   ]}
                   keyboardShouldPersistTaps="always"
-                  keyboardDismissMode="on-drag"
+                  keyboardDismissMode={activeSearchMode ? 'none' : 'on-drag'}
                   showsVerticalScrollIndicator
                   nestedScrollEnabled
                   onScroll={scrollHandler}
@@ -1851,7 +1832,7 @@ const styles = StyleSheet.create({
   },
   reviewSheet: {
     flexGrow: 1,
-    flexShrink: 1,
+    flexShrink: 0,
     minHeight: 0,
     justifyContent: 'flex-start',
     gap: spacing.sm,
@@ -1861,6 +1842,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xs,
   },
   reviewRouteCard: {
+    flexShrink: 0,
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -1868,7 +1850,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.xs,
     paddingHorizontal: spacing.md,
-    gap: 6,
+    gap: spacing.sm,
   },
   reviewRouteCardPressed: {
     backgroundColor: colors.accentSoft,
@@ -1884,15 +1866,16 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   reviewRouteScrollContent: {
-    gap: 6,
+    gap: spacing.sm,
   },
   reviewRouteStop: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: spacing.sm,
   },
   reviewRouteDot: {
     flexShrink: 0,
+    marginTop: 14,
   },
   reviewRouteDotPickup: {
     backgroundColor: colors.accentLight,
@@ -1906,19 +1889,21 @@ const styles = StyleSheet.create({
   },
   reviewRouteStopTextCol: {
     flex: 1,
-    gap: 1,
+    minWidth: 0,
+    gap: 2,
   },
   reviewRouteStopLabel: {
     fontFamily: 'Inter_700Bold',
     color: colors.textMuted,
     letterSpacing: 0.3,
     textTransform: 'uppercase',
+    lineHeight: 16,
   },
   reviewRouteStopText: {
-    flex: 1,
     fontSize: 13,
     fontFamily: 'Inter_600SemiBold',
     color: colors.text,
+    lineHeight: 18,
   },
   reviewRouteEditRow: {
     flexShrink: 0,

@@ -1,6 +1,8 @@
 import { useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { createTripViaApi, cancelTripViaApi, fetchTripViaTracking } from '../services/tripService';
+import { isPickupCoveredByServiceZones } from '../services/serviceZones';
+import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../../../shared/geo/serviceZones';
 import { useTripStore } from '../stores/tripStore';
 import { getPassengerPhoneVariants } from '../utils/phone';
 
@@ -38,6 +40,13 @@ export const useTrip = () => {
   }) => {
     setCreating(true);
     try {
+      if (Number.isFinite(pickupLat) && Number.isFinite(pickupLng)) {
+        const covered = await isPickupCoveredByServiceZones(pickupLat, pickupLng);
+        if (!covered) {
+          return { ok: false, error: PICKUP_OUTSIDE_COVERAGE_MESSAGE };
+        }
+      }
+
       const trip = await createTripViaApi({
         pickupAddress,
         pickupLat,

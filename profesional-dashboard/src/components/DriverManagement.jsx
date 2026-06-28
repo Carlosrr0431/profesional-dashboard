@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useDriverManagement } from '../hooks/useDriverManagement';
 import DriverFormModal from './DriverFormModal';
 import DriverDetailPanel from './DriverDetailPanel';
+import CommissionPaymentsReport from './CommissionPaymentsReport';
 import { formatPrice, timeAgo } from '../lib/utils';
 import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
@@ -19,6 +20,7 @@ export default function DriverManagement({ onBack }) {
   const [error, setError] = useState('');
   const [confirmDriver, setConfirmDriver] = useState(null);
   const [confirmingPayment, setConfirmingPayment] = useState(false);
+  const [mainView, setMainView] = useState('drivers');
 
   useEffect(() => {
     if (!detailDriver) return;
@@ -93,6 +95,13 @@ export default function DriverManagement({ onBack }) {
     setShowForm(true);
   };
 
+  const handleMainViewChange = (view) => {
+    setMainView(view);
+    if (view === 'payments') {
+      setDetailDriver(null);
+    }
+  };
+
   const handleMarkCommissionPaid = async (driver) => {
     setConfirmDriver(driver);
   };
@@ -125,8 +134,8 @@ export default function DriverManagement({ onBack }) {
 
   return (
     <div className="h-full min-h-0 flex overflow-hidden bg-light-100">
-      {/* Main content */}
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      {/* Main content — ancho completo en vista global de pagos */}
+      <div className={`min-h-0 flex flex-col overflow-hidden ${mainView === 'payments' ? 'flex-1 w-full' : 'flex-1'}`}>
         {/* Header */}
         <div className="bg-light-50 border-b border-light-300/50 px-6 py-4">
           <div className="flex items-center justify-between mb-4">
@@ -148,6 +157,28 @@ export default function DriverManagement({ onBack }) {
             </button>
           </div>
 
+          <div className="flex gap-1 bg-light-300/60 rounded-xl p-1 mb-4 w-fit">
+            {[
+              { key: 'drivers', label: 'Choferes' },
+              { key: 'payments', label: 'Pagos de comisión' },
+            ].map((view) => (
+              <button
+                key={view.key}
+                type="button"
+                onClick={() => handleMainViewChange(view.key)}
+                className={`px-4 py-2 text-xs font-medium rounded-lg transition-all ${
+                  mainView === view.key
+                    ? 'bg-navy-900 text-white shadow-md'
+                    : 'text-gray-400 hover:text-navy-900'
+                }`}
+              >
+                {view.label}
+              </button>
+            ))}
+          </div>
+
+          {mainView === 'drivers' ? (
+          <>
           {/* Search + Filters */}
           <div className="flex gap-3">
             <div className="relative flex-1">
@@ -182,9 +213,21 @@ export default function DriverManagement({ onBack }) {
               ))}
             </div>
           </div>
+          </>
+          ) : null}
         </div>
 
-        {/* Table */}
+        {mainView === 'payments' ? (
+          <CommissionPaymentsReport
+            onSelectDriver={(driverId) => {
+              const driver = fleetDrivers.find((d) => d.id === driverId);
+              if (driver) {
+                setMainView('drivers');
+                setDetailDriver(driver);
+              }
+            }}
+          />
+        ) : (
         <div className="flex-1 overflow-auto p-6">
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-gray-400">
@@ -224,10 +267,11 @@ export default function DriverManagement({ onBack }) {
             </div>
           )}
         </div>
+        )}
       </div>
 
-      {/* Detail panel */}
-      {detailDriver && (
+      {/* Detail panel — oculto en vista global de pagos */}
+      {detailDriver && mainView === 'drivers' && (
         <DriverDetailPanel
           driver={detailDriver}
           onClose={() => setDetailDriver(null)}

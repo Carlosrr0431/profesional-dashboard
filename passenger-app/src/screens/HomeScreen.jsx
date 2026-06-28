@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import MapLibreGL from '../lib/maplibre';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -31,6 +31,7 @@ import { TripCompletedOverlay } from '../components/trip/TripCompletedOverlay';
 import { createMapCameraController } from '../utils/mapCamera';
 
 const SALTA_DELTA = { latitudeDelta: 0.04, longitudeDelta: 0.04 };
+const USER_LOCATION_DELTA = { latitudeDelta: 0.012, longitudeDelta: 0.012 };
 const SALTA_CENTER = { latitude: -24.7829, longitude: -65.4122 };
 
 const LIVE_TRIP_STATUSES = new Set([
@@ -76,6 +77,9 @@ export default function HomeScreen() {
     paradas: [],
   });
   const routeMapUserGestureRef = useRef(false);
+  const userCenteredRef = useRef(false);
+  const prevRoutePreviewActiveRef = useRef(false);
+  const [mapReady, setMapReady] = useState(false);
 
   const tripLive = usePassengerActiveTrip({
     mapRef,
@@ -145,7 +149,8 @@ export default function HomeScreen() {
       }
     }
     if (!location) return;
-    mapRef.current.animateToRegion({ ...location, ...SALTA_DELTA }, 400);
+    userCenteredRef.current = true;
+    mapRef.current.animateToRegion({ ...location, ...USER_LOCATION_DELTA }, 400);
   }, [location, mapPadding, routePreview]);
 
   useEffect(() => {
@@ -153,12 +158,48 @@ export default function HomeScreen() {
     setRoutePreview({ active: false, pickup: null, paradas: [] });
   }, [hasLiveTripMap, routePreview.active]);
 
+  const centerMapOnUser = useCallback((animated = true) => {
+    if (!mapReady || !mapRef.current || !location || locationLoading) return false;
+    mapRef.current.animateToRegion(
+      { ...location, ...USER_LOCATION_DELTA },
+      animated ? 600 : 0,
+    );
+    userCenteredRef.current = true;
+    return true;
+  }, [location, locationLoading, mapReady]);
+
+  // Cuando la ruta previa se cierra (active: true → false), resetear para que la
+  // cámara vuelva automáticamente a la ubicación del usuario.
   useEffect(() => {
-    if (routePreview.active || hasLiveTripMap) return;
-    if (location && !locationLoading && mapRef.current) {
-      mapRef.current.animateToRegion({ ...location, ...SALTA_DELTA }, 600);
+    const wasActive = prevRoutePreviewActiveRef.current;
+    prevRoutePreviewActiveRef.current = routePreview.active;
+    if (wasActive && !routePreview.active) {
+      userCenteredRef.current = false;
     }
-  }, [locationLoading, routePreview.active, hasLiveTripMap, location]);
+  }, [routePreview.active]);
+
+  useEffect(() => {
+    if (!mapReady || routePreview.active || hasLiveTripMap || locationLoading) return;
+    if (!location || userCenteredRef.current) return;
+    centerMapOnUser(true);
+  }, [
+    mapReady,
+    locationLoading,
+    routePreview.active,
+    hasLiveTripMap,
+    location?.latitude,
+    location?.longitude,
+    centerMapOnUser,
+  ]);
+
+  // Re-centrar al volver a esta pantalla desde otra (History, Profile, etc.).
+  useFocusEffect(
+    useCallback(() => {
+      if (!mapReady || routePreview.active || hasLiveTripMap) return;
+      userCenteredRef.current = false;
+      centerMapOnUser(true);
+    }, [mapReady, routePreview.active, hasLiveTripMap, centerMapOnUser]),
+  );
 
   const handleSheetLayout = useCallback((bottomOffset) => {
     setLocateBtnBottom(bottomOffset + 16);
@@ -250,6 +291,7 @@ export default function HomeScreen() {
       <MapLibreGL.MapView
         ref={mapViewRef}
         style={StyleSheet.absoluteFill}
+        mapPadding={mapPadding}
         compassEnabled={false}
         logoEnabled={false}
         attributionEnabled={false}
@@ -257,8 +299,10 @@ export default function HomeScreen() {
         pitchEnabled={false}
         zoomEnabled
         scrollEnabled
+        onDidFinishLoadingMap={() => setMapReady(true)}
         onTouchStart={() => {
           routeMapUserGestureRef.current = true;
+          userCenteredRef.current = true;
         }}
         pointerEvents={sheetExpanded ? 'none' : 'auto'}
       >

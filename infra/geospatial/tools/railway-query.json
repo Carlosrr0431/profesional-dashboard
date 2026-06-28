@@ -1,0 +1,1 @@
+﻿{"query":"query { deployments(input: { serviceId: \"12975822-953a-42e8-98b1-f7cfd44456f2\", environmentId: \"74f22066-1538-4548-a839-45b7b99ba631\" }, first: 5) { edges { node { id status createdAt } } } }"}

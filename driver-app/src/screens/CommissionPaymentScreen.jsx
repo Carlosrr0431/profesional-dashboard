@@ -17,8 +17,6 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import Toast from 'react-native-toast-message';
 import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
 import { colors } from '../theme/colors';
 import { formatPrice } from '../utils/formatters';
 import { createPaymentSession, getPaymentStatus } from '../services/paypertic';
@@ -31,45 +29,45 @@ import {
   resolvePayperticRejectionMessage,
 } from '../lib/payperticErrors';
 
-// URL prefix que usa el dashboard como return_url / back_url
-const RETURN_URL_PREFIX = 'https://profesional-dashboard.vercel.app/api/paypertic/return';
+const isPagoticTransferConfirmUrl = (url) =>
+  typeof url === 'string' && url.includes('checkout.paypertic.com') && url.includes('guest-transfer-confirm-pay');
 
-// JS inyectado en el WebView:
-// 1. Detecta la URL de retorno de Paypertic
-// 2. Detecta cuándo el contenido real ya está renderizado (SPA)
+// JS inyectado en el WebView: clipboard + detectar contenido renderizado (SPA).
 const INJECTED_JS = `
   (function() {
-    var handled = false;
-    var notifyIfReturnUrl = function() {
+    var copyNotifiedAt = 0;
+    var notifyClipboardCopy = function(text) {
       try {
-        var href = window.location.href || '';
-        if (handled) return;
-        if (href.indexOf('${RETURN_URL_PREFIX}') === 0) {
-          handled = true;
-          var search = href.indexOf('?') >= 0 ? href.slice(href.indexOf('?') + 1) : '';
-          var params = new URLSearchParams(search);
-          var status = params.get('status') || 'unknown';
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'paypertic_result', status: status }));
-        }
+        var now = Date.now();
+        if (now - copyNotifiedAt < 600) return;
+        copyNotifiedAt = now;
+        var value = (text || '').toString().trim();
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'clipboard_copied',
+          value: value.slice(0, 120)
+        }));
       } catch(e) {}
     };
 
-    var originalPush = history.pushState;
-    history.pushState = function() {
-      originalPush.apply(history, arguments);
-      notifyIfReturnUrl();
-    };
+    try {
+      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+        var originalWriteText = navigator.clipboard.writeText.bind(navigator.clipboard);
+        navigator.clipboard.writeText = function(value) {
+          notifyClipboardCopy(value);
+          return originalWriteText(value);
+        };
+      }
+    } catch(e) {}
 
-    var originalReplace = history.replaceState;
-    history.replaceState = function() {
-      originalReplace.apply(history, arguments);
-      notifyIfReturnUrl();
-    };
-
-    window.addEventListener('popstate', notifyIfReturnUrl);
-    window.addEventListener('hashchange', notifyIfReturnUrl);
-    document.addEventListener('DOMContentLoaded', notifyIfReturnUrl);
-    notifyIfReturnUrl();
+    document.addEventListener('copy', function() {
+      try {
+        var selected = '';
+        if (window.getSelection) {
+          selected = String(window.getSelection() || '').trim();
+        }
+        notifyClipboardCopy(selected);
+      } catch(e) {}
+    });
 
     // Detectar cuando el contenido real ya está renderizado.
     // Poll cada 80ms, máximo 3s de espera.
@@ -124,11 +122,71 @@ const extractReceiptUrl = (payment) => {
   return validUrl ? validUrl.trim() : null;
 };
 
-const formatPaymentDate = (value) => {
-  if (!value) return 'No disponible';
+const parsePayperticDate = (value) => {
+  if (!value) return null;
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'No disponible';
+  // Timestamp numérico (segundos o milisegundos)
+  if (typeof value === 'number') {
+    const ms = value < 1e11 ? value * 1000 : value;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  if (typeof value === 'string') {
+    const s = value.trim();
+    if (!s) return null;
+
+    // Normalizar offset sin dos puntos: +0300 → +03:00
+    const normalized = s.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+    const iso = new Date(normalized);
+    if (!Number.isNaN(iso.getTime())) return iso;
+
+    // Formato dd/MM/yyyy HH:mm:ss ó dd/MM/yyyy
+    const ddmm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+    if (ddmm) {
+      const [, dd, mm, yyyy, hh = '0', min = '0', ss = '0'] = ddmm;
+      const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(min), Number(ss));
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+
+    // Fallback genérico
+    const generic = new Date(s);
+    if (!Number.isNaN(generic.getTime())) return generic;
+  }
+
+  return null;
+};
+
+const getPaymentPaidAt = (payment, { useFallbackNow = false } = {}) => {
+  const value =
+    payment?.paid_date ||
+    payment?.accreditation_date ||
+    payment?.last_update_date ||
+    payment?.updated_at ||
+    payment?.process_date ||
+    payment?.created_at ||
+    null;
+  if (value) return value;
+  return useFallbackNow ? new Date().toISOString() : null;
+};
+
+const isPayperticApprovedPayment = (payment) => {
+  if (!payment || typeof payment !== 'object') return false;
+  const normalizedStatus = String(payment?.status || '').toLowerCase();
+  const approvedStatuses = new Set([
+    'approved',
+    'paid',
+    'accredited',
+    'completed',
+    'success',
+    'succeeded',
+  ]);
+  return approvedStatuses.has(normalizedStatus);
+};
+
+const formatPaymentDate = (value) => {
+  const date = parsePayperticDate(value);
+  if (!date) return 'No disponible';
 
   return date.toLocaleString('es-AR', {
     day: '2-digit',
@@ -258,7 +316,7 @@ const loadingCardStyles = StyleSheet.create({
 
 const generateReceiptHTML = (payment, balance) => {
   const amount = Number(payment?.final_amount) || balance;
-  const paidAt = payment?.paid_date || payment?.process_date;
+  const paidAt = getPaymentPaidAt(payment, { useFallbackNow: true });
   const providerPaymentId = payment?.id || 'No disponible';
   const paymentReference = payment?.external_transaction_id || 'No disponible';
   const dateStr = formatPaymentDate(paidAt);
@@ -636,6 +694,113 @@ const rejectedCardStyles = StyleSheet.create({
   },
 });
 
+const PaymentApprovedCard = React.memo(function PaymentApprovedCard({
+  payment,
+  fallbackAmount,
+  isLoadingDetails,
+  onGeneratePDF,
+  onShareReceipt,
+  onDownloadReceipt,
+  onGoBack,
+  isGeneratingPDF,
+  isSharingReceipt,
+  isDownloadingReceipt,
+}) {
+  const amount = Number(payment?.final_amount) || fallbackAmount;
+  const paidAt = getPaymentPaidAt(payment, { useFallbackNow: true });
+  const providerPaymentId = payment?.id || '—';
+  const paymentReference = payment?.external_transaction_id || '—';
+  const receiptUrl = extractReceiptUrl(payment);
+  const showPayperticReceipt = Boolean(receiptUrl);
+
+  return (
+    <View style={styles.resultCard}>
+      <View style={[styles.iconCircle, { backgroundColor: '#DCFCE7' }]}>
+        <MaterialCommunityIcons name="check-circle" size={48} color="#16A34A" />
+      </View>
+
+      <Text style={styles.resultTitle}>Pago acreditado</Text>
+      <Text style={styles.resultSubtitle}>
+        Tu comisión quedó registrada correctamente. Podés descargar el comprobante en PDF.
+      </Text>
+
+      <View style={[styles.receiptBox, { borderColor: '#BBF7D0' }]}>
+        <View style={styles.receiptRow}>
+          <Text style={styles.receiptLabel}>Monto</Text>
+          <Text style={styles.receiptValue}>{formatPrice(amount)}</Text>
+        </View>
+        <View style={styles.receiptRow}>
+          <Text style={styles.receiptLabel}>Fecha</Text>
+          <Text style={styles.receiptValue}>{formatPaymentDate(paidAt)}</Text>
+        </View>
+        <View style={styles.receiptRow}>
+          <Text style={styles.receiptLabel}>ID de pago</Text>
+          <Text style={styles.receiptValueSmall} numberOfLines={2}>{providerPaymentId}</Text>
+        </View>
+        <View style={styles.receiptRow}>
+          <Text style={styles.receiptLabel}>Referencia</Text>
+          <Text style={styles.receiptValueSmall} numberOfLines={2}>{paymentReference}</Text>
+        </View>
+      </View>
+
+      {isLoadingDetails ? (
+        <View style={styles.infoInline}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.infoInlineText}>Actualizando comprobante...</Text>
+        </View>
+      ) : null}
+
+      <Pressable
+        onPress={onGeneratePDF}
+        style={({ pressed }) => [styles.pdfButton, pressed && { opacity: 0.9 }]}
+        disabled={isGeneratingPDF}
+      >
+        {isGeneratingPDF ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <>
+            <MaterialCommunityIcons name="file-pdf-box" size={22} color="#FFFFFF" style={{ marginRight: 8 }} />
+            <Text style={styles.actionButtonText}>Descargar comprobante PDF</Text>
+          </>
+        )}
+      </Pressable>
+
+      {showPayperticReceipt ? (
+        <Pressable
+          onPress={onDownloadReceipt}
+          style={({ pressed }) => [styles.secondaryActionButton, pressed && { opacity: 0.9 }]}
+          disabled={isDownloadingReceipt}
+        >
+          {isDownloadingReceipt ? (
+            <ActivityIndicator color={colors.text} />
+          ) : (
+            <Text style={styles.secondaryActionButtonText}>Ver comprobante Paypertic</Text>
+          )}
+        </Pressable>
+      ) : null}
+
+      <Pressable
+        onPress={onShareReceipt}
+        style={({ pressed }) => [styles.secondaryActionButton, pressed && { opacity: 0.9 }]}
+        disabled={isSharingReceipt}
+      >
+        {isSharingReceipt ? (
+          <ActivityIndicator color={colors.text} />
+        ) : (
+          <Text style={styles.secondaryActionButtonText}>Compartir datos del pago</Text>
+        )}
+      </Pressable>
+
+      <Pressable
+        onPress={onGoBack}
+        style={({ pressed }) => [styles.secondaryActionButton, { marginTop: 4 }, pressed && { opacity: 0.9 }]}
+      >
+        <Text style={styles.secondaryActionButtonText}>Volver al inicio</Text>
+      </Pressable>
+    </View>
+  );
+});
+
 export default function CommissionPaymentScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -648,7 +813,7 @@ export default function CommissionPaymentScreen() {
   const isOverdue = commissionData?.isOverdue || false;
   const balanceColor = isOverdue ? '#282e69' : '#D97706';
 
-  // Estados: 'idle' | 'loading' | 'webview' | 'approved' | 'rejected'
+  // Estados: 'idle' | 'loading' | 'webview' | 'verifying' | 'approved' | 'rejected'
   const [phase, setPhase] = useState('idle');
   const [formUrl, setFormUrl] = useState(null);
   const [paymentId, setPaymentId] = useState(null);
@@ -661,10 +826,56 @@ export default function CommissionPaymentScreen() {
   const [webviewLoaded, setWebviewLoaded] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [showVerifyingOverlay, setShowVerifyingOverlay] = useState(false);
-  // Evita procesar el return_url dos veces (onNavigationStateChange dispara en loading y loaded)
+  const [paymentSuccessRecorded, setPaymentSuccessRecorded] = useState(false);
   const returnHandled = useRef(false);
   const approvedDetailsLoadedForPaymentId = useRef(null);
   const autoStartTriggered = useRef(false);
+  const lastClipboardToastAt = useRef(0);
+  const paymentSuccessRecordedRef = useRef(false);
+  const webviewHasLoadedRef = useRef(false);
+
+  const markWebviewContentVisible = () => {
+    webviewHasLoadedRef.current = true;
+    setWebviewLoaded(true);
+  };
+
+  // Registra el pago y muestra comprobante nativo (PDF), no el checkout de Pagotic.
+  const recordPaymentSuccess = async (payment = null) => {
+    const alreadyRecorded = paymentSuccessRecordedRef.current;
+    paymentSuccessRecordedRef.current = true;
+    setPaymentSuccessRecorded(true);
+    setShowVerifyingOverlay(false);
+
+    let resolvedPayment = payment;
+    if (!resolvedPayment && paymentId) {
+      try {
+        resolvedPayment = await getPaymentStatus(paymentId);
+      } catch {
+        // seguir con datos locales
+      }
+    }
+
+    if (resolvedPayment) {
+      saveApprovedPayment({
+        ...resolvedPayment,
+        form_url: resolvedPayment.form_url || formUrl || null,
+      });
+    } else if (paymentId || formUrl) {
+      saveApprovedPayment({
+        id: paymentId,
+        final_amount: balance,
+        form_url: formUrl || null,
+      });
+    }
+
+    setPhase('approved');
+
+    if (!alreadyRecorded) {
+      const amount = Number(resolvedPayment?.final_amount) || balance;
+      sendPaymentSuccessNotification(formatPrice(amount));
+      queryClient.invalidateQueries({ queryKey: ['commissionBalance', driver?.id] });
+    }
+  };
 
   const saveApprovedPayment = (payment) => {
     if (!payment || typeof payment !== 'object') return;
@@ -691,7 +902,10 @@ export default function CommissionPaymentScreen() {
     setIsSharingReceipt(false);
     setIsDownloadingReceipt(false);
     setWebviewLoaded(false);
+    webviewHasLoadedRef.current = false;
     setShowVerifyingOverlay(false);
+    paymentSuccessRecordedRef.current = false;
+    setPaymentSuccessRecorded(false);
     approvedDetailsLoadedForPaymentId.current = null;
   };
 
@@ -719,15 +933,11 @@ export default function CommissionPaymentScreen() {
   const resolvePaymentFromProvider = async ({ fallbackMessage = null } = {}) => {
     if (returnHandled.current) return;
 
-    setShowVerifyingOverlay(true);
-
     if (paymentId) {
       try {
         const payment = await getPaymentStatus(paymentId);
-        const status = (payment?.status || '').toLowerCase();
-
-        if (status === 'approved' || status === 'paid') {
-          markAsApproved(payment);
+        if (isPayperticApprovedPayment(payment)) {
+          await recordPaymentSuccess(payment);
           return;
         }
 
@@ -736,12 +946,15 @@ export default function CommissionPaymentScreen() {
           return;
         }
 
-        // Aún pendiente: mantener verificación activa sin marcar rechazo.
-        setShowVerifyingOverlay(true);
+        setPhase('webview');
+        setShowVerifyingOverlay(false);
         return;
       } catch {
         if (fallbackMessage) {
           markAsRejected(null, fallbackMessage);
+        } else {
+          setPhase('webview');
+          setShowVerifyingOverlay(false);
         }
         return;
       }
@@ -749,42 +962,22 @@ export default function CommissionPaymentScreen() {
 
     if (fallbackMessage) {
       markAsRejected(null, fallbackMessage);
+    } else {
+      setPhase('webview');
+      setShowVerifyingOverlay(false);
     }
-  };
-
-  const markAsApproved = (payment = null) => {
-    if (returnHandled.current) return;
-    returnHandled.current = true;
-
-    if (payment) {
-      saveApprovedPayment(payment);
-    }
-
-    const amount = Number(payment?.final_amount) || balance;
-    sendPaymentSuccessNotification(formatPrice(amount));
-
-    queryClient.invalidateQueries({ queryKey: ['commissionBalance', driver?.id] });
-    setPhase('approved');
   };
 
   const handleGeneratePDF = async () => {
     try {
       setIsGeneratingPDF(true);
       const html = generateReceiptHTML(approvedPayment, balance);
-      const { uri } = await Print.printToFileAsync({ html, base64: false });
-      const destUri = `${FileSystem.cacheDirectory}comprobante_comision_${Date.now()}.pdf`;
-      await FileSystem.moveAsync({ from: uri, to: destUri });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(destUri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Comprobante de pago',
-          UTI: 'com.adobe.pdf',
-        });
-      } else {
-        Toast.show({ type: 'info', text1: 'El comprobante fue generado', text2: 'Tu dispositivo no admite compartir archivos.', visibilityTime: 3500 });
-      }
+      // Usamos printAsync (diálogo nativo del sistema) en lugar de printToFileAsync +
+      // shareAsync, porque expo-sharing@55 falla en Android con NoSuchMethodError.
+      await Print.printAsync({ html });
     } catch (e) {
+      // El usuario canceló el diálogo → no es un error real
+      if (e?.message && /cancel/i.test(e.message)) return;
       Toast.show({ type: 'error', text1: 'No se pudo generar el PDF', text2: e?.message, visibilityTime: 4000 });
     } finally {
       setIsGeneratingPDF(false);
@@ -792,7 +985,7 @@ export default function CommissionPaymentScreen() {
   };
 
   const handleShareReceipt = async () => {    const amount = Number(approvedPayment?.final_amount) || balance;
-    const paidAt = approvedPayment?.paid_date || approvedPayment?.process_date;
+    const paidAt = getPaymentPaidAt(approvedPayment, { useFallbackNow: true });
     const paymentReference = approvedPayment?.external_transaction_id || 'No disponible';
     const providerPaymentId = approvedPayment?.id || paymentId || 'No disponible';
     const receiptUrl = extractReceiptUrl(approvedPayment);
@@ -828,12 +1021,13 @@ export default function CommissionPaymentScreen() {
 
   const handleDownloadReceipt = async () => {
     const receiptUrl = extractReceiptUrl(approvedPayment);
+    const targetUrl = receiptUrl;
 
-    if (!receiptUrl) {
+    if (!targetUrl) {
       Toast.show({
         type: 'info',
         text1: 'Comprobante no disponible',
-        text2: 'Tu medio de pago no devolvió un enlace de descarga.',
+        text2: 'Paypertic no devolvió un enlace de comprobante. Usá el PDF local.',
         visibilityTime: 3500,
       });
       return;
@@ -841,18 +1035,18 @@ export default function CommissionPaymentScreen() {
 
     try {
       setIsDownloadingReceipt(true);
-      const canOpen = await Linking.canOpenURL(receiptUrl);
+      const canOpen = await Linking.canOpenURL(targetUrl);
 
       if (!canOpen) {
         throw new Error('No se puede abrir el comprobante');
       }
 
-      await Linking.openURL(receiptUrl);
+      await Linking.openURL(targetUrl);
     } catch {
       Toast.show({
         type: 'error',
         text1: 'No se pudo abrir el comprobante',
-        text2: 'Probá compartir el enlace o reintentar más tarde.',
+        text2: 'Probá descargar el PDF local o reintentá más tarde.',
         visibilityTime: 3500,
       });
     } finally {
@@ -865,10 +1059,8 @@ export default function CommissionPaymentScreen() {
 
     try {
       const payment = await getPaymentStatus(paymentId);
-      const status = (payment?.status || '').toLowerCase();
-
-      if (status === 'approved' || status === 'paid') {
-        markAsApproved(payment);
+      if (isPayperticApprovedPayment(payment)) {
+        await recordPaymentSuccess(payment);
         return true;
       }
 
@@ -910,7 +1102,7 @@ export default function CommissionPaymentScreen() {
 
       const pending = Number(data?.pending_commission) || 0;
       if (pending <= 0) {
-        markAsApproved();
+        await recordPaymentSuccess(null);
         return;
       }
 
@@ -930,7 +1122,8 @@ export default function CommissionPaymentScreen() {
   // Escuchar Supabase Realtime: cuando el webhook registra el pago en commission_payments,
   // la app lo detecta aunque Paypertic no redirija al return_url
   useEffect(() => {
-    if (phase !== 'webview' || !driver?.id) return;
+    const shouldSubscribe = phase === 'webview';
+    if (!shouldSubscribe || !driver?.id) return;
 
     const channel = supabase
       .channel(`commission-payment-${driver.id}`)
@@ -942,7 +1135,9 @@ export default function CommissionPaymentScreen() {
           table: 'commission_payments',
           filter: `driver_id=eq.${driver.id}`,
         },
-        () => markAsApproved(),
+        () => {
+          recordPaymentSuccess(null);
+        },
       )
       .on(
         'postgres_changes',
@@ -955,7 +1150,7 @@ export default function CommissionPaymentScreen() {
         (payload) => {
           const pending = Number(payload?.new?.pending_commission) || 0;
           if (pending <= 0) {
-            markAsApproved();
+            recordPaymentSuccess(null);
           }
         },
       )
@@ -966,9 +1161,27 @@ export default function CommissionPaymentScreen() {
     };
   }, [phase, driver?.id, queryClient]);
 
-  // Validación puntual al abrir y al volver de background, sin polling.
+  // Polling mientras el chofer completa transferencia o vuelve del banco.
   useEffect(() => {
-    if (phase !== 'webview' || !driver?.id) return;
+    if (phase !== 'webview' || !paymentId || paymentSuccessRecordedRef.current) return;
+
+    const runPoll = async () => {
+      const statusHandled = await verifyPaymentByProviderStatus(false);
+      if (!statusHandled && !paymentSuccessRecordedRef.current) {
+        await verifyPaymentByDriverBalance(false);
+      }
+    };
+
+    runPoll();
+    const intervalId = setInterval(runPoll, 2500);
+
+    return () => clearInterval(intervalId);
+  }, [phase, paymentId, driver?.id]);
+
+  // Validación al montar y al volver de background (banco / Pagotic).
+  useEffect(() => {
+    const shouldVerify = phase === 'webview';
+    if (!shouldVerify || !driver?.id) return;
 
     const runVerification = async (showPendingToast = false) => {
       const statusHandled = await verifyPaymentByProviderStatus(showPendingToast);
@@ -981,7 +1194,7 @@ export default function CommissionPaymentScreen() {
 
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
-        runVerification(false);
+        runVerification(true);
       }
     });
 
@@ -992,22 +1205,20 @@ export default function CommissionPaymentScreen() {
 
   useEffect(() => {
     if (phase !== 'approved' || !paymentId) return;
-
-    const normalizedPaymentId = String(paymentId);
-    if (approvedDetailsLoadedForPaymentId.current === normalizedPaymentId) return;
+    if (approvedDetailsLoadedForPaymentId.current === String(paymentId)) return;
 
     let active = true;
-    approvedDetailsLoadedForPaymentId.current = normalizedPaymentId;
+    approvedDetailsLoadedForPaymentId.current = String(paymentId);
 
     const loadPaymentDetails = async () => {
       try {
         setIsFetchingPaymentDetails(true);
-        const payment = await getPaymentStatus(normalizedPaymentId);
+        const payment = await getPaymentStatus(String(paymentId));
         if (active) {
           saveApprovedPayment(payment);
         }
       } catch {
-        // Si falla esta consulta, mantenemos comprobante local para compartir
+        // mantener datos previos
       } finally {
         if (active) {
           setIsFetchingPaymentDetails(false);
@@ -1026,94 +1237,61 @@ export default function CommissionPaymentScreen() {
     try {
       const data = JSON.parse(event.nativeEvent.data);
 
-      // El JS inyectado detectó que el contenido real ya está renderizado
       if (data.type === 'content_ready') {
-        setWebviewLoaded(true);
+        markWebviewContentVisible();
         return;
       }
 
-      if (returnHandled.current) return;
-      if (data.type !== 'paypertic_result') return;
-
-      if (data.status === 'back') {
-        returnHandled.current = true;
-        resetToIdle();
-        return;
+      if (data.type === 'clipboard_copied') {
+        const now = Date.now();
+        if (now - lastClipboardToastAt.current >= 1200) {
+          lastClipboardToastAt.current = now;
+          Toast.show({
+            type: 'success',
+            text1: 'Copiado al portapapeles',
+            text2: data.value ? `Dato copiado: ${String(data.value).slice(0, 32)}...` : 'Dato de pago copiado.',
+            visibilityTime: 1800,
+          });
+        }
       }
-
-      if (data.status === 'approved' || data.status === 'paid') {
-        resolvePaymentFromProvider();
-        return;
-      }
-
-      resolvePaymentFromProvider();
     } catch {
       // mensaje no válido, ignorar
     }
   };
 
-  // Intercepta la navegación ANTES de que el WebView cargue la URL.
-  // Cuando Paypertic redirige al return_url, retornamos false para bloquear
-  // la carga y manejamos el resultado directamente en la app.
-  // Esto evita el error ERR_HTTP_RESPONSE_CODE_FAILURE si el servidor no responde.
-  const handleShouldStartLoadWithRequest = (request) => {
-    const url = request.url || '';
-    if (!url.startsWith(RETURN_URL_PREFIX)) return true;
-    if (returnHandled.current) return false;
-
-    try {
-      const urlObj = new URL(url);
-      const status = urlObj.searchParams.get('status');
-
-      if (status === 'back') {
-        returnHandled.current = true;
-        resetToIdle();
-      } else {
-        setShowVerifyingOverlay(true);
-        resolvePaymentFromProvider();
-      }
-    } catch {
-      setShowVerifyingOverlay(true);
-      resolvePaymentFromProvider();
-    }
-
-    return false; // bloquea la carga de la página de retorno
-  };
-
   const handleNavigationChange = (navState) => {
     const url = navState.url || '';
-
-    // Fallback: si por alguna razón onShouldStartLoadWithRequest no bloqueó la
-    // navegación (algunos builds de react-native-webview en Android lo ignoran),
-    // manejamos igualmente el return_url aquí.
-    if (!url.startsWith(RETURN_URL_PREFIX)) return;
-    if (returnHandled.current) return;
-
-    try {
-      const urlObj = new URL(url);
-      const status = urlObj.searchParams.get('status');
-
-      if (status === 'back') {
-        returnHandled.current = true;
-        resetToIdle();
-        return;
-      }
-
+    if (isPagoticTransferConfirmUrl(url)) {
+      markWebviewContentVisible();
       setShowVerifyingOverlay(true);
-      resolvePaymentFromProvider();
-    } catch {
-      setShowVerifyingOverlay(true);
-      resolvePaymentFromProvider();
     }
   };
 
   const startPaymentFlow = async () => {
     returnHandled.current = false;
+
+    if (paymentId && !paymentSuccessRecordedRef.current) {
+      try {
+        const existing = await getPaymentStatus(paymentId);
+        if (isPayperticApprovedPayment(existing)) {
+          setFormUrl(null);
+          await recordPaymentSuccess(existing);
+          return;
+        }
+      } catch {
+        // seguir con nueva sesión si no se pudo consultar
+      }
+    }
+
+    paymentSuccessRecordedRef.current = false;
+    setPaymentSuccessRecorded(false);
+    webviewHasLoadedRef.current = false;
     approvedDetailsLoadedForPaymentId.current = null;
     setApprovedPayment(null);
     setRejectedPayment(null);
     setStartupError(null);
     setWebviewLoaded(false);
+    setPhase('idle');
 
     if (!(Number(balance) > 0)) {
       setPhase('idle');
@@ -1143,6 +1321,27 @@ export default function CommissionPaymentScreen() {
     startPaymentFlow();
   }, [autoStart, balance]);
 
+  // ── Pantalla aprobada con comprobante ─────────────────────────────────────
+  if (phase === 'approved') {
+    return (
+      <View style={styles.screen}>
+        <View style={[styles.resultContainer, { paddingTop: insets.top + 14 }]}>
+          <PaymentApprovedCard
+            payment={approvedPayment}
+            fallbackAmount={balance}
+            isLoadingDetails={isFetchingPaymentDetails}
+            onGeneratePDF={handleGeneratePDF}
+            onShareReceipt={handleShareReceipt}
+            onDownloadReceipt={handleDownloadReceipt}
+            onGoBack={() => navigation.goBack()}
+            isGeneratingPDF={isGeneratingPDF}
+            isSharingReceipt={isSharingReceipt}
+            isDownloadingReceipt={isDownloadingReceipt}
+          />
+        </View>
+      </View>
+    );
+  }
 
   // ── Pantalla rechazado ───────────────────────────────────────────────────
   if (phase === 'rejected' && rejectedPayment) {
@@ -1163,93 +1362,6 @@ export default function CommissionPaymentScreen() {
     );
   }
 
-  // ── Pantalla aprobado ──────────────────────────────────────────────────────
-  if (phase === 'approved') {
-    const paidAmount = Number(approvedPayment?.final_amount) || balance;
-    const paidAt = approvedPayment?.paid_date || approvedPayment?.process_date;
-    const providerPaymentId = approvedPayment?.id || paymentId || 'No disponible';
-    const paymentReference = approvedPayment?.external_transaction_id || 'No disponible';
-    const receiptUrl = extractReceiptUrl(approvedPayment);
-
-    return (
-      <View style={styles.screen}>
-        <View style={[styles.resultContainer, { paddingTop: insets.top + 14 }]}>
-          <View style={styles.resultCard}>
-            <View style={[styles.iconCircle, { backgroundColor: '#DCFCE7' }]}>
-              <MaterialCommunityIcons name="check-circle" size={44} color="#16A34A" />
-            </View>
-            <Text style={styles.resultTitle}>Pago acreditado</Text>
-            <Text style={styles.resultSubtitle}>
-              Tu comisión quedó registrada correctamente.
-            </Text>
-
-            <View style={styles.receiptBox}>
-              <View style={styles.receiptRow}>
-                <Text style={styles.receiptLabel}>Monto</Text>
-                <Text style={styles.receiptValue}>{formatPrice(paidAmount)}</Text>
-              </View>
-              <View style={styles.receiptRow}>
-                <Text style={styles.receiptLabel}>Fecha</Text>
-                <Text style={styles.receiptValue}>{formatPaymentDate(paidAt)}</Text>
-              </View>
-              <View style={styles.receiptRow}>
-                <Text style={styles.receiptLabel}>ID de pago</Text>
-                <Text style={styles.receiptValueSmall}>{providerPaymentId}</Text>
-              </View>
-              <View style={styles.receiptRow}>
-                <Text style={styles.receiptLabel}>Referencia</Text>
-                <Text style={styles.receiptValueSmall}>{paymentReference}</Text>
-              </View>
-            </View>
-
-            {isFetchingPaymentDetails ? (
-              <View style={styles.infoInline}>
-                <ActivityIndicator color={colors.primary} size="small" />
-                <Text style={styles.infoInlineText}>Cargando detalles del pago...</Text>
-              </View>
-            ) : null}
-
-            {/* Botón principal: descargar y compartir PDF generado por la app */}
-            <Pressable
-              onPress={handleGeneratePDF}
-              style={({ pressed }) => [styles.pdfButton, pressed && { opacity: 0.88 }]}
-              disabled={isGeneratingPDF}
-            >
-              {isGeneratingPDF ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <>
-                  <MaterialCommunityIcons name="file-pdf-box" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
-                  <Text style={styles.actionButtonText}>Descargar / Compartir PDF</Text>
-                </>
-              )}
-            </Pressable>
-
-            {/* Botón secundario: compartir datos en texto (siempre disponible) */}
-            <Pressable
-              onPress={handleShareReceipt}
-              style={({ pressed }) => [styles.secondaryActionButton, pressed && { opacity: 0.9 }]}
-              disabled={isSharingReceipt}
-            >
-              {isSharingReceipt ? (
-                <ActivityIndicator color={colors.textMuted} />
-              ) : (
-                <Text style={styles.secondaryActionButtonText}>Compartir datos del pago</Text>
-              )}
-            </Pressable>
-          </View>
-
-          <Pressable
-            onPress={() => navigation.goBack()}
-            style={({ pressed }) => [styles.actionButton, { backgroundColor: colors.primary, marginTop: 16 }, pressed && { opacity: 0.9 }]}
-          >
-            <Text style={styles.actionButtonText}>Volver al inicio</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
-
   // ── WebView con formulario de Paypertic ────────────────────────────────────
   if (phase === 'webview' && formUrl) {
     return (
@@ -1258,32 +1370,27 @@ export default function CommissionPaymentScreen() {
           source={{ uri: formUrl }}
           injectedJavaScript={INJECTED_JS}
           onMessage={handlePayperticMessage}
-          onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
           onNavigationStateChange={handleNavigationChange}
           onLoadEnd={() => {
-            // Fallback: si el JS inyectado no disparó content_ready en 1.5s,
-            // mostramos el WebView igual para no bloquear al usuario.
-            setTimeout(() => setWebviewLoaded(true), 1500);
+            if (webviewHasLoadedRef.current) return;
+            setTimeout(() => markWebviewContentVisible(), 800);
           }}
           javaScriptEnabled
           domStorageEnabled
           thirdPartyCookiesEnabled
           setSupportMultipleWindows={false}
-          onError={(syntheticEvent) => {
-            const { url } = syntheticEvent.nativeEvent;
-            // Si el error es en la URL de retorno, ya fue manejado por
-            // onShouldStartLoadWithRequest; ignoramos este error.
-            if (url && url.startsWith(RETURN_URL_PREFIX)) return;
+          setBuiltInZoomControls={false}
+          onError={() => {
             setFormUrl(null);
             setPaymentId(null);
             setPhase('idle');
             setStartupError('No se pudo cargar el formulario de pago.');
             Toast.show({ type: 'error', text1: 'Error al cargar el formulario de pago', visibilityTime: 4000 });
           }}
-          style={{ flex: 1 }}
+          style={{ flex: 1, backgroundColor: '#FFFFFF' }}
         />
 
-        {/* Overlay completo de carga inicial: cubre la pantalla hasta que Paypertic renderice */}
+        {/* Overlay solo en la primera carga del checkout; no vuelve al ir al CVU */}
         {!webviewLoaded && (
           <View style={[StyleSheet.absoluteFill, styles.webviewOverlay]}>
             {showVerifyingOverlay ? <VerifyingPaymentCard /> : <PaymentLoadingCard />}
@@ -1293,9 +1400,9 @@ export default function CommissionPaymentScreen() {
         {/* Banner flotante de verificación: aparece sobre el WebView SIN tapar el contenido.
             Permite al usuario ver y copiar los datos de CBU/CVU en pagos por transferencia
             mientras la app espera confirmación en tiempo real. */}
-        {webviewLoaded && showVerifyingOverlay && (
+        {webviewLoaded && showVerifyingOverlay && !paymentSuccessRecorded ? (
           <PaymentVerifyingBanner />
-        )}
+        ) : null}
       </View>
     );
   }
@@ -1423,6 +1530,23 @@ const styles = StyleSheet.create({
     gap: 9,
     marginBottom: 14,
   },
+  transferInfoBox: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#F9FAFB',
+    gap: 9,
+    marginBottom: 12,
+  },
+  transferInfoHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontFamily: 'Inter_400Regular',
+    lineHeight: 18,
+  },
   receiptRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1517,5 +1641,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  webviewTopBar: {
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  webviewTopBarButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  webviewTopBarText: {
+    color: colors.text,
+    fontSize: 14,
+    fontFamily: 'Inter_600SemiBold',
   },
 });

@@ -327,7 +327,59 @@ describe('geo autocomplete', () => {
     expect(details.lng).toBeCloseTo(-65.4006911, 3);
   });
 
-  it('devuelve direcciones con altura vía Nominatim/GeoRef', async () => {
+  it('devuelve calles con altura vía Google Autocomplete sin Nominatim', async () => {
+    const results = await autocompleteAddressSalta('guemes 200', 5, { sessionToken: 'test-guemes-200' });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.every((item) => String(item.placeId).startsWith('google:'))).toBe(true);
+    expect(results.some((item) => /g[uü]emes/i.test(item.title))).toBe(true);
+    expect(results.some((item) => /el pilar/i.test(item.subtitle || ''))).toBe(true);
+
+    const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
+    const georefCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('georef'));
+    expect(nominatimCalls.length).toBe(0);
+    expect(georefCalls.length).toBe(0);
+    assertAllowedGooglePlacesSkus(global.fetch);
+  });
+
+  it('restringe guemes 700 a Salta Capital (sin Jujuy, Vaqueros ni Cerrillos)', async () => {
+    const results = await autocompleteAddressSalta('guemes 700', 8, { sessionToken: 'test-guemes-700' });
+    expect(results.length).toBeGreaterThan(0);
+
+    const subtitles = results.map((item) => item.subtitle || '').join(' | ');
+    expect(subtitles).not.toMatch(/jujuy/i);
+    expect(subtitles).not.toMatch(/vaqueros/i);
+    expect(subtitles).not.toMatch(/cerrillos/i);
+    expect(results.some((item) => /g[uü]emes/i.test(item.title) && /salta/i.test(item.subtitle || ''))).toBe(true);
+
+    const autocompleteCall = global.fetch.mock.calls.find(([url]) => String(url).includes('places:autocomplete'));
+    expect(autocompleteCall).toBeTruthy();
+    const body = JSON.parse(autocompleteCall[1].body);
+    expect(body.locationRestriction?.rectangle).toBeDefined();
+    expect(body.locationBias).toBeUndefined();
+  });
+
+  it('resuelve calle con altura vía Place Details Essentials al elegir sugerencia', async () => {
+    const suggestions = await autocompleteAddressSalta('entre rios 200', 3, { sessionToken: 'test-entre-rios' });
+    expect(suggestions.length).toBeGreaterThan(0);
+    const pick = suggestions.find((item) => /entre r[ií]os/i.test(item.title));
+    expect(pick).toBeTruthy();
+
+    const details = await getPlaceDetails(pick.placeId, {
+      sessionToken: 'test-entre-rios',
+      formattedAddress: pick.address,
+      title: pick.title,
+      subtitle: pick.subtitle,
+    });
+
+    expect(details.lat).toBeCloseTo(-24.7797, 3);
+    expect(details.lng).toBeCloseTo(-65.4292, 3);
+    expect(/entre r[ií]os/i.test(details.formattedAddress)).toBe(true);
+
+    const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
+    expect(nominatimCalls.length).toBe(0);
+  });
+
+  it('devuelve direcciones con altura vía Google Autocomplete + Place Details Essentials', async () => {
     const entreRios = await geocodeAddress('Entre Rios 200');
     expect(entreRios.lat).toBeDefined();
     expect(entreRios.lng).toBeDefined();
@@ -337,5 +389,8 @@ describe('geo autocomplete', () => {
     expect(bolivia.lat).toBeDefined();
     expect(bolivia.lng).toBeDefined();
     expect(/bolivia/i.test(bolivia.formattedAddress)).toBe(true);
+
+    const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
+    expect(nominatimCalls.length).toBe(0);
   });
 });

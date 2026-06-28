@@ -22,9 +22,11 @@ import { colors } from '../theme/colors';
 import { useAuthStore } from '../stores/authStore';
 import { useLocation } from '../hooks/useLocation';
 import { useTrip } from '../hooks/useTrip';
+import { useServiceZoneCoverage } from '../hooks/useServiceZoneCoverage';
 import { useTripStore } from '../stores/tripStore';
 import { reverseGeocode, isCoordinateFallbackText } from '../services/googleMaps';
 import AddressSearchInput from '../components/ui/AddressSearchInput';
+import PickupCoverageBanner from '../components/ui/PickupCoverageBanner';
 import MapPinPickerModal from '../components/map/MapPinPickerModal';
 
 export default function RequestTripScreen() {
@@ -42,6 +44,11 @@ export default function RequestTripScreen() {
   const [showOptional, setShowOptional] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [mapPickerField, setMapPickerField] = useState(null);
+  const {
+    pickupOutsideCoverage,
+    validatePickupForTrip,
+    notifyPickupOutsideCoverage,
+  } = useServiceZoneCoverage(pickup);
 
   useEffect(() => {
     if (route.params?.pickup) setPickup(route.params.pickup);
@@ -126,6 +133,12 @@ export default function RequestTripScreen() {
       return;
     }
 
+    const coverage = validatePickupForTrip(pickup.lat, pickup.lng);
+    if (!coverage.allowed) {
+      notifyPickupOutsideCoverage();
+      return;
+    }
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
     const result = await requestTrip({
@@ -152,13 +165,14 @@ export default function RequestTripScreen() {
         visibilityTime: 4000,
       });
     }
-  }, [pickup, destination, notes, profile, requestTrip, navigation]);
+  }, [pickup, destination, notes, profile, requestTrip, navigation, validatePickupForTrip, notifyPickupOutsideCoverage]);
 
   const canSubmit =
     !!pickup?.address
     && Number.isFinite(pickup?.lat)
     && !!destination?.address
     && Number.isFinite(destination?.lat)
+    && !pickupOutsideCoverage
     && !isCreating;
 
   return (
@@ -215,6 +229,7 @@ export default function RequestTripScreen() {
                   isGPSLoading={gpsLoading}
                   zIndex={20}
                 />
+                <PickupCoverageBanner visible={pickupOutsideCoverage} />
 
                 <View style={styles.separator} />
 

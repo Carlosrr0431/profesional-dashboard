@@ -1,9 +1,9 @@
 export { getDirections } from './routing';
-export {
+import {
   geocodeAddress,
   geocodeAddressMultiple,
   reverseGeocode,
-  autocompleteAddressSalta,
+  autocompleteAddressSalta as autocompleteAddressSaltaBase,
   getPlaceDetails,
   readDashboardUrl,
   firstAddressLine,
@@ -11,61 +11,141 @@ export {
   isCoordinateFallbackText,
   resolvePlaceFromSuggestion,
 } from './nominatim';
+export { decodePolyline, getDistanceMeters } from '../utils/polyline';
 
-export function decodePolyline(encoded = '') {
-  const points = [];
-  let index = 0;
-  let lat = 0;
-  let lng = 0;
+function foldText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
-  while (index < encoded.length) {
-    let b;
-    let shift = 0;
-    let result = 0;
+function getAddressText(item) {
+  return String(item?.address || item?.title || '').trim();
+}
 
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
-    const dlat = result & 1 ? ~(result >> 1) : result >> 1;
-    lat += dlat;
+function hasStreetNumber(item, number) {
+  const text = foldText(getAddressText(item));
+  const numPattern = new RegExp(`\\b${escapeRegex(number)}\\b`);
+  return numPattern.test(text);
+}
 
-    shift = 0;
-    result = 0;
+function suggestionKey(item) {
+  return item?.placeId || `${item?.lat},${item?.lng}` || foldText(getAddressText(item));
+}
 
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
+function extractStreetAndNumber(query) {
+  const raw = String(query || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return null;
 
-    const dlng = result & 1 ? ~(result >> 1) : result >> 1;
-    lng += dlng;
-
-    points.push({
-      latitude: lat / 1e5,
-      longitude: lng / 1e5,
-    });
+  const withAl = raw.match(
+    /^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9.'-]+(?:\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9.'-]+)*)\s+al\s+(\d{1,5}[a-zA-Z]?)$/i,
+  );
+  if (withAl) {
+    return { street: withAl[1].trim(), number: withAl[2].trim() };
   }
 
-  return points;
+  const simple = raw.match(
+    /^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9.'-]+(?:\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9.'-]+)*)\s+(\d{1,5}[a-zA-Z]?)$/i,
+  );
+  if (!simple) return null;
+
+  return { street: simple[1].trim(), number: simple[2].trim() };
 }
 
-export function getDistanceMeters(from, to) {
-  if (!from || !to) return Number.POSITIVE_INFINITY;
-  const lat1 = Number(from.latitude ?? from.lat);
-  const lng1 = Number(from.longitude ?? from.lng);
-  const lat2 = Number(to.latitude ?? to.lat);
-  const lng2 = Number(to.longitude ?? to.lng);
-  if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) return Number.POSITIVE_INFINITY;
-
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a = Math.sin(dLat / 2) ** 2
-    + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180)
-    * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+function isDoctorAGuemesWithNumber(item, number) {
+  const text = foldText(getAddressText(item));
+  const numPattern = new RegExp(`\\b${String(number).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+  return (
+    numPattern.test(text)
+    && /\b(dr\.?\s*a\.?\s*guemes|doctor\s+a\.?\s*guemes)\b/.test(text)
+    && !/\badolfo\s+guemes\b/.test(text)
+  );
 }
+
+function pickDoctorAGuemesHit(hits, number) {
+  const withNumber = (hits || []).filter((item) => isDoctorAGuemesWithNumber(item, number));
+  if (!withNumber.length) return null;
+
+  return withNumber.find((item) => {
+    const subtitle = foldText(item?.subtitle || '');
+    return subtitle.includes('salta') && !subtitle.includes('villa san lorenzo');
+  }) || withNumber[0];
+}
+
+/**
+ * Autocomplete alineado con Google Maps: respeta el orden del backend y solo
+ * complementa Güemes+altura con Doctor A. Güemes {n} si falta en el top.
+ */
+export async function autocompleteAddressSalta(query, limit = 5, options = {}) {
+  const text = String(query || '').trim();
+  if (text.length < 2) return [];
+
+  const normalizedLimit = Math.max(1, Math.min(Number(limit) || 5, 8));
+  const fetchLimit = Math.min(normalizedLimit + 2, 8);
+
+  const primary = await autocompleteAddressSaltaBase(text, fetchLimit, options);
+  const parsed = extractStreetAndNumber(text);
+  const isGuemesWithNumber = parsed && /\bguemes\b/i.test(parsed.street);
+
+  if (!isGuemesWithNumber) {
+    return primary.slice(0, normalizedLimit);
+  }
+
+  const seen = new Set();
+  const results = [];
+  for (const item of primary) {
+    if (!hasStreetNumber(item, parsed.number)) continue;
+    const key = suggestionKey(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    results.push(item);
+  }
+
+  if (!results.length) {
+    for (const item of primary) {
+      const key = suggestionKey(item);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      results.push(item);
+    }
+  }
+
+  const hasDoctorA = results.some((item) => isDoctorAGuemesWithNumber(item, parsed.number));
+  if (!hasDoctorA) {
+    const doctorHits = await autocompleteAddressSaltaBase(
+      `doctor a guemes ${parsed.number}`,
+      3,
+      options,
+    );
+    const doctorA = pickDoctorAGuemesHit(doctorHits, parsed.number);
+    const key = doctorA ? suggestionKey(doctorA) : null;
+
+    if (doctorA && key && !seen.has(key)) {
+      // Google Maps suele mostrar Doctor A. Güemes en ~4.º lugar.
+      const insertAt = Math.min(3, results.length);
+      results.splice(insertAt, 0, doctorA);
+      seen.add(key);
+    }
+  }
+
+  return results.slice(0, normalizedLimit);
+}
+
+export {
+  geocodeAddress,
+  geocodeAddressMultiple,
+  reverseGeocode,
+  getPlaceDetails,
+  readDashboardUrl,
+  firstAddressLine,
+  buildSelectedAddressLabel,
+  isCoordinateFallbackText,
+  resolvePlaceFromSuggestion,
+};

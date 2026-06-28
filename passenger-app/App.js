@@ -1,4 +1,4 @@
-globalThis.RNFB_SILENCE_MODULAR_DEPRECATION_WARNINGS = true;
+import './src/bootstrap/reanimatedBootstrap';
 import './src/services/notificationsBackground';
 import 'react-native-gesture-handler';
 import React, { useEffect, useCallback } from 'react';

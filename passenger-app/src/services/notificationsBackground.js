@@ -1,9 +1,10 @@
-import { getFirebaseMessaging } from './firebaseMessaging';
+import { getMessagingInstance } from './firebaseMessaging';
 
-const messaging = getFirebaseMessaging();
+const messaging = getMessagingInstance();
 
 if (messaging) {
-  messaging().setBackgroundMessageHandler(async () => {
+  const { setBackgroundMessageHandler } = require('@react-native-firebase/messaging');
+  setBackgroundMessageHandler(messaging, async () => {
     // Con payload `notification`, Android/iOS muestran la alerta en segundo plano.
   });
 } else {

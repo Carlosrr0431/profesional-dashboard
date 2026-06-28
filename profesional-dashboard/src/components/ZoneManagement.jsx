@@ -5,6 +5,7 @@ import Map, { Source, Layer } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { SALTA_CENTER } from '../lib/constants';
 import { MAP_STYLE_URL, DEFAULT_MAP_VIEW, mapLibreOptions } from '../lib/mapLibre';
+import { useGoogleMapsLoader } from '../lib/googleMaps';
 import { useServiceZones } from '../hooks/useServiceZones';
 import { useToast } from '../context/ToastContext';
 
@@ -35,6 +36,8 @@ export default function ZoneManagement({ onBack }) {
   const [deletingId, setDeletingId] = useState(null);
   const [error, setError] = useState('');
   const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const { isLoaded: mapsApiReady } = useGoogleMapsLoader();
+  const isLoaded = mapsApiReady && isMapLoaded;
   const [viewState, setViewState] = useState({
     ...DEFAULT_MAP_VIEW,
     longitude: SALTA_CENTER.lng,
@@ -221,7 +224,7 @@ export default function ZoneManagement({ onBack }) {
 
         <button
           onClick={handleStartDrawing}
-          disabled={isDrawing || !isMapLoaded}
+          disabled={isDrawing || !isLoaded}
           className="flex items-center gap-2 bg-accent text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-accent-light transition-all shadow-md shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

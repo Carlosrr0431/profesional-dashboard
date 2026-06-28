@@ -1,5 +1,4 @@
 import { readDashboardUrl } from '../../../shared/geo/dashboardGeoApi';
-import { decodePolyline } from './googleMaps';
 import { pickPassengerFareRoute } from '../../../shared/salta-route';
 
 const ROUTE_CACHE_TTL_MS = 45 * 1000;

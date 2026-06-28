@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS whatsapp_conversations (
   accumulation_started_at TIMESTAMPTZ,
   processing_started_at TIMESTAMPTZ,
   context JSONB NOT NULL DEFAULT '{}'::jsonb,
-  last_trip_id UUID REFERENCES trips(id),
+  last_trip_id UUID REFERENCES trips(id) ON DELETE SET NULL,
   last_incoming_at TIMESTAMPTZ,
   last_processed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -1,13 +1,20 @@
 /**
- * Extracción híbrida: patrones primero (0 tokens), DeepSeek v4-flash como fallback.
+ * Extracción híbrida: patrones primero (0 tokens), DeepSeek v4-flash como fallback
+ * y para refinar pickup/destino cuando el mensaje trae direcciones concretas.
  */
-import { deepseekChatCompletion } from './deepseekClient';
+import { deepseekChatCompletion, isDeepSeekConfigured } from './deepseekClient';
 import { buildTripIntentSystemPrompt } from './tripIntentSystemPrompt';
 import {
   buildPatternTripExtraction,
+  looksLikeAddressText,
   PATTERN_CONFIDENCE_THRESHOLD,
   shouldUsePatternExtraction,
 } from './whatsappTripIntentPatterns';
+import {
+  sanitizeAddressInput,
+  normalizeAddressPhrase,
+} from '../../shared/salta-address.js';
+import { stripTrailingTripRouteTail } from './whatsappTripAddressParse.js';
 
 const DEFAULT_EXTRACTION = {
   intent: 'other',
@@ -22,6 +29,85 @@ const DEFAULT_EXTRACTION = {
   cancel_confirmed: false,
   schedule_time: null,
 };
+
+function looksLikeRouteWithDestination(text) {
+  return /\b(?:es\s+para\s+ir\s+(?:hasta|a)|voy\s+(?:para|a)\s+|me\s+llev(?:a|as|en)\s+a\s+|destino(?:\s+es)?\s+|hasta\s+[a-záéíóúü]|hacia\s+[a-záéíóúü])/i.test(
+    String(text || ''),
+  );
+}
+
+function pickupLooksContaminated(pickup) {
+  return /\b(?:es\s+para\s+ir|voy\s+para|me\s+llev(?:a|as|en)\s+a)\b/i.test(String(pickup || ''));
+}
+
+function normalizeExtractedAddress(value) {
+  const stripped = stripTrailingTripRouteTail(value);
+  const normalized = normalizeAddressPhrase(stripped || value || '');
+  return sanitizeAddressInput(normalized) || null;
+}
+
+function shouldRefineTripAddressesWithDeepSeek({
+  combinedText,
+  patternResult,
+  heuristics,
+  context = {},
+}) {
+  if (!isDeepSeekConfigured()) return false;
+  if (patternResult.intent !== 'trip_request') return false;
+  if (context?.awaiting_pickup_number) return false;
+
+  const hasAddressSignal = Boolean(
+    patternResult.pickup_location ||
+    patternResult.destination ||
+    heuristics?.pickup ||
+    heuristics?.destination ||
+    looksLikeAddressText(combinedText),
+  );
+  if (!hasAddressSignal) return false;
+
+  return (
+    looksLikeRouteWithDestination(combinedText) ||
+    Boolean(heuristics?.pickup && heuristics?.destination) ||
+    pickupLooksContaminated(patternResult.pickup_location || heuristics?.pickup) ||
+    Boolean(patternResult.pickup_location || heuristics?.pickup)
+  );
+}
+
+function mergeTripAddressExtraction(patternResult, aiResult, heuristics) {
+  const aiConf = Number(aiResult?.confidence) || 0;
+  const preferAiAddresses = aiConf >= 0.55;
+
+  const pickup =
+    (preferAiAddresses ? normalizeExtractedAddress(aiResult.pickup_location) : null) ||
+    normalizeExtractedAddress(patternResult.pickup_location) ||
+    normalizeExtractedAddress(heuristics?.pickup) ||
+    null;
+
+  const destination =
+    (preferAiAddresses ? normalizeExtractedAddress(aiResult.destination) : null) ||
+    normalizeExtractedAddress(patternResult.destination) ||
+    normalizeExtractedAddress(heuristics?.destination) ||
+    null;
+
+  const missingFields = Array.isArray(aiResult.missing_fields) && aiResult.missing_fields.length
+    ? aiResult.missing_fields
+    : (patternResult.missing_fields || []);
+
+  return {
+    ...patternResult,
+    intent: 'trip_request',
+    passenger_name: aiResult.passenger_name || patternResult.passenger_name,
+    pickup_location: pickup,
+    origin: normalizeExtractedAddress(aiResult.origin) || patternResult.origin || null,
+    destination,
+    notes: aiResult.notes || patternResult.notes || null,
+    reply: aiResult.reply ?? patternResult.reply ?? null,
+    missing_fields: pickup ? missingFields.filter((f) => f !== 'pickup_location') : missingFields,
+    confidence: Math.max(aiConf, Number(patternResult.confidence) || 0),
+    schedule_time: aiResult.schedule_time || patternResult.schedule_time || null,
+    cancel_confirmed: aiResult.cancel_confirmed ?? patternResult.cancel_confirmed ?? false,
+  };
+}
 
 export function parseTripIntentJson(raw, fallback = DEFAULT_EXTRACTION) {
   const match = String(raw || '').match(/\{[\s\S]*\}/);
@@ -59,6 +145,48 @@ export async function extractTripIntentHybrid({
   });
 
   if (shouldUsePatternExtraction(patternResult)) {
+    if (
+      shouldRefineTripAddressesWithDeepSeek({
+        combinedText,
+        patternResult,
+        heuristics,
+        context,
+      })
+    ) {
+      if (logFn) {
+        logFn('ai_extract_intent_deepseek_refine', {
+          phone,
+          intent: patternResult.intent,
+          patternConfidence: patternResult.confidence,
+          hasHeuristicDestination: Boolean(heuristics?.destination),
+          routeWithDestination: looksLikeRouteWithDestination(combinedText),
+        });
+      }
+
+      const aiResult = await extractTripIntentWithDeepSeek({
+        combinedText,
+        context,
+        pushName,
+        history,
+        conversationStatus,
+        lastBotReply,
+        patternFallback: patternResult,
+        logFn,
+      });
+
+      const merged = mergeTripAddressExtraction(patternResult, aiResult, heuristics);
+      if (logFn) {
+        logFn('ai_extract_intent_pattern_deepseek_merged', {
+          phone,
+          intent: merged.intent,
+          confidence: merged.confidence,
+          pickup: merged.pickup_location ? '[set]' : null,
+          destination: merged.destination ? '[set]' : null,
+        });
+      }
+      return merged;
+    }
+
     if (logFn) {
       logFn('ai_extract_intent_pattern_hit', {
         phone,

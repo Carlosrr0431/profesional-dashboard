@@ -12,7 +12,7 @@ const globalScope = globalThis;
 const getGlobalAuthRuntime = () => {
   if (!globalScope.__driverAppAuthRuntime) {
     globalScope.__driverAppAuthRuntime = {
-      bootstrapRunning: false,
+      bootstrapSubscription: null,
       tokenRefreshSub: null,
     };
   }
@@ -117,10 +117,9 @@ export const useAuth = (options = {}) => {
     if (!enableBootstrap) return undefined;
 
     const runtime = getGlobalAuthRuntime();
-    if (runtime.bootstrapRunning) {
+    if (runtime.bootstrapSubscription) {
       return undefined;
     }
-    runtime.bootstrapRunning = true;
 
     let initialized = false;
 
@@ -189,11 +188,9 @@ export const useAuth = (options = {}) => {
       }
     });
 
-    return () => {
-      subscription?.unsubscribe();
-      runtime.bootstrapRunning = false;
-      clearTokenRefreshSub();
-    };
+    runtime.bootstrapSubscription = subscription;
+
+    return undefined;
   }, [enableBootstrap, fetchDriverProfile, logoutStore, setLoading, setSession, setUser]);
 
   const login = useCallback(async (email, password) => {

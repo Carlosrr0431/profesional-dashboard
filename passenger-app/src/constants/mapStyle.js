@@ -18,14 +18,14 @@ export const ROUTE_LINE = '#4285F4';
 export const ROUTE_CASING = '#FFFFFF';
 export const ROUTE_OUTLINE = '#1A56C4';
 
-/** Ruta en planificación (home, revisión antes de confirmar). */
+/** Ruta en planificación (home, revisión antes de confirmar) — estilo Google Maps. */
 export const ROUTE_PREVIEW_STYLE = {
-  lineColor: ROUTE_LINE,
-  casingColor: ROUTE_CASING,
-  outlineColor: ROUTE_OUTLINE,
-  outlineWidth: 13,
-  casingWidth: 9,
-  lineWidth: 6,
+  lineColor: '#4285F4',
+  casingColor: '#FFFFFF',
+  outlineColor: 'rgba(26, 86, 196, 0.28)',
+  outlineWidth: 14,
+  casingWidth: 12,
+  lineWidth: 8,
 };
 
 /** Ruta activa durante el viaje. */

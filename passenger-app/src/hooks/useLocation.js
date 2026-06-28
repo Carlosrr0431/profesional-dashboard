@@ -81,8 +81,16 @@ export const useLocation = () => {
   }, []);
 
   useEffect(() => {
-    getCurrentLocation();
-    return () => stopWatching();
+    let cancelled = false;
+    const init = async () => {
+      await getCurrentLocation();
+      if (!cancelled) startWatching();
+    };
+    init();
+    return () => {
+      cancelled = true;
+      stopWatching();
+    };
   }, []);
 
   return {

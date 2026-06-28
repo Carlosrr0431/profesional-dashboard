@@ -4,6 +4,7 @@ import { filterCoordsInSaltaCapital } from '../../utils/mapCoords';
 import { MapRouteLayers } from './MapRouteLayers';
 import PickupMarker from './PickupMarker';
 import NumberedStopMarker from './NumberedStopMarker';
+import DestinationMarker from './DestinationMarker';
 
 function toCoord(place) {
   const lat = Number(place?.lat ?? place?.latitude);
@@ -130,26 +131,6 @@ export default function TripPlanRouteOverlay({
 
   return (
     <>
-      <PickupMarker coordinate={pickupCoord} showLabel />
-
-      {stopCoords.map((coord, index) => {
-        const isFinal = index === stopCoords.length - 1;
-        const hasIntermediateStops = stopCoords.length > 1;
-        return (
-          <NumberedStopMarker
-            key={`stop-${index}-${coord.latitude}-${coord.longitude}`}
-            coordinate={coord}
-            index={index + 1}
-            isFinal={isFinal}
-            caption={
-              isFinal
-                ? (hasIntermediateStops ? 'Destino final' : 'Destino')
-                : `Parada ${index + 1}`
-            }
-          />
-        );
-      })}
-
       {routeCoords.length > 1 ? (
         <MapRouteLayers
           coords={routeCoords}
@@ -157,6 +138,33 @@ export default function TripPlanRouteOverlay({
           idPrefix="trip-preview-route"
         />
       ) : null}
+
+      <PickupMarker coordinate={pickupCoord} showLabel />
+
+      {stopCoords.map((coord, index) => {
+        const isFinal = index === stopCoords.length - 1;
+        const hasIntermediateStops = stopCoords.length > 1;
+
+        if (isFinal) {
+          return (
+            <DestinationMarker
+              key={`dest-${coord.latitude}-${coord.longitude}`}
+              coordinate={coord}
+              label={hasIntermediateStops ? 'Destino final' : 'Destino'}
+            />
+          );
+        }
+
+        return (
+          <NumberedStopMarker
+            key={`stop-${index}-${coord.latitude}-${coord.longitude}`}
+            coordinate={coord}
+            index={index + 1}
+            isFinal={false}
+            caption={`Parada ${index + 1}`}
+          />
+        );
+      })}
     </>
   );
 }

@@ -875,6 +875,41 @@ function buildPoiAutocompleteQueries(value) {
   return queries;
 }
 
+function mergeDistinctAddressCandidates(base = [], extra = [], { maxResults = 6 } = {}) {
+  const merged = [...(base || [])];
+  const seen = new Set();
+
+  for (const candidate of merged) {
+    const key = String(candidate?.formattedAddress || candidate?.address || '')
+      .toLowerCase()
+      .trim();
+    if (key) seen.add(key);
+  }
+
+  for (const candidate of extra || []) {
+    const key = String(candidate?.formattedAddress || candidate?.address || '')
+      .toLowerCase()
+      .trim();
+    if (!key || seen.has(key)) continue;
+
+    const tooClose = merged.some((prev) => {
+      const prevLat = Number(prev?.lat);
+      const prevLng = Number(prev?.lng);
+      const candLat = Number(candidate?.lat);
+      const candLng = Number(candidate?.lng);
+      if (![prevLat, prevLng, candLat, candLng].every(Number.isFinite)) return false;
+      return Math.abs(prevLat - candLat) < 0.001 && Math.abs(prevLng - candLng) < 0.001;
+    });
+    if (tooClose) continue;
+
+    seen.add(key);
+    merged.push(candidate);
+  }
+
+  merged.sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
+  return merged.slice(0, maxResults);
+}
+
 module.exports = {
   resolveSaltaKnownPoi,
   resolveKnownPoiBranch,
@@ -883,4 +918,5 @@ module.exports = {
   buildPoiAutocompleteQueries,
   normalizePoiText,
   fixPoiTypoTokens,
+  mergeDistinctAddressCandidates,
 };

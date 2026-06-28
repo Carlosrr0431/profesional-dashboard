@@ -120,8 +120,16 @@ function Install-PassengerApk {
   Write-Step 'Compilando e instalando APK de desarrollo...'
   Push-Location $Root
   try {
-    npx expo run:android --port $MetroPort --no-bundler
-    if ($LASTEXITCODE -ne 0) { throw "expo run:android falló (código $LASTEXITCODE)." }
+    # RCT_METRO_PORT hace que Expo CLI pase --port, incompatible con --no-bundler.
+    # Gradle instala el APK sin abrir el dev client en el puerto 8081 por defecto.
+    Remove-Item Env:RCT_METRO_PORT -ErrorAction SilentlyContinue
+    Push-Location (Join-Path $Root 'android')
+    try {
+      & .\gradlew.bat app:installDebug -x lint -x test
+      if ($LASTEXITCODE -ne 0) { throw "gradlew installDebug falló (código $LASTEXITCODE)." }
+    } finally {
+      Pop-Location
+    }
   } finally {
     Pop-Location
   }
@@ -200,6 +208,9 @@ if (-not (Test-AndroidDevice)) {
 Wait-AndroidBoot
 Set-AdbReverse
 
+# Metro antes del APK / dev client: evita timeout si la compilación tarda.
+Start-MetroBundler
+
 $needsInstall = $Install -or -not (Test-PassengerAppInstalled)
 if ($needsInstall) {
   Install-PassengerApk
@@ -207,7 +218,6 @@ if ($needsInstall) {
   Write-Host "[passenger-app] APK ya instalado (usa -Install para recompilar)." -ForegroundColor Cyan
 }
 
-Start-MetroBundler
 Wait-MetroReady
 Open-PassengerDevClient
 

@@ -1,38 +1,157 @@
 import { NextResponse } from 'next/server';
 
+// DEPRECATED: pagos nuevos ya no usan return_url del dashboard.
+// Se mantiene solo por sesiones de pago creadas antes del cambio.
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Este endpoint es la return_url / back_url del formulario de Paypertic.
-// Envía un postMessage al WebView de React Native para que la app detecte
-// el resultado sin depender de interceptar navegaciones de URL.
-export async function GET(request) {
-  const { searchParams } = new URL(request.url);
-  const status = searchParams.get('status') || 'unknown';
-  const ext = searchParams.get('ext') || 'none';
-  console.log('[paypertic/return] GET llamado - status:', status, '| ext:', ext, '| URL completa:', request.url);
-  const isApproved = status === 'approved';
+const PAYPERTIC_CHECKOUT = 'https://checkout.paypertic.com/app';
 
-  // El payload que recibirá el onMessage del WebView
-  const message = JSON.stringify({ type: 'paypertic_result', status });
-  console.log('[paypertic/return] Enviando postMessage al WebView:', message);
+const FINAL_REJECTED = ['rejected', 'cancelled', 'refunded', 'overdue', 'failed', 'denied'];
+
+const renderReturnHtml = (status) => {
+  const normalized = String(status || '').toLowerCase();
+  const isApproved = normalized === 'approved' || normalized === 'paid';
+  const isRejected = FINAL_REJECTED.includes(normalized);
+  const isBack = normalized === 'back';
+  const isFinal = isApproved || isRejected || isBack;
+  const message = JSON.stringify({ type: 'paypertic_result', status: normalized });
+  const uiMessage = isApproved
+    ? '✅ Pago aprobado. Volviendo a la app...'
+    : isFinal
+      ? 'Operación finalizada. Volviendo a la app...'
+      : '';
 
   return new NextResponse(
     `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"/></head>
-<body style="background:#fff;font-family:sans-serif;text-align:center;padding-top:60px">
-  <p style="font-size:18px;color:#374151">
-    ${isApproved ? '✅ Pago aprobado. Volviendo a la app...' : 'Operación cancelada. Volviendo a la app...'}
-  </p>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body style="margin:0;background:${isFinal ? '#fff' : 'transparent'};font-family:sans-serif;text-align:center;padding-top:${isFinal ? '60px' : '0'}">
+  ${uiMessage ? `<p style="font-size:18px;color:#374151">${uiMessage}</p>` : ''}
   <script>
-    // Notificar al WebView de React Native (mecanismo principal)
     if (window.ReactNativeWebView) {
       window.ReactNativeWebView.postMessage(${JSON.stringify(message)});
     }
   </script>
 </body>
 </html>`,
-    { status: 200, headers: { 'Content-Type': 'text/html' } },
+    { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
   );
+};
+
+const extractPaymentId = (searchParams, bodyJson, formParams) => {
+  const fromQuery = searchParams.get('pid') || searchParams.get('payment_id');
+  if (fromQuery) return String(fromQuery);
+
+  if (bodyJson?.id) return String(bodyJson.id);
+
+  const formId = formParams?.get('id');
+  if (formId) return String(formId);
+
+  const formUrl = bodyJson?.form_url;
+  if (typeof formUrl === 'string') {
+    const match = formUrl.match(/\/app\/([^/?#]+)/);
+    if (match?.[1]) return match[1];
+  }
+
+  return null;
+};
+
+const buildPagoticRedirect = (paymentId, status, bodyJson) => {
+  const normalized = String(status || '').toLowerCase();
+  const isApproved = normalized === 'approved' || normalized === 'paid';
+  const isPending = ['issued', 'pending', 'in_process', 'unknown', ''].includes(normalized);
+
+  if (isPending) {
+    return `${PAYPERTIC_CHECKOUT}/${paymentId}/guest-transfer-confirm-pay`;
+  }
+
+  if (isApproved) {
+    const formUrl = bodyJson?.form_url;
+    if (typeof formUrl === 'string' && formUrl.startsWith('https://checkout.paypertic.com/')) {
+      return formUrl;
+    }
+    return `${PAYPERTIC_CHECKOUT}/${paymentId}`;
+  }
+
+  return `${PAYPERTIC_CHECKOUT}/${paymentId}`;
+};
+
+const parseReturnRequest = async (request) => {
+  const { searchParams } = new URL(request.url);
+  let status = searchParams.get('status') || '';
+  let bodyJson = null;
+  let formParams = null;
+
+  try {
+    const rawBody = await request.text();
+    if (rawBody) {
+      if (rawBody.trim().startsWith('{')) {
+        bodyJson = JSON.parse(rawBody);
+        if (!status) {
+          status = String(bodyJson?.status || bodyJson?.status_detail || '').toLowerCase();
+        }
+      } else if (!status) {
+        formParams = new URLSearchParams(rawBody);
+        status = String(formParams.get('status') || formParams.get('status_detail') || '').toLowerCase();
+      }
+    }
+  } catch {
+    // body inválido: seguir con query params
+  }
+
+  return {
+    searchParams,
+    status: status || 'unknown',
+    bodyJson,
+    formParams,
+  };
+};
+
+const handleReturn = async (request, method) => {
+  const { searchParams, status, bodyJson, formParams } = await parseReturnRequest(request);
+  const ext = searchParams.get('ext') || 'none';
+  const normalizedStatus = String(status || 'unknown').toLowerCase();
+
+  console.log(
+    `[paypertic/return] ${method} llamado - status:`,
+    normalizedStatus,
+    '| ext:',
+    ext,
+  );
+
+  if (normalizedStatus === 'back') {
+    console.log('[paypertic/return] status=back, respondiendo HTML para la app');
+    return renderReturnHtml('back');
+  }
+
+  const paymentId = extractPaymentId(searchParams, bodyJson, formParams);
+  const isRejected = FINAL_REJECTED.includes(normalizedStatus);
+
+  if (paymentId && !isRejected) {
+    const target = buildPagoticRedirect(paymentId, normalizedStatus, bodyJson);
+    console.log('[paypertic/return] Redirect 303 a Pagotic:', target);
+    return NextResponse.redirect(target, 303);
+  }
+
+  if (normalizedStatus === 'approved' || normalizedStatus === 'paid' || isRejected) {
+    console.log('[paypertic/return] Respondiendo HTML final para WebView:', normalizedStatus);
+    return renderReturnHtml(normalizedStatus);
+  }
+
+  console.log('[paypertic/return] Sin payment_id, respondiendo HTML fallback');
+  return renderReturnHtml(normalizedStatus);
+};
+
+// Paypertic puede volver por GET o POST. Para transferencias (issued) redirigimos
+// de vuelta al checkout de Pagotic para evitar pantalla blanca en el WebView.
+export async function GET(request) {
+  return handleReturn(request, 'GET');
+}
+
+export async function POST(request) {
+  return handleReturn(request, 'POST');
 }

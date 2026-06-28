@@ -288,7 +288,7 @@ export function usePassengerActiveTrip({
   // Ruta completa del viaje (recogida → destino)
   useEffect(() => {
     if (!enabled || !pickupCoord || !destinationCoord) return undefined;
-    if (!['accepted', 'going_to_pickup', 'in_progress'].includes(status)) return undefined;
+    if (!['queued', 'pending', 'accepted', 'going_to_pickup', 'in_progress'].includes(status)) return undefined;
 
     let cancelled = false;
     getDirections(pickupCoord, destinationCoord)

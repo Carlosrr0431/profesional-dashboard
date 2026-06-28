@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import MapLibreGL from '../../lib/maplibre';
 import DriverMarker from './DriverMarker';
 import PickupMarker from './PickupMarker';
+import DestinationMarker from './DestinationMarker';
 import { MapRouteLayers } from './MapRouteLayers';
 import { normalizeCoordinate } from '../../utils/mapCoords';
 
@@ -34,28 +35,33 @@ export default function ActiveTripMapOverlay({
       ) : null}
 
       {destinationCoordNorm && (isEnRouteToDestination || isSearching || isEnRouteToPickup) ? (
-        <MapLibreGL.MarkerView
-          id={`destination-${destinationCoordNorm.latitude.toFixed(5)}-${destinationCoordNorm.longitude.toFixed(5)}`}
-          coordinate={[destinationCoordNorm.longitude, destinationCoordNorm.latitude]}
-        >
-          <View style={[styles.destPin, (isSearching || isEnRouteToPickup) && styles.destPinMuted]}>
-            <View style={styles.destPinInner} />
-          </View>
-        </MapLibreGL.MarkerView>
+        isSearching || isEnRouteToPickup ? (
+          <DestinationMarker coordinate={destinationCoordNorm} />
+        ) : (
+          <MapLibreGL.MarkerView
+            id={`destination-${destinationCoordNorm.latitude.toFixed(5)}-${destinationCoordNorm.longitude.toFixed(5)}`}
+            coordinate={[destinationCoordNorm.longitude, destinationCoordNorm.latitude]}
+          >
+            <View style={styles.destPin}>
+              <View style={styles.destPinInner} />
+            </View>
+          </MapLibreGL.MarkerView>
+        )
       ) : null}
 
       {smoothDriverCoord && showDriver ? (
         <DriverMarker coordinate={smoothDriverCoord} heading={markerHeading} />
       ) : null}
 
-      {!isSearching && fullTripRoute?.length > 1 ? (
+      {fullTripRoute?.length > 1 ? (
         <MapRouteLayers
           coords={fullTripRoute}
           idPrefix="full-trip-route"
-          lineColor="#94A3B8"
-          casingColor="#E2E8F0"
-          casingWidth={6}
-          lineWidth={3}
+          variant={isSearching ? 'preview' : undefined}
+          lineColor={isSearching ? undefined : '#94A3B8'}
+          casingColor={isSearching ? undefined : '#E2E8F0'}
+          casingWidth={isSearching ? undefined : 6}
+          lineWidth={isSearching ? undefined : 3}
         />
       ) : null}
 

@@ -38,13 +38,13 @@ function buildCameraApi(getMapRef) {
   return {
     setCamera(options = {}) {
       const map = getMapRef();
-      if (!map) return;
+      if (!map) return false;
 
       const center = options.centerCoordinate ?? options.center;
       const zoom = options.zoomLevel ?? options.zoom;
       const duration = options.animationDuration ?? options.duration ?? 0;
 
-      if (!Array.isArray(center) || center.length < 2) return;
+      if (!Array.isArray(center) || center.length < 2) return false;
 
       const latitudeDelta = zoomToLatitudeDelta(zoom ?? 13);
       const region = {
@@ -54,9 +54,10 @@ function buildCameraApi(getMapRef) {
         longitudeDelta: latitudeDelta,
       };
 
-      if (!Number.isFinite(region.latitude) || !Number.isFinite(region.longitude)) return;
+      if (!Number.isFinite(region.latitude) || !Number.isFinite(region.longitude)) return false;
 
       map.animateToRegion(region, duration);
+      return true;
     },
 
     animateToRegion(region, duration = 400) {

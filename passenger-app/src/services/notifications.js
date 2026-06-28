@@ -1,7 +1,7 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import { supabase } from './supabase';
 import { getPassengerPhoneVariants } from '../utils/phone';
-import { getFirebaseMessaging } from './firebaseMessaging';
+import { getMessagingInstance } from './firebaseMessaging';
 import { registerPassengerPushToken } from './authService';
 
 const savePassengerPushTokenDirect = async (phone, token) => {
@@ -37,15 +37,20 @@ const persistPassengerPushToken = async ({ phone, sessionToken, token }) => {
 
     if (apiResult.ok) {
       if (apiResult.syncedPushes > 0) {
-        console.log(`Push sincronizados tras registro: ${apiResult.syncedPushes}`);
+        console.log(`[PassengerPush] Push sincronizados tras registro: ${apiResult.syncedPushes}`);
       }
       return { ok: true, via: 'api' };
     }
 
-    console.warn('API register-push-token falló:', apiResult.message);
+    console.warn('[PassengerPush] API register-push-token falló (usando fallback Supabase):', apiResult.message);
   }
 
   const directResult = await savePassengerPushTokenDirect(phone, token);
+  if (directResult.ok) {
+    console.log('[PassengerPush] Token guardado via Supabase anon directamente.');
+  } else {
+    console.warn('[PassengerPush] Falló el guardado directo en Supabase:', directResult.error?.message);
+  }
   return { ok: directResult.ok, via: 'supabase' };
 };
 
@@ -69,11 +74,17 @@ async function requestNotificationPermission(messaging) {
   }
 
   if (Platform.OS === 'ios') {
-    await messaging().registerDeviceForRemoteMessages();
-    const authorizationStatus = await messaging().requestPermission();
+    const {
+      registerDeviceForRemoteMessages,
+      requestPermission,
+      AuthorizationStatus,
+    } = require('@react-native-firebase/messaging');
+
+    await registerDeviceForRemoteMessages(messaging);
+    const authorizationStatus = await requestPermission(messaging);
     return (
-      authorizationStatus === messaging.AuthorizationStatus.AUTHORIZED
-      || authorizationStatus === messaging.AuthorizationStatus.PROVISIONAL
+      authorizationStatus === AuthorizationStatus.AUTHORIZED
+      || authorizationStatus === AuthorizationStatus.PROVISIONAL
     );
   }
 
@@ -82,26 +93,30 @@ async function requestNotificationPermission(messaging) {
 
 export const registerForPushNotifications = async ({ phone, sessionToken } = {}) => {
   const passengerPhone = String(phone || '').trim();
-  const messaging = getFirebaseMessaging();
+  const messaging = getMessagingInstance();
   if (!messaging) {
-    console.warn('Firebase Messaging no disponible (rebuild nativo requerido)');
+    console.warn(
+      '[PassengerPush] Firebase Messaging no disponible. ' +
+      'Rebuild necesario: cd passenger-app && npm run start:android:install'
+    );
     return null;
   }
 
   try {
     const granted = await requestNotificationPermission(messaging);
     if (!granted) {
-      console.log('Permiso de notificaciones denegado');
+      console.warn('[PassengerPush] Permiso de notificaciones denegado por el usuario.');
       return null;
     }
 
-    const token = await messaging().getToken();
+    const { getToken } = require('@react-native-firebase/messaging');
+    const token = await getToken(messaging);
     if (!token) {
-      console.warn('No se pudo obtener el token FCM');
+      console.warn('[PassengerPush] No se pudo obtener el token FCM de Firebase.');
       return null;
     }
 
-    console.log('Token FCM pasajero registrado:', `${token.slice(0, 18)}...`);
+    console.log('[PassengerPush] Token FCM obtenido:', `${token.slice(0, 20)}...`);
 
     if (passengerPhone) {
       const saveResult = await persistPassengerPushToken({
@@ -109,25 +124,34 @@ export const registerForPushNotifications = async ({ phone, sessionToken } = {})
         sessionToken,
         token,
       });
-      if (!saveResult.ok) {
-        console.warn('No se pudo guardar el push_token del pasajero');
+      if (saveResult.ok) {
+        console.log('[PassengerPush] Token guardado correctamente. Via:', saveResult.via);
+      } else {
+        console.warn(
+          '[PassengerPush] No se pudo guardar el token FCM.',
+          'Teléfono:', passengerPhone ? `${passengerPhone.slice(0, 5)}...` : 'vacío',
+          'Via:', saveResult.via || 'desconocida'
+        );
       }
+    } else {
+      console.warn('[PassengerPush] Token obtenido pero sin teléfono de pasajero para asociarlo.');
     }
 
     return token;
   } catch (error) {
-    console.warn('Push notification registration failed:', error);
+    console.warn('[PassengerPush] Error en registro:', error?.message || error);
     return null;
   }
 };
 
 export const subscribeToTokenRefresh = ({ phone, sessionToken } = {}) => {
-  const messaging = getFirebaseMessaging();
+  const messaging = getMessagingInstance();
   if (!messaging) {
     return { remove: () => {} };
   }
 
-  const unsubscribe = messaging().onTokenRefresh(async (token) => {
+  const { onTokenRefresh } = require('@react-native-firebase/messaging');
+  const unsubscribe = onTokenRefresh(messaging, async (token) => {
     if (!phone || !token) return;
     try {
       await persistPassengerPushToken({ phone, sessionToken, token });
@@ -148,12 +172,13 @@ export const subscribeToTokenRefresh = ({ phone, sessionToken } = {}) => {
 };
 
 export const subscribeToForegroundMessages = (handler) => {
-  const messaging = getFirebaseMessaging();
+  const messaging = getMessagingInstance();
   if (!messaging) {
     return { remove: () => {} };
   }
 
-  const unsubscribe = messaging().onMessage(handler);
+  const { onMessage } = require('@react-native-firebase/messaging');
+  const unsubscribe = onMessage(messaging, handler);
   return {
     remove: () => {
       try {
@@ -166,15 +191,15 @@ export const subscribeToForegroundMessages = (handler) => {
 };
 
 export const subscribeToNotificationOpen = (handler) => {
-  const messaging = getFirebaseMessaging();
+  const messaging = getMessagingInstance();
   if (!messaging) {
     return { remove: () => {} };
   }
 
-  const unsubscribeOpened = messaging().onNotificationOpenedApp(handler);
+  const { onNotificationOpenedApp, getInitialNotification } = require('@react-native-firebase/messaging');
+  const unsubscribeOpened = onNotificationOpenedApp(messaging, handler);
 
-  messaging()
-    .getInitialNotification()
+  getInitialNotification(messaging)
     .then((remoteMessage) => {
       if (remoteMessage) handler(remoteMessage);
     })

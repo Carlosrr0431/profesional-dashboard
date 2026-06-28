@@ -13,6 +13,11 @@ import {
 } from '../../../src/lib/firebaseAdmin';
 import { buildAddressPollPayload, formatAddressForWhatsAppPoll } from '../../../src/lib/formatPollAddressLabel';
 import {
+  GUEMES_POLL_OPTION_LIMIT,
+  isGuemesHomonymQuery,
+  sortGuemesStreetCandidates,
+} from '../../../src/lib/saltaStreetHomonyms';
+import {
   messageConfirmsTripCancel,
   messageDeniesTripCancel,
   messageRequestsTripCancel,
@@ -37,15 +42,25 @@ import { triggerDispatchWorker } from '../../../src/lib/triggerDispatchWorker';
 import { isPassengerAppTrip, resolveTripPickupCoords } from '../../../shared/trip-contract.js';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
 import {
-  geocodeAddress as dashboardGeocodeAddress,
-  geocodeAddressMultiple as dashboardGeocodeAddressMultiple,
-  autocompleteAddressSalta,
   reverseGeocode as nominatimReverseGeocode,
   getRouteMetrics as osrmGetRouteMetrics,
   getRouteMetricsByAddress as osrmGetRouteMetricsByAddress,
+  getPlaceDetails,
 } from '../../../src/lib/geo/index.js';
+import {
+  autocompleteAndResolveAddresses,
+  geocodeAddressViaPlaces,
+  getAutocompletePollCandidates,
+  isGoogleConfigured,
+} from '../../../src/lib/geo/placesAutocompleteResolve.js';
 import { scoreCandidateAgainstQuery } from '../../../shared/salta-address.js';
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
+import {
+  extractFullTripByPattern,
+  splitAddressFromIntentPhrase,
+  stripTrailingTripRouteTail,
+  collapseEquivalentPollCandidates,
+} from '../../../src/lib/whatsappTripAddressParse.js';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -2171,6 +2186,19 @@ function inferSaltaCapitalFromFormattedAddress(formattedAddress) {
 
 function isSaltaCapitalCandidate(candidate) {
   const formatted = candidate?.formattedAddress || '';
+
+  // Sugerencias de Google Autocomplete ya vienen restringidas a Salta Capital.
+  if (
+    candidate?.source === 'google_autocomplete'
+    || String(candidate?.placeId || '').startsWith('google:')
+  ) {
+    const subtitle = String(candidate?.subtitle || '').trim();
+    if (subtitle && /\b(jujuy|vaqueros|cerrillos)\b/i.test(subtitle)) return false;
+    const byAddress = inferSaltaCapitalFromFormattedAddress(formatted);
+    if (typeof byAddress === 'boolean') return byAddress;
+    return true;
+  }
+
   const postalCode = extractPostalCodeFromAddress(formatted);
   if (postalCode) {
     return postalCode.startsWith(SALTA_CAPITAL_POSTAL_CODE);
@@ -2632,7 +2660,7 @@ async function loadSaltaStreetCatalog(force = false) {
   return saltaStreetCatalogCache.loadingPromise;
 }
 
-function getCatalogAddressVariants(address, maxResults = 4) {
+function getCatalogRankedStreetMatches(address, maxResults = 4) {
   const input = sanitizeAddressInput(address || '');
   if (!input) return [];
   if (!Array.isArray(saltaStreetCatalogCache.streets) || saltaStreetCatalogCache.streets.length === 0) {
@@ -2669,7 +2697,7 @@ function getCatalogAddressVariants(address, maxResults = 4) {
     }
   }
 
-  const ranked = [...candidateMap.values()]
+  return [...candidateMap.values()]
     .map(({ street, overlap }) => {
       const overlapScore = overlap / queryTokens.length;
       const fullTokenMatch = overlap >= queryTokens.length;
@@ -2677,12 +2705,10 @@ function getCatalogAddressVariants(address, maxResults = 4) {
       if (/\b(?:pasaje|pje)\b/i.test(normalizedInput) && street.type === 'pasaje') score += 0.2;
       if (/\b(?:avenida|avda|av)\b/i.test(normalizedInput) && street.type === 'avenida') score += 0.2;
       if (houseNumber) score += 0.05;
-      // Bonus de avenida solo si todos los tokens del query matchean la calle.
-      // Evita que "juan galvez" favorezca Av. Juan Carlos Davalos por match parcial de "juan".
       if (street.type === 'avenida' && fullTokenMatch) score += 0.10;
       const nameTokenCount = (street.nameKey || '').split(/\s+/).length;
       if (nameTokenCount <= 3) score += 0.05;
-      return { street, score, overlap };
+      return { street, score, overlap, houseNumber };
     })
     .filter((item) => {
       if (queryTokens.length >= 2 && item.overlap < queryTokens.length) return false;
@@ -2690,10 +2716,16 @@ function getCatalogAddressVariants(address, maxResults = 4) {
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, maxResults);
+}
+
+function getCatalogAddressVariants(address, maxResults = 4) {
+  const ranked = getCatalogRankedStreetMatches(address, maxResults);
+  if (ranked.length === 0) return [];
 
   const variants = [];
   const seenVariants = new Set();
   for (const item of ranked) {
+    const houseNumber = item.houseNumber;
     const withType = houseNumber
       ? `${item.street.fullLabel} ${houseNumber}, Salta`
       : `${item.street.fullLabel}, Salta`;
@@ -3063,46 +3095,6 @@ function normalizeAddressPhrase(value) {
       .replace(/^(?:en|por|desde|hasta|hacia|a)\s+/i, '')
       .trim()
   );
-}
-
-function splitAddressFromIntentPhrase(text, cueRegex) {
-  const src = String(text || '');
-  const cueMatch = src.match(cueRegex);
-  if (!cueMatch) return null;
-
-  const startIdx = cueMatch.index + cueMatch[0].length;
-  const tail = src.slice(startIdx).trim();
-  if (!tail) return null;
-
-  // Cortar cuando aparece una segunda intención clara en la misma oración.
-  const stopPattern = /\b(?:voy\s+(?:para|a)|me\s+llev(?:a|as|en)\s+a|destino(?:\s+es)?|hasta|hacia|despu[eé]s\s+a)\b/i;
-  const stopMatch = tail.match(stopPattern);
-  const segment = stopMatch ? tail.slice(0, stopMatch.index).trim() : tail;
-  return normalizeAddressPhrase(segment);
-}
-
-function extractFullTripByPattern(text) {
-  const src = String(text || '').trim();
-  if (!src) return null;
-
-  const patterns = [
-    /(?:remis|movil|m[oó]vil|taxi|auto)\s+(?:para|a|en)\s+(.+?)\s*(?:,|\.)?\s*(?:voy\s+(?:para|a)|me\s+llev(?:a|as|en)\s+a|destino(?:\s+es)?|hasta|hacia)\s+(.+)$/i,
-    /(?:pasame\s+a\s+buscar(?:me)?|buscame|retiro\s+en|estoy\s+en|desde)\s*[:,-]?\s*(.+?)\s*(?:,|\.)?\s*(?:voy\s+(?:para|a)|me\s+llev(?:a|as|en)\s+a|destino(?:\s+es)?|hasta|hacia)\s+(.+)$/i,
-    /\bde\s+(.+?)\s+a\s+(.+)$/i,
-  ];
-
-  for (const regex of patterns) {
-    const match = src.match(regex);
-    if (!match) continue;
-
-    const pickup = normalizeAddressPhrase(match[1]);
-    const destination = normalizeAddressPhrase(match[2]);
-    if (pickup && destination) {
-      return { pickup, destination };
-    }
-  }
-
-  return null;
 }
 
 function rankAddresses(entries, max = MAX_KNOWLEDGE_ADDRESSES) {
@@ -3646,7 +3638,7 @@ function inferTripHeuristics(combinedText) {
   // Tomamos explícitamente lo que sigue después de "a/para/en" como pickup.
   const directRequestPickupMatch = splitAddressFromIntentPhrase(
     text,
-    /(?:mand[aá](?:me|as|an)?|necesito|quiero|pedido)\s+(?:un|una|uno|el|la)?\s*(?:remis|m[oó]vil|movil|taxi|auto|coche|viaje)?\s*(?:para|a|en)\s+/i
+    /(?:mand[aá](?:me|as|an|s)?|necesito|quiero|pedido)\s+(?:un|una|uno|el|la)?\s*(?:remis|m[oó]vil|movil|taxi|auto|coche|viaje)?\s*(?:para|a|en)\s+/i
   );
   if (directRequestPickupMatch && looksLikeTripRequest) {
     return {
@@ -3694,7 +3686,7 @@ function inferTripHeuristics(combinedText) {
     }
   }
 
-  if (pickup) pickup = normalizeAddressPhrase(pickup);
+  if (pickup) pickup = normalizeAddressPhrase(stripTrailingTripRouteTail(pickup));
   if (destination) destination = normalizeAddressPhrase(destination);
 
   return {
@@ -4304,6 +4296,77 @@ async function resolvePhoneFromJid(jid) {
   return null;
 }
 
+function isWasenderInternalMsgId(value) {
+  return /^\d+$/.test(String(value || '').trim());
+}
+
+function extractWhatsAppKeyIdFromPayload(payload) {
+  const data = payload?.data ?? payload ?? {};
+  const candidates = [
+    data?.key?.id,
+    data?.messageKey?.id,
+    data?.messages?.key?.id,
+    data?.waMessageId,
+  ];
+
+  for (const candidate of candidates) {
+    const id = String(candidate || '').trim();
+    if (id && !isWasenderInternalMsgId(id)) return id;
+  }
+
+  return null;
+}
+
+async function resolveOutgoingWhatsAppKeyId(payload) {
+  const direct = extractWhatsAppKeyIdFromPayload(payload);
+  if (direct) return direct;
+
+  const internalMsgId = payload?.data?.msgId;
+  if (internalMsgId == null || internalMsgId === '') return null;
+
+  try {
+    const response = await fetchWithRetry(
+      `${WASENDER_BASE_URL}/messages/${internalMsgId}/info`,
+      {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${WASENDER_API_KEY}` },
+      },
+    );
+    if (!response.ok) return null;
+    const info = await response.json();
+    return extractWhatsAppKeyIdFromPayload(info) || extractWhatsAppKeyIdFromPayload(info?.data);
+  } catch (err) {
+    logWebhook('wasender_message_info_fail', {
+      msgId: String(internalMsgId),
+      error: err?.message || 'unknown',
+    });
+    return null;
+  }
+}
+
+function buildStoredPollMessageIds(pollSendResult) {
+  const wasenderMsgId = pollSendResult?.wasenderMsgId != null
+    ? String(pollSendResult.wasenderMsgId)
+    : null;
+  const waKeyId = pollSendResult?.waKeyId ? String(pollSendResult.waKeyId) : null;
+  const fallbackMsgId = pollSendResult?.msgId ? String(pollSendResult.msgId) : null;
+
+  return {
+    msg_id: waKeyId || wasenderMsgId || fallbackMsgId,
+    wasender_msg_id: wasenderMsgId,
+    wa_key_id: waKeyId || (!isWasenderInternalMsgId(fallbackMsgId) ? fallbackMsgId : null),
+  };
+}
+
+function isAwaitingTripPriceConfirmation(ctx, pollCandidates = []) {
+  return Boolean(
+    (ctx?.pending_price_confirm || ctx?.price_inquiry)
+    && ctx?.origin
+    && ctx?.destination
+    && !(pollCandidates || []).length,
+  );
+}
+
 async function sendWhatsAppPoll(phone, question, options) {
   const to = toWhatsAppJid(phone);
   if (!to) {
@@ -4332,14 +4395,22 @@ async function sendWhatsAppPoll(phone, question, options) {
   }
 
   const payload = await response.json();
-  const msgId = String(payload?.data?.msgId || `poll_${Date.now()}`);
+  const wasenderMsgId = payload?.data?.msgId != null ? String(payload.data.msgId) : null;
+  const waKeyId = await resolveOutgoingWhatsAppKeyId(payload);
+  const msgId = waKeyId || wasenderMsgId || `poll_${Date.now()}`;
   await insertOutgoingMessage({
     phone,
     messageId: msgId,
     content: `[ENCUESTA] ${question}: ${options.join(' | ')}`,
     rawPayload: payload,
   });
-  return { msgId, payload };
+  logWebhook('whatsapp_poll_sent', {
+    phone: maskPhone(phone),
+    wasenderMsgId,
+    waKeyId,
+    msgId,
+  });
+  return { msgId, wasenderMsgId, waKeyId, payload };
 }
 
 async function claimConversationBatch(conversationId) {
@@ -5067,9 +5138,13 @@ async function geocodeAddress(address) {
     throw new Error(`No se pudo geocodificar: ${address}`);
   }
 
-  logWebhook('dashboard_geocode_start', { query: safeAddress });
+  logWebhook('dashboard_geocode_start', { query: safeAddress, googlePlaces: isGoogleConfigured() });
   try {
-    const result = await dashboardGeocodeAddress(safeAddress);
+    if (!isGoogleConfigured()) {
+      throw new Error('Google Places no configurado');
+    }
+
+    const result = await geocodeAddressViaPlaces(safeAddress);
     const resultPayload = {
       formattedAddress: result.formattedAddress,
       lat: result.lat,
@@ -5080,6 +5155,7 @@ async function geocodeAddress(address) {
       formattedAddress: resultPayload.formattedAddress,
       lat: resultPayload.lat,
       lng: resultPayload.lng,
+      geocodeSource: result.geocodeSource || 'google_place_details_essentials',
     });
     return resultPayload;
   } catch (err) {
@@ -5096,6 +5172,30 @@ async function geocodeAddress(address) {
  * Geocodifica un candidato de poll probando la dirección completa antes que la etiqueta corta.
  */
 async function geocodePollCandidate(candidate, votedLabel = '') {
+  const placeId = String(candidate?.placeId || '').trim();
+  if (placeId.startsWith('google:')) {
+    try {
+      const details = await getPlaceDetails(placeId, {
+        sessionToken: candidate?.sessionToken,
+        formattedAddress: candidate?.formattedAddress,
+        title: candidate?.title,
+        subtitle: candidate?.subtitle,
+      });
+      return {
+        label: candidate?.label || candidate?.pollLabel || votedLabel || candidate?.title,
+        formattedAddress: details.formattedAddress || candidate?.formattedAddress,
+        lat: details.lat,
+        lng: details.lng,
+        placeId: details.placeId || placeId,
+      };
+    } catch (err) {
+      logWebhook('poll_candidate_place_details_fail', {
+        placeId,
+        error: err?.message || 'unknown',
+      });
+    }
+  }
+
   const queries = [
     candidate?.formattedAddress,
     candidate?.pollLabel,
@@ -5152,14 +5252,73 @@ function findPollCandidateByVote(candidates, votedName) {
   }) || null;
 }
 
-async function clearPendingPollFromTrip(tripId, pollTripWaCtx = {}) {
+async function clearPendingPollFromTrip(tripId) {
   if (!tripId) return;
-  const cleanTripCtx = { ...(pollTripWaCtx || {}) };
-  delete cleanTripCtx.pending_poll;
+
+  const { data: row } = await getSupabase()
+    .from('trips')
+    .select('wa_context')
+    .eq('id', tripId)
+    .maybeSingle();
+
+  const ctx = safeJsonParse(row?.wa_context, {});
+  if (!ctx?.pending_poll) return;
+
+  delete ctx.pending_poll;
+  const nextCtx = Object.keys(ctx).length > 0 ? ctx : null;
+
   await getSupabase()
     .from('trips')
-    .update({ wa_context: Object.keys(cleanTripCtx).length ? cleanTripCtx : null })
+    .update({ wa_context: nextCtx })
     .eq('id', tripId);
+}
+
+async function findTripRowForPollResults({ voterPhone, pollMsgId, lastTripId }) {
+  const activeStatuses = ['queued', 'pending', 'scheduled'];
+
+  if (pollMsgId) {
+    const pollIdQueries = [
+      ['wa_context->>poll_msg_id', pollMsgId],
+      ['wa_context->>poll_wa_key_id', pollMsgId],
+      ['wa_context->pending_poll->>msg_id', pollMsgId],
+      ['wa_context->pending_poll->>wa_key_id', pollMsgId],
+    ];
+
+    for (const [column, value] of pollIdQueries) {
+      const { data: byPollId } = await getSupabase()
+        .from('trips')
+        .select('id, wa_context')
+        .filter(column, 'eq', value)
+        .in('status', activeStatuses)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (byPollId?.id) return byPollId;
+    }
+  }
+
+  if (lastTripId) {
+    const { data: byLastTrip } = await getSupabase()
+      .from('trips')
+      .select('id, wa_context')
+      .eq('id', lastTripId)
+      .in('status', activeStatuses)
+      .not('wa_context', 'is', null)
+      .maybeSingle();
+    if (byLastTrip?.id) return byLastTrip;
+  }
+
+  const { data: byPhone } = await getSupabase()
+    .from('trips')
+    .select('id, wa_context')
+    .eq('passenger_phone', normalizePhone(voterPhone))
+    .in('status', activeStatuses)
+    .not('wa_context', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return byPhone || null;
 }
 
 async function geocodeAddressMultiple(address, maxResults = 5) {
@@ -5167,17 +5326,7 @@ async function geocodeAddressMultiple(address, maxResults = 5) {
   if (!safeQuery) return [];
 
   try {
-    const hits = await dashboardGeocodeAddressMultiple(safeQuery, maxResults);
-    return hits
-      .map((hit) => ({
-        formattedAddress: hit.formattedAddress,
-        lat: hit.lat,
-        lng: hit.lng,
-        score: scoreCandidateAgainstQuery(hit.formattedAddress, safeQuery),
-      }))
-      .filter((item) => item.score >= 0.10)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, maxResults);
+    return await autocompleteAndResolveAddresses(safeQuery, maxResults);
   } catch (err) {
     logWebhook('dashboard_geocode_multi_fail', {
       query: safeQuery,
@@ -5189,29 +5338,22 @@ async function geocodeAddressMultiple(address, maxResults = 5) {
 
 /**
  * Búsqueda de direcciones/POIs en Salta Capital.
- * Misma fuente que NewTripModal: autocomplete + /api/geo/geocode (Google Places + OSM).
+ * Misma fuente que NewTripModal: autocomplete + Place Details Essentials + caché Supabase.
  */
 async function autocompleteAndGeocodeAddress(query, maxResults = 5) {
   const safeQuery = sanitizeAddressInput(query);
   if (!safeQuery) return [];
 
   try {
-    const hits = await autocompleteAddressSalta(safeQuery, maxResults);
+    const hits = await autocompleteAndResolveAddresses(safeQuery, maxResults);
     const googleCount = hits.filter((hit) => String(hit?.placeId || '').startsWith('google:')).length;
     logWebhook('geo_autocomplete_ok', {
       query: safeQuery,
       count: hits.length,
       googleCount,
-      fallbackCount: Math.max(0, hits.length - googleCount),
+      resolvedCount: hits.filter((hit) => Number.isFinite(hit.lat) && Number.isFinite(hit.lng)).length,
     });
-    return hits
-      .map((hit) => ({
-        formattedAddress: hit.address,
-        lat: hit.lat,
-        lng: hit.lng,
-        score: scoreCandidateAgainstQuery(hit.address, safeQuery),
-      }))
-      .filter((item) => item.score >= 0.10);
+    return hits;
   } catch (err) {
     logWebhook('geo_autocomplete_error', { query: safeQuery, error: err?.message || 'unknown' });
     return [];
@@ -5224,13 +5366,17 @@ async function autocompleteAndGeocodeAddress(query, maxResults = 5) {
  */
 async function buildCatalogAmbiguityPollCandidates(query, maxResults = 4) {
   await loadSaltaStreetCatalog().catch(() => null);
-  const catalogVariants = getCatalogAddressVariants(query, 8);
-  if (catalogVariants.length <= 1) return [];
+  const ranked = getCatalogRankedStreetMatches(query, Math.max(maxResults * 2, 8));
+  if (ranked.length <= 1) return [];
 
   const seen = new Set();
   const candidates = [];
 
-  for (const variant of catalogVariants) {
+  for (const item of ranked) {
+    const houseNumber = item.houseNumber;
+    const variant = houseNumber
+      ? `${item.street.fullLabel} ${houseNumber}, Salta`
+      : `${item.street.fullLabel}, Salta`;
     const formattedAddress = /,\s*argentina\s*$/i.test(variant)
       ? variant
       : `${variant.replace(/,\s*salta\s*$/i, '').trim()}, Salta, Argentina`;
@@ -5246,11 +5392,26 @@ async function buildCatalogAmbiguityPollCandidates(query, maxResults = 4) {
       pollLabel,
       lat: null,
       lng: null,
-      score: scoreCandidateAgainstQuery(formattedAddress, query),
+      score: Math.max(
+        Number(item.score || 0),
+        scoreCandidateAgainstQuery(formattedAddress, query),
+      ),
       source: 'catalog_variant',
+      street: item.street,
     });
 
     if (candidates.length >= maxResults) break;
+  }
+
+  const queryTokens = tokenizeAddress(
+    normalizeForMatch(query || '')
+      .replace(/\b(?:salta|capital|argentina|\d{1,5}[a-z]?)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  ).filter((token) => token && token.length >= 3 && token !== 'guemes');
+
+  if (isGuemesHomonymQuery(query, queryTokens)) {
+    return sortGuemesStreetCandidates(candidates).slice(0, maxResults);
   }
 
   return candidates;
@@ -5303,20 +5464,18 @@ async function getAddressCandidates(query, maxResults = 5) {
     }),
   ]);
 
-  const [geocodeResult, autocompleteResult, catalogResult] = await Promise.allSettled([
-    geocodeAddressMultiple(query, maxResults),
+  const [autocompleteResult, catalogResult] = await Promise.allSettled([
     autocompleteAndGeocodeAddress(query, maxResults),
     catalogWithTimeout,
   ]);
 
-  const geocodeCandidates = geocodeResult.status === 'fulfilled' ? geocodeResult.value : [];
   const autocompleteCandidates = autocompleteResult.status === 'fulfilled' ? autocompleteResult.value : [];
   const catalogCandidates = catalogResult.status === 'fulfilled' ? catalogResult.value : [];
 
   // Merge and deduplicate — first by formatted address string, then by lat/lng proximity (~100m)
   const seenKeys = new Set();
   const merged = [];
-  for (const c of [...geocodeCandidates, ...autocompleteCandidates, ...catalogCandidates]) {
+  for (const c of [...autocompleteCandidates, ...catalogCandidates]) {
     const key = (c.formattedAddress || '').toLowerCase().trim();
     if (!key || seenKeys.has(key)) continue;
     // Also skip if a previous candidate is within ~100m (different string, same place)
@@ -5334,7 +5493,6 @@ async function getAddressCandidates(query, maxResults = 5) {
   merged.sort((a, b) => b.score - a.score);
   logWebhook('maps_address_candidates_merged', {
     query,
-    geocodeCount: geocodeCandidates.length,
     autocompleteCount: autocompleteCandidates.length,
     catalogCount: catalogCandidates.length,
     mergedCount: merged.length,
@@ -5449,6 +5607,34 @@ async function getRouteMetricsByAddress(originAddress, destinationAddress) {
   }
 }
 
+const WHATSAPP_AGENT_ENABLED_KEY = 'whatsapp_agent_enabled';
+
+function parseTruthySetting(value, defaultValue = true) {
+  if (value == null || String(value).trim() === '') {
+    return defaultValue;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'false' || normalized === '0' || normalized === 'no') {
+    return false;
+  }
+  return true;
+}
+
+async function isWhatsAppAgentEnabled() {
+  const { data, error } = await getSupabase()
+    .from('settings')
+    .select('value')
+    .eq('key', WHATSAPP_AGENT_ENABLED_KEY)
+    .maybeSingle();
+
+  if (error) {
+    logWebhook('whatsapp_agent_enabled_read_error', { message: error.message });
+    return true;
+  }
+
+  return parseTruthySetting(data?.value, true);
+}
+
 async function getSettingsMap() {
   const { data, error } = await getSupabase().from('settings').select('key, value');
   if (error) throw error;
@@ -5554,14 +5740,13 @@ function buildTripPriceSummaryMessage({ pickupAddress, destAddress, distanceKm, 
 }
 
 async function sendTripPriceConfirmationPoll(phone) {
-  // Pausa breve para que WhatsApp entregue el resumen antes que la encuesta.
-  await new Promise((resolve) => setTimeout(resolve, 800));
-  const pollResult = await sendWhatsAppPoll(phone, '¿Confirmás el viaje?', TRIP_PRICE_CONFIRM_OPTIONS);
-  return pollResult?.msgId || null;
+  return sendWhatsAppPoll(phone, '¿Confirmás el viaje?', TRIP_PRICE_CONFIRM_OPTIONS);
 }
 
 async function sendTripPriceSummaryAndConfirmPoll(phone, summaryMsg) {
   await sendWhatsAppText(phone, summaryMsg);
+  // WhatsApp/WaSender pueden entregar la encuesta antes que el texto si no hay pausa.
+  await new Promise((resolve) => setTimeout(resolve, 2500));
   return sendTripPriceConfirmationPoll(phone);
 }
 
@@ -5682,9 +5867,16 @@ async function activateTripAfterPriceConfirmation(tripId, priceCtx, passengerPho
     driver_id: null,
     notes,
   };
-  if (originData.address) updatePayload.destination_address = originData.address;
-  if (originData.lat != null) updatePayload.destination_lat = originData.lat;
-  if (originData.lng != null) updatePayload.destination_lng = originData.lng;
+  if (originData.address) updatePayload.origin_address = originData.address;
+  if (originData.lat != null) {
+    updatePayload.origin_lat = originData.lat;
+    updatePayload.origin_lng = originData.lng;
+  }
+  if (destData.address) updatePayload.destination_address = destData.address;
+  if (destData.lat != null) {
+    updatePayload.destination_lat = destData.lat;
+    updatePayload.destination_lng = destData.lng;
+  }
   if (priceCtx?.pricing?.price != null) updatePayload.price = priceCtx.pricing.price;
   if (priceCtx?.route?.distanceKm != null) updatePayload.distance_km = priceCtx.route.distanceKm;
   if (priceCtx?.route?.durationMinutes != null) updatePayload.duration_minutes = priceCtx.route.durationMinutes;
@@ -5761,12 +5953,14 @@ async function requestTripPriceConfirmation({
     durationMinutes: passengerRouteFare.duration_minutes,
     price: passengerRouteFare.price,
   });
-  let pollMsgId = null;
+  let pollSendResult = null;
   try {
-    pollMsgId = await sendTripPriceSummaryAndConfirmPoll(phone, priceMsg);
+    pollSendResult = await sendTripPriceSummaryAndConfirmPoll(phone, priceMsg);
   } catch (err) {
     logWebhook('trip_price_confirm_poll_error', { error: err?.message || 'unknown' });
   }
+
+  const pollIds = buildStoredPollMessageIds(pollSendResult);
 
   const finalDestJson = buildFinalDestJsonTag({
     address: destAddress,
@@ -5777,7 +5971,8 @@ async function requestTripPriceConfirmation({
   const priceWaCtx = {
     price_inquiry: true,
     pending_price_confirm: true,
-    poll_msg_id: pollMsgId,
+    poll_msg_id: pollIds.wasender_msg_id || pollIds.msg_id,
+    poll_wa_key_id: pollIds.wa_key_id || pollIds.msg_id,
     origin: {
       address: pickupAddress,
       lat: pickupLocation.lat,
@@ -5849,7 +6044,9 @@ async function requestTripPriceConfirmation({
     phone: maskPhone(phone),
     price: passengerRouteFare.price,
     distanceKm: passengerRouteFare.distance_km,
-    pollMsgId,
+    pollMsgId: pollIds.msg_id,
+    pollWasenderMsgId: pollIds.wasender_msg_id,
+    pollWaKeyId: pollIds.wa_key_id,
   });
 
   return {
@@ -6893,6 +7090,144 @@ function buildTripCreateSuccessContext({
   };
 }
 
+async function maybeSendDestinationAddressPoll({
+  conversation,
+  extracted,
+  pickupLocation,
+  finalDestinationHint,
+}) {
+  if (!finalDestinationHint) return null;
+
+  const destTokens = getAddressContentTokens(normalizeForMatch(finalDestinationHint));
+  const destIsGuemesHomonym = isGuemesHomonymQuery(finalDestinationHint, destTokens);
+
+  const [googleDestPoll, catalogDestPoll] = await Promise.all([
+    getAutocompletePollCandidates(finalDestinationHint, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
+    buildCatalogAmbiguityPollCandidates(finalDestinationHint, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
+  ]);
+
+  const rawDestPollCandidates = destIsGuemesHomonym && catalogDestPoll.length >= 2
+    ? catalogDestPoll
+    : catalogDestPoll.length >= 2
+      ? catalogDestPoll
+      : googleDestPoll;
+
+  const destPollCandidates = collapseEquivalentPollCandidates(
+    filterSaltaCapitalCandidates(rawDestPollCandidates),
+  );
+
+  let shouldSend = false;
+  if (destIsGuemesHomonym && destPollCandidates.length >= 2) {
+    shouldSend = true;
+  } else if (destPollCandidates.length >= 2) {
+    const topScore = Number(destPollCandidates[0]?.score || 0);
+    const secondScore = Number(destPollCandidates[1]?.score || 0);
+    shouldSend = topScore - secondScore < 0.40;
+  }
+
+  if (!shouldSend) return null;
+
+  const destPollTop = destPollCandidates.slice(0, GUEMES_POLL_OPTION_LIMIT);
+  const { pollOptions: destPollOptions, pollCandidates: destPollCandidatesForTrip } =
+    buildAddressPollPayload(destPollTop);
+
+  let destPollIds = null;
+  const destPollPhone = conversation?.phone || extracted?.phone;
+  try {
+    const destPollResult = await sendWhatsAppPoll(
+      destPollPhone,
+      '¿Cuál es la dirección de destino?',
+      destPollOptions,
+    );
+    destPollIds = buildStoredPollMessageIds(destPollResult);
+  } catch (err) {
+    logWebhook('dest_poll_send_error', { error: err?.message });
+  }
+
+  if (!destPollIds?.msg_id) return null;
+
+  logWebhook('destination_address_poll_sent', {
+    hint: finalDestinationHint,
+    pollMsgId: destPollIds.msg_id,
+    pollWasenderMsgId: destPollIds.wasender_msg_id,
+    pollWaKeyId: destPollIds.wa_key_id,
+    optionCount: destPollOptions.length,
+    guemesHomonym: destIsGuemesHomonym,
+    catalogOptions: catalogDestPoll.length,
+    googleOptions: googleDestPoll.length,
+  });
+
+  const destPollWaContext = {
+    pending_poll: {
+      msg_id: destPollIds.msg_id,
+      wasender_msg_id: destPollIds.wasender_msg_id,
+      wa_key_id: destPollIds.wa_key_id,
+      phone: destPollPhone,
+      type: 'destination',
+      candidates: destPollCandidatesForTrip,
+      extracted: {
+        ...extracted,
+        destination: finalDestinationHint,
+        pickup_location: pickupLocation?.formattedAddress || extracted?.pickup_location,
+        pickup_lat: pickupLocation?.lat,
+        pickup_lng: pickupLocation?.lng,
+      },
+    },
+  };
+
+  const tripPhone = normalizePhone(destPollPhone);
+  const destPlaceholderId = extracted?._existingTripId || null;
+  let existingDestTrip = null;
+  if (destPlaceholderId) {
+    const { data: byId } = await getSupabase()
+      .from('trips')
+      .select('id')
+      .eq('id', destPlaceholderId)
+      .in('status', ['queued', 'pending'])
+      .maybeSingle();
+    existingDestTrip = byId;
+  }
+  if (!existingDestTrip) {
+    const { data: byPhone } = await getSupabase()
+      .from('trips')
+      .select('id')
+      .eq('passenger_phone', tripPhone)
+      .eq('status', 'queued')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    existingDestTrip = byPhone;
+  }
+
+  if (existingDestTrip) {
+    await getSupabase()
+      .from('trips')
+      .update({ wa_context: destPollWaContext })
+      .eq('id', existingDestTrip.id);
+  } else {
+    await getSupabase()
+      .from('trips')
+      .insert({
+        passenger_name: extracted?.passenger_name || conversation?.push_name || 'Pasajero WhatsApp',
+        passenger_phone: tripPhone,
+        status: 'queued',
+        origin_address: pickupLocation?.formattedAddress || null,
+        origin_lat: pickupLocation?.lat || null,
+        origin_lng: pickupLocation?.lng || null,
+        notes: '[APPROACH_ONLY] Esperando selección de destino.',
+        wa_context: destPollWaContext,
+        dispatch_status: 'hold',
+      });
+  }
+
+  return {
+    ok: true,
+    reply: null,
+    queued: false,
+    reason: 'destination_poll_sent',
+  };
+}
+
 async function createTripFromConversation({ conversation, extracted }) {
   logWebhook('trip_create_start', {
     conversationId: conversation?.id || null,
@@ -7054,6 +7389,16 @@ async function createTripFromConversation({ conversation, extracted }) {
       lng: finalDestinationGeo.lng,
     });
   } else if (finalDestinationHint) {
+    const destinationPollResult = await maybeSendDestinationAddressPoll({
+      conversation,
+      extracted,
+      pickupLocation,
+      finalDestinationHint,
+    });
+    if (destinationPollResult) {
+      return destinationPollResult;
+    }
+
     const rawDestCandidates = await getAddressCandidates(finalDestinationHint, 5).catch(() => []);
     const distinctDestCandidates = rawDestCandidates.filter(
       (c, i, arr) =>
@@ -7064,125 +7409,6 @@ async function createTripFromConversation({ conversation, extracted }) {
             Math.abs(Number(prev.lng) - Number(c.lng)) > 0.001
         )
     );
-
-    const destTopScore = Number(distinctDestCandidates[0]?.score || 0);
-    const destSecondScore = Number(distinctDestCandidates[1]?.score || 0);
-
-    if (distinctDestCandidates.length >= 2 && destTopScore - destSecondScore < 0.40) {
-      // Destino ambiguo: enviar poll de desambiguación (solo opciones de Salta Capital / A4400)
-      const saltaCapitalDestCandidates = filterSaltaCapitalCandidates(distinctDestCandidates);
-
-      if (saltaCapitalDestCandidates.length === 1) {
-        finalDestinationGeo = {
-          formattedAddress: saltaCapitalDestCandidates[0].formattedAddress,
-          lat: saltaCapitalDestCandidates[0].lat,
-          lng: saltaCapitalDestCandidates[0].lng,
-        };
-        logWebhook('destination_address_auto_resolved_salta_capital', {
-          hint: finalDestinationHint,
-          formattedAddress: finalDestinationGeo.formattedAddress,
-        });
-      } else if (saltaCapitalDestCandidates.length >= 2) {
-      const orderedDestCandidates = [...saltaCapitalDestCandidates].sort((a, b) => {
-        const scoreDiff = Number(b?.score || 0) - Number(a?.score || 0);
-        if (scoreDiff !== 0) return scoreDiff;
-        return String(a?.formattedAddress || '').localeCompare(String(b?.formattedAddress || ''));
-      });
-
-      const destPollTop = orderedDestCandidates.slice(0, 4);
-      const { pollOptions: destPollOptions, pollCandidates: destPollCandidatesForTrip } =
-        buildAddressPollPayload(destPollTop);
-
-      let destPollMsgId = null;
-      const destPollPhone = conversation?.phone || extracted?.phone;
-      try {
-        const destPollResult = await sendWhatsAppPoll(
-          destPollPhone,
-          '¿Cuál es la dirección de destino?',
-          destPollOptions
-        );
-        destPollMsgId = destPollResult.msgId;
-      } catch (err) {
-        logWebhook('dest_poll_send_error', { error: err?.message });
-      }
-
-      if (destPollMsgId) {
-        logWebhook('destination_address_poll_sent', {
-          hint: finalDestinationHint,
-          pollMsgId: destPollMsgId,
-          optionCount: destPollOptions.length,
-        });
-
-        const destPollWaContext = {
-          pending_poll: {
-            msg_id: destPollMsgId,
-            phone: destPollPhone,
-            type: 'destination',
-            candidates: destPollCandidatesForTrip,
-            extracted: {
-              ...extracted,
-              pickup_location: pickupLocation?.formattedAddress || extracted?.pickup_location,
-              pickup_lat: pickupLocation?.lat,
-              pickup_lng: pickupLocation?.lng,
-            },
-          },
-        };
-
-        // Guardar en trip placeholder existente o crear uno nuevo
-        const tripPhone = normalizePhone(destPollPhone);
-        const destPlaceholderId = extracted?._existingTripId || null;
-        let existingDestTrip = null;
-        if (destPlaceholderId) {
-          const { data: byId } = await getSupabase()
-            .from('trips')
-            .select('id')
-            .eq('id', destPlaceholderId)
-            .in('status', ['queued', 'pending'])
-            .maybeSingle();
-          existingDestTrip = byId;
-        }
-        if (!existingDestTrip) {
-          const { data: byPhone } = await getSupabase()
-            .from('trips')
-            .select('id')
-            .eq('passenger_phone', tripPhone)
-            .eq('status', 'queued')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          existingDestTrip = byPhone;
-        }
-
-        if (existingDestTrip) {
-          await getSupabase()
-            .from('trips')
-            .update({ wa_context: destPollWaContext })
-            .eq('id', existingDestTrip.id);
-        } else {
-          await getSupabase()
-            .from('trips')
-            .insert({
-              passenger_name: extracted?.passenger_name || conversation?.push_name || 'Pasajero WhatsApp',
-              passenger_phone: tripPhone,
-              status: 'queued',
-              origin_address: pickupLocation?.formattedAddress || null,
-              origin_lat: pickupLocation?.lat || null,
-              origin_lng: pickupLocation?.lng || null,
-              notes: '[APPROACH_ONLY] Esperando selección de destino.',
-              wa_context: destPollWaContext,
-              dispatch_status: 'hold',
-            });
-        }
-
-        return {
-          ok: true,
-          reply: null,
-          queued: false,
-          reason: 'destination_poll_sent',
-        };
-      }
-      }
-    }
 
     // Sin ambigüedad o solo 1 candidato: usar el mejor resultado
     if (distinctDestCandidates.length > 0) {
@@ -8751,7 +8977,7 @@ async function processClaimedConversation(batch) {
           await dispatchQueuedPassengers();
         }
 
-        await clearPendingPollFromTrip(pollTrip?.id, pollTripWaCtx).catch(() => {});
+        await clearPendingPollFromTrip(pollTrip?.id).catch(() => {});
 
         logWebhook('conversation_trip_result', {
           conversationId: batch?.id || null,
@@ -9787,7 +10013,21 @@ async function processClaimedConversation(batch) {
   }
 
   // Normalizar pickup con correcciones fonéticas antes de cualquier geocodificación/validación
-  const normalizedPickupForGeo = normalizeAddressPhrase(nextContext.pickup_location) || nextContext.pickup_location;
+  const normalizedPickupForGeo =
+    normalizeAddressPhrase(stripTrailingTripRouteTail(nextContext.pickup_location)) ||
+    normalizeAddressPhrase(nextContext.pickup_location) ||
+    nextContext.pickup_location;
+  if (
+    normalizedPickupForGeo &&
+    normalizedPickupForGeo !== nextContext.pickup_location
+  ) {
+    nextContext.pickup_location = normalizedPickupForGeo;
+    tripExtracted.pickup_location = normalizedPickupForGeo;
+    logWebhook('conversation_pickup_route_tail_stripped', {
+      conversationId: batch?.id || null,
+      pickup: normalizedPickupForGeo,
+    });
+  }
 
   // --- Caso 25/26/27: Pasaje, Manzana/Lote, Km de ruta → GPS obligatorio ---
   // Google Maps no indexa pasajes angostos, el sistema catastral manzana/lote,
@@ -9978,12 +10218,45 @@ async function processClaimedConversation(batch) {
     resolveSaltaKnownPoi(nextContext.pickup_location) ||
     resolveSaltaKnownPoi(normalizedPickupForGeo);
 
-  const [addressCandidatesResult, catalogStreetPollCandidates] = await Promise.all([
-    getAddressCandidates(normalizedPickupForGeo, 5).catch(() => []),
+  const [googlePollCandidates, catalogStreetPollCandidates, addressCandidatesResult] = await Promise.all([
+    getAutocompletePollCandidates(normalizedPickupForGeo, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
     buildCatalogAmbiguityPollCandidates(normalizedPickupForGeo, 4)
       .then((items) => items.filter(isSaltaCapitalCandidate))
       .catch(() => []),
+    getAddressCandidates(normalizedPickupForGeo, 5).catch(() => []),
   ]);
+
+  const pickupQueryTokens = getAddressContentTokens(normalizeForMatch(normalizedPickupForGeo || ''));
+  const pickupIsGuemesHomonym = isGuemesHomonymQuery(normalizedPickupForGeo, pickupQueryTokens);
+
+  if (
+    !tripExtracted._preGeocodedPickup?.lat
+    && !knownPoiMatch
+    && !pickupIsGuemesHomonym
+    && isSpecificStreetAddress(normalizedPickupForGeo)
+    && !pendingScheduleInfo
+  ) {
+    try {
+      const directGeo = await geocodeAddress(normalizedPickupForGeo);
+      tripExtracted._preGeocodedPickup = {
+        formattedAddress: directGeo.formattedAddress,
+        lat: directGeo.lat,
+        lng: directGeo.lng,
+      };
+      logWebhook('conversation_pickup_direct_geocode_ok', {
+        conversationId: batch?.id || null,
+        pickup: normalizedPickupForGeo,
+        formattedAddress: directGeo.formattedAddress,
+      });
+    } catch (err) {
+      logWebhook('conversation_pickup_direct_geocode_fail', {
+        conversationId: batch?.id || null,
+        pickup: normalizedPickupForGeo,
+        error: err?.message || 'unknown',
+      });
+    }
+  }
+
   let addressCandidates = addressCandidatesResult;
   if (knownPoiMatch) {
     addressCandidates = await enrichCandidatesForKnownPoi(knownPoiMatch, addressCandidates);
@@ -10007,15 +10280,25 @@ async function processClaimedConversation(batch) {
 
   const saltaCapitalCandidates = filterSaltaCapitalCandidates(distinctCandidates);
 
-  let addressPollCandidates = saltaCapitalCandidates;
+  // Poll: misma fuente que NewTripModal (Google Autocomplete sin pre-geocodificar).
+  let addressPollCandidates = filterSaltaCapitalCandidates(googlePollCandidates);
   if (addressPollCandidates.length < 2 && catalogStreetPollCandidates.length >= 2) {
     addressPollCandidates = catalogStreetPollCandidates;
     logWebhook('conversation_catalog_street_poll_fallback', {
       conversationId: batch?.id || null,
       pickup: normalizedPickupForGeo,
+      googleCount: googlePollCandidates.length,
       optionCount: catalogStreetPollCandidates.length,
     });
+  } else {
+    logWebhook('conversation_google_autocomplete_poll', {
+      conversationId: batch?.id || null,
+      pickup: normalizedPickupForGeo,
+      optionCount: addressPollCandidates.length,
+    });
   }
+
+  addressPollCandidates = collapseEquivalentPollCandidates(addressPollCandidates);
 
   const topScoreGap =
     addressPollCandidates.length >= 2
@@ -10025,11 +10308,38 @@ async function processClaimedConversation(batch) {
   const hasCatalogStreetPoll = addressPollCandidates.some((c) => c.source === 'catalog_variant');
 
   const shouldSendAddressPoll =
+    !tripExtracted._preGeocodedPickup?.lat &&
     addressPollCandidates.length >= 2 &&
-    (knownPoiMatch || topScoreGap < 0.40 || hasCatalogStreetPoll);
+    (knownPoiMatch || pickupIsGuemesHomonym || topScoreGap < 0.40 || hasCatalogStreetPoll);
 
   const shouldSendPoiConfirmPoll =
     Boolean(knownPoiMatch) && addressPollCandidates.length === 1;
+
+  if (
+    pendingScheduleInfo
+    && !tripExtracted._preGeocodedPickup?.lat
+    && normalizedPickupForGeo
+  ) {
+    try {
+      const directGeo = await geocodeAddress(normalizedPickupForGeo);
+      tripExtracted._preGeocodedPickup = {
+        formattedAddress: directGeo.formattedAddress,
+        lat: directGeo.lat,
+        lng: directGeo.lng,
+      };
+      logWebhook('conversation_schedule_pre_geocode_ok', {
+        conversationId: batch?.id || null,
+        pickup: normalizedPickupForGeo,
+        formattedAddress: tripExtracted._preGeocodedPickup.formattedAddress,
+      });
+    } catch (err) {
+      logWebhook('conversation_schedule_pre_geocode_fail', {
+        conversationId: batch?.id || null,
+        pickup: normalizedPickupForGeo,
+        error: err?.message || 'unknown',
+      });
+    }
+  }
 
   if (addressPollCandidates.length === 1 && !knownPoiMatch) {
     const onlyCandidate = addressPollCandidates[0];
@@ -10044,19 +10354,40 @@ async function processClaimedConversation(batch) {
       formattedAddress: tripExtracted._preGeocodedPickup.formattedAddress,
       totalCandidates: distinctCandidates.length,
     });
+    } else if (onlyCandidate?.placeId) {
+      try {
+        const geocoded = await geocodePollCandidate(onlyCandidate);
+        if (geocoded?.lat && geocoded?.lng) {
+          tripExtracted._preGeocodedPickup = {
+            formattedAddress: geocoded.formattedAddress,
+            lat: geocoded.lat,
+            lng: geocoded.lng,
+          };
+          logWebhook('conversation_address_auto_resolved_via_place_id', {
+            conversationId: batch?.id || null,
+            placeId: onlyCandidate.placeId,
+            formattedAddress: geocoded.formattedAddress,
+          });
+        }
+      } catch {
+        // continuar al poll si falla
+      }
     }
-  } else if (shouldSendAddressPoll || shouldSendPoiConfirmPoll) {
+  } else if (
+    !tripExtracted._preGeocodedPickup?.lat
+    && (shouldSendAddressPoll || shouldSendPoiConfirmPoll)
+  ) {
     const orderedPollCandidates = [...addressPollCandidates].sort((a, b) => {
       const scoreDiff = Number(b?.score || 0) - Number(a?.score || 0);
       if (scoreDiff !== 0) return scoreDiff;
       return String(a?.formattedAddress || '').localeCompare(String(b?.formattedAddress || ''));
     });
 
-    const pollTopCandidates = orderedPollCandidates.slice(0, 4);
+    const pollTopCandidates = orderedPollCandidates.slice(0, GUEMES_POLL_OPTION_LIMIT);
     const { pollOptions, pollCandidates: pollCandidatesForTrip } =
       buildAddressPollPayload(pollTopCandidates);
 
-    let pollMsgId = null;
+    let pollIds = null;
     try {
       const pollResult = await sendWhatsAppPoll(
         batch.phone,
@@ -10065,15 +10396,17 @@ async function processClaimedConversation(batch) {
           : '¿Cuál es tu dirección de retiro?',
         pollOptions
       );
-      pollMsgId = pollResult.msgId;
+      pollIds = buildStoredPollMessageIds(pollResult);
     } catch (err) {
       logWebhook('poll_send_error', { conversationId: batch?.id || null, error: err?.message });
     }
 
-    if (pollMsgId) {
+    if (pollIds?.msg_id) {
       logWebhook('conversation_address_poll_sent', {
         conversationId: batch?.id || null,
-        pollMsgId,
+        pollMsgId: pollIds.msg_id,
+        pollWasenderMsgId: pollIds.wasender_msg_id,
+        pollWaKeyId: pollIds.wa_key_id,
         optionCount: pollOptions.length,
         saltaCapitalOptionsCount: pollTopCandidates.length,
         filteredOutCount: distinctCandidates.length - addressPollCandidates.length,
@@ -10085,10 +10418,21 @@ async function processClaimedConversation(batch) {
       // para que la fuente de verdad sea la tabla trips.
       const pollWaContext = withScheduleWaContext({
         pending_poll: {
-          msg_id: pollMsgId,
+          msg_id: pollIds.msg_id,
+          wasender_msg_id: pollIds.wasender_msg_id,
+          wa_key_id: pollIds.wa_key_id,
           phone: batch.phone,
+          type: 'pickup',
           candidates: pollCandidatesForTrip,
-          extracted: nextContext,
+          extracted: {
+            ...tripExtracted,
+            ...nextContext,
+            destination:
+              nextContext.destination ||
+              tripExtracted.destination ||
+              extracted.destination ||
+              null,
+          },
         },
       });
       let pollTripId = null;
@@ -10155,7 +10499,33 @@ async function processClaimedConversation(batch) {
   }
 
   if (pendingScheduleInfo) {
-    const preGeo = tripExtracted._preGeocodedPickup;
+    let preGeo = tripExtracted._preGeocodedPickup;
+    if (!preGeo?.formattedAddress || preGeo.lat == null || preGeo.lng == null) {
+      const queryLabel =
+        normalizeAddressPhrase(nextContext.pickup_location) || nextContext.pickup_location || '';
+      if (queryLabel) {
+        try {
+          const directGeo = await geocodeAddress(queryLabel);
+          preGeo = {
+            formattedAddress: directGeo.formattedAddress,
+            lat: directGeo.lat,
+            lng: directGeo.lng,
+          };
+          logWebhook('conversation_schedule_trip_direct_geocode_ok', {
+            conversationId: batch?.id || null,
+            pickup: queryLabel,
+            formattedAddress: preGeo.formattedAddress,
+          });
+        } catch (directGeoErr) {
+          logWebhook('conversation_schedule_trip_direct_geocode_fail', {
+            conversationId: batch?.id || null,
+            pickup: queryLabel,
+            error: directGeoErr?.message || 'unknown',
+          });
+        }
+      }
+    }
+
     if (!preGeo?.formattedAddress || preGeo.lat == null || preGeo.lng == null) {
       const queryLabel =
         normalizeAddressPhrase(nextContext.pickup_location) || nextContext.pickup_location || 'esa dirección';
@@ -10599,30 +10969,26 @@ async function processWebhookBody(body, requestMeta = {}) {
         .maybeSingle();
 
       // Buscar pending_poll en trips.wa_context (fuente de verdad)
-      const { data: pollTripRow } = await getSupabase()
-        .from('trips')
-        .select('id, wa_context')
-        .eq('passenger_phone', normalizePhone(voterPhone))
-        .in('status', ['queued', 'pending', 'scheduled'])
-        .not('wa_context', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const pollTripRow = await findTripRowForPollResults({
+        voterPhone,
+        pollMsgId,
+        lastTripId: pollConv?.last_trip_id || null,
+      });
       const pollTripWaCtxResults = safeJsonParse(pollTripRow?.wa_context, {});
       const pendingPoll = pollTripWaCtxResults?.pending_poll || safeJsonParse(pollConv?.context, {})?.pending_poll;
       const pollCandidates = pendingPoll?.candidates || [];
       const pollExtracted = pendingPoll?.extracted || {};
+      const votedName = voted.name || '';
+      const isPriceConfirmVote =
+        isTripPriceConfirmYesVote(votedName) || isTripPriceConfirmNoVote(votedName);
 
       // Encuesta de confirmación de precio (retiro + destino ya definidos)
       if (
         pollTripRow?.id
-        && (pollTripWaCtxResults.pending_price_confirm || pollTripWaCtxResults.price_inquiry)
-        && pollTripWaCtxResults.origin
-        && pollTripWaCtxResults.destination
-        && !pollCandidates.length
+        && isAwaitingTripPriceConfirmation(pollTripWaCtxResults, pollCandidates)
+        && isPriceConfirmVote
       ) {
         const pollPassengerPhone = normalizePhone(voterPhone);
-        const votedName = voted.name || '';
 
         if (isTripPriceConfirmYesVote(votedName)) {
           try {
@@ -10699,7 +11065,7 @@ async function processWebhookBody(body, requestMeta = {}) {
 
       // "Ninguna de estas opciones" → pedir GPS/calle directamente
       if (normalizeForMatch(voted.name || '').startsWith('ninguna')) {
-        await clearPendingPollFromTrip(pollTripRow?.id, pollTripWaCtxResults);
+        await clearPendingPollFromTrip(pollTripRow?.id);
         if (pollConv?.id) {
           try {
             await getSupabase()
@@ -10808,7 +11174,7 @@ async function processWebhookBody(body, requestMeta = {}) {
           } catch (_) {}
         }
 
-        await clearPendingPollFromTrip(pollTripRow?.id, pollTripWaCtxResults).catch(() => {});
+        await clearPendingPollFromTrip(pollTripRow?.id).catch(() => {});
 
         return {
           status: 200,
@@ -10909,7 +11275,7 @@ async function processWebhookBody(body, requestMeta = {}) {
         driverId: tripResult?.driver?.id || null,
       });
 
-      await clearPendingPollFromTrip(pollTripRow?.id, pollTripWaCtxResults).catch(() => {});
+      await clearPendingPollFromTrip(pollTripRow?.id).catch(() => {});
 
       // 5️⃣ Actualizar la conversación: last_trip_id + contexto del resultado + estado 'open'
       if (pollConv?.id) {
@@ -11378,6 +11744,11 @@ async function ensureWarm() {
 }
 
 export async function POST(req) {
+  if (!(await isWhatsAppAgentEnabled())) {
+    logWebhook('http_post_skipped', { reason: 'whatsapp_agent_disabled' });
+    return Response.json({ success: true, disabled: true, ignored: true }, { status: 200 });
+  }
+
   await ensureWarm();
   const body = await req.json();
   const authHeader = req.headers.get('authorization') || '';
@@ -11393,12 +11764,22 @@ export async function POST(req) {
 }
 
 export async function GET(req) {
-  await ensureWarm();
   const url = new URL(req.url);
 
   if (url.searchParams.get('health') === '1') {
-    return Response.json(getHealthPayload(), { status: 200 });
+    const whatsappAgentEnabled = await isWhatsAppAgentEnabled();
+    return Response.json(
+      { ...getHealthPayload(), whatsappAgentEnabled },
+      { status: 200 },
+    );
   }
+
+  if (!(await isWhatsAppAgentEnabled())) {
+    logWebhook('http_get_skipped', { reason: 'whatsapp_agent_disabled' });
+    return Response.json({ success: true, disabled: true, processed: 0 }, { status: 200 });
+  }
+
+  await ensureWarm();
 
   const authHeader = req.headers.get('authorization') || '';
   const userAgent = req.headers.get('user-agent') || '';

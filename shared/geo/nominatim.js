@@ -36,6 +36,7 @@ const {
   searchPoiSalta: googleSearchPoi,
   getGooglePlaceDetails,
   isGooglePlaceId,
+  isGoogleConfigured,
 } = require('./googlePlaces');
 
 // Fallback a TomTom — solo cuando ni Nominatim ni Google Places encontraron
@@ -415,9 +416,53 @@ function toAutocompleteSuggestion(item, query, bonusScore = 0, titleOverride = n
   };
 }
 
-async function geocodeAddress(address) {
+async function geocodeAddressGoogleViaAutocomplete(query, options = {}) {
+  const { createSessionToken } = require('./googlePlaces');
+  const sessionToken = options.sessionToken || createSessionToken();
+  const suggestions = await autocompleteAddressSalta(query, 5, { sessionToken });
+
+  for (const hit of suggestions) {
+    if (Number.isFinite(hit?.lat) && Number.isFinite(hit?.lng)) {
+      return {
+        lat: hit.lat,
+        lng: hit.lng,
+        formattedAddress: hit.address,
+        placeId: hit.placeId || null,
+        geocodeSource: null,
+      };
+    }
+
+    if (!isGooglePlaceId(hit?.placeId)) continue;
+
+    try {
+      const details = await getGooglePlaceDetails(hit.placeId, {
+        sessionToken: hit.sessionToken || sessionToken,
+        formattedAddress: hit.address,
+        title: hit.title,
+        subtitle: hit.subtitle,
+      });
+      return {
+        lat: details.lat,
+        lng: details.lng,
+        formattedAddress: details.formattedAddress || hit.address,
+        placeId: details.placeId || hit.placeId,
+        geocodeSource: details.geocodeSource || 'google_place_details_essentials',
+      };
+    } catch {
+      // Probar la siguiente sugerencia del autocomplete.
+    }
+  }
+
+  throw new Error('No se encontró la dirección');
+}
+
+async function geocodeAddress(address, options = {}) {
   const query = String(address || '').trim();
   if (!query) throw new Error('Dirección vacía');
+
+  if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
+    return geocodeAddressGoogleViaAutocomplete(query, options);
+  }
 
   const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
   if (hasHouseNumber) {
@@ -658,13 +703,36 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   if (trimmed.length < 2) return [];
 
   try {
+    // Autocomplete exclusivo vía Google Places (New) + Place Details Essentials al elegir.
+    if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
+      const googleHits = await googleSearchPoi(trimmed, Math.max(limit + 4, 12), {
+        sessionToken: options?.sessionToken,
+      }).catch(() => []);
+
+      const merged = [];
+      const seenPlaceIds = new Set();
+      const seenCoords = new Set();
+      const seenLabels = new Set();
+
+      collectAutocompleteCandidates(
+        googleHits,
+        trimmed,
+        merged,
+        seenPlaceIds,
+        seenCoords,
+        seenLabels,
+        2.1,
+      );
+
+      merged.sort((a, b) => b.score - a.score);
+      return merged.slice(0, limit).map(({ score, ...item }) => item);
+    }
+
     const searchQueries = buildAddressSearchQueries(trimmed).slice(0, MAX_AUTOCOMPLETE_VARIANTS);
     const knownPoi = resolveSaltaKnownPoi(trimmed);
     const hasHouseNumber = pickPrimaryHouseNumber(trimmed) != null;
     const useOsmPoi = shouldSearchOsmPoi(trimmed);
-    const shouldUseGooglePoi = GOOGLE_POI_AUTOCOMPLETE_ENABLED && !hasHouseNumber && trimmed.length >= 3;
-    // Para texto libre sin altura (ej: "jaraba"), forzamos una pasada POI aunque
-    // no matchee keyword conocida; evita perder comercios populares.
+    // Fallback legacy sin Google: Nominatim/Georef/TomTom.
     const forcePoiSearch = !hasHouseNumber && trimmed.length >= 4;
     ensureStreetCatalog();
     const catalogVariantCount = getCatalogAddressVariants(trimmed, 8).length;
@@ -681,47 +749,54 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     const seenCoords = new Set();
     const seenLabels = new Set();
 
-    // 1) Fast-path principal para POIs: Google Places Autocomplete (New).
-    const googlePoiHits = shouldUseGooglePoi
-      ? await googleSearchPoi(trimmed, Math.max(limit + 4, 12), {
-        sessionToken: options?.sessionToken,
-      }).catch(() => [])
-      : [];
-    collectAutocompleteCandidates(
-      googlePoiHits,
-      trimmed,
-      merged,
-      seenPlaceIds,
-      seenCoords,
-      seenLabels,
-      2.1,
-    );
+    // Fast-path: calle + altura (caso más común en despacho) con mínimo costo/latencia.
+    if (hasHouseNumber) {
+      const [georefHits, structuredHits, geocodeHits] = await Promise.all([
+        searchGeorefAddress(trimmed, 4).catch(() => []),
+        searchStructuredAddress(trimmed).catch(() => []),
+        searchNominatimVariant(buildSearchQuery(trimmed), Math.max(limit, 6)).catch(() => []),
+      ]);
 
-    // Si Google resolvió una consulta POI (sin altura), devolvemos enseguida:
-    // evita que resultados de calles degraden la relevancia.
-    if (shouldUseGooglePoi && merged.length >= 1) {
-      merged.sort((a, b) => b.score - a.score);
+      collectGeorefCandidates(georefHits, trimmed, merged, seenPlaceIds, seenCoords);
+      collectAutocompleteCandidates(
+        structuredHits,
+        trimmed,
+        merged,
+        seenPlaceIds,
+        seenCoords,
+        seenLabels,
+        0.28,
+      );
+      collectAutocompleteCandidates(
+        geocodeHits,
+        trimmed,
+        merged,
+        seenPlaceIds,
+        seenCoords,
+        seenLabels,
+        0.22,
+      );
+
+      merged.sort((a, b) => {
+        const aGeoref = String(a.placeId || '').startsWith('georef:');
+        const bGeoref = String(b.placeId || '').startsWith('georef:');
+        if (aGeoref && !bGeoref) return -1;
+        if (!aGeoref && bGeoref) return 1;
+        return b.score - a.score;
+      });
+
       return merged.slice(0, limit).map(({ score, ...item }) => item);
     }
-    // Para consultas con altura, si Google ya dio al menos 1 match, priorizamos velocidad.
-    if (hasHouseNumber && merged.length >= 1) {
-      merged.sort((a, b) => b.score - a.score);
-      return merged.slice(0, limit).map(({ score, ...item }) => item);
-    }
 
-    // 2) Fuentes complementarias: Nominatim (OSM), GeoRef, TomTom.
+    // Legacy sin Google: POIs y calles vía Nominatim/Georef.
     const [primaryHits, structuredHits, georefHits, poiHits, geocodeHits] = await Promise.all([
       searchNominatimVariant(primaryQuery, limit).catch(() => []),
-      hasHouseNumber
-        ? searchStructuredAddress(trimmed).catch(() => [])
-        : Promise.resolve([]),
-      hasHouseNumber ? searchGeorefAddress(trimmed, 3).catch(() => []) : Promise.resolve([]),
+      Promise.resolve([]),
+      Promise.resolve([]),
       (useOsmPoi || forcePoiSearch)
         ? searchNominatimPoi(trimmed, Math.max(limit + 2, 8)).catch(() => [])
         : Promise.resolve([]),
-      hasHouseNumber
-        ? searchNominatimVariant(buildSearchQuery(trimmed), Math.max(limit, 6)).catch(() => [])
-        : Promise.resolve([]),
+      Promise.resolve([]),
     ]);
 
     // ── 2. Georef (precisión para direcciones con número de calle) ─────────
@@ -845,6 +920,20 @@ async function getPlaceDetails(placeId, options = {}) {
     });
   }
 
+  if (id.startsWith('coord:')) {
+    const [latRaw, lngRaw] = id.slice(6).split(',');
+    const lat = Number(latRaw);
+    const lng = Number(lngRaw);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new Error('No se pudo obtener detalles del lugar');
+    }
+    return { lat, lng, formattedAddress: await reverseGeocode(lat, lng) };
+  }
+
+  if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
+    throw new Error('Se requiere un placeId de Google Places (google:...)');
+  }
+
   if (id.startsWith('georef:')) {
     const mapped = await resolveGeorefPlaceId(id);
     if (!mapped) {
@@ -856,16 +945,6 @@ async function getPlaceDetails(placeId, options = {}) {
       lng: mapped.lng,
       formattedAddress: label.full || mapped.formattedAddress,
     };
-  }
-
-  if (id.startsWith('coord:')) {
-    const [latRaw, lngRaw] = id.slice(6).split(',');
-    const lat = Number(latRaw);
-    const lng = Number(lngRaw);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      throw new Error('No se pudo obtener detalles del lugar');
-    }
-    return { lat, lng, formattedAddress: await reverseGeocode(lat, lng) };
   }
 
   const data = await nominatimFetch('/lookup', {

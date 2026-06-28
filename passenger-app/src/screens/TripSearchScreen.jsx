@@ -20,10 +20,12 @@ import { colors } from '../theme/colors';
 import { useAuthStore } from '../stores/authStore';
 import { useLocation } from '../hooks/useLocation';
 import { useTrip } from '../hooks/useTrip';
+import { useServiceZoneCoverage } from '../hooks/useServiceZoneCoverage';
 import { useTripStore } from '../stores/tripStore';
 import { reverseGeocode, resolvePlaceFromSuggestion, isCoordinateFallbackText } from '../services/googleMaps';
 import { loadFrequentPlaces, addRecentPlace } from '../services/recentPlaces';
 import AddressSearchInput from '../components/ui/AddressSearchInput';
+import PickupCoverageBanner from '../components/ui/PickupCoverageBanner';
 import MapPinPickerModal from '../components/map/MapPinPickerModal';
 
 const ACTIVE_FIELD = { pickup: 'pickup', destination: 'destination' };
@@ -46,6 +48,11 @@ export default function TripSearchScreen() {
   const [suggestions, setSuggestions] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [mapPickerField, setMapPickerField] = useState(null);
+  const {
+    pickupOutsideCoverage,
+    validatePickupForTrip,
+    notifyPickupOutsideCoverage,
+  } = useServiceZoneCoverage(pickup);
 
   const loadPickupFromGPS = useCallback(async () => {
     setPickupLoading(true);
@@ -143,6 +150,12 @@ export default function TripSearchScreen() {
       return;
     }
 
+    const coverage = validatePickupForTrip(pickup.lat, pickup.lng);
+    if (!coverage.allowed) {
+      notifyPickupOutsideCoverage();
+      return;
+    }
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
     const result = await requestTrip({
@@ -168,7 +181,7 @@ export default function TripSearchScreen() {
         text2: result.error || 'Intentá de nuevo.',
       });
     }
-  }, [pickup, destination, profile, requestTrip, navigation]);
+  }, [pickup, destination, profile, requestTrip, navigation, validatePickupForTrip, notifyPickupOutsideCoverage]);
 
   const openMapPicker = useCallback((field) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -212,6 +225,7 @@ export default function TripSearchScreen() {
     && Number.isFinite(pickup?.lat)
     && !!destination?.address
     && Number.isFinite(destination?.lat)
+    && !pickupOutsideCoverage
     && !isCreating;
   const showSuggestions = suggestions.length > 0;
 
@@ -310,6 +324,7 @@ export default function TripSearchScreen() {
                   setSuggestionsLoading(meta.isSearching);
                 }}
               />
+              <PickupCoverageBanner visible={pickupOutsideCoverage} />
             </View>
 
             <View style={styles.fieldDivider} />
