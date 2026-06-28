@@ -234,8 +234,9 @@ const sections = [
 
 export default function PrivacidadPage() {
   return (
-    <div className="privacidad-page min-h-screen bg-[#f8f9fb] text-[#0F172A] overflow-y-auto">
+    <div className="privacidad-page fixed inset-0 overflow-y-auto overscroll-y-contain bg-[#f8f9fb] text-[#0F172A]">
       <style>{`
+        .privacidad-page { -webkit-overflow-scrolling: touch; }
         .privacidad-page a { color: #1d2260; text-decoration: underline; text-underline-offset: 2px; }
         .privacidad-page a:hover { color: #2e3699; }
         .privacidad-page h3 { margin: 1.25rem 0 0.5rem; font-size: 0.95rem; font-weight: 600; color: #334155; }
