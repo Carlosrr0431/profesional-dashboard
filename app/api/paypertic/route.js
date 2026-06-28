@@ -29,6 +29,20 @@ const pickFirstText = (...values) => {
   return null;
 };
 
+const isPayperticApprovedStatus = (payData) => {
+  const normalizedStatus = String(payData?.status || '').toLowerCase();
+  const approvedStatuses = new Set([
+    'approved',
+    'paid',
+    'accredited',
+    'completed',
+    'success',
+    'succeeded',
+  ]);
+  if (approvedStatuses.has(normalizedStatus)) return true;
+  return Boolean(payData?.paid_date || payData?.accreditation_date);
+};
+
 const extractTransferInfo = (payData) => {
   const transfer = payData?.transfer || {};
   const account = transfer?.account || payData?.account || {};
@@ -211,8 +225,7 @@ export async function GET(request) {
       (value) => typeof value === 'string' && value.trim().toLowerCase().startsWith('http'),
     ) || null;
 
-  const normalizedStatus = String(payData?.status || '').toLowerCase();
-  if (normalizedStatus === 'approved' || normalizedStatus === 'paid') {
+  if (isPayperticApprovedStatus(payData)) {
     const payAmount = Number(payData?.final_amount);
     if (payAmount > 0) {
       try {

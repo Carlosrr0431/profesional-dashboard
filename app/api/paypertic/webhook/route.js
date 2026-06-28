@@ -5,6 +5,20 @@ import { registerCommissionPayment } from '../../../../src/lib/commissionPayment
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const isPayperticApprovedStatus = (payload) => {
+  const normalizedStatus = String(payload?.status || '').toLowerCase();
+  const approvedStatuses = new Set([
+    'approved',
+    'paid',
+    'accredited',
+    'completed',
+    'success',
+    'succeeded',
+  ]);
+  if (approvedStatuses.has(normalizedStatus)) return true;
+  return Boolean(payload?.paid_date || payload?.accreditation_date);
+};
+
 // Paypertic envía notificaciones POST cuando cambia el estado de un pago.
 // Cuando el estado es "approved"/"paid", registramos el pago en commission_payments.
 export async function POST(request) {
@@ -21,8 +35,8 @@ export async function POST(request) {
   const { status, final_amount, metadata, id: paypertic_id, external_transaction_id } = body;
   console.log('[paypertic/webhook] status:', status, '| final_amount:', final_amount, '| paypertic_id:', paypertic_id, '| metadata:', JSON.stringify(metadata));
 
-  if (status !== 'approved' && status !== 'paid') {
-    console.log('[paypertic/webhook] Estado no es approved/paid, ignorando. Estado recibido:', status);
+  if (!isPayperticApprovedStatus(body)) {
+    console.log('[paypertic/webhook] Estado no final de aprobación, ignorando. Estado recibido:', status);
     return NextResponse.json({ received: true });
   }
 
