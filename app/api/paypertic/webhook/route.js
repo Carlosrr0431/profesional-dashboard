@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '../../../../src/lib/supabaseAdmin';
 import { registerCommissionPayment } from '../../../../src/lib/commissionPaymentRegister';
+import { sendDriverPushById } from '../../../../src/lib/driverPushNotifications';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -69,6 +70,27 @@ export async function POST(request) {
     }
 
     console.log('[paypertic/webhook] Proceso completado OK para driver_id:', driver_id, '| monto:', amount);
+
+    // Notificación push al conductor
+    const amountFormatted = `$${Number(amount).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    const pushResult = await sendDriverPushById(supabase, driver_id, {
+      title: '¡Pago de comisión acreditado!',
+      body: `Tu pago de ${amountFormatted} fue aprobado. ¡Gracias!`,
+      channelId: 'comisiones',
+      data: {
+        type: 'commission_payment',
+        screen: 'CommissionPayment',
+        paymentId: result.paymentId ? String(result.paymentId) : '',
+        amount: String(amount),
+      },
+    });
+
+    if (!pushResult.ok) {
+      console.warn('[paypertic/webhook] Push al conductor falló (no crítico):', pushResult.reason);
+    } else {
+      console.log('[paypertic/webhook] Push al conductor enviado. messageId:', pushResult.messageId);
+    }
+
     return NextResponse.json({ received: true, payment_id: result.paymentId });
   } catch (err) {
     console.error('[paypertic/webhook] Error al registrar pago:', err?.message || err);
