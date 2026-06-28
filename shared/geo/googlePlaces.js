@@ -309,6 +309,97 @@ function scoreAutocompleteSuggestion(mainText, secondaryText, query) {
   return score;
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractStreetAndNumber(query) {
+  const raw = String(query || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return null;
+
+  const withAl = raw.match(
+    /^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9.'-]+(?:\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9.'-]+)*)\s+al\s+(\d{1,5}[a-zA-Z]?)$/i,
+  );
+  if (withAl) {
+    return { street: withAl[1].trim(), number: withAl[2].trim() };
+  }
+
+  const simple = raw.match(
+    /^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9.'-]+(?:\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9.'-]+)*)\s+(\d{1,5}[a-zA-Z]?)$/i,
+  );
+  if (!simple) return null;
+
+  return { street: simple[1].trim(), number: simple[2].trim() };
+}
+
+function getSuggestionText(item) {
+  return String(item?.title || item?.poiName || item?.formattedAddress || '').trim();
+}
+
+function hasStreetNumber(item, number) {
+  const text = foldText(getSuggestionText(item));
+  const numPattern = new RegExp(`\\b${escapeRegex(number)}\\b`);
+  return numPattern.test(text);
+}
+
+function isDoctorAGuemesWithNumber(item, number) {
+  const text = foldText(getSuggestionText(item));
+  const numPattern = new RegExp(`\\b${escapeRegex(number)}\\b`);
+  return (
+    numPattern.test(text)
+    && /\b(dr\.?\s*a\.?\s*guemes|doctor\s+a\.?\s*guemes)\b/.test(text)
+    && !/\badolfo\s+guemes\b/.test(text)
+  );
+}
+
+function pickDoctorAGuemesHit(hits, number) {
+  const withNumber = (hits || []).filter((item) => isDoctorAGuemesWithNumber(item, number));
+  if (!withNumber.length) return null;
+
+  return withNumber.find((item) => {
+    const subtitle = foldText(item?.subtitle || '');
+    return subtitle.includes('salta') && !subtitle.includes('villa san lorenzo');
+  }) || withNumber[0];
+}
+
+async function enrichGuemesStreetNumberResults(items, query, sessionToken, limit) {
+  const parsed = extractStreetAndNumber(query);
+  if (!parsed || !/\bguemes\b/i.test(parsed.street)) {
+    return items.slice(0, limit);
+  }
+
+  const withNumber = items.filter((item) => hasStreetNumber(item, parsed.number));
+  const base = withNumber.length ? withNumber : items;
+
+  const seen = new Set();
+  const results = [];
+  for (const item of base) {
+    const key = item?.placeId || foldText(getSuggestionText(item));
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    results.push(item);
+  }
+
+  if (!results.some((item) => isDoctorAGuemesWithNumber(item, parsed.number))) {
+    const suggestions = await placesAutocompleteRequest(`doctor a guemes ${parsed.number}`, sessionToken);
+    const doctorHits = suggestions
+      .map((item, index) => ({
+        ...mapAutocompletePrediction(item?.placePrediction, sessionToken, `doctor a guemes ${parsed.number}`),
+        _index: index,
+      }))
+      .filter(Boolean)
+      .filter((item) => !isOutsideSaltaCapitalSubtitle(item.subtitle));
+    const doctorA = pickDoctorAGuemesHit(doctorHits, parsed.number);
+    const key = doctorA?.placeId;
+    if (doctorA && key && !seen.has(key)) {
+      results.splice(Math.min(3, results.length), 0, doctorA);
+      seen.add(key);
+    }
+  }
+
+  return results.slice(0, limit);
+}
+
 function mapAutocompletePrediction(prediction, sessionToken, query) {
   const rawId = String(prediction?.placeId || '').trim();
   if (!rawId) return null;
@@ -411,15 +502,19 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   const requestPromise = (async () => {
     const suggestions = await placesAutocompleteRequest(text, sessionToken);
     const mapped = suggestions
-      .map((item) => mapAutocompletePrediction(item?.placePrediction, sessionToken, text))
+      .map((item, index) => ({
+        ...mapAutocompletePrediction(item?.placePrediction, sessionToken, text),
+        _index: index,
+      }))
       .filter(Boolean)
       .filter((item) => !isOutsideSaltaCapitalSubtitle(item.subtitle))
-      .sort((a, b) => b._score - a._score)
-      .slice(0, normalizedLimit)
-      .map(({ _score, ...rest }) => rest);
+      .sort((a, b) => a._index - b._index);
 
-    setCached(autocompleteCache, cacheKey, mapped, AUTOCOMPLETE_TTL_MS);
-    return mapped;
+    const enriched = await enrichGuemesStreetNumberResults(mapped, text, sessionToken, normalizedLimit);
+    const result = enriched.map(({ _score, _index, ...rest }) => rest);
+
+    setCached(autocompleteCache, cacheKey, result, AUTOCOMPLETE_TTL_MS);
+    return result;
   })();
 
   inFlightAutocomplete.set(cacheKey, requestPromise);
