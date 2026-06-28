@@ -44,7 +44,7 @@ export default function App() {
   const {
     tariffPerKm, tariffBase, commissionPercent,
     passengerAppTariffPerKm, passengerAppTariffBase, passengerAppCommissionPercent,
-    calculatePrice, updateSetting,
+    whatsappAgentEnabled, calculatePrice, updateSetting,
   } = useSettings();
   const tripStatistics = useTripStatistics('30d');
   const geocodeErrors = useGeocodeErrors('pending');
@@ -286,6 +286,31 @@ export default function App() {
 
         {/* ── Acciones secundarias ─────────────────────────────────────── */}
         <div className="flex items-center gap-1 pl-2 border-l border-light-300/60">
+          <button
+            type="button"
+            onClick={() => updateSetting('whatsapp_agent_enabled', whatsappAgentEnabled ? 'false' : 'true')}
+            className={`flex items-center gap-1.5 h-8 px-3 rounded-xl text-[12px] font-semibold border transition-all ${
+              whatsappAgentEnabled
+                ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 hover:bg-emerald-500/15'
+                : 'bg-rose-500/10 text-rose-700 border-rose-500/20 hover:bg-rose-500/15'
+            }`}
+            title={whatsappAgentEnabled
+              ? 'Desactivar agente IA de WhatsApp (deja de procesar mensajes automáticamente)'
+              : 'Activar agente IA de WhatsApp'}
+          >
+            <span className="relative flex h-2 w-2">
+              {whatsappAgentEnabled ? (
+                <>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-50" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </>
+              ) : (
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+              )}
+            </span>
+            {whatsappAgentEnabled ? 'Agente IA' : 'Agente IA off'}
+          </button>
+
           <button
             type="button"
             onClick={() => setShowNewTripModal(true)}

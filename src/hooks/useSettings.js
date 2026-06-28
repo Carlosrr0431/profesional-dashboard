@@ -9,7 +9,19 @@ const SETTING_LABELS = {
   passenger_app_tariff_per_km: 'Tarifa app pasajeros por km',
   passenger_app_tariff_base: 'Tarifa base app pasajeros',
   passenger_app_commission_percent: 'Comisión app pasajeros',
+  whatsapp_agent_enabled: 'Agente IA de WhatsApp',
 };
+
+function isTruthySetting(value, defaultValue = true) {
+  if (value == null || String(value).trim() === '') {
+    return defaultValue;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'false' || normalized === '0' || normalized === 'no') {
+    return false;
+  }
+  return true;
+}
 
 const NUMERIC_SETTING_KEYS = new Set([
   'platform_tariff_per_km',
@@ -131,6 +143,7 @@ export function useSettings() {
   const passengerAppTariffPerKm = parseFloat(settings.passenger_app_tariff_per_km) || 0;
   const passengerAppTariffBase = parseFloat(settings.passenger_app_tariff_base) || 0;
   const passengerAppCommissionPercent = parseFloat(settings.passenger_app_commission_percent) || 0;
+  const whatsappAgentEnabled = isTruthySetting(settings.whatsapp_agent_enabled, true);
 
   const calculatePrice = useCallback((distanceKm) => {
     if (!distanceKm || distanceKm <= 0) return null;
@@ -146,6 +159,7 @@ export function useSettings() {
     passengerAppTariffPerKm,
     passengerAppTariffBase,
     passengerAppCommissionPercent,
+    whatsappAgentEnabled,
     updateSetting,
     calculatePrice,
     refetch: fetchSettings,

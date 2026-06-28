@@ -5480,6 +5480,34 @@ async function getRouteMetricsByAddress(originAddress, destinationAddress) {
   }
 }
 
+const WHATSAPP_AGENT_ENABLED_KEY = 'whatsapp_agent_enabled';
+
+function parseTruthySetting(value, defaultValue = true) {
+  if (value == null || String(value).trim() === '') {
+    return defaultValue;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'false' || normalized === '0' || normalized === 'no') {
+    return false;
+  }
+  return true;
+}
+
+async function isWhatsAppAgentEnabled() {
+  const { data, error } = await getSupabase()
+    .from('settings')
+    .select('value')
+    .eq('key', WHATSAPP_AGENT_ENABLED_KEY)
+    .maybeSingle();
+
+  if (error) {
+    logWebhook('whatsapp_agent_enabled_read_error', { message: error.message });
+    return true;
+  }
+
+  return parseTruthySetting(data?.value, true);
+}
+
 async function getSettingsMap() {
   const { data, error } = await getSupabase().from('settings').select('key, value');
   if (error) throw error;
@@ -11491,6 +11519,11 @@ async function ensureWarm() {
 }
 
 export async function POST(req) {
+  if (!(await isWhatsAppAgentEnabled())) {
+    logWebhook('http_post_skipped', { reason: 'whatsapp_agent_disabled' });
+    return Response.json({ success: true, disabled: true, ignored: true }, { status: 200 });
+  }
+
   await ensureWarm();
   const body = await req.json();
   const authHeader = req.headers.get('authorization') || '';
@@ -11506,12 +11539,22 @@ export async function POST(req) {
 }
 
 export async function GET(req) {
-  await ensureWarm();
   const url = new URL(req.url);
 
   if (url.searchParams.get('health') === '1') {
-    return Response.json(getHealthPayload(), { status: 200 });
+    const whatsappAgentEnabled = await isWhatsAppAgentEnabled();
+    return Response.json(
+      { ...getHealthPayload(), whatsappAgentEnabled },
+      { status: 200 },
+    );
   }
+
+  if (!(await isWhatsAppAgentEnabled())) {
+    logWebhook('http_get_skipped', { reason: 'whatsapp_agent_disabled' });
+    return Response.json({ success: true, disabled: true, processed: 0 }, { status: 200 });
+  }
+
+  await ensureWarm();
 
   const authHeader = req.headers.get('authorization') || '';
   const userAgent = req.headers.get('user-agent') || '';
