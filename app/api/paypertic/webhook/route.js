@@ -15,8 +15,7 @@ const isPayperticApprovedStatus = (payload) => {
     'success',
     'succeeded',
   ]);
-  if (approvedStatuses.has(normalizedStatus)) return true;
-  return Boolean(payload?.paid_date || payload?.accreditation_date);
+  return approvedStatuses.has(normalizedStatus);
 };
 
 // Paypertic envía notificaciones POST cuando cambia el estado de un pago.
