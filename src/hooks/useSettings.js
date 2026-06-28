@@ -103,6 +103,9 @@ export function useSettings() {
     const strValue = NUMERIC_SETTING_KEYS.has(key)
       ? normalizeNumericSettingValue(key, value)
       : String(value);
+    const toastPosition = key === 'whatsapp_agent_enabled'
+      ? { position: 'bottom-center' }
+      : undefined;
     setSettings((prev) => ({ ...prev, [key]: strValue }));
 
     try {
@@ -119,20 +122,20 @@ export function useSettings() {
           message: payload?.error?.message || 'Request failed',
           details: payload?.error?.details || null,
         });
-        toast.error('No se pudo guardar la configuración');
+        toast.error('No se pudo guardar la configuración', toastPosition);
         fetchSettings();
         return;
       }
 
       clearTimeout(toastTimerRef.current);
       toastTimerRef.current = setTimeout(() => {
-        toast.success(`${SETTING_LABELS[key] || 'Configuración'} actualizada`);
+        toast.success(`${SETTING_LABELS[key] || 'Configuración'} actualizada`, toastPosition);
       }, 700);
     } catch (error) {
       console.error('Error updating setting:', {
         message: error?.message || String(error),
       });
-      toast.error('No se pudo guardar la configuración');
+      toast.error('No se pudo guardar la configuración', toastPosition);
       fetchSettings();
     }
   }, [fetchSettings, toast]);

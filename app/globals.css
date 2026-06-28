@@ -155,6 +155,15 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   pointer-events: none;
 }
 
+.toast-container--bottom-center {
+  top: auto;
+  right: auto;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  align-items: center;
+}
+
 .toast-item {
   display: flex;
   align-items: flex-start;

@@ -18,11 +18,15 @@ const TYPE_ICONS = {
   info: 'i',
 };
 
-function ToastContainer({ toasts, onDismiss }) {
+function ToastStack({ toasts, onDismiss, position = 'default' }) {
   if (toasts.length === 0) return null;
 
+  const containerClass = position === 'bottom-center'
+    ? 'toast-container toast-container--bottom-center'
+    : 'toast-container';
+
   return (
-    <div className="toast-container" aria-live="polite" aria-relevant="additions">
+    <div className={containerClass} aria-live="polite" aria-relevant="additions">
       {toasts.map((item) => (
         <div
           key={item.id}
@@ -45,6 +49,20 @@ function ToastContainer({ toasts, onDismiss }) {
   );
 }
 
+function ToastContainer({ toasts, onDismiss }) {
+  if (toasts.length === 0) return null;
+
+  const defaultToasts = toasts.filter((item) => item.position !== 'bottom-center');
+  const bottomCenterToasts = toasts.filter((item) => item.position === 'bottom-center');
+
+  return (
+    <>
+      <ToastStack toasts={defaultToasts} onDismiss={onDismiss} />
+      <ToastStack toasts={bottomCenterToasts} onDismiss={onDismiss} position="bottom-center" />
+    </>
+  );
+}
+
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
   const timersRef = useRef(new Map());
@@ -63,7 +81,8 @@ export function ToastProvider({ children }) {
     const type = options.type || 'info';
     const duration = options.duration ?? 4000;
 
-    setToasts((prev) => [...prev.slice(-4), { id, message, type }]);
+    const position = options.position === 'bottom-center' ? 'bottom-center' : 'default';
+    setToasts((prev) => [...prev.slice(-4), { id, message, type, position }]);
 
     if (duration > 0) {
       const timer = setTimeout(() => dismiss(id), duration);
