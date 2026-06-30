@@ -14,6 +14,10 @@ const adb = path.join(androidHome, 'platform-tools', isWin ? 'adb.exe' : 'adb');
 const env = { ...process.env };
 delete env.NO_COLOR;
 delete env.CI;
+// Evita "JavaScript heap out of memory" al bundlear en monorepos grandes.
+if (!env.NODE_OPTIONS?.includes('max-old-space-size')) {
+  env.NODE_OPTIONS = [env.NODE_OPTIONS, '--max-old-space-size=8192'].filter(Boolean).join(' ');
+}
 
 function tryAdbReverse() {
   try {

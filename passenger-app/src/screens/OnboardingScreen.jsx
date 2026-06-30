@@ -11,7 +11,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated, { FadeInUp } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -21,6 +21,7 @@ import { useAuthStore } from '../stores/authStore';
 import { normalizePassengerPhone } from '../utils/phone';
 import { sendPassengerOtp, verifyPassengerOtp } from '../services/authService';
 import OtpInput from '../components/ui/OtpInput';
+import { LoginBrandHeader } from '../components/auth/LoginBrandHeader';
 
 const RESEND_COOLDOWN_SEC = 60;
 
@@ -164,14 +165,7 @@ export default function OnboardingScreen() {
         style={styles.flex}
       >
         <View style={[styles.inner, { paddingTop: insets.top + 28, paddingBottom: insets.bottom + 16 }]}>
-          {/* Branding compacto */}
-          <Animated.View entering={FadeInDown.duration(500)} style={styles.brand}>
-            <View style={styles.logoMark}>
-              <Ionicons name="car-sport" size={28} color={colors.primary} />
-            </View>
-            <Text style={styles.brandTitle}>Profesional</Text>
-            <Text style={styles.brandSub}>Pasajero · Salta Capital</Text>
-          </Animated.View>
+          <LoginBrandHeader style={styles.brand} />
 
           {/* Card única de login */}
           <Animated.View entering={FadeInUp.delay(120).duration(500)} style={styles.card}>
@@ -314,33 +308,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
 
-  brand: { alignItems: 'center', marginTop: 12 },
-  logoMark: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  brandTitle: {
-    fontSize: 28,
-    fontFamily: 'Inter_700Bold',
-    color: '#FFFFFF',
-    letterSpacing: -0.5,
-  },
-  brandSub: {
-    fontSize: 14,
-    fontFamily: 'Inter_400Regular',
-    color: 'rgba(255,255,255,0.72)',
-    marginTop: 4,
-  },
+  brand: { marginTop: 12 },
 
   card: {
     backgroundColor: '#FFFFFF',
