@@ -12,7 +12,7 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
+      "backgroundColor": "#0F0F1A"
     },
     "ios": {
       "bundleIdentifier": "com.remises.passengerapp",
