@@ -9,6 +9,18 @@ const savePassengerPushTokenDirect = async (phone, token) => {
   if (!variants.length || !token) return { ok: false };
 
   const now = new Date().toISOString();
+
+  // 1) passenger_auth_sessions: solo actualiza filas existentes (no crea sesiones nuevas)
+  await Promise.allSettled(
+    variants.map((variantPhone) =>
+      supabase
+        .from('passenger_auth_sessions')
+        .update({ push_token: token, updated_at: now })
+        .eq('phone', variantPhone)
+    )
+  );
+
+  // 2) passenger_devices: upsert legacy (fallback para el servidor)
   const rows = variants.map((variantPhone) => ({
     phone: variantPhone,
     push_token: token,

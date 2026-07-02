@@ -244,11 +244,14 @@ export async function verifyOtpAndCreateSession(rawPhone, rawCode) {
   const sessionToken = randomUUID();
   const sessionExpiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
 
-  const { error: sessionError } = await supabase.from('passenger_auth_sessions').insert({
-    phone,
-    token: sessionToken,
-    expires_at: sessionExpiresAt,
-  });
+  // Upsert por phone: un registro activo por pasajero.
+  // Si ya existe una sesión (mismo phone), la renueva sin borrar el push_token.
+  const { error: sessionError } = await supabase
+    .from('passenger_auth_sessions')
+    .upsert(
+      { phone, token: sessionToken, expires_at: sessionExpiresAt, updated_at: new Date().toISOString() },
+      { onConflict: 'phone', ignoreDuplicates: false }
+    );
 
   if (sessionError) {
     if (isMissingOtpTableError(sessionError)) return missingOtpTableResponse();

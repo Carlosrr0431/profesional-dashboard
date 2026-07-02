@@ -1,14 +1,13 @@
 /**
  * POST /api/trips/notify-passenger
  *
- * Endpoint dedicado para enviar push FCM al pasajero cuando el chofer acepta.
- * Diseñado para ser rápido, simple y confiable — sin el overhead de Agente_IA.
+ * Envía push FCM al pasajero cuando el chofer acepta o avanza en el viaje.
  *
- * Autenticación: Bearer <driver_supabase_jwt>
+ * Auth (en orden de prioridad):
+ *   1. Bearer == CRON_SECRET  → llamadas server-to-server (Agente_IA, dashboard)
+ *   2. Bearer == JWT Supabase del conductor  → llamadas desde driver-app
+ *
  * Body: { tripId: string, force?: boolean }
- *
- * El parámetro `force` (opcional, default false) omite la deduplicación por wa_context.
- * Útil para reenviar manualmente si el push no llegó.
  */
 
 import { NextResponse } from 'next/server';
@@ -25,6 +24,8 @@ import { normalizePassengerPhoneForDb } from '../../../../src/lib/passengerAuthP
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 15;
+
+// ─── Supabase helpers ────────────────────────────────────────────────────────
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -50,39 +51,137 @@ function extractBearerToken(req) {
   return match ? match[1].trim() : null;
 }
 
-async function authenticateDriver(bearerToken) {
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+/**
+ * Normaliza un teléfono de Supabase Auth (puede venir con +, sin prefijo, etc.)
+ * a los formatos que usamos en drivers.phone_normalized.
+ */
+function buildDriverPhoneVariants(rawPhone) {
+  const digits = String(rawPhone || '').replace(/\D/g, '');
+  if (!digits || digits.length < 7) return [];
+
+  const variants = new Set([digits]);
+
+  if (digits.startsWith('549')) {
+    variants.add(`54${digits.slice(3)}`);   // 549xxx → 54xxx
+  } else if (digits.startsWith('54')) {
+    variants.add(`549${digits.slice(2)}`);  // 54xxx  → 549xxx
+  } else {
+    variants.add(`549${digits}`);            // 387xxx → 549387xxx
+    variants.add(`54${digits}`);             // 387xxx → 54387xxx
+  }
+
+  return [...variants];
+}
+
+/**
+ * Autentica usando el JWT Supabase del conductor.
+ * Prueba: user_id → auth_email → teléfono del usuario Auth.
+ */
+async function authenticateViaDriverJwt(bearerToken) {
   if (!bearerToken) return { ok: false, reason: 'missing_token' };
 
   try {
-    const supabase = getSupabaseAnon();
-    const { data, error } = await supabase.auth.getUser(bearerToken);
-    if (error || !data?.user?.id) {
-      return { ok: false, reason: 'invalid_token' };
-    }
+    const { data, error } = await getSupabaseAnon().auth.getUser(bearerToken);
+    if (error || !data?.user?.id) return { ok: false, reason: 'invalid_token' };
 
-    const supabaseAdmin = getSupabaseAdmin();
-    const { data: driver, error: driverErr } = await supabaseAdmin
+    const userId    = data.user.id;
+    const userEmail = String(data.user.email  || '').trim().toLowerCase();
+    const userPhone = String(data.user.phone  || '').trim();
+    const supabase  = getSupabaseAdmin();
+
+    // 1) Por user_id
+    const { data: byId } = await supabase
       .from('drivers')
       .select('id, full_name, name')
-      .eq('user_id', data.user.id)
+      .eq('user_id', userId)
       .maybeSingle();
 
-    if (driverErr || !driver?.id) {
-      return { ok: false, reason: 'driver_not_found' };
+    if (byId?.id) {
+      return { ok: true, driverId: byId.id, driverName: byId.full_name || byId.name || null };
     }
 
-    return { ok: true, driverId: driver.id, driverName: driver.full_name || driver.name || null };
+    // 2) Por auth_email (cuentas con user_id desincronizado)
+    if (userEmail) {
+      const { data: byEmail } = await supabase
+        .from('drivers')
+        .select('id, full_name, name, user_id')
+        .eq('auth_email', userEmail)
+        .maybeSingle();
+
+      if (byEmail?.id) {
+        if (byEmail.user_id !== userId) {
+          supabase.from('drivers').update({ user_id: userId }).eq('id', byEmail.id)
+            .then(() => {}).catch(() => {});
+        }
+        return { ok: true, driverId: byEmail.id, driverName: byEmail.full_name || byEmail.name || null };
+      }
+    }
+
+    // 3) Por teléfono (conductores que inician sesión con OTP de teléfono)
+    if (userPhone) {
+      const variants = buildDriverPhoneVariants(userPhone);
+      if (variants.length) {
+        const { data: byPhone } = await supabase
+          .from('drivers')
+          .select('id, full_name, name, user_id')
+          .in('phone_normalized', variants)
+          .maybeSingle();
+
+        if (byPhone?.id) {
+          if (byPhone.user_id !== userId) {
+            supabase.from('drivers').update({ user_id: userId }).eq('id', byPhone.id)
+              .then(() => {}).catch(() => {});
+          }
+          console.log('[notify-passenger] Auth via phone fallback:', {
+            userId, driverId: byPhone.id,
+          });
+          return { ok: true, driverId: byPhone.id, driverName: byPhone.full_name || byPhone.name || null };
+        }
+      }
+    }
+
+    return { ok: false, reason: 'driver_not_found' };
   } catch (err) {
     return { ok: false, reason: 'auth_error', message: err?.message };
   }
 }
 
+/**
+ * Decide quién llama al endpoint y devuelve { ok, driverId?, driverName?, serverSide }.
+ *
+ * - CRON_SECRET → serverSide: true, sin driverId (se resuelve desde el trip)
+ * - JWT conductor → driverId del conductor autenticado
+ */
+async function authenticate(bearerToken) {
+  if (!bearerToken) {
+    return { ok: false, reason: 'missing_token' };
+  }
+
+  // Auth server-to-server: CRON_SECRET
+  const cronSecret = process.env.CRON_SECRET || '';
+  if (cronSecret && bearerToken === cronSecret) {
+    return { ok: true, serverSide: true, driverId: null, driverName: null };
+  }
+
+  // Auth conductor: JWT Supabase
+  const driverAuth = await authenticateViaDriverJwt(bearerToken);
+  if (driverAuth.ok) {
+    return { ...driverAuth, serverSide: false };
+  }
+
+  return { ok: false, reason: driverAuth.reason };
+}
+
+// ─── Trip ────────────────────────────────────────────────────────────────────
+
 async function fetchTrip(tripId) {
-  const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseAdmin()
     .from('trips')
     .select(
-      'id, driver_id, status, passenger_name, passenger_phone, tracking_token, origin_address, origin_lat, origin_lng, destination_address, notes, wa_context'
+      'id, driver_id, status, passenger_name, passenger_phone, tracking_token, ' +
+      'origin_address, origin_lat, origin_lng, destination_address, notes, wa_context'
     )
     .eq('id', tripId)
     .maybeSingle();
@@ -91,68 +190,71 @@ async function fetchTrip(tripId) {
   return data || null;
 }
 
+async function fetchDriver(driverId) {
+  if (!driverId) return null;
+  const { data } = await getSupabaseAdmin()
+    .from('drivers')
+    .select('id, full_name, name')
+    .eq('id', driverId)
+    .maybeSingle();
+  return data || null;
+}
+
+// ─── Handler ─────────────────────────────────────────────────────────────────
+
 export async function POST(req) {
   try {
     const bearerToken = extractBearerToken(req);
-    const body = await req.json().catch(() => ({}));
-
-    const tripId = String(body?.tripId || '').trim();
-    const force = Boolean(body?.force);
+    const body        = await req.json().catch(() => ({}));
+    const tripId      = String(body?.tripId || '').trim();
+    const force       = Boolean(body?.force);
 
     if (!tripId) {
-      return NextResponse.json(
-        { ok: false, reason: 'missing_trip_id' },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, reason: 'missing_trip_id' }, { status: 400 });
     }
 
-    // Autenticar al chofer
-    const auth = await authenticateDriver(bearerToken);
+    // Autenticar
+    const auth = await authenticate(bearerToken);
     if (!auth.ok) {
       console.warn('[notify-passenger] Auth fallida:', auth.reason, '| tripId:', tripId);
-      return NextResponse.json(
-        { ok: false, reason: auth.reason },
-        { status: 401 }
-      );
+      return NextResponse.json({ ok: false, reason: auth.reason }, { status: 401 });
     }
 
     // Buscar el viaje
     const trip = await fetchTrip(tripId);
     if (!trip) {
-      return NextResponse.json(
-        { ok: false, reason: 'trip_not_found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ ok: false, reason: 'trip_not_found' }, { status: 404 });
     }
 
-    // Verificar que el chofer es el asignado al viaje
-    if (String(trip.driver_id || '') !== String(auth.driverId)) {
-      console.warn('[notify-passenger] Chofer no asignado al viaje:', {
-        tripId,
-        tripDriverId: trip.driver_id,
-        authDriverId: auth.driverId,
-      });
-      return NextResponse.json(
-        { ok: false, reason: 'driver_mismatch' },
-        { status: 403 }
-      );
+    // Verificar que el conductor autenticado sea el asignado
+    // (solo en llamadas desde driver-app; serverSide confía en el tripId)
+    if (!auth.serverSide) {
+      if (String(trip.driver_id || '') !== String(auth.driverId)) {
+        console.warn('[notify-passenger] Chofer no asignado al viaje:', {
+          tripId, tripDriverId: trip.driver_id, authDriverId: auth.driverId,
+        });
+        return NextResponse.json({ ok: false, reason: 'driver_mismatch' }, { status: 403 });
+      }
     }
 
-    // Verificar que es un viaje de la app de pasajeros
+    // Solo aplica a viajes de la passenger-app
     if (!isPassengerAppTrip(trip)) {
-      return NextResponse.json(
-        { ok: false, reason: 'not_passenger_app_trip' },
-        { status: 200 }
-      );
+      return NextResponse.json({ ok: false, reason: 'not_passenger_app_trip' }, { status: 200 });
     }
 
     const supabaseAdmin = getSupabaseAdmin();
-    const driver = { id: auth.driverId, full_name: auth.driverName, name: auth.driverName };
+
+    // Resolver el conductor (para el nombre en la notificación)
+    const driverId   = auth.driverId || trip.driver_id || null;
+    const driverName = auth.driverName || null;
+    const driver     = driverId
+      ? (await fetchDriver(driverId)) || { id: driverId, full_name: driverName, name: driverName }
+      : { id: null, full_name: null, name: null };
 
     let result;
 
     if (force) {
-      // Modo forzado: omite la deduplicación de wa_context, envía directamente
+      // Modo forzado: omite deduplicación de wa_context
       const passengerPhone = normalizePassengerPhoneForDb(trip.passenger_phone);
       if (!passengerPhone) {
         return NextResponse.json({ ok: false, reason: 'missing_passenger_phone' });
@@ -160,23 +262,33 @@ export async function POST(req) {
 
       const tripStatus = String(trip.status || '').toLowerCase();
       const pushStatus = resolvePassengerPushStatus(trip) || 'accepted';
-      const content = getPassengerTripPushContent(pushStatus, { driverName: auth.driverName });
+      const content    = getPassengerTripPushContent(pushStatus, { driverName: driver.full_name || driver.name });
 
       if (!content) {
         return NextResponse.json({ ok: false, reason: 'no_push_content_for_status' });
       }
 
+      const altPhone = passengerPhone.startsWith('549')
+        ? `54${passengerPhone.slice(3)}`
+        : `549${passengerPhone.slice(2)}`;
+
       const { data: deviceRow } = await supabaseAdmin
-        .from('passenger_devices')
+        .from('passenger_auth_sessions')
         .select('push_token, phone, updated_at')
-        .in('phone', [
-          passengerPhone,
-          passengerPhone.startsWith('549') ? `54${passengerPhone.slice(3)}` : `549${passengerPhone.slice(2)}`,
-        ])
+        .in('phone', [passengerPhone, altPhone])
         .order('updated_at', { ascending: false })
         .limit(1);
 
-      const pushToken = deviceRow?.[0]?.push_token;
+      const pushToken = deviceRow?.[0]?.push_token
+        // fallback tabla legacy
+        || await supabaseAdmin
+          .from('passenger_devices')
+          .select('push_token')
+          .in('phone', [passengerPhone, altPhone])
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .then(({ data }) => data?.[0]?.push_token || null);
+
       if (!pushToken) {
         console.warn('[notify-passenger] Force mode: token no encontrado para', passengerPhone);
         return NextResponse.json({ ok: false, reason: 'no_push_token', phone: passengerPhone });
@@ -203,26 +315,20 @@ export async function POST(req) {
 
     if (!result.ok) {
       console.warn('[notify-passenger] Push falló:', {
-        tripId,
-        reason: result.reason,
-        status: result.status,
-        tripStatus: trip.status,
+        tripId, reason: result.reason, tripStatus: trip.status,
       });
     } else {
       console.log('[notify-passenger] Push enviado:', {
-        tripId,
-        pushStatus: result.status,
-        tripStatus: trip.status,
-        messageId: result.messageId,
+        tripId, pushStatus: result.status, tripStatus: trip.status, messageId: result.messageId,
       });
     }
 
     return NextResponse.json({
-      ok: result.ok,
-      reason: result.reason || null,
-      pushStatus: result.status || null,
+      ok:         result.ok,
+      reason:     result.reason    || null,
+      pushStatus: result.status    || null,
       tripStatus: trip.status,
-      messageId: result.messageId || null,
+      messageId:  result.messageId || null,
     });
   } catch (err) {
     console.error('[notify-passenger] Error interno:', err?.message || err);
