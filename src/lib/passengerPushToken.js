@@ -20,7 +20,8 @@ function buildPassengerPhoneVariants(phone) {
 }
 
 /**
- * Guarda el token FCM del pasajero (service role, sin depender de RLS anon).
+ * Guarda el token FCM del pasajero en passenger_auth_sessions (fuente principal)
+ * y en passenger_devices (tabla legacy, como fallback).
  */
 export async function upsertPassengerPushToken(phone, pushToken) {
   const token = String(pushToken || '').trim();
@@ -28,28 +29,41 @@ export async function upsertPassengerPushToken(phone, pushToken) {
     return { ok: false, reason: 'missing_push_token' };
   }
 
-  const variants = buildPassengerPhoneVariants(phone);
+  const canonical = normalizePassengerPhoneForDb(phone);
+  const variants  = buildPassengerPhoneVariants(phone);
   if (!variants.length) {
     return { ok: false, reason: 'invalid_phone' };
   }
 
-  const now = new Date().toISOString();
-  const rows = variants.map((variantPhone) => ({
+  const now     = new Date().toISOString();
+  const supabase = getSupabaseAdmin();
+
+  // 1) Actualizar push_token en passenger_auth_sessions (por cada variante de phone)
+  //    Solo actualiza filas existentes — si no existe sesión aún, no pasa nada.
+  const sessionUpdates = variants.map((variantPhone) =>
+    supabase
+      .from('passenger_auth_sessions')
+      .update({ push_token: token, updated_at: now })
+      .eq('phone', variantPhone)
+  );
+  await Promise.allSettled(sessionUpdates);
+
+  // 2) Upsert en passenger_devices (fuente legacy, mantiene compatibilidad)
+  const deviceRows = variants.map((variantPhone) => ({
     phone: variantPhone,
     push_token: token,
     updated_at: now,
   }));
 
-  const supabase = getSupabaseAdmin();
   const { error } = await supabase
     .from('passenger_devices')
-    .upsert(rows, { onConflict: 'phone' });
+    .upsert(deviceRows, { onConflict: 'phone' });
 
   if (error) {
     return { ok: false, reason: 'db_error', message: error.message || 'upsert_failed' };
   }
 
-  return { ok: true, phone: normalizePassengerPhoneForDb(phone), variants };
+  return { ok: true, phone: canonical, variants };
 }
 
 async function getDriverById(supabase, driverId) {

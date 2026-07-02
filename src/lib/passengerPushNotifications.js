@@ -131,6 +131,19 @@ async function lookupPassengerPushToken(supabase, passengerPhone) {
   const variants = buildPassengerPhoneLookupVariants(passengerPhone);
   if (!variants.length) return null;
 
+  // 1) Fuente principal: passenger_auth_sessions (token más reciente por phone)
+  const { data: sessionRows } = await supabase
+    .from('passenger_auth_sessions')
+    .select('phone, push_token, updated_at')
+    .in('phone', variants)
+    .not('push_token', 'is', null)
+    .order('updated_at', { ascending: false })
+    .limit(1);
+
+  const sessionToken = String(sessionRows?.[0]?.push_token || '').trim();
+  if (sessionToken) return sessionToken;
+
+  // 2) Fallback: passenger_devices (tabla legacy)
   const { data, error } = await supabase
     .from('passenger_devices')
     .select('phone, push_token, updated_at')
@@ -140,8 +153,7 @@ async function lookupPassengerPushToken(supabase, passengerPhone) {
 
   if (error) throw error;
   const row = Array.isArray(data) ? data[0] : null;
-  const token = String(row?.push_token || '').trim();
-  return token || null;
+  return String(row?.push_token || '').trim() || null;
 }
 
 async function clearStalePassengerPushToken(supabase, passengerPhone, reason) {
@@ -154,11 +166,19 @@ async function clearStalePassengerPushToken(supabase, passengerPhone, reason) {
     return { cleared: false };
   }
 
-  const { error } = await supabase
-    .from('passenger_devices')
-    .delete()
-    .in('phone', variants);
+  // Limpiar en ambas tablas (no lanzar si alguna falla)
+  const [sessResult, devResult] = await Promise.allSettled([
+    supabase
+      .from('passenger_auth_sessions')
+      .update({ push_token: null })
+      .in('phone', variants),
+    supabase
+      .from('passenger_devices')
+      .delete()
+      .in('phone', variants),
+  ]);
 
+  const error = sessResult.value?.error || devResult.value?.error;
   if (error) {
     return { cleared: false, clearError: error.message || 'passenger_push_token_clear_failed' };
   }
