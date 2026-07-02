@@ -144,9 +144,14 @@ export async function POST(req) {
         return NextResponse.json({ ok: false, reason: 'no_push_content_for_status' });
       }
 
-      const altPhone = passengerPhone.startsWith('549')
-        ? `54${passengerPhone.slice(3)}`
-        : `549${passengerPhone.slice(2)}`;
+      // Todas las variantes del teléfono, incluyendo formato local sin código de país
+      const rawPhone = String(trip.passenger_phone || '').replace(/\D/g, '');
+      const phoneVariants = [...new Set([
+        passengerPhone,
+        rawPhone,
+        passengerPhone.startsWith('549') ? `54${passengerPhone.slice(3)}` : `549${passengerPhone.slice(2)}`,
+        passengerPhone.startsWith('549') ? passengerPhone.slice(3) : passengerPhone.slice(2),
+      ].filter(Boolean))];
 
       // Busca token en passenger_auth_sessions primero, luego passenger_devices
       let pushToken = null;
@@ -154,7 +159,7 @@ export async function POST(req) {
       const { data: sessionRows } = await supabaseAdmin
         .from('passenger_auth_sessions')
         .select('push_token')
-        .in('phone', [passengerPhone, altPhone])
+        .in('phone', phoneVariants)
         .not('push_token', 'is', null)
         .order('updated_at', { ascending: false })
         .limit(1);
@@ -164,7 +169,7 @@ export async function POST(req) {
         const { data: deviceRows } = await supabaseAdmin
           .from('passenger_devices')
           .select('push_token')
-          .in('phone', [passengerPhone, altPhone])
+          .in('phone', phoneVariants)
           .order('updated_at', { ascending: false })
           .limit(1);
         pushToken = deviceRows?.[0]?.push_token || null;

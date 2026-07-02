@@ -113,18 +113,22 @@ export function resolvePassengerPushStatus(trip) {
 }
 
 function buildPassengerPhoneLookupVariants(passengerPhone) {
+  const raw = String(passengerPhone || '').replace(/\D/g, '');
   const canonical = normalizePassengerPhoneForDb(passengerPhone);
-  if (!canonical) return [];
+  if (!canonical && !raw) return [];
 
-  const variants = new Set([canonical]);
+  const variants = new Set([canonical, raw].filter(Boolean));
+
   if (canonical.startsWith('54') && !canonical.startsWith('549')) {
-    variants.add(`549${canonical.slice(2)}`);
+    variants.add(`549${canonical.slice(2)}`); // 543878... → 5493878...
+    variants.add(canonical.slice(2));          // 543878... → 3878... (local sin país)
   }
   if (canonical.startsWith('549')) {
-    variants.add(`54${canonical.slice(3)}`);
+    variants.add(`54${canonical.slice(3)}`);  // 5493878... → 543878...
+    variants.add(canonical.slice(3));          // 5493878... → 3878... (local sin país)
   }
 
-  return [...variants];
+  return [...variants].filter(Boolean);
 }
 
 async function lookupPassengerPushToken(supabase, passengerPhone) {
