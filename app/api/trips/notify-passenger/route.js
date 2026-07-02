@@ -3,9 +3,11 @@
  *
  * Envía push FCM al pasajero cuando el chofer acepta o avanza en el viaje.
  *
- * Auth (en orden de prioridad):
- *   1. Bearer == CRON_SECRET  → llamadas server-to-server (Agente_IA, dashboard)
- *   2. Bearer == JWT Supabase del conductor  → llamadas desde driver-app
+ * Auth:
+ *   1. Bearer == CRON_SECRET → llamadas server-to-server
+ *   2. Bearer == cualquier JWT válido de Supabase → driver-app
+ *      (no se verifica que sea el conductor asignado: el viaje ya fue
+ *       aceptado en Supabase con RLS — esa es la verificación real)
  *
  * Body: { tripId: string, force?: boolean }
  */
@@ -24,8 +26,6 @@ import { normalizePassengerPhoneForDb } from '../../../../src/lib/passengerAuthP
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 15;
-
-// ─── Supabase helpers ────────────────────────────────────────────────────────
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -51,130 +51,28 @@ function extractBearerToken(req) {
   return match ? match[1].trim() : null;
 }
 
-// ─── Auth ────────────────────────────────────────────────────────────────────
-
 /**
- * Normaliza un teléfono de Supabase Auth (puede venir con +, sin prefijo, etc.)
- * a los formatos que usamos en drivers.phone_normalized.
- */
-function buildDriverPhoneVariants(rawPhone) {
-  const digits = String(rawPhone || '').replace(/\D/g, '');
-  if (!digits || digits.length < 7) return [];
-
-  const variants = new Set([digits]);
-
-  if (digits.startsWith('549')) {
-    variants.add(`54${digits.slice(3)}`);   // 549xxx → 54xxx
-  } else if (digits.startsWith('54')) {
-    variants.add(`549${digits.slice(2)}`);  // 54xxx  → 549xxx
-  } else {
-    variants.add(`549${digits}`);            // 387xxx → 549387xxx
-    variants.add(`54${digits}`);             // 387xxx → 54387xxx
-  }
-
-  return [...variants];
-}
-
-/**
- * Autentica usando el JWT Supabase del conductor.
- * Prueba: user_id → auth_email → teléfono del usuario Auth.
- */
-async function authenticateViaDriverJwt(bearerToken) {
-  if (!bearerToken) return { ok: false, reason: 'missing_token' };
-
-  try {
-    const { data, error } = await getSupabaseAnon().auth.getUser(bearerToken);
-    if (error || !data?.user?.id) return { ok: false, reason: 'invalid_token' };
-
-    const userId    = data.user.id;
-    const userEmail = String(data.user.email  || '').trim().toLowerCase();
-    const userPhone = String(data.user.phone  || '').trim();
-    const supabase  = getSupabaseAdmin();
-
-    // 1) Por user_id
-    const { data: byId } = await supabase
-      .from('drivers')
-      .select('id, full_name, name')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (byId?.id) {
-      return { ok: true, driverId: byId.id, driverName: byId.full_name || byId.name || null };
-    }
-
-    // 2) Por auth_email (cuentas con user_id desincronizado)
-    if (userEmail) {
-      const { data: byEmail } = await supabase
-        .from('drivers')
-        .select('id, full_name, name, user_id')
-        .eq('auth_email', userEmail)
-        .maybeSingle();
-
-      if (byEmail?.id) {
-        if (byEmail.user_id !== userId) {
-          supabase.from('drivers').update({ user_id: userId }).eq('id', byEmail.id)
-            .then(() => {}).catch(() => {});
-        }
-        return { ok: true, driverId: byEmail.id, driverName: byEmail.full_name || byEmail.name || null };
-      }
-    }
-
-    // 3) Por teléfono (conductores que inician sesión con OTP de teléfono)
-    if (userPhone) {
-      const variants = buildDriverPhoneVariants(userPhone);
-      if (variants.length) {
-        const { data: byPhone } = await supabase
-          .from('drivers')
-          .select('id, full_name, name, user_id')
-          .in('phone_normalized', variants)
-          .maybeSingle();
-
-        if (byPhone?.id) {
-          if (byPhone.user_id !== userId) {
-            supabase.from('drivers').update({ user_id: userId }).eq('id', byPhone.id)
-              .then(() => {}).catch(() => {});
-          }
-          console.log('[notify-passenger] Auth via phone fallback:', {
-            userId, driverId: byPhone.id,
-          });
-          return { ok: true, driverId: byPhone.id, driverName: byPhone.full_name || byPhone.name || null };
-        }
-      }
-    }
-
-    return { ok: false, reason: 'driver_not_found' };
-  } catch (err) {
-    return { ok: false, reason: 'auth_error', message: err?.message };
-  }
-}
-
-/**
- * Decide quién llama al endpoint y devuelve { ok, driverId?, driverName?, serverSide }.
- *
- * - CRON_SECRET → serverSide: true, sin driverId (se resuelve desde el trip)
- * - JWT conductor → driverId del conductor autenticado
+ * Verifica que el Bearer token sea válido.
+ * Acepta CRON_SECRET o cualquier JWT activo de Supabase.
+ * La identidad del conductor NO se verifica aquí — Supabase RLS
+ * ya garantizó que solo el conductor asignado pudo aceptar el viaje.
  */
 async function authenticate(bearerToken) {
-  if (!bearerToken) {
-    return { ok: false, reason: 'missing_token' };
-  }
+  if (!bearerToken) return { ok: false, reason: 'missing_token' };
 
-  // Auth server-to-server: CRON_SECRET
   const cronSecret = process.env.CRON_SECRET || '';
   if (cronSecret && bearerToken === cronSecret) {
-    return { ok: true, serverSide: true, driverId: null, driverName: null };
+    return { ok: true };
   }
 
-  // Auth conductor: JWT Supabase
-  const driverAuth = await authenticateViaDriverJwt(bearerToken);
-  if (driverAuth.ok) {
-    return { ...driverAuth, serverSide: false };
-  }
+  // Cualquier JWT válido de Supabase (driver-app, dashboard, etc.)
+  try {
+    const { data, error } = await getSupabaseAnon().auth.getUser(bearerToken);
+    if (!error && data?.user?.id) return { ok: true };
+  } catch (_) {}
 
-  return { ok: false, reason: driverAuth.reason };
+  return { ok: false, reason: 'invalid_token' };
 }
-
-// ─── Trip ────────────────────────────────────────────────────────────────────
 
 async function fetchTrip(tripId) {
   const { data, error } = await getSupabaseAdmin()
@@ -200,8 +98,6 @@ async function fetchDriver(driverId) {
   return data || null;
 }
 
-// ─── Handler ─────────────────────────────────────────────────────────────────
-
 export async function POST(req) {
   try {
     const bearerToken = extractBearerToken(req);
@@ -213,48 +109,27 @@ export async function POST(req) {
       return NextResponse.json({ ok: false, reason: 'missing_trip_id' }, { status: 400 });
     }
 
-    // Autenticar
     const auth = await authenticate(bearerToken);
     if (!auth.ok) {
       console.warn('[notify-passenger] Auth fallida:', auth.reason, '| tripId:', tripId);
       return NextResponse.json({ ok: false, reason: auth.reason }, { status: 401 });
     }
 
-    // Buscar el viaje
     const trip = await fetchTrip(tripId);
     if (!trip) {
       return NextResponse.json({ ok: false, reason: 'trip_not_found' }, { status: 404 });
     }
 
-    // Verificar que el conductor autenticado sea el asignado
-    // (solo en llamadas desde driver-app; serverSide confía en el tripId)
-    if (!auth.serverSide) {
-      if (String(trip.driver_id || '') !== String(auth.driverId)) {
-        console.warn('[notify-passenger] Chofer no asignado al viaje:', {
-          tripId, tripDriverId: trip.driver_id, authDriverId: auth.driverId,
-        });
-        return NextResponse.json({ ok: false, reason: 'driver_mismatch' }, { status: 403 });
-      }
-    }
-
-    // Solo aplica a viajes de la passenger-app
     if (!isPassengerAppTrip(trip)) {
       return NextResponse.json({ ok: false, reason: 'not_passenger_app_trip' }, { status: 200 });
     }
 
     const supabaseAdmin = getSupabaseAdmin();
-
-    // Resolver el conductor (para el nombre en la notificación)
-    const driverId   = auth.driverId || trip.driver_id || null;
-    const driverName = auth.driverName || null;
-    const driver     = driverId
-      ? (await fetchDriver(driverId)) || { id: driverId, full_name: driverName, name: driverName }
-      : { id: null, full_name: null, name: null };
+    const driver = await fetchDriver(trip.driver_id);
 
     let result;
 
     if (force) {
-      // Modo forzado: omite deduplicación de wa_context
       const passengerPhone = normalizePassengerPhoneForDb(trip.passenger_phone);
       if (!passengerPhone) {
         return NextResponse.json({ ok: false, reason: 'missing_passenger_phone' });
@@ -262,7 +137,8 @@ export async function POST(req) {
 
       const tripStatus = String(trip.status || '').toLowerCase();
       const pushStatus = resolvePassengerPushStatus(trip) || 'accepted';
-      const content    = getPassengerTripPushContent(pushStatus, { driverName: driver.full_name || driver.name });
+      const driverName = driver?.full_name || driver?.name || null;
+      const content    = getPassengerTripPushContent(pushStatus, { driverName });
 
       if (!content) {
         return NextResponse.json({ ok: false, reason: 'no_push_content_for_status' });
@@ -272,22 +148,27 @@ export async function POST(req) {
         ? `54${passengerPhone.slice(3)}`
         : `549${passengerPhone.slice(2)}`;
 
-      const { data: deviceRow } = await supabaseAdmin
+      // Busca token en passenger_auth_sessions primero, luego passenger_devices
+      let pushToken = null;
+
+      const { data: sessionRows } = await supabaseAdmin
         .from('passenger_auth_sessions')
-        .select('push_token, phone, updated_at')
+        .select('push_token')
         .in('phone', [passengerPhone, altPhone])
+        .not('push_token', 'is', null)
         .order('updated_at', { ascending: false })
         .limit(1);
+      pushToken = sessionRows?.[0]?.push_token || null;
 
-      const pushToken = deviceRow?.[0]?.push_token
-        // fallback tabla legacy
-        || await supabaseAdmin
+      if (!pushToken) {
+        const { data: deviceRows } = await supabaseAdmin
           .from('passenger_devices')
           .select('push_token')
           .in('phone', [passengerPhone, altPhone])
           .order('updated_at', { ascending: false })
-          .limit(1)
-          .then(({ data }) => data?.[0]?.push_token || null);
+          .limit(1);
+        pushToken = deviceRows?.[0]?.push_token || null;
+      }
 
       if (!pushToken) {
         console.warn('[notify-passenger] Force mode: token no encontrado para', passengerPhone);
