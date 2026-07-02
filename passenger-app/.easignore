@@ -20,6 +20,16 @@ yarn-error.*
 .env
 .env.local
 
+# Monorepo: excluir otros sub-proyectos y archivos pesados
+../driver-app/
+../profesional-dashboard/
+../infra/
+../railway-services/
+../*.md
+../.github/
+../.cursor/
+../.agents/
+
 # Necesario para compilar Firebase en EAS Android
 !google-services.json
 !android/app/google-services.json
