@@ -136,13 +136,15 @@ async function lookupPassengerPushToken(supabase, passengerPhone) {
   if (!variants.length) return null;
 
   // 1) Fuente principal: passenger_auth_sessions (token más reciente por phone)
-  const { data: sessionRows } = await supabase
+  const { data: sessionRows, error: sessionErr } = await supabase
     .from('passenger_auth_sessions')
     .select('phone, push_token, updated_at')
     .in('phone', variants)
     .not('push_token', 'is', null)
     .order('updated_at', { ascending: false })
     .limit(1);
+
+  console.log('[lookup-push-token] variants:', variants, '| session_rows:', sessionRows?.length ?? 0, '| session_err:', sessionErr?.message ?? null);
 
   const sessionToken = String(sessionRows?.[0]?.push_token || '').trim();
   if (sessionToken) return sessionToken;
@@ -154,6 +156,8 @@ async function lookupPassengerPushToken(supabase, passengerPhone) {
     .in('phone', variants)
     .order('updated_at', { ascending: false })
     .limit(1);
+
+  console.log('[lookup-push-token] device_rows:', data?.length ?? 0, '| device_phones:', data?.map(r => r.phone) ?? [], '| device_err:', error?.message ?? null);
 
   if (error) throw error;
   const row = Array.isArray(data) ? data[0] : null;
