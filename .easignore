@@ -1,0 +1,18 @@
+# Excluir sub-proyectos y archivos pesados del monorepo (EAS archiva desde la raíz git)
+driver-app/
+profesional-dashboard/
+infra/
+railway-services/
+.cursor/
+.agents/
+.github/
+
+# Binarios y artefactos grandes
+**/*.zip
+**/*.7z
+**/.gradle/
+**/android/app/build/
+**/android/build/
+**/node_modules/
+**/.expo/
+**/coverage/
