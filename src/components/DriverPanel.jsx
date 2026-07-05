@@ -44,7 +44,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
     : trips;
 
   return (
-    <div className="w-96 bg-light-50 border-l border-light-300/50 flex flex-col h-full animate-slideIn">
+    <div className="fixed inset-0 z-[60] flex h-full w-full animate-slideIn flex-col border-l border-light-300/50 bg-light-50 lg:relative lg:inset-auto lg:z-auto lg:w-96">
       {/* Header */}
       <div className="p-4 border-b border-light-300/50">
         <div className="flex items-center justify-between mb-4">

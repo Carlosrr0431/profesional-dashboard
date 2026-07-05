@@ -281,8 +281,8 @@ export default function ScheduledTripsPanel({
     <div className="flex flex-col flex-1 w-full min-h-0 h-full bg-light-100/60 overflow-hidden">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-4 px-6 py-4 bg-white/80 border-b border-light-300/60 backdrop-blur-sm flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 lg:px-6 lg:py-4 bg-white/80 border-b border-light-300/60 backdrop-blur-sm flex-shrink-0">
+        <div className="flex min-w-0 items-center gap-3">
           <button
             onClick={onBack}
             className="w-8 h-8 rounded-xl bg-light-100 border border-light-300/60 flex items-center justify-center text-gray-500 hover:text-navy-800 hover:bg-light-200 transition-all"
@@ -300,9 +300,9 @@ export default function ScheduledTripsPanel({
             </svg>
           </div>
 
-          <div>
+          <div className="min-w-0">
             <h2 className="text-navy-900 font-bold text-base leading-tight">Viajes programados</h2>
-            <p className="text-[11px] text-gray-400">
+            <p className="hidden text-[11px] text-gray-400 sm:block">
               Reservas por WhatsApp · Suscripto en tiempo real ·{' '}
               {lastUpdated
                 ? `Actualizado ${lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
@@ -328,7 +328,7 @@ export default function ScheduledTripsPanel({
       </div>
 
       {/* ── Stats ──────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 px-6 py-4 flex-shrink-0 w-full">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 px-4 py-4 flex-shrink-0 w-full lg:px-6">
         <StatCard
           label="Programados"
           value={loading ? '—' : stats.total}
@@ -356,7 +356,7 @@ export default function ScheduledTripsPanel({
       </div>
 
       {/* ── Body (dos columnas a ancho completo) ───────────────────────────── */}
-      <div className="flex-1 min-h-0 w-full grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(280px,32%)] gap-5 px-6 pb-6 overflow-hidden">
+      <div className="flex-1 min-h-0 w-full grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(280px,32%)] gap-5 px-4 pb-6 overflow-hidden lg:px-6">
 
         {/* ── Agenda de viajes ───────────────────────────────────────────── */}
         <div className="flex flex-col min-w-0 min-h-0 overflow-hidden">

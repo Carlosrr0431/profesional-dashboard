@@ -137,27 +137,27 @@ export default function DriverManagement({ onBack }) {
       {/* Main content — ancho completo en vista global de pagos */}
       <div className={`min-h-0 flex flex-col overflow-hidden ${mainView === 'payments' ? 'flex-1 w-full' : 'flex-1'}`}>
         {/* Header */}
-        <div className="bg-light-50 border-b border-light-300/50 px-6 py-4">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <button onClick={onBack} className="w-9 h-9 rounded-xl bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all">
+        <div className="bg-light-50 border-b border-light-300/50 px-4 py-3 lg:px-6 lg:py-4">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <button onClick={onBack} className="w-9 h-9 shrink-0 rounded-xl bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               </button>
-              <div>
-                <h1 className="text-xl font-bold text-navy-900">Gestión de Choferes</h1>
+              <div className="min-w-0">
+                <h1 className="text-lg font-bold text-navy-900 truncate sm:text-xl">Gestión de Choferes</h1>
                 <p className="text-xs text-gray-500">{fleetDrivers.length} choferes registrados</p>
               </div>
             </div>
             <button
               onClick={handleNewDriver}
-              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-accent to-accent-light text-white text-sm font-semibold rounded-xl hover:shadow-lg hover:shadow-accent/20 transition-all"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent to-accent-light px-4 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-accent/20 sm:w-auto"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
               Nuevo Chofer
             </button>
           </div>
 
-          <div className="flex gap-1 bg-light-300/60 rounded-xl p-1 mb-4 w-fit">
+          <div className="mb-4 flex w-full gap-1 overflow-x-auto rounded-xl bg-light-300/60 p-1 scrollbar-none sm:w-fit">
             {[
               { key: 'drivers', label: 'Choferes' },
               { key: 'payments', label: 'Pagos de comisión' },
@@ -180,8 +180,8 @@ export default function DriverManagement({ onBack }) {
           {mainView === 'drivers' ? (
           <>
           {/* Search + Filters */}
-          <div className="flex gap-3">
-            <div className="relative flex-1">
+          <div className="flex flex-col gap-3 lg:flex-row">
+            <div className="relative min-w-0 flex-1">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
@@ -193,7 +193,7 @@ export default function DriverManagement({ onBack }) {
                 className="w-full bg-light-200 border border-light-300/50 rounded-xl pl-9 pr-3 py-2.5 text-sm text-navy-900 placeholder-gray-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
               />
             </div>
-            <div className="flex gap-1 bg-light-300/60 rounded-xl p-1">
+            <div className="flex gap-1 overflow-x-auto rounded-xl bg-light-300/60 p-1 scrollbar-none">
               {[
                 { key: 'all', label: 'Todos' },
                 { key: 'active', label: 'Activos' },
@@ -204,7 +204,7 @@ export default function DriverManagement({ onBack }) {
                 <button
                   key={f.key}
                   onClick={() => setFilter(f.key)}
-                  className={`px-4 py-2 text-xs font-medium rounded-lg transition-all ${
+                  className={`whitespace-nowrap px-3 py-2 text-xs font-medium rounded-lg transition-all sm:px-4 ${
                     filter === f.key ? 'bg-accent text-white shadow-md shadow-accent/20' : 'text-gray-400 hover:text-navy-900'
                   }`}
                 >
@@ -341,7 +341,7 @@ function DriverManagementLoading({ onBack }) {
 
           <div className="flex gap-3">
             <div className="flex-1 h-[42px] rounded-xl bg-light-200/90 animate-pulse" />
-            <div className="w-[360px] h-[42px] rounded-xl bg-light-200/90 animate-pulse" />
+            <div className="w-full max-w-full h-[42px] rounded-xl bg-light-200/90 animate-pulse sm:w-[360px]" />
           </div>
         </div>
 

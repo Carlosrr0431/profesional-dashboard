@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useDrivers } from './hooks/useDrivers';
@@ -24,6 +24,7 @@ import EmulatorGpsSimulator from './components/EmulatorGpsSimulator';
 import AdminUsersPanel from './components/admin/AdminUsersPanel';
 import DashboardBrand from './components/DashboardBrand';
 import { useTripStatistics } from './hooks/useTripStatistics';
+import { isSuperAdminUser } from './lib/adminSuperUser';
 
 // ─── Vista activa ─────────────────────────────────────────────────────────────
 const VIEWS = {
@@ -42,6 +43,7 @@ export default function App() {
   const toast = useToast();
   const router = useRouter();
   const { signOut, user } = useAdminAuth();
+  const isSuperAdmin = isSuperAdminUser(user);
   const { drivers, loading } = useDrivers();
   const pendingPassengers = usePendingPassengers();
   const queueData = useQueuedPassengers();
@@ -63,6 +65,7 @@ export default function App() {
   const [showBroadcast,   setShowBroadcast]   = useState(false);
   // Ruta de preview al asignar viaje: { polylineCoords?, origin, destination? } | null
   const [previewRoute,    setPreviewRoute]    = useState(null);
+  const [fleetDrawerOpen,   setFleetDrawerOpen] = useState(false);
 
   const mapRef = useRef(null);
 
@@ -133,12 +136,36 @@ export default function App() {
   }, [router, signOut, toast]);
 
   const goTo = useCallback((view) => {
+    if (
+      !isSuperAdmin
+      && (view === VIEWS.adminUsers || view === VIEWS.emulatorGps)
+    ) {
+      setCurrentView(VIEWS.map);
+      return;
+    }
     setCurrentView(view);
     if (view !== VIEWS.map) {
       setPanelDriverId(null);
       setSelectedId(null);
     }
-  }, []);
+  }, [isSuperAdmin]);
+
+  useEffect(() => {
+    if (
+      !isSuperAdmin
+      && (currentView === VIEWS.adminUsers || currentView === VIEWS.emulatorGps)
+    ) {
+      setCurrentView(VIEWS.map);
+    }
+  }, [isSuperAdmin, currentView]);
+
+  useEffect(() => {
+    if (panelDriverId) setFleetDrawerOpen(false);
+  }, [panelDriverId]);
+
+  useEffect(() => {
+    if (currentView !== VIEWS.map) setFleetDrawerOpen(false);
+  }, [currentView]);
 
   const handleNewTripSuccess = useCallback(() => {
     setShowNewTripModal(false);
@@ -146,6 +173,132 @@ export default function App() {
     goTo(VIEWS.queue);
     toast.success('Viaje encolado correctamente');
   }, [queueData, goTo, toast]);
+
+  const renderNavigation = (compact = false) => (
+    <>
+      <NavTab
+        compact={compact}
+        active={currentView === VIEWS.map}
+        onClick={() => goTo(VIEWS.map)}
+        icon={
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+          </svg>
+        }
+      >
+        Mapa
+      </NavTab>
+
+      <NavTab
+        compact={compact}
+        active={currentView === VIEWS.queue}
+        onClick={() => goTo(currentView === VIEWS.queue ? VIEWS.map : VIEWS.queue)}
+        badge={queueData.stats.inQueue > 0 ? queueData.stats.inQueue : null}
+        badgeColor="warning"
+        icon={
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        }
+      >
+        Cola
+      </NavTab>
+
+      <NavTab
+        compact={compact}
+        active={currentView === VIEWS.scheduled}
+        onClick={() => goTo(currentView === VIEWS.scheduled ? VIEWS.map : VIEWS.scheduled)}
+        badge={scheduledData.stats.total > 0 ? scheduledData.stats.total : null}
+        badgeColor={scheduledData.stats.imminent > 0 ? 'warning-pulse' : 'violet'}
+        icon={
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        }
+      >
+        Programados
+      </NavTab>
+
+      <NavTab
+        compact={compact}
+        active={currentView === VIEWS.management}
+        onClick={() => goTo(currentView === VIEWS.management ? VIEWS.map : VIEWS.management)}
+        icon={
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+          </svg>
+        }
+      >
+        Choferes
+      </NavTab>
+
+      <NavTab
+        compact={compact}
+        active={currentView === VIEWS.statistics}
+        onClick={() => goTo(currentView === VIEWS.statistics ? VIEWS.map : VIEWS.statistics)}
+        icon={
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+        }
+      >
+        Estadística
+      </NavTab>
+
+      <NavTab
+        compact={compact}
+        active={currentView === VIEWS.zones}
+        onClick={() => goTo(currentView === VIEWS.zones ? VIEWS.map : VIEWS.zones)}
+        icon={
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z" />
+          </svg>
+        }
+      >
+        Zonas
+      </NavTab>
+
+      {isSuperAdmin ? (
+        <NavTab
+          compact={compact}
+          active={currentView === VIEWS.emulatorGps}
+          onClick={() => goTo(currentView === VIEWS.emulatorGps ? VIEWS.map : VIEWS.emulatorGps)}
+          icon={
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+          }
+        >
+          Sim. GPS
+        </NavTab>
+      ) : null}
+
+      {isSuperAdmin ? (
+        <NavTab
+          compact={compact}
+          active={currentView === VIEWS.adminUsers}
+          onClick={() => goTo(currentView === VIEWS.adminUsers ? VIEWS.map : VIEWS.adminUsers)}
+          icon={
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          }
+        >
+          Usuarios
+        </NavTab>
+      ) : null}
+    </>
+  );
 
   // ── Pantalla de carga ──────────────────────────────────────────────────────
   if (loading) {
@@ -166,149 +319,36 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-[linear-gradient(180deg,#f8f9fc_0%,#eef1f6_100%)]">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#f8f9fc_0%,#eef1f6_100%)]">
 
       {/* ══════════════════════════════════════════════════════════════════════
           BARRA DE NAVEGACIÓN SUPERIOR
       ══════════════════════════════════════════════════════════════════════ */}
-      <header className="flex-shrink-0 h-14 bg-white border-b border-gray-100 flex items-center px-5 gap-4 z-30">
+      <header className="z-30 shrink-0 border-b border-gray-100 bg-white">
+        <div className="flex h-12 items-center gap-2 px-3 lg:h-14 lg:gap-4 lg:px-5">
 
         {/* ── Logo ─────────────────────────────────────────────────────── */}
-        <div className="flex items-center flex-shrink-0">
-          <DashboardBrand />
+        <div className="flex shrink-0 items-center">
+          <DashboardBrand imageClassName="h-8 w-auto max-w-[118px] object-contain lg:h-9 lg:max-w-[132px]" />
         </div>
 
-        {/* ── Navegación principal — centrada ──────────────────────────── */}
-        <nav className="flex-1 flex items-center justify-center">
-          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-gray-100/80 border border-gray-200/70">
-
-            <NavTab
-              active={currentView === VIEWS.map}
-              onClick={() => goTo(VIEWS.map)}
-              icon={
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                </svg>
-              }
-            >
-              Mapa
-            </NavTab>
-
-            <NavTab
-              active={currentView === VIEWS.queue}
-              onClick={() => goTo(currentView === VIEWS.queue ? VIEWS.map : VIEWS.queue)}
-              badge={queueData.stats.inQueue > 0 ? queueData.stats.inQueue : null}
-              badgeColor="warning"
-              icon={
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              }
-            >
-              Cola
-            </NavTab>
-
-            <NavTab
-              active={currentView === VIEWS.scheduled}
-              onClick={() => goTo(currentView === VIEWS.scheduled ? VIEWS.map : VIEWS.scheduled)}
-              badge={scheduledData.stats.total > 0 ? scheduledData.stats.total : null}
-              badgeColor={scheduledData.stats.imminent > 0 ? 'warning-pulse' : 'violet'}
-              icon={
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              }
-            >
-              Programados
-            </NavTab>
-
-            <NavTab
-              active={currentView === VIEWS.management}
-              onClick={() => goTo(currentView === VIEWS.management ? VIEWS.map : VIEWS.management)}
-              icon={
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-              }
-            >
-              Choferes
-            </NavTab>
-
-            <NavTab
-              active={currentView === VIEWS.statistics}
-              onClick={() => goTo(currentView === VIEWS.statistics ? VIEWS.map : VIEWS.statistics)}
-              icon={
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              }
-            >
-              Estadística
-            </NavTab>
-
-            <NavTab
-              active={currentView === VIEWS.zones}
-              onClick={() => goTo(currentView === VIEWS.zones ? VIEWS.map : VIEWS.zones)}
-              icon={
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z" />
-                </svg>
-              }
-            >
-              Zonas
-            </NavTab>
-
-            <NavTab
-              active={currentView === VIEWS.emulatorGps}
-              onClick={() => goTo(currentView === VIEWS.emulatorGps ? VIEWS.map : VIEWS.emulatorGps)}
-              icon={
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-              }
-            >
-              Sim. GPS
-            </NavTab>
-
-            <NavTab
-              active={currentView === VIEWS.adminUsers}
-              onClick={() => goTo(currentView === VIEWS.adminUsers ? VIEWS.map : VIEWS.adminUsers)}
-              icon={
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              }
-            >
-              Usuarios
-            </NavTab>
-
+        <nav className="hidden flex-1 items-center justify-center lg:flex">
+          <div className="flex items-center gap-1.5 rounded-xl border border-gray-200/70 bg-gray-100/80 p-1">
+            {renderNavigation(false)}
           </div>
         </nav>
 
         {/* ── Acciones ─────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {/* Toggle Agente IA */}
+        <div className="ml-auto flex shrink-0 items-center gap-1 lg:gap-1.5">
           <button
             type="button"
             onClick={() => updateSetting('whatsapp_agent_enabled', whatsappAgentEnabled ? 'false' : 'true')}
-            className={`flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-semibold transition-all ${
+            className={`flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] font-semibold transition-all lg:px-3 ${
               whatsappAgentEnabled
                 ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                 : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
             }`}
-            title={whatsappAgentEnabled
-              ? 'Desactivar agente IA de WhatsApp'
-              : 'Activar agente IA de WhatsApp'}
+            title={whatsappAgentEnabled ? 'Desactivar agente IA de WhatsApp' : 'Activar agente IA de WhatsApp'}
           >
             <span className="relative flex h-1.5 w-1.5">
               {whatsappAgentEnabled ? (
@@ -320,26 +360,24 @@ export default function App() {
                 <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-gray-400" />
               )}
             </span>
-            {whatsappAgentEnabled ? 'Agente IA' : 'Agente IA'}
+            <span className="hidden sm:inline">Agente IA</span>
           </button>
 
-          {/* Divisor */}
-          <div className="w-px h-5 bg-gray-200" />
+          <div className="hidden h-5 w-px bg-gray-200 md:block" />
 
-          {/* Nuevo viaje */}
           <button
             type="button"
             onClick={() => setShowNewTripModal(true)}
-            className="flex items-center gap-1.5 h-8 px-3.5 rounded-lg bg-navy-900 text-white text-[12px] font-semibold hover:bg-navy-900/85 transition-colors"
+            className="flex h-8 items-center gap-1.5 rounded-lg bg-navy-900 px-2.5 text-[12px] font-semibold text-white transition-colors hover:bg-navy-900/85 lg:px-3.5"
             title="Agregar viaje a la cola"
           >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
             </svg>
-            Nuevo viaje
+            <span className="hidden sm:inline">Nuevo viaje</span>
           </button>
 
-          {/* Selección múltiple */}
+          <div className="hidden items-center gap-1.5 md:flex">
           <IconAction
             active={multiSelectMode}
             title={multiSelectMode ? `Selección activa (${multiSelectedIds.size})` : 'Selección múltiple'}
@@ -375,8 +413,9 @@ export default function App() {
                 d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
             </svg>
           </IconAction>
+          </div>
 
-          <div className="w-px h-5 bg-gray-200" />
+          <div className="hidden h-5 w-px bg-gray-200 md:block" />
 
           <IconAction
             title="Cerrar sesión"
@@ -388,6 +427,15 @@ export default function App() {
             </svg>
           </IconAction>
         </div>
+        </div>
+
+        <nav className="border-t border-gray-100 px-2 py-2 lg:hidden">
+          <div className="overflow-x-auto pb-0.5 scrollbar-none">
+            <div className="flex w-max items-center gap-1 rounded-xl border border-gray-200/70 bg-gray-100/80 p-1">
+              {renderNavigation(true)}
+            </div>
+          </div>
+        </nav>
       </header>
 
       {/* ══════════════════════════════════════════════════════════════════════
@@ -426,32 +474,65 @@ export default function App() {
           <div className="flex-1 min-h-0 flex">
             <GeocodeErrorsPanel onBack={() => goTo(VIEWS.map)} />
           </div>
-        ) : currentView === VIEWS.emulatorGps ? (
+        ) : isSuperAdmin && currentView === VIEWS.emulatorGps ? (
           <div className="flex-1 w-full min-w-0 min-h-0 flex flex-col">
             <EmulatorGpsSimulator onBack={() => goTo(VIEWS.map)} />
           </div>
 
-        ) : currentView === VIEWS.adminUsers ? (
+        ) : isSuperAdmin && currentView === VIEWS.adminUsers ? (
           <AdminUsersPanel onBack={() => goTo(VIEWS.map)} currentUserId={user?.id} />
 
         ) : (
           /* ── Vista mapa ──────────────────────────────────────────────── */
-          <>
-            <Sidebar
-              drivers={drivers}
-              selectedId={selectedId}
-              onSelectDriver={(id) => { setSelectedId(id); setPanelDriverId(id); }}
-              onCenterDriver={handleCenterDriver}
-              tariffPerKm={tariffPerKm}
-              tariffBase={tariffBase}
-              commissionPercent={commissionPercent}
-              passengerAppTariffPerKm={passengerAppTariffPerKm}
-              passengerAppTariffBase={passengerAppTariffBase}
-              passengerAppCommissionPercent={passengerAppCommissionPercent}
-              onUpdateSetting={updateSetting}
-            />
+          <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+            <div className="hidden shrink-0 lg:flex">
+              <Sidebar
+                drivers={drivers}
+                selectedId={selectedId}
+                onSelectDriver={(id) => { setSelectedId(id); setPanelDriverId(id); }}
+                onCenterDriver={handleCenterDriver}
+                tariffPerKm={tariffPerKm}
+                tariffBase={tariffBase}
+                commissionPercent={commissionPercent}
+                passengerAppTariffPerKm={passengerAppTariffPerKm}
+                passengerAppTariffBase={passengerAppTariffBase}
+                passengerAppCommissionPercent={passengerAppCommissionPercent}
+                onUpdateSetting={updateSetting}
+              />
+            </div>
 
-            <div className="flex-1 relative min-h-0 rounded-tl-3xl overflow-hidden border-t border-l border-light-300/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+            {fleetDrawerOpen ? (
+              <>
+                <button
+                  type="button"
+                  className="fixed inset-0 z-40 bg-navy-900/45 backdrop-blur-[1px] lg:hidden"
+                  onClick={() => setFleetDrawerOpen(false)}
+                  aria-label="Cerrar flota"
+                />
+                <div className="fixed inset-0 z-50 flex lg:hidden">
+                  <Sidebar
+                    drivers={drivers}
+                    selectedId={selectedId}
+                    onSelectDriver={(id) => {
+                      setSelectedId(id);
+                      setPanelDriverId(id);
+                      setFleetDrawerOpen(false);
+                    }}
+                    onCenterDriver={handleCenterDriver}
+                    tariffPerKm={tariffPerKm}
+                    tariffBase={tariffBase}
+                    commissionPercent={commissionPercent}
+                    passengerAppTariffPerKm={passengerAppTariffPerKm}
+                    passengerAppTariffBase={passengerAppTariffBase}
+                    passengerAppCommissionPercent={passengerAppCommissionPercent}
+                    onUpdateSetting={updateSetting}
+                    onClose={() => setFleetDrawerOpen(false)}
+                  />
+                </div>
+              </>
+            ) : null}
+
+            <div className="relative min-h-0 flex-1 overflow-hidden border-l border-t border-light-300/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] lg:rounded-tl-3xl">
               <MapView
                 drivers={drivers}
                 pendingPassengers={pendingPassengers}
@@ -465,48 +546,65 @@ export default function App() {
                 previewRoute={previewRoute}
               />
 
+              {!fleetDrawerOpen && !panelDriverId ? (
+                <button
+                  type="button"
+                  onClick={() => setFleetDrawerOpen(true)}
+                  className="pointer-events-auto absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-2xl border border-light-300/70 bg-white/95 px-3.5 py-2.5 text-[12px] font-bold text-navy-900 shadow-lg shadow-navy-900/10 backdrop-blur-md transition hover:bg-white lg:hidden"
+                >
+                  <svg className="h-4 w-4 text-navy-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  Flota
+                  <span className="rounded-full bg-navy-900 px-1.5 py-0.5 text-[10px] font-bold text-white tabular-nums">
+                    {drivers.length}
+                  </span>
+                </button>
+              ) : null}
+
               {/* ── Banner de selección múltiple ─────────────────────── */}
               {multiSelectMode && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
-                  <div className="flex items-center gap-2.5 bg-white/97 backdrop-blur-md border border-light-300/60 rounded-2xl shadow-2xl shadow-navy-900/10 px-4 py-2.5">
-                    <div className="flex items-center gap-2 pr-3 border-r border-light-300/60">
+                <div className="absolute left-3 right-3 top-3 z-10 sm:left-1/2 sm:right-auto sm:top-4 sm:w-auto sm:max-w-[calc(100vw-2rem)] sm:-translate-x-1/2">
+                  <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-light-300/60 bg-white/97 px-3 py-2.5 shadow-2xl shadow-navy-900/10 backdrop-blur-md sm:flex-nowrap sm:gap-2.5 sm:px-4">
+                    <div className="flex items-center gap-2 border-light-300/60 pr-2 sm:border-r">
                       <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-500 opacity-75" />
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-500 opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-violet-500" />
                       </span>
-                      <span className="text-xs font-semibold text-navy-900">Selección activa</span>
+                      <span className="text-[11px] font-semibold text-navy-900 sm:text-xs">Selección activa</span>
                     </div>
 
-                    <span className="text-xs text-gray-500 tabular-nums">
+                    <span className="text-[11px] tabular-nums text-gray-500 sm:text-xs">
                       {multiSelectedIds.size} seleccionado{multiSelectedIds.size !== 1 ? 's' : ''}
                     </span>
 
                     <button
                       onClick={selectAllAvailable}
-                      className="text-[11px] font-semibold text-accent hover:text-accent/80 transition-colors px-2 py-1 rounded-lg hover:bg-accent/5"
+                      className="rounded-lg px-2 py-1 text-[10px] font-semibold text-accent transition-colors hover:bg-accent/5 hover:text-accent/80 sm:text-[11px]"
                     >
                       Todos disponibles
                     </button>
 
-                    {multiSelectedIds.size > 0 && (
+                    {multiSelectedIds.size > 0 ? (
                       <button
                         onClick={() => setShowBroadcast(true)}
-                        className="flex items-center gap-1.5 text-[11px] font-semibold text-white bg-accent hover:bg-accent/90 px-3 py-1.5 rounded-xl transition-all shadow-sm shadow-accent/30"
+                        className="flex items-center gap-1.5 rounded-xl bg-accent px-2.5 py-1.5 text-[10px] font-semibold text-white shadow-sm shadow-accent/30 transition-all hover:bg-accent/90 sm:px-3 sm:text-[11px]"
                       >
-                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                        <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
                           <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
                           <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
                         </svg>
-                        Enviar audio
+                        Audio
                       </button>
-                    )}
+                    ) : null}
 
                     <button
                       onClick={clearMultiSelect}
-                      className="w-7 h-7 rounded-lg bg-light-200 hover:bg-light-300 flex items-center justify-center text-gray-400 hover:text-danger transition-all"
+                      className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg bg-light-200 text-gray-400 transition-all hover:bg-light-300 hover:text-danger sm:ml-0"
                       title="Salir de selección"
                     >
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
@@ -515,39 +613,39 @@ export default function App() {
               )}
 
               {/* ── Indicadores flotantes de alertas ─────────────────── */}
-              <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2 items-end pointer-events-none">
+              <div className="pointer-events-none absolute bottom-20 right-3 z-10 flex flex-col items-end gap-2 sm:bottom-4 sm:right-4">
                 {scheduledData.stats.imminent > 0 && (
                   <button
-                    className="pointer-events-auto flex items-center gap-2 bg-white border border-warning/40 shadow-lg shadow-warning/15 rounded-xl px-3 py-2 transition-all hover:shadow-xl hover:border-warning/60"
+                    className="pointer-events-auto flex max-w-[calc(100vw-6.5rem)] items-center gap-2 rounded-xl border border-warning/40 bg-white px-2.5 py-2 shadow-lg shadow-warning/15 transition-all hover:border-warning/60 hover:shadow-xl sm:max-w-none sm:px-3"
                     onClick={() => goTo(VIEWS.scheduled)}
                     title="Ver viajes inminentes"
                   >
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-warning opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-warning" />
+                    <span className="relative flex h-2.5 w-2.5 shrink-0">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-warning" />
                     </span>
-                    <span className="text-[12px] font-bold text-warning">
-                      {scheduledData.stats.imminent} viaje{scheduledData.stats.imminent !== 1 ? 's' : ''} programado{scheduledData.stats.imminent !== 1 ? 's' : ''} inminente{scheduledData.stats.imminent !== 1 ? 's' : ''}
+                    <span className="truncate text-[11px] font-bold text-warning sm:text-[12px]">
+                      {scheduledData.stats.imminent} inminente{scheduledData.stats.imminent !== 1 ? 's' : ''}
                     </span>
-                    <svg className="w-3.5 h-3.5 text-warning/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="h-3.5 w-3.5 shrink-0 text-warning/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </button>
                 )}
                 {queueData.stats.inQueue > 0 && (
                   <button
-                    className="pointer-events-auto flex items-center gap-2 bg-white border border-accent/30 shadow-lg shadow-accent/10 rounded-xl px-3 py-2 transition-all hover:shadow-xl hover:border-accent/50"
+                    className="pointer-events-auto flex max-w-[calc(100vw-6.5rem)] items-center gap-2 rounded-xl border border-accent/30 bg-white px-2.5 py-2 shadow-lg shadow-accent/10 transition-all hover:border-accent/50 hover:shadow-xl sm:max-w-none sm:px-3"
                     onClick={() => goTo(VIEWS.queue)}
                     title="Ver cola de espera"
                   >
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-60" />
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent" />
+                    <span className="relative flex h-2.5 w-2.5 shrink-0">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-accent" />
                     </span>
-                    <span className="text-[12px] font-bold text-accent">
-                      {queueData.stats.inQueue} en cola de espera
+                    <span className="truncate text-[11px] font-bold text-accent sm:text-[12px]">
+                      {queueData.stats.inQueue} en cola
                     </span>
-                    <svg className="w-3.5 h-3.5 text-accent/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="h-3.5 w-3.5 shrink-0 text-accent/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </button>
@@ -556,15 +654,15 @@ export default function App() {
             </div>
 
             {/* ── Panel de chofer ───────────────────────────────────── */}
-            {panelDriverId && (
+            {panelDriverId ? (
               <DriverPanel
                 driver={drivers.find((d) => d.id === panelDriverId)}
                 onClose={() => { setPanelDriverId(null); setSelectedId(null); }}
                 onAssignTrip={handleAssignTrip}
                 commissionPercent={commissionPercent}
               />
-            )}
-          </>
+            ) : null}
+          </div>
         )}
       </main>
 
@@ -609,7 +707,7 @@ export default function App() {
 // Componentes de navegación
 // ─────────────────────────────────────────────────────────────────────────────
 
-function NavTab({ children, icon, active, onClick, badge, badgeColor = 'warning' }) {
+function NavTab({ children, icon, active, onClick, badge, badgeColor = 'warning', compact = false }) {
   const badgeStyles = {
     warning:         'bg-amber-500 text-white',
     'warning-pulse': 'bg-amber-500 text-white animate-pulse',
@@ -621,7 +719,9 @@ function NavTab({ children, icon, active, onClick, badge, badgeColor = 'warning'
     <button
       type="button"
       onClick={onClick}
-      className={`relative flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold transition-all duration-150 select-none border ${
+      className={`relative flex items-center gap-1.5 rounded-lg font-semibold transition-all duration-150 select-none border whitespace-nowrap ${
+        compact ? 'px-2.5 py-1.5 text-[11px]' : 'px-3.5 py-2 text-[12.5px]'
+      } ${
         active
           ? 'bg-navy-900 text-white border-navy-900 shadow-sm'
           : 'bg-white text-gray-600 border-gray-200/90 shadow-sm hover:text-navy-900 hover:border-gray-300 hover:bg-gray-50 active:scale-[0.98]'

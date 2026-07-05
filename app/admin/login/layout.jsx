@@ -1,3 +1,7 @@
 export default function AdminLoginLayout({ children }) {
-  return <div className="min-h-screen overflow-y-auto">{children}</div>;
+  return (
+    <div className="min-h-dvh w-full overflow-x-hidden overflow-y-auto overscroll-y-contain">
+      {children}
+    </div>
+  );
 }

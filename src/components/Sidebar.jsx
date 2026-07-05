@@ -2,7 +2,20 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { timeAgo, formatSpeed, getTripStatus } from '../lib/utils';
 
-export default function Sidebar({ drivers, selectedId, onSelectDriver, onCenterDriver, tariffPerKm, tariffBase, commissionPercent, passengerAppTariffPerKm, passengerAppTariffBase, passengerAppCommissionPercent, onUpdateSetting }) {
+export default function Sidebar({
+  drivers,
+  selectedId,
+  onSelectDriver,
+  onCenterDriver,
+  tariffPerKm,
+  tariffBase,
+  commissionPercent,
+  passengerAppTariffPerKm,
+  passengerAppTariffBase,
+  passengerAppCommissionPercent,
+  onUpdateSetting,
+  onClose,
+}) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [showTariff, setShowTariff] = useState(false);
@@ -86,16 +99,28 @@ export default function Sidebar({ drivers, selectedId, onSelectDriver, onCenterD
   });
 
   return (
-    <div className="w-[340px] bg-gradient-to-b from-white to-light-100/40 border-r border-light-300/40 flex flex-col h-full shadow-[4px_0_24px_rgba(15,23,42,0.04)]">
+    <div className="flex h-full w-full flex-col border-r border-light-300/40 bg-gradient-to-b from-white to-light-100/40 shadow-[4px_0_24px_rgba(15,23,42,0.04)] lg:w-[340px] lg:max-w-[340px]">
       {/* Header compacto */}
-      <div className="px-3 pt-2 pb-2 border-b border-light-300/40 shrink-0">
-        <div className="flex items-center gap-2 mb-1.5">
-          <h2 className="text-sm font-bold text-navy-900 tracking-tight">Flota activa</h2>
-          <span className="text-[10px] text-gray-400 tabular-nums">{driversLive.length}</span>
-          <span className="relative flex h-1.5 w-1.5 ml-auto">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-50" />
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+      <div className="shrink-0 border-b border-light-300/40 px-3 pb-2 pt-2">
+        <div className="mb-1.5 flex items-center gap-2">
+          <h2 className="text-sm font-bold tracking-tight text-navy-900">Flota activa</h2>
+          <span className="text-[10px] tabular-nums text-gray-400">{driversLive.length}</span>
+          <span className="relative ml-auto flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-50" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
           </span>
+          {onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className="ml-1 flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-light-200 hover:text-navy-900 lg:hidden"
+              aria-label="Cerrar flota"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          ) : null}
         </div>
 
         <div className="relative mb-1.5">
@@ -111,7 +136,7 @@ export default function Sidebar({ drivers, selectedId, onSelectDriver, onCenterD
           />
         </div>
 
-        <div className="flex gap-0.5">
+        <div className="flex gap-0.5 overflow-x-auto pb-0.5 scrollbar-none">
           {[
             { key: 'all', label: 'Todos', count: driversLive.length },
             { key: 'available', label: 'Libres', count: onlineCount },
@@ -121,7 +146,7 @@ export default function Sidebar({ drivers, selectedId, onSelectDriver, onCenterD
             <button
               key={f.key}
               onClick={() => setFilter(f.key)}
-              className={`flex-1 min-w-0 text-[10px] font-semibold px-1 py-1 rounded-md transition-all ${
+              className={`min-w-[4.5rem] flex-1 text-[10px] font-semibold px-1.5 py-1.5 rounded-md transition-all whitespace-nowrap ${
                 filter === f.key
                   ? 'bg-navy-900 text-white'
                   : 'text-gray-500 hover:text-navy-800 hover:bg-light-200/80'
@@ -308,7 +333,7 @@ function DriverRow({ driver, isSelected, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left rounded-xl border p-2.5 flex items-center gap-2.5 transition-all duration-200 ${
+      className={`flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all duration-200 sm:items-center ${
         isSelected
           ? 'bg-white border-accent/25 shadow-md shadow-accent/10 ring-1 ring-accent/10'
           : 'bg-white/70 border-light-300/40 hover:bg-white hover:border-light-300/80'
@@ -369,7 +394,7 @@ function DriverRow({ driver, isSelected, onClick }) {
       </div>
 
       {/* Status */}
-      <div className="text-right flex-shrink-0">
+      <div className="flex shrink-0 flex-col items-end sm:text-right">
         <span className={`inline-block text-[9px] font-semibold px-2 py-0.5 rounded-full border ${statusTone}`}>
           {statusLabel}
         </span>

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdminUser } from '../../../../../src/lib/adminAuthServer';
+import { requireSuperAdminUser } from '../../../../../src/lib/adminAuthServer';
 import { getSupabaseAdmin } from '../../../../../src/lib/supabaseAdmin';
 
 function normalizePassword(value) {
@@ -7,7 +7,7 @@ function normalizePassword(value) {
 }
 
 export async function PATCH(request, { params }) {
-  const auth = await requireAdminUser(request);
+  const auth = await requireSuperAdminUser(request);
   if (!auth.user) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -52,7 +52,7 @@ export async function PATCH(request, { params }) {
 }
 
 export async function DELETE(request, { params }) {
-  const auth = await requireAdminUser(request);
+  const auth = await requireSuperAdminUser(request);
   if (!auth.user) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

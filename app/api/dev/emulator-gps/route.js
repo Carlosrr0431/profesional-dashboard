@@ -11,6 +11,7 @@ import {
   setGpsSimulationMode,
   setSimulatorDriverPosition,
 } from '../../../../src/lib/emulatorDriverOrigin.js';
+import { requireSuperAdminUser } from '../../../../src/lib/adminAuthServer';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -25,6 +26,14 @@ function devOnlyResponse() {
   );
 }
 
+async function requireSuperAdmin(request) {
+  const auth = await requireSuperAdminUser(request);
+  if (!auth.user) {
+    return NextResponse.json({ error: auth.error || 'No autorizado' }, { status: auth.status });
+  }
+  return null;
+}
+
 function parseCoords(latitude, longitude) {
   const lat = Number(latitude);
   const lng = Number(longitude);
@@ -35,6 +44,8 @@ function parseCoords(latitude, longitude) {
 }
 
 export async function GET(request) {
+  const denied = await requireSuperAdmin(request);
+  if (denied) return denied;
   if (!isDevGpsApiEnabled()) return devOnlyResponse();
 
   const driverId = new URL(request.url).searchParams.get('driverId') || undefined;
@@ -69,6 +80,8 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  const denied = await requireSuperAdmin(request);
+  if (denied) return denied;
   if (!isDevGpsApiEnabled()) return devOnlyResponse();
 
   let body;
@@ -120,6 +133,8 @@ export async function POST(request) {
 }
 
 export async function PATCH(request) {
+  const denied = await requireSuperAdmin(request);
+  if (denied) return denied;
   if (!isDevGpsApiEnabled()) return devOnlyResponse();
 
   let body;

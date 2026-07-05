@@ -299,8 +299,8 @@ export default function QueuePanel({ queuedList, dispatchLog, stats, loading, la
     <div className="flex flex-col flex-1 w-full min-h-0 h-full bg-light-100/60 overflow-hidden">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-4 px-6 py-4 bg-white/80 border-b border-light-300/60 backdrop-blur-sm flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 lg:px-6 lg:py-4 bg-white/80 border-b border-light-300/60 backdrop-blur-sm flex-shrink-0">
+        <div className="flex min-w-0 items-center gap-3">
           <button
             onClick={onBack}
             className="w-8 h-8 rounded-xl bg-light-100 border border-light-300/60 flex items-center justify-center text-gray-500 hover:text-navy-800 hover:bg-light-200 transition-all"
@@ -318,9 +318,9 @@ export default function QueuePanel({ queuedList, dispatchLog, stats, loading, la
             </svg>
           </div>
 
-          <div>
+          <div className="min-w-0">
             <h2 className="text-navy-900 font-bold text-base leading-tight">Cola de espera</h2>
-            <p className="text-[11px] text-gray-400">
+            <p className="hidden text-[11px] text-gray-400 sm:block">
               Monitoreo en tiempo real · Actualizado {lastUpdated ? lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
             </p>
           </div>
@@ -342,7 +342,7 @@ export default function QueuePanel({ queuedList, dispatchLog, stats, loading, la
       </div>
 
       {/* ── Stats row ──────────────────────────────────────────────────────── */}
-      <div className="flex gap-3 px-6 py-4 flex-shrink-0">
+      <div className="flex shrink-0 gap-3 overflow-x-auto px-4 py-4 lg:px-6 scrollbar-none">
         <StatCard
           label="En espera ahora"
           value={loading ? '—' : stats.inQueue}
@@ -370,10 +370,10 @@ export default function QueuePanel({ queuedList, dispatchLog, stats, loading, la
       </div>
 
       {/* ── Body (two columns) ──────────────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 flex gap-4 px-6 pb-5 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 pb-5 lg:flex-row lg:gap-4 lg:px-6">
 
         {/* ── Left: Active queue ─────────────────────────────────────────── */}
-        <div className="flex flex-col w-[45%] min-w-0">
+        <div className="flex min-h-0 w-full flex-col lg:w-[45%]">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-navy-900">Cola activa</h3>
@@ -402,7 +402,7 @@ export default function QueuePanel({ queuedList, dispatchLog, stats, loading, la
         </div>
 
         {/* Divider */}
-        <div className="w-px bg-light-300/60 flex-shrink-0 self-stretch my-1" />
+        <div className="my-1 hidden w-px flex-shrink-0 self-stretch bg-light-300/60 lg:block" />
 
         {/* ── Right: Dispatch log ────────────────────────────────────────── */}
         <div className="flex flex-col flex-1 min-w-0">

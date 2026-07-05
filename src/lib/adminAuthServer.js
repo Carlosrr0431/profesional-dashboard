@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from './supabase/server';
 import { getSupabaseAdmin } from './supabaseAdmin';
+import { isSuperAdminUser } from './adminSuperUser';
 
 function getBearerToken(request) {
   const authHeader = String(request.headers.get('authorization') || '');
@@ -25,4 +26,13 @@ export async function requireAdminUser(request) {
   }
 
   return { user: data.user, error: null, status: 200 };
+}
+
+export async function requireSuperAdminUser(request) {
+  const auth = await requireAdminUser(request);
+  if (!auth.user) return auth;
+  if (!isSuperAdminUser(auth.user)) {
+    return { user: null, error: 'No autorizado', status: 403 };
+  }
+  return auth;
 }
