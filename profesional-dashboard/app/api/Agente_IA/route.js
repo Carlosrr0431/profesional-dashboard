@@ -56,6 +56,11 @@ import {
 import { scoreCandidateAgainstQuery } from '../../../shared/salta-address.js';
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 import {
+  buildPendingToQueuedUpdate,
+  canRequeuePendingTrip,
+} from '../../../src/lib/tripRequeue';
+import { buildWaContextWithExcludedDriver } from '../../../src/lib/dispatchExclusions';
+import {
   extractFullTripByPattern,
   splitAddressFromIntentPhrase,
   stripTrailingTripRouteTail,
@@ -83,7 +88,12 @@ const SUPABASE_PUBLIC_ANON_KEY =
 const LEGACY_CHAT_OWNER = process.env.WHATSAPP_CHAT_OWNER || 'Profesional_App';
 const CRON_SECRET = process.env.CRON_SECRET || '';
 const WHATSAPP_TRIP_TRANSITION_SECRET = process.env.WHATSAPP_TRIP_TRANSITION_SECRET || '';
-const ALLOWED_PHONES = new Set(['5493878630173']);
+const ALLOWED_PHONES = new Set(
+  String(process.env.WHATSAPP_ALLOWED_PHONES || '')
+    .split(',')
+    .map((phone) => String(phone || '').replace(/\D/g, ''))
+    .filter(Boolean),
+);
 const IS_SERVERLESS = Boolean(process.env.VERCEL);
 const IMMEDIATE_PROCESSING =
   (process.env.WHATSAPP_IMMEDIATE_PROCESSING || '').toLowerCase() === 'true';
@@ -4947,7 +4957,7 @@ async function rejectPendingTripAsDriver({ tripId, driverId, reason = 'Rechazado
 
   const { data: tripRow, error: tripError } = await getSupabase()
     .from('trips')
-    .select('id, status, driver_id, wa_context')
+    .select('id, status, driver_id, wa_context, notes, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng')
     .eq('id', normalizedTripId)
     .maybeSingle();
 
@@ -4971,33 +4981,19 @@ async function rejectPendingTripAsDriver({ tripId, driverId, reason = 'Rechazado
     return { ok: false, reason: 'trip_not_pending', unavailable: true };
   }
 
-  const waContext = safeJsonParse(tripRow.wa_context, {});
-  const previousExcluded = getTripDispatchExcludedDriverIds(waContext);
-  const updatedWaContext = previousExcluded.includes(normalizedDriverId)
-    ? waContext
-    : {
-        ...waContext,
-        dispatch_excluded_driver_ids: [...previousExcluded, normalizedDriverId],
-        dispatch_last_excluded_at: new Date().toISOString(),
-        dispatch_last_excluded_reason: isTimeout ? 'driver_timeout' : 'driver_rejected',
-      };
+  const updatedWaContext = buildWaContextWithExcludedDriver(
+    tripRow.wa_context,
+    normalizedDriverId,
+    isTimeout ? 'driver_timeout' : 'driver_rejected',
+  );
 
   const { data, error } = await getSupabase()
     .from('trips')
-    .update({
-      status: 'queued',
-      driver_id: null,
-      assigned_at: null,
-      accepted_at: null,
-      origin_address: null,
-      origin_lat: null,
-      origin_lng: null,
-      dispatch_status: 'queued',
+    .update(buildPendingToQueuedUpdate(tripRow, {
       next_dispatch_at: new Date().toISOString(),
-      status_updated_at: new Date().toISOString(),
       wa_context: updatedWaContext,
       cancel_reason: isTimeout ? 'Tiempo agotado' : normalizedReason,
-    })
+    }))
     .eq('id', normalizedTripId)
     .eq('driver_id', normalizedDriverId)
     .eq('status', 'pending')
@@ -8287,30 +8283,32 @@ async function requeueTimedOutPendingTripsSupabaseDispatchOnly() {
     return { expired: 0, error: false };
   }
 
-  const { data: requeuedRows, error: requeueError } = await getSupabase()
+  const { data: tripsToRequeue, error: tripsFetchError } = await getSupabase()
     .from('trips')
-    .update({
-      driver_id: null,
-      origin_address: null,
-      origin_lat: null,
-      origin_lng: null,
-      status: 'queued',
-      assigned_at: null,
-      accepted_at: null,
-    })
+    .select('id, status, cancel_reason, driver_id, wa_context, dispatch_attempts, notes, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng')
     .in('id', candidateIds)
-    .eq('status', 'pending')
-    .select('id');
+    .eq('status', 'pending');
 
-  if (requeueError) {
+  if (tripsFetchError) {
     logWebhook('expire_pending_db_first_requeue_error', {
       candidateCount: candidateIds.length,
-      error: summarizeDbError(requeueError),
+      error: summarizeDbError(tripsFetchError),
     });
     return { expired: 0, error: true };
   }
 
-  const expired = Array.isArray(requeuedRows) ? requeuedRows.length : 0;
+  let expired = 0;
+  for (const tripRow of tripsToRequeue || []) {
+    if (!canRequeuePendingTrip(tripRow)) continue;
+
+    const { error: requeueError } = await getSupabase()
+      .from('trips')
+      .update(buildPendingToQueuedUpdate(tripRow))
+      .eq('id', tripRow.id)
+      .eq('status', 'pending');
+
+    if (!requeueError) expired += 1;
+  }
   logWebhook('expire_pending_db_first_done', {
     expired,
     candidateCount: candidateIds.length,
