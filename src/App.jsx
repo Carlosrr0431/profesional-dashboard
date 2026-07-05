@@ -66,8 +66,17 @@ export default function App() {
   // Ruta de preview al asignar viaje: { polylineCoords?, origin, destination? } | null
   const [previewRoute,    setPreviewRoute]    = useState(null);
   const [fleetDrawerOpen,   setFleetDrawerOpen] = useState(false);
+  const [isDesktopLayout,   setIsDesktopLayout] = useState(false);
 
   const mapRef = useRef(null);
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1024px)');
+    const syncLayout = () => setIsDesktopLayout(media.matches);
+    syncLayout();
+    media.addEventListener('change', syncLayout);
+    return () => media.removeEventListener('change', syncLayout);
+  }, []);
 
   // ── Selección múltiple ─────────────────────────────────────────────────────
   const toggleMultiSelect = useCallback((driverId) => {
@@ -91,6 +100,12 @@ export default function App() {
     setMultiSelectMode(false);
     setShowBroadcast(false);
   }, []);
+
+  const handleFleetDriverSelect = useCallback((id) => {
+    setSelectedId(id);
+    setPanelDriverId(id);
+    if (!isDesktopLayout) setFleetDrawerOpen(false);
+  }, [isDesktopLayout]);
 
   const multiSelectedDrivers = drivers.filter((d) => multiSelectedIds.has(d.id));
 
@@ -318,6 +333,8 @@ export default function App() {
     );
   }
 
+  const showFleetSidebar = isDesktopLayout || fleetDrawerOpen;
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#f8f9fc_0%,#eef1f6_100%)]">
 
@@ -485,39 +502,21 @@ export default function App() {
         ) : (
           /* ── Vista mapa ──────────────────────────────────────────────── */
           <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            <div className="hidden shrink-0 lg:flex">
-              <Sidebar
-                drivers={drivers}
-                selectedId={selectedId}
-                onSelectDriver={(id) => { setSelectedId(id); setPanelDriverId(id); }}
-                onCenterDriver={handleCenterDriver}
-                tariffPerKm={tariffPerKm}
-                tariffBase={tariffBase}
-                commissionPercent={commissionPercent}
-                passengerAppTariffPerKm={passengerAppTariffPerKm}
-                passengerAppTariffBase={passengerAppTariffBase}
-                passengerAppCommissionPercent={passengerAppCommissionPercent}
-                onUpdateSetting={updateSetting}
-              />
-            </div>
-
-            {fleetDrawerOpen ? (
+            {showFleetSidebar ? (
               <>
-                <button
-                  type="button"
-                  className="fixed inset-0 z-40 bg-navy-900/45 backdrop-blur-[1px] lg:hidden"
-                  onClick={() => setFleetDrawerOpen(false)}
-                  aria-label="Cerrar flota"
-                />
-                <div className="fixed inset-0 z-50 flex lg:hidden">
+                {!isDesktopLayout ? (
+                  <button
+                    type="button"
+                    className="fixed inset-0 z-40 bg-navy-900/45 backdrop-blur-[1px]"
+                    onClick={() => setFleetDrawerOpen(false)}
+                    aria-label="Cerrar flota"
+                  />
+                ) : null}
+                <div className={isDesktopLayout ? 'flex shrink-0' : 'fixed inset-0 z-50 flex'}>
                   <Sidebar
                     drivers={drivers}
                     selectedId={selectedId}
-                    onSelectDriver={(id) => {
-                      setSelectedId(id);
-                      setPanelDriverId(id);
-                      setFleetDrawerOpen(false);
-                    }}
+                    onSelectDriver={handleFleetDriverSelect}
                     onCenterDriver={handleCenterDriver}
                     tariffPerKm={tariffPerKm}
                     tariffBase={tariffBase}
@@ -526,7 +525,7 @@ export default function App() {
                     passengerAppTariffBase={passengerAppTariffBase}
                     passengerAppCommissionPercent={passengerAppCommissionPercent}
                     onUpdateSetting={updateSetting}
-                    onClose={() => setFleetDrawerOpen(false)}
+                    onClose={!isDesktopLayout ? () => setFleetDrawerOpen(false) : undefined}
                   />
                 </div>
               </>
