@@ -4,7 +4,7 @@ import {
   buildFleetOwnersById,
   mergeAssignedDriverWithOwner,
 } from '../../../src/lib/fleetDriverEnrichment';
-import { buildFleetActiveTripByRoot, resolveFleetActiveTrip } from '../../../src/lib/fleetDispatch';
+import { resolveDisplayActiveTrip } from '../../../src/lib/fleetDispatch';
 import { isFleetOwner } from '../../../src/lib/driverRoles';
 
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
@@ -27,14 +27,19 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function resolveCommissionOverdue(pendingCommission, lastCommissionPaymentAt) {
+function resolveCommissionOverdue(pendingCommission, commissionDebtSinceAt) {
   const balance = Math.max(0, toNumber(pendingCommission, 0));
   if (balance <= 0) return false;
 
-  const lastPayment = lastCommissionPaymentAt ? new Date(lastCommissionPaymentAt) : null;
+  // La deuda vence cuando lleva más de 3 días sin saldarse.
+  // commission_debt_since_at registra cuándo empezó la deuda actual;
+  // si es null, la deuda aún no comenzó a contar (no hay vencimiento).
+  const debtSince = commissionDebtSinceAt ? new Date(commissionDebtSinceAt) : null;
+  if (!debtSince) return false;
+
   const threeDaysAgo = new Date();
   threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-  return !lastPayment || lastPayment < threeDaysAgo;
+  return debtSince < threeDaysAgo;
 }
 
 export async function GET() {
@@ -63,8 +68,6 @@ export async function GET() {
     activeTripsList.forEach((trip) => {
       if (trip?.driver_id) activeTripsMap[trip.driver_id] = trip;
     });
-    const fleetActiveTripByRoot = buildFleetActiveTripByRoot(driversRes.data, activeTripsList);
-
     const vehicleTypeMap = {};
     (vtRes.data || []).forEach((setting) => {
       const key = String(setting?.key || '');
@@ -79,9 +82,7 @@ export async function GET() {
       const owner = driver.owner_id ? ownersById[driver.owner_id] : null;
       const merged = mergeAssignedDriverWithOwner(driver, owner);
       const loc = locationsMap[merged.id];
-      const activeTrip =
-        activeTripsMap[merged.id]
-        || resolveFleetActiveTrip(merged, fleetActiveTripByRoot);
+      const activeTrip = resolveDisplayActiveTrip(merged.id, activeTripsMap);
       const pendingCommission = Math.max(0, toNumber(merged.pending_commission, 0));
       const assigned = Boolean(merged.is_assigned_driver && merged.owner_id);
 
@@ -112,7 +113,7 @@ export async function GET() {
         commissionBalance: pendingCommission,
         commissionOverdue: resolveCommissionOverdue(
           pendingCommission,
-          merged.last_commission_payment_at,
+          merged.commission_debt_since_at,
         ),
         isAssignedDriver: assigned,
         isFleetOwner: isFleetOwner(merged),

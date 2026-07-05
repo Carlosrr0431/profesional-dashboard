@@ -128,13 +128,19 @@ export async function registerCommissionPayment(supabase, {
     ? 0
     : Math.max(0, Math.round((currentPending - normalizedAmount) * 100) / 100);
 
+  const now = new Date().toISOString();
+  const driverUpdate = {
+    pending_commission: newBalance,
+    last_commission_payment_at: now,
+    updated_at: now,
+  };
+  // Si saldo queda en 0 → resetear el reloj de deuda de comisión
+  if (newBalance === 0) {
+    driverUpdate.commission_debt_since_at = null;
+  }
   const { error: updateError } = await supabase
     .from('drivers')
-    .update({
-      pending_commission: newBalance,
-      last_commission_payment_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
+    .update(driverUpdate)
     .eq('id', driverId);
 
   if (updateError) throw updateError;

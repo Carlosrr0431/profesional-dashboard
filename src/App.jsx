@@ -1,11 +1,13 @@
 import { useState, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 import { useDrivers } from './hooks/useDrivers';
 import { useSettings } from './hooks/useSettings';
 import { usePendingPassengers } from './hooks/usePendingPassengers';
 import { useQueuedPassengers } from './hooks/useQueuedPassengers';
 import { useScheduledTrips } from './hooks/useScheduledTrips';
 import { useToast } from './context/ToastContext';
+import { useAdminAuth } from './hooks/useAdminAuth';
 const MapView = dynamic(() => import('./components/MapView'), { ssr: false });
 import Sidebar from './components/Sidebar';
 import DriverPanel from './components/DriverPanel';
@@ -19,9 +21,9 @@ import ScheduledTripsPanel from './components/ScheduledTripsPanel';
 import StatisticsPanel from './components/StatisticsPanel';
 import GeocodeErrorsPanel from './components/GeocodeErrorsPanel';
 import EmulatorGpsSimulator from './components/EmulatorGpsSimulator';
+import AdminUsersPanel from './components/admin/AdminUsersPanel';
 import DashboardBrand from './components/DashboardBrand';
 import { useTripStatistics } from './hooks/useTripStatistics';
-import { useGeocodeErrors } from './hooks/useGeocodeErrors';
 
 // ─── Vista activa ─────────────────────────────────────────────────────────────
 const VIEWS = {
@@ -33,10 +35,13 @@ const VIEWS = {
   statistics: 'statistics',
   geocodeErrors: 'geocodeErrors',
   emulatorGps: 'emulatorGps',
+  adminUsers: 'adminUsers',
 };
 
 export default function App() {
   const toast = useToast();
+  const router = useRouter();
+  const { signOut, user } = useAdminAuth();
   const { drivers, loading } = useDrivers();
   const pendingPassengers = usePendingPassengers();
   const queueData = useQueuedPassengers();
@@ -47,7 +52,6 @@ export default function App() {
     whatsappAgentEnabled, calculatePrice, updateSetting,
   } = useSettings();
   const tripStatistics = useTripStatistics('30d');
-  const geocodeErrors = useGeocodeErrors('pending');
 
   const [selectedId,      setSelectedId]      = useState(null);
   const [panelDriverId,   setPanelDriverId]   = useState(null);
@@ -119,6 +123,15 @@ export default function App() {
     toast.success('Viaje asignado al chofer correctamente');
   }, [toast]);
 
+  const handleSignOut = useCallback(async () => {
+    try {
+      await signOut();
+      router.replace('/admin/login');
+    } catch {
+      toast.error('No pudimos cerrar la sesión. Intentá de nuevo.');
+    }
+  }, [router, signOut, toast]);
+
   const goTo = useCallback((view) => {
     setCurrentView(view);
     if (view !== VIEWS.map) {
@@ -158,171 +171,175 @@ export default function App() {
       {/* ══════════════════════════════════════════════════════════════════════
           BARRA DE NAVEGACIÓN SUPERIOR
       ══════════════════════════════════════════════════════════════════════ */}
-      <header className="flex-shrink-0 h-[60px] bg-white/90 backdrop-blur-xl border-b border-light-300/50 flex items-center px-4 gap-3 shadow-[0_8px_30px_rgba(15,23,42,0.06)] z-30">
+      <header className="flex-shrink-0 h-14 bg-white border-b border-gray-100 flex items-center px-5 gap-4 z-30">
 
         {/* ── Logo ─────────────────────────────────────────────────────── */}
-        <div className="flex items-center flex-shrink-0 pr-3 border-r border-light-300/60">
+        <div className="flex items-center flex-shrink-0">
           <DashboardBrand />
         </div>
 
-        {/* ── Espaciador ───────────────────────────────────────────────── */}
-        <div className="flex-1" />
+        {/* ── Navegación principal — centrada ──────────────────────────── */}
+        <nav className="flex-1 flex items-center justify-center">
+          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-gray-100/80 border border-gray-200/70">
 
-        {/* ── Navegación principal ─────────────────────────────────────── */}
-        <nav className="flex items-center gap-1 bg-light-100/90 border border-light-300/50 rounded-2xl p-1 shadow-inner">
+            <NavTab
+              active={currentView === VIEWS.map}
+              onClick={() => goTo(VIEWS.map)}
+              icon={
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                </svg>
+              }
+            >
+              Mapa
+            </NavTab>
 
-          <NavTab
-            active={currentView === VIEWS.map}
-            onClick={() => goTo(VIEWS.map)}
-            icon={
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-              </svg>
-            }
-          >
-            Mapa
-          </NavTab>
+            <NavTab
+              active={currentView === VIEWS.queue}
+              onClick={() => goTo(currentView === VIEWS.queue ? VIEWS.map : VIEWS.queue)}
+              badge={queueData.stats.inQueue > 0 ? queueData.stats.inQueue : null}
+              badgeColor="warning"
+              icon={
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              }
+            >
+              Cola
+            </NavTab>
 
-          <NavTab
-            active={currentView === VIEWS.queue}
-            onClick={() => goTo(currentView === VIEWS.queue ? VIEWS.map : VIEWS.queue)}
-            badge={queueData.stats.inQueue > 0 ? queueData.stats.inQueue : null}
-            badgeColor="warning"
-            icon={
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            }
-          >
-            Cola
-          </NavTab>
+            <NavTab
+              active={currentView === VIEWS.scheduled}
+              onClick={() => goTo(currentView === VIEWS.scheduled ? VIEWS.map : VIEWS.scheduled)}
+              badge={scheduledData.stats.total > 0 ? scheduledData.stats.total : null}
+              badgeColor={scheduledData.stats.imminent > 0 ? 'warning-pulse' : 'violet'}
+              icon={
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              }
+            >
+              Programados
+            </NavTab>
 
-          <NavTab
-            active={currentView === VIEWS.scheduled}
-            onClick={() => goTo(currentView === VIEWS.scheduled ? VIEWS.map : VIEWS.scheduled)}
-            badge={scheduledData.stats.total > 0 ? scheduledData.stats.total : null}
-            badgeColor={scheduledData.stats.imminent > 0 ? 'warning-pulse' : 'violet'}
-            icon={
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-            }
-          >
-            Programados
-          </NavTab>
+            <NavTab
+              active={currentView === VIEWS.management}
+              onClick={() => goTo(currentView === VIEWS.management ? VIEWS.map : VIEWS.management)}
+              icon={
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              }
+            >
+              Choferes
+            </NavTab>
 
-          <NavTab
-            active={currentView === VIEWS.management}
-            onClick={() => goTo(currentView === VIEWS.management ? VIEWS.map : VIEWS.management)}
-            icon={
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-            }
-          >
-            Choferes
-          </NavTab>
+            <NavTab
+              active={currentView === VIEWS.statistics}
+              onClick={() => goTo(currentView === VIEWS.statistics ? VIEWS.map : VIEWS.statistics)}
+              icon={
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              }
+            >
+              Estadística
+            </NavTab>
 
-          <NavTab
-            active={currentView === VIEWS.statistics}
-            onClick={() => goTo(currentView === VIEWS.statistics ? VIEWS.map : VIEWS.statistics)}
-            icon={
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            }
-          >
-            Estadística
-          </NavTab>
+            <NavTab
+              active={currentView === VIEWS.zones}
+              onClick={() => goTo(currentView === VIEWS.zones ? VIEWS.map : VIEWS.zones)}
+              icon={
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z" />
+                </svg>
+              }
+            >
+              Zonas
+            </NavTab>
 
-          <NavTab
-            active={currentView === VIEWS.zones}
-            onClick={() => goTo(currentView === VIEWS.zones ? VIEWS.map : VIEWS.zones)}
-            icon={
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z" />
-              </svg>
-            }
-          >
-            Zonas
-          </NavTab>
+            <NavTab
+              active={currentView === VIEWS.emulatorGps}
+              onClick={() => goTo(currentView === VIEWS.emulatorGps ? VIEWS.map : VIEWS.emulatorGps)}
+              icon={
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+              }
+            >
+              Sim. GPS
+            </NavTab>
 
-          <NavTab
-            active={currentView === VIEWS.geocodeErrors}
-            onClick={() => goTo(currentView === VIEWS.geocodeErrors ? VIEWS.map : VIEWS.geocodeErrors)}
-            badge={geocodeErrors.stats.pending > 0 ? geocodeErrors.stats.pending : null}
-            badgeColor="warning"
-            icon={
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            }
-          >
-            Geo errores
-          </NavTab>
+            <NavTab
+              active={currentView === VIEWS.adminUsers}
+              onClick={() => goTo(currentView === VIEWS.adminUsers ? VIEWS.map : VIEWS.adminUsers)}
+              icon={
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              }
+            >
+              Usuarios
+            </NavTab>
 
-          <NavTab
-            active={currentView === VIEWS.emulatorGps}
-            onClick={() => goTo(currentView === VIEWS.emulatorGps ? VIEWS.map : VIEWS.emulatorGps)}
-            icon={
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-              </svg>
-            }
-          >
-            Sim. GPS
-          </NavTab>
+          </div>
         </nav>
 
-        {/* ── Acciones secundarias ─────────────────────────────────────── */}
-        <div className="flex items-center gap-1 pl-2 border-l border-light-300/60">
+        {/* ── Acciones ─────────────────────────────────────────────────── */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {/* Toggle Agente IA */}
           <button
             type="button"
             onClick={() => updateSetting('whatsapp_agent_enabled', whatsappAgentEnabled ? 'false' : 'true')}
-            className={`flex items-center gap-1.5 h-8 px-3 rounded-xl text-[12px] font-semibold border transition-all ${
+            className={`flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-semibold transition-all ${
               whatsappAgentEnabled
-                ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 hover:bg-emerald-500/15'
-                : 'bg-rose-500/10 text-rose-700 border-rose-500/20 hover:bg-rose-500/15'
+                ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
             }`}
             title={whatsappAgentEnabled
-              ? 'Desactivar agente IA de WhatsApp (deja de procesar mensajes automáticamente)'
+              ? 'Desactivar agente IA de WhatsApp'
               : 'Activar agente IA de WhatsApp'}
           >
-            <span className="relative flex h-2 w-2">
+            <span className="relative flex h-1.5 w-1.5">
               {whatsappAgentEnabled ? (
                 <>
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-50" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-60" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
                 </>
               ) : (
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-gray-400" />
               )}
             </span>
-            {whatsappAgentEnabled ? 'Agente IA' : 'Agente IA off'}
+            {whatsappAgentEnabled ? 'Agente IA' : 'Agente IA'}
           </button>
 
+          {/* Divisor */}
+          <div className="w-px h-5 bg-gray-200" />
+
+          {/* Nuevo viaje */}
           <button
             type="button"
             onClick={() => setShowNewTripModal(true)}
-            className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-accent text-white text-[12px] font-semibold shadow-sm shadow-accent/30 hover:bg-accent/90 transition-all"
+            className="flex items-center gap-1.5 h-8 px-3.5 rounded-lg bg-navy-900 text-white text-[12px] font-semibold hover:bg-navy-900/85 transition-colors"
             title="Agregar viaje a la cola"
           >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 4v16m8-8H4" />
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
             </svg>
             Nuevo viaje
           </button>
 
+          {/* Selección múltiple */}
           <IconAction
             active={multiSelectMode}
             title={multiSelectMode ? `Selección activa (${multiSelectedIds.size})` : 'Selección múltiple'}
@@ -356,6 +373,18 @@ export default function App() {
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
+            </svg>
+          </IconAction>
+
+          <div className="w-px h-5 bg-gray-200" />
+
+          <IconAction
+            title="Cerrar sesión"
+            onClick={handleSignOut}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1" />
             </svg>
           </IconAction>
         </div>
@@ -401,6 +430,9 @@ export default function App() {
           <div className="flex-1 w-full min-w-0 min-h-0 flex flex-col">
             <EmulatorGpsSimulator onBack={() => goTo(VIEWS.map)} />
           </div>
+
+        ) : currentView === VIEWS.adminUsers ? (
+          <AdminUsersPanel onBack={() => goTo(VIEWS.map)} currentUserId={user?.id} />
 
         ) : (
           /* ── Vista mapa ──────────────────────────────────────────────── */
@@ -579,25 +611,28 @@ export default function App() {
 
 function NavTab({ children, icon, active, onClick, badge, badgeColor = 'warning' }) {
   const badgeStyles = {
-    warning:       'bg-warning text-white',
-    'warning-pulse': 'bg-warning text-white animate-pulse',
-    violet:        'bg-violet-500 text-white',
-    accent:        'bg-accent text-white',
+    warning:         'bg-amber-500 text-white',
+    'warning-pulse': 'bg-amber-500 text-white animate-pulse',
+    violet:          'bg-violet-500 text-white',
+    accent:          'bg-accent text-white',
   };
 
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-[12.5px] font-medium transition-all duration-150 ${
+      className={`relative flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold transition-all duration-150 select-none border ${
         active
-          ? 'bg-white text-navy-900 shadow-sm shadow-navy-900/8 border border-light-300/60'
-          : 'text-gray-500 hover:text-navy-800 hover:bg-white/60'
+          ? 'bg-navy-900 text-white border-navy-900 shadow-sm'
+          : 'bg-white text-gray-600 border-gray-200/90 shadow-sm hover:text-navy-900 hover:border-gray-300 hover:bg-gray-50 active:scale-[0.98]'
       }`}
     >
       {icon}
       <span>{children}</span>
       {badge != null && badge > 0 && (
-        <span className={`min-w-[17px] h-[17px] flex items-center justify-center text-[9px] font-bold rounded-full px-1 -mr-0.5 ${badgeStyles[badgeColor] || badgeStyles.warning}`}>
+        <span className={`min-w-[16px] h-4 flex items-center justify-center text-[9px] font-bold rounded-full px-1 -mr-0.5 ${
+          active ? 'bg-white/20 text-white' : (badgeStyles[badgeColor] || badgeStyles.warning)
+        }`}>
           {badge > 99 ? '99+' : badge}
         </span>
       )}
@@ -610,15 +645,15 @@ function IconAction({ children, active, onClick, title, badge = 0 }) {
     <button
       onClick={onClick}
       title={title}
-      className={`relative w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-150 ${
+      className={`relative w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150 ${
         active
-          ? 'bg-navy-900 text-white shadow-sm'
-          : 'text-gray-400 hover:text-navy-800 hover:bg-light-200'
+          ? 'bg-navy-900 text-white'
+          : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
       }`}
     >
       {children}
       {badge > 0 && (
-        <span className="absolute -top-1 -right-1 w-4 h-4 flex items-center justify-center text-[9px] font-bold bg-violet-500 text-white rounded-full shadow-sm">
+        <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 flex items-center justify-center text-[8px] font-bold bg-violet-500 text-white rounded-full">
           {badge > 9 ? '9+' : badge}
         </span>
       )}

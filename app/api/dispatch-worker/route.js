@@ -31,6 +31,9 @@ import {
   getTripDispatchExcludedDriverIds,
   normalizeDispatchExclusionState,
 } from '../../../src/lib/dispatchExclusions';
+import {
+  validateCronAuth,
+} from '../../../src/lib/cronAuth';
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 
 export const maxDuration = 60;
@@ -183,27 +186,13 @@ function getPickupDistanceFromOperationCenterKm(lat, lng) {
   );
 }
 
-function isVercelCronInvocation({ userAgent = '', xVercelCron = '' } = {}) {
-  const ua = String(userAgent || '').toLowerCase();
-  const cronHeader = String(xVercelCron || '').toLowerCase();
-  return cronHeader === '1' || ua.includes('vercel-cron');
-}
-
 function isAuthorizedRequest(req) {
-  const authHeader = req.headers.get('authorization') || '';
-  const userAgent = req.headers.get('user-agent') || '';
-  const xVercelCron = req.headers.get('x-vercel-cron') || '';
-  const viaVercelCron = isVercelCronInvocation({ userAgent, xVercelCron });
-
-  if (!CRON_SECRET) {
-    return { ok: true, viaVercelCron };
-  }
-
-  if (viaVercelCron || authHeader === `Bearer ${CRON_SECRET}`) {
-    return { ok: true, viaVercelCron };
-  }
-
-  return { ok: false, viaVercelCron };
+  const url = new URL(req.url);
+  return validateCronAuth({
+    headers: req.headers,
+    searchParams: url.searchParams,
+    cronSecret: CRON_SECRET,
+  });
 }
 
 function getSupabaseAdmin() {
@@ -1686,11 +1675,15 @@ export async function GET(req) {
       viaVercelCron: auth.viaVercelCron,
       hasCronSecret: Boolean(CRON_SECRET),
       hasAuthHeader: Boolean(req.headers.get('authorization')),
+      hasXCronSecret: Boolean(req.headers.get('x-cron-secret')),
     });
 
     if (!auth.ok) {
       logWorker('http_get_unauthorized', {
         viaVercelCron: auth.viaVercelCron,
+        hasAuthHeader: auth.hasAuthHeader,
+        hasXCronSecret: auth.hasXCronSecret,
+        hasQuerySecret: auth.hasQuerySecret,
       });
       return NextResponse.json(
         { ok: false, error: 'Unauthorized' },

@@ -55,7 +55,9 @@ BEGIN
   IF v_secret IS NOT NULL AND btrim(v_secret) <> '' THEN
     v_headers := v_headers || jsonb_build_object(
       'Authorization',
-      'Bearer ' || btrim(v_secret)
+      'Bearer ' || btrim(v_secret),
+      'x-cron-secret',
+      btrim(v_secret)
     );
   END IF;
 

@@ -114,6 +114,31 @@ export async function POST(req) {
 
     const supabase = getSupabaseAdmin();
 
+    // Cancela viajes previos (queued/pending) del mismo pasajero para evitar duplicados.
+    // Solo aplica cuando viene de la passenger-app (source = passenger_app).
+    const passengerPhone = normalizePhone(payload?.passengerPhone);
+    if (passengerPhone && payload?.source === 'passenger_app') {
+      const localDigits = passengerPhone.startsWith('549')
+        ? passengerPhone.slice(3)
+        : passengerPhone.startsWith('54')
+          ? passengerPhone.slice(2)
+          : passengerPhone;
+      const phoneVariants = [...new Set([
+        passengerPhone,
+        passengerPhone.startsWith('549') ? `54${passengerPhone.slice(3)}` : `549${passengerPhone.slice(2)}`,
+        localDigits,
+      ].filter(Boolean))];
+
+      await supabase
+        .from('trips')
+        .update({
+          status: 'cancelled',
+          cancel_reason: 'Nuevo viaje solicitado por el pasajero',
+        })
+        .in('passenger_phone', phoneVariants)
+        .in('status', ['queued', 'pending']);
+    }
+
     const serverFare = await resolvePassengerRouteFare(
       supabase,
       pickupLocation,

@@ -118,8 +118,9 @@ export function useDrivers() {
               lastCommissionPaymentAt: row.last_commission_payment_at || updated[idx].lastCommissionPaymentAt,
               commissionBalance: pendingCommission,
               commissionOverdue: pendingCommission > 0 && (
-                !row.last_commission_payment_at
-                || new Date(row.last_commission_payment_at) < new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+                row.commission_debt_since_at
+                  ? new Date(row.commission_debt_since_at) < new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+                  : false
               ),
             };
             return updated;

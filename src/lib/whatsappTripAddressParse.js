@@ -5,10 +5,10 @@ const {
 
 /** Separador pickup → destino en un mismo mensaje (orden importa: frases largas primero). */
 const TRIP_DESTINATION_CUE =
-  '(?:es\\s+para\\s+ir\\s+(?:hasta|a)|voy\\s+(?:para|a)|me\\s+llev(?:a|as|en)\\s+a|destino(?:\\s+es)?|hasta|hacia)';
+  '(?:es\\s+para\\s+ir\\s+(?:hasta|a)|(?:me\\s+)?voy\\s+(?:para|a)|me\\s+llev(?:a|as|en)\\s+a|destino(?:\\s+es)?|hasta|hacia)';
 
 const TRIP_DESTINATION_STOP_PATTERN = new RegExp(
-  `\\b(?:es\\s+para\\s+ir\\s+(?:hasta|a)|voy\\s+(?:para|a)|me\\s+llev(?:a|as|en)\\s+a|destino(?:\\s+es)?|hasta|hacia|despu[eé]s\\s+a)\\b`,
+  '(?:,\\s*(?:me\\s+)?voy\\s+(?:para|a)|\\b(?:es\\s+para\\s+ir\\s+(?:hasta|a)|voy\\s+(?:para|a)|me\\s+llev(?:a|as|en)\\s+a|destino(?:\\s+es)?|hasta|hacia|despu[eé]s\\s+a))',
   'i',
 );
 
@@ -16,9 +16,11 @@ function stripTrailingTripRouteTail(value) {
   let text = sanitizeAddressInput(value || '');
   if (!text) return '';
 
+  text = text.replace(/\s*(?:,\s*)?(?:me\s+)?voy\s+(?:para|a)\b.*$/i, '').trim();
   text = text.replace(/\s+(?:es\s+)?para\s+ir(?:\s+(?:hasta|a)\b.*)?$/i, '').trim();
   text = text.replace(/\s+(?:voy\s+(?:para|a)|me\s+llev(?:a|as|en)\s+a|destino(?:\s+es)?)\b.*$/i, '').trim();
   text = text.replace(/\s+hasta\s*$/i, '').trim();
+  text = text.replace(/,\s*(?:me|yo)\s*$/i, '').trim();
 
   return text;
 }

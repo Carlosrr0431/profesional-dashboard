@@ -31,6 +31,26 @@ describe('whatsappTripAddressParse', () => {
     expect(stripTrailingTripRouteTail('Belgrano 300 voy para')).toBe('Belgrano 300');
   });
 
+  it('separa retiro y destino con "me voy para" tras coma', () => {
+    const text =
+      'Hola, me mandas un remis a Juan Gálvez 218, me voy para Tadeo tadia al 500';
+    const trip = extractFullTripByPattern(text);
+
+    expect(trip).toEqual({
+      pickup: 'Juan Gálvez 218',
+      destination: 'Tadeo tadia 500',
+    });
+  });
+
+  it('no deja ", me" en el pickup cuando el destino empieza con "me voy para"', () => {
+    const pickup = splitAddressFromIntentPhrase(
+      'me mandas un remis a Juan Gálvez 218, me voy para Tadeo tadia al 500',
+      /(?:mand[aá](?:me|as|an|s)?|necesito|quiero|pedido)\s+(?:un|una|uno|el|la)?\s*(?:remis|m[oó]vil|movil|taxi|auto|coche|viaje)?\s*(?:para|a|en)\s+/i,
+    );
+
+    expect(pickup).toBe('Juan Gálvez 218');
+  });
+
   it('colapsa candidatos de poll equivalentes (Mitre 200 duplicado)', () => {
     const candidates = [
       {

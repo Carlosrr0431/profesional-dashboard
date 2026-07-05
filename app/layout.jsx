@@ -16,7 +16,7 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
       </head>
-      <body className="bg-dark-900 text-white font-sans">
+      <body className="bg-light-100 text-navy-900 font-sans">
         {children}
       </body>
     </html>

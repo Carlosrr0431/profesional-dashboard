@@ -26,6 +26,7 @@ async function invokeDispatchWorker(meta = {}) {
 
   if (cronSecret) {
     headers.Authorization = `Bearer ${cronSecret}`;
+    headers['x-cron-secret'] = cronSecret;
   }
 
   const controller = new AbortController();

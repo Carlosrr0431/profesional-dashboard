@@ -41,7 +41,7 @@ export async function GET(_request, { params }) {
         .order('created_at', { ascending: false }),
       supabase
         .from('drivers')
-        .select('pending_commission, last_commission_payment_at')
+        .select('pending_commission, last_commission_payment_at, commission_debt_since_at')
         .eq('id', driverId)
         .single(),
     ]);
@@ -57,6 +57,7 @@ export async function GET(_request, { params }) {
         commissionPayments: paymentsRes.data || [],
         pendingCommission: Number(driverRes.data?.pending_commission) || 0,
         lastCommissionPaymentAt: driverRes.data?.last_commission_payment_at || null,
+        commissionDebtSinceAt: driverRes.data?.commission_debt_since_at || null,
       },
     });
   } catch (err) {

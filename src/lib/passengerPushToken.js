@@ -50,7 +50,15 @@ export async function upsertPassengerPushToken(phone, pushToken) {
       .update({ push_token: token, updated_at: now })
       .eq('phone', variantPhone)
   );
-  await Promise.allSettled(sessionUpdates);
+  const sessionResults = await Promise.allSettled(sessionUpdates);
+  const sessionErrors = sessionResults.filter(r => r.status === 'rejected' || r.value?.error);
+  if (sessionErrors.length > 0) {
+    console.warn('[upsertPassengerPushToken] session update errors:', sessionErrors.length, 'of', variants.length,
+      sessionErrors.map(r => r.reason?.message || r.value?.error?.message || 'unknown').join(', '));
+  } else {
+    const sessionUpdated = sessionResults.filter(r => r.status === 'fulfilled' && !r.value?.error).length;
+    console.log('[upsertPassengerPushToken] session updates ok:', sessionUpdated, '/', variants.length, '| phone:', canonical);
+  }
 
   // 2) Upsert en passenger_devices (fuente legacy, mantiene compatibilidad)
   const deviceRows = variants.map((variantPhone) => ({
@@ -91,13 +99,17 @@ export async function syncPassengerTripPushesForPhone(phone) {
   }
 
   const supabase = getSupabaseAdmin();
+  // Solo viajes de las últimas 2 horas para evitar sincronizar viajes viejos
+  // con tokens potencialmente inválidos que borrarían el token recién registrado.
+  const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
   const { data: trips, error } = await supabase
     .from('trips')
     .select('id, status, passenger_phone, notes, wa_context, tracking_token, driver_id')
     .in('passenger_phone', variants)
     .in('status', ACTIVE_TRIP_STATUSES)
+    .gte('created_at', since)
     .order('created_at', { ascending: false })
-    .limit(5);
+    .limit(3);
 
   if (error) {
     return { ok: false, reason: 'db_error', message: error.message, sent: 0 };
@@ -110,7 +122,9 @@ export async function syncPassengerTripPushesForPhone(phone) {
     if (!isPassengerAppTrip(trip)) continue;
 
     const driver = await getDriverById(supabase, trip.driver_id);
-    const pushResult = await trySendPassengerAppTripPush(supabase, trip, driver);
+    // clearOnStale: false para no borrar el token recién registrado si Firebase lo rechaza.
+    // El borrado stale ocurre cuando notify-passenger lo intenta en el próximo dispatch.
+    const pushResult = await trySendPassengerAppTripPush(supabase, trip, driver, { clearOnStale: false });
     results.push({ tripId: trip.id, ...pushResult });
     if (pushResult?.ok) sent += 1;
   }

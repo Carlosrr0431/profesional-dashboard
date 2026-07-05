@@ -241,8 +241,10 @@ export async function sendPassengerPushNotification(pushToken, { title, body, da
 
 /**
  * Envía push FCM al pasajero si el viaje es de la app y aún no se notificó ese estado.
+ * @param {boolean} [opts.clearOnStale=true] - Si false, no borra el token al recibir error de token inválido.
+ *   Usar false en sync post-registro para evitar borrar el token recién guardado.
  */
-export async function trySendPassengerAppTripPush(supabase, trip, driver = null) {
+export async function trySendPassengerAppTripPush(supabase, trip, driver = null, { clearOnStale = true } = {}) {
   if (!supabase || !trip?.id || !isPassengerAppTrip(trip)) {
     return { ok: false, reason: 'not_passenger_app_trip' };
   }
@@ -289,8 +291,14 @@ export async function trySendPassengerAppTripPush(supabase, trip, driver = null)
   });
 
   if (!pushResult.ok) {
-    if (STALE_TOKEN_REASONS.has(pushResult.reason)) {
+    if (clearOnStale && STALE_TOKEN_REASONS.has(pushResult.reason)) {
       await clearStalePassengerPushToken(supabase, passengerPhone, pushResult.reason);
+    } else if (!clearOnStale && STALE_TOKEN_REASONS.has(pushResult.reason)) {
+      console.warn('[passenger-push] Token inválido detectado en sync (no se borra para evitar race condition):', {
+        reason: pushResult.reason,
+        passengerPhone: passengerPhone.slice(0, 6) + '...',
+        tripId: trip.id,
+      });
     }
     return { ...pushResult, status: pushStatus, tripStatus };
   }
