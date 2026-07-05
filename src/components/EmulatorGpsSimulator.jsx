@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import Map, { Marker, Source, Layer } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { EMULATOR_GPS_DEFAULT_ORIGIN, DEFAULT_ZOOM } from '../lib/constants';
-import { MAP_STYLE, DEFAULT_MAP_VIEW, mapLibreOptions } from '../lib/mapLibre';
+import { CARTO_RASTER_STYLE, DEFAULT_MAP_VIEW, mapLibreOptions } from '../lib/mapLibre';
 
 const MARKER_COLOR = '#DC2626';
 const THROTTLE_MS = 200;
@@ -606,7 +606,7 @@ export default function EmulatorGpsSimulator({ onBack }) {
             ref={mapRef}
             {...viewState}
             onMove={(event) => setViewState(event.viewState)}
-            mapStyle={MAP_STYLE}
+            mapStyle={CARTO_RASTER_STYLE}
             style={{ width: '100%', height: '100%' }}
             onLoad={handleMapLoad}
             onClick={handleMapClick}
