@@ -12,10 +12,13 @@ function readEnv(...keys) {
   return '';
 }
 
+const CARTO_VOYAGER_STYLE_URL =
+  'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
+
 const MAP_STYLE_URL = readEnv(
   'EXPO_PUBLIC_MAP_STYLE_URL',
   'NEXT_PUBLIC_MAP_STYLE_URL',
-) || 'https://tiles.openfreemap.org/styles/liberty';
+) || CARTO_VOYAGER_STYLE_URL;
 
 const TOMTOM_API_KEY = readEnv('TOMTOM_API_KEY');
 const TOMTOM_LANGUAGE = 'es-419';

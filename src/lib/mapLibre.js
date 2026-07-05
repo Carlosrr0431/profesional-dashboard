@@ -2,17 +2,15 @@
 
 const { buildCartoRasterStyle } = require('../../shared/geo/hybridMapStyle');
 
-/** Carto Voyager raster — estable en navegador (sin overlay vectorial OpenFreeMap). */
+/** Carto Voyager — estilo vectorial oficial (MapLibre GL). */
+export const CARTO_VOYAGER_STYLE =
+  'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
+
+/** Carto Voyager raster — fallback inline si hace falta un style object local. */
 export const CARTO_RASTER_STYLE = buildCartoRasterStyle({ maxZoom: 19 });
 
-const envStyleUrl = typeof process !== 'undefined'
-  ? process.env.NEXT_PUBLIC_MAP_STYLE_URL?.trim()
-  : '';
-
-/**
- * Estilo del mapa: URL externa si está configurada; si no, Carto raster local.
- */
-export const MAP_STYLE = envStyleUrl || CARTO_RASTER_STYLE;
+/** Estilo activo del dashboard: Carto Voyager. */
+export const MAP_STYLE = CARTO_VOYAGER_STYLE;
 
 /** @deprecated Usar MAP_STYLE — alias para compatibilidad. */
 export const MAP_STYLE_URL = MAP_STYLE;
