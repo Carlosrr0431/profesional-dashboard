@@ -379,6 +379,70 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   scroll-snap-align: center;
 }
 
+/* Hero map route animation */
+@keyframes landing-hero-map-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes landing-hero-route-draw {
+  0% { stroke-dashoffset: 520; opacity: 0.35; }
+  40% { opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 1; }
+}
+
+@keyframes landing-hero-pin-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.08); opacity: 0.85; }
+}
+
+@keyframes landing-hero-live-blink {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+  50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+}
+
+@keyframes landing-hero-progress-fill {
+  0% { width: 38%; }
+  50% { width: 72%; }
+  100% { width: 38%; }
+}
+
+@keyframes landing-hero-eta-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.landing-hero-map-float {
+  animation: landing-hero-map-float 7s ease-in-out infinite;
+}
+
+.landing-hero-route-path {
+  stroke-dasharray: 520;
+  animation: landing-hero-route-draw 2.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.landing-hero-pin-origin {
+  transform-origin: 58px 252px;
+  animation: landing-hero-pin-pulse 2.4s ease-in-out infinite;
+}
+
+.landing-hero-pin-dest {
+  transform-origin: 338px 62px;
+  animation: landing-hero-pin-pulse 2.4s ease-in-out 1.2s infinite;
+}
+
+.landing-hero-live-dot {
+  animation: landing-hero-live-blink 2s ease-in-out infinite;
+}
+
+.landing-hero-progress {
+  animation: landing-hero-progress-fill 4.5s ease-in-out infinite;
+}
+
+.landing-hero-eta {
+  animation: landing-hero-eta-float 5s ease-in-out infinite;
+}
+
 .landing-route-line {
   stroke-dasharray: 120;
   animation: landing-route-draw 2.4s ease-out 0.8s both;
@@ -390,8 +454,23 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   .landing-animate-glow,
   .landing-hero-enter,
   .landing-shimmer-text,
-  .landing-route-line {
+  .landing-route-line,
+  .landing-hero-map-float,
+  .landing-hero-route-path,
+  .landing-hero-pin-origin,
+  .landing-hero-pin-dest,
+  .landing-hero-live-dot,
+  .landing-hero-progress,
+  .landing-hero-eta {
     animation: none !important;
+  }
+
+  .landing-hero-route-path {
+    stroke-dashoffset: 0;
+  }
+
+  .landing-hero-progress {
+    width: 65%;
   }
 
   .landing-reveal {

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useReveal } from './useReveal';
 import LandingNav from './LandingNav';
 import AppShowcase from './AppShowcase';
+import HeroMapRoute from './HeroMapRoute';
 
 const PLAY_PASSENGER = 'https://play.google.com/store/apps/details?id=com.remises.passengerapp';
 const PLAY_DRIVER = 'https://play.google.com/store/apps/details?id=com.remises.driverapp';
@@ -164,6 +165,8 @@ export default function LandingPage() {
         </div>
 
         <div className="relative mx-auto max-w-6xl px-4 pb-20 pt-8 sm:px-6 sm:pb-24 sm:pt-12 lg:px-8 lg:pt-16">
+          <div className="lg:grid lg:grid-cols-[1fr_minmax(0,420px)] lg:items-center lg:gap-12 xl:gap-16">
+            <div>
           <div className="landing-hero-enter mb-8 flex justify-start sm:mb-10">
             <div className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-4 py-1.5">
               <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
@@ -197,6 +200,12 @@ export default function LandingPage() {
                 <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:text-xs">{stat.label}</p>
               </div>
             ))}
+          </div>
+            </div>
+
+            <div className="mt-12 lg:mt-0">
+              <HeroMapRoute />
+            </div>
           </div>
         </div>
       </section>
