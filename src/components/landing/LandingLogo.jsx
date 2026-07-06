@@ -1,35 +1,26 @@
-/** Logo Profesional sobre fondo claro — legible en hero oscuro y footer. */
+/** Logo Profesional en SVG — sin fondo, adaptable a tema claro. */
+const LOGO_SRC = '/Profesional%20app-02.svg';
+
 export default function LandingLogo({
   size = 'md',
   className = '',
   withGlow = false,
 }) {
-  const shell = {
-    sm: 'rounded-xl px-3 py-2',
-    md: 'rounded-2xl px-4 py-2.5',
-    lg: 'rounded-2xl px-5 py-3',
-    hero: 'rounded-[1.25rem] px-6 py-4 shadow-2xl shadow-black/30',
-  };
-
-  const image = {
-    sm: 'h-7 w-auto max-w-[108px]',
-    md: 'h-9 w-auto max-w-[132px]',
-    lg: 'h-11 w-auto max-w-[160px]',
-    hero: 'h-12 w-auto max-w-[180px] sm:h-14 sm:max-w-[210px]',
+  const heights = {
+    sm: 'h-8 max-w-[140px]',
+    md: 'h-10 max-w-[168px]',
+    lg: 'h-12 max-w-[200px]',
+    hero: 'h-14 max-w-[220px] sm:h-[4.5rem] sm:max-w-[280px] lg:h-20 lg:max-w-[340px]',
   };
 
   return (
-    <div
-      className={`inline-flex items-center justify-center border border-white/20 bg-white ${shell[size]} ${
-        withGlow ? 'ring-1 ring-white/30' : ''
+    <img
+      src={LOGO_SRC}
+      alt="Profesional App"
+      className={`w-auto object-contain object-left ${heights[size]} ${
+        withGlow ? 'drop-shadow-[0_8px_24px_rgba(30,58,95,0.12)]' : ''
       } ${className}`}
-    >
-      <img
-        src="/logo.png"
-        alt="Profesional App"
-        className={`object-contain ${image[size]}`}
-        draggable={false}
-      />
-    </div>
+      draggable={false}
+    />
   );
 }

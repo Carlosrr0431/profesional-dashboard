@@ -357,12 +357,26 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 }
 
 .landing-shimmer-text {
-  background: linear-gradient(90deg, #fff 0%, #fca5a5 35%, #fff 70%);
+  background: linear-gradient(90deg, #1e3a5f 0%, #dc2626 40%, #245f8d 70%, #1e3a5f 100%);
   background-size: 200% auto;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   animation: landing-shimmer 4s linear infinite;
+}
+
+.landing-screenshots-scroll {
+  scroll-snap-type: x mandatory;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.landing-screenshots-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.landing-screenshots-scroll > * {
+  scroll-snap-align: center;
 }
 
 .landing-route-line {
