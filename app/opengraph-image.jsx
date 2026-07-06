@@ -4,7 +4,7 @@ import { ImageResponse } from 'next/og';
 
 export const runtime = 'nodejs';
 
-export const alt = 'Profesional App · Transporte en Salta Capital';
+export const alt = 'Profesional App · Viajes en Salta Capital';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -46,7 +46,7 @@ export default async function OpenGraphImage() {
             width: 320,
             height: 320,
             borderRadius: '50%',
-            background: 'rgba(220, 38, 38, 0.08)',
+            background: 'rgba(36, 95, 141, 0.1)',
           }}
         />
 
@@ -86,7 +86,7 @@ export default async function OpenGraphImage() {
               style={{
                 padding: '12px 22px',
                 borderRadius: 999,
-                background: label === 'App Pasajero' ? '#dc2626' : '#ffffff',
+                background: label === 'App Pasajero' ? '#245f8d' : '#ffffff',
                 color: label === 'App Pasajero' ? '#ffffff' : '#282e69',
                 fontSize: 20,
                 fontWeight: 700,

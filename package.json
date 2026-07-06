@@ -10,7 +10,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "admin:create-user": "node scripts/create-admin-user.mjs"
+    "admin:create-user": "node scripts/create-admin-user.mjs",
+    "optimize:landing-images": "node scripts/optimize-landing-images.mjs",
+    "generate:favicons": "node scripts/generate-favicons.mjs"
   },
   "dependencies": {
     "@react-google-maps/api": "^2.20.6",
@@ -31,6 +33,7 @@
     "jest": "^30.3.0",
     "jest-environment-node": "^30.3.0",
     "postcss": "^8.5.3",
+    "sharp": "^0.35.3",
     "tailwindcss": "^3.4.17"
   }
 }

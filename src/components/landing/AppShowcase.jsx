@@ -1,6 +1,7 @@
 'use client';
 
 import { useReveal } from './useReveal';
+import LandingImage from './LandingImage';
 
 function Reveal({ children, className = '', delay = 0 }) {
   const { ref, visible } = useReveal();
@@ -15,28 +16,31 @@ function Reveal({ children, className = '', delay = 0 }) {
   );
 }
 
-function ScreenshotFrame({ src, alt, className = '' }) {
+function ScreenshotFrame({ src, alt, width, height, priority = false, className = '' }) {
   return (
     <div
       className={`group relative shrink-0 overflow-hidden rounded-[1.75rem] border border-light-300/80 bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.15)] transition duration-500 hover:-translate-y-1 hover:shadow-[0_28px_60px_-12px_rgba(15,23,42,0.2)] ${className}`}
     >
-      <div className="pointer-events-none absolute inset-0 rounded-[1.75rem] ring-1 ring-inset ring-white/60" />
-      <img
+      <div className="pointer-events-none absolute inset-0 z-10 rounded-[1.75rem] ring-1 ring-inset ring-white/60" />
+      <LandingImage
         src={src}
         alt={alt}
-        className="block h-full w-full object-cover object-top"
-        loading="lazy"
-        draggable={false}
+        width={width}
+        height={height}
+        fill
+        priority={priority}
+        sizes="(max-width: 640px) 58vw, (max-width: 1024px) 33vw, 300px"
+        className="object-contain object-top"
       />
     </div>
   );
 }
 
-function StoreButton({ href, label, sublabel, accent = 'red' }) {
+function StoreButton({ href, label, sublabel, accent = 'brand' }) {
   const accentStyles =
     accent === 'green'
       ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
-      : 'bg-accent hover:bg-accent-light shadow-accent/25';
+      : 'bg-accent hover:bg-accent-light shadow-[0_8px_24px_-6px_rgba(36,95,141,0.35)]';
 
   return (
     <a
@@ -71,7 +75,7 @@ export default function AppShowcase({
   reversed = false,
 }) {
   const isPassenger = variant === 'passenger';
-  const accent = isPassenger ? 'red' : 'green';
+  const accent = isPassenger ? 'brand' : 'green';
   const badgeClass = isPassenger
     ? 'bg-accent/10 text-accent border-accent/15'
     : 'bg-emerald-500/10 text-emerald-700 border-emerald-500/15';
@@ -137,7 +141,10 @@ export default function AppShowcase({
                 <ScreenshotFrame
                   src={screenshots[0].src}
                   alt={screenshots[0].alt}
-                  className="relative mx-auto aspect-[9/19.5] w-[min(100%,280px)] sm:w-[300px]"
+                  width={screenshots[0].width}
+                  height={screenshots[0].height}
+                  priority={isPassenger}
+                  className="relative mx-auto aspect-[780/1387] w-[min(100%,280px)] sm:w-[300px]"
                 />
               </div>
             </div>
@@ -146,12 +153,13 @@ export default function AppShowcase({
 
         <Reveal delay={120} className="mt-12 sm:mt-16">
           <div className="overflow-hidden rounded-[1.75rem] border border-light-300/80 bg-white shadow-[0_24px_60px_-20px_rgba(15,23,42,0.18)]">
-            <img
+            <LandingImage
               src={banner.src}
               alt={banner.alt}
-              className="block h-auto w-full object-cover"
-              loading="lazy"
-              draggable={false}
+              width={banner.width}
+              height={banner.height}
+              sizes="(max-width: 768px) 100vw, 1152px"
+              className="block h-auto w-full"
             />
           </div>
         </Reveal>
@@ -163,7 +171,9 @@ export default function AppShowcase({
                 key={shot.src}
                 src={shot.src}
                 alt={shot.alt}
-                className={`aspect-[9/19.5] w-[58vw] sm:w-auto ${index === 0 ? 'sm:mt-6' : index === 2 ? 'sm:-mt-4' : ''}`}
+                width={shot.width}
+                height={shot.height}
+                className={`aspect-[780/1387] w-[58vw] sm:w-auto ${index === 0 ? 'sm:mt-6' : index === 2 ? 'sm:-mt-4' : ''}`}
               />
             ))}
           </div>

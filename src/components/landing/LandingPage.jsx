@@ -9,18 +9,21 @@ import AppShowcase from './AppShowcase';
 const PLAY_PASSENGER = 'https://play.google.com/store/apps/details?id=com.remises.passengerapp';
 const PLAY_DRIVER = 'https://play.google.com/store/apps/details?id=com.remises.driverapp';
 
+const PHONE_IMAGE = { width: 780, height: 1387 };
+const BANNER_IMAGE = { width: 1280, height: 625 };
+
 const PASSENGER_SCREENSHOTS = [
-  { src: '/9.16_1-06.png', alt: 'Pantalla principal de la app Profesional Pasajero' },
-  { src: '/9.16_2-07.png', alt: 'Pedir un viaje en la app de pasajeros' },
-  { src: '/9.16_3-08.png', alt: 'Seguimiento del chofer en tiempo real' },
-  { src: '/9.16_4-09.png', alt: 'Detalle del viaje en curso' },
+  { src: '/landing/optimized/passenger-1.webp', alt: 'Pantalla principal de la app Profesional Pasajero', ...PHONE_IMAGE },
+  { src: '/landing/optimized/passenger-2.webp', alt: 'Pedir un viaje en la app de pasajeros', ...PHONE_IMAGE },
+  { src: '/landing/optimized/passenger-3.webp', alt: 'Seguimiento del chofer en tiempo real', ...PHONE_IMAGE },
+  { src: '/landing/optimized/passenger-4.webp', alt: 'Detalle del viaje en curso', ...PHONE_IMAGE },
 ];
 
 const DRIVER_SCREENSHOTS = [
-  { src: '/login%20conductor-06.png', alt: 'Inicio de sesión app Profesional Conductor' },
-  { src: '/en%20linea%20conductor-07.png', alt: 'Conductor en línea recibiendo viajes' },
-  { src: '/navegacion%20guiada%20conductor-08.png', alt: 'Navegación guiada hasta el destino' },
-  { src: '/gestion%20de%20viajes%20conductor-09.png', alt: 'Gestión de viajes del conductor' },
+  { src: '/landing/optimized/driver-1.webp', alt: 'Inicio de sesión app Profesional Conductor', ...PHONE_IMAGE },
+  { src: '/landing/optimized/driver-2.webp', alt: 'Conductor en línea recibiendo viajes', ...PHONE_IMAGE },
+  { src: '/landing/optimized/driver-3.webp', alt: 'Navegación guiada hasta el destino', ...PHONE_IMAGE },
+  { src: '/landing/optimized/driver-4.webp', alt: 'Gestión de viajes del conductor', ...PHONE_IMAGE },
 ];
 
 const STATS = [
@@ -110,7 +113,7 @@ function HeroStoreButton({ href, label, sublabel, variant = 'passenger' }) {
       rel="noopener noreferrer"
       className={`group inline-flex w-full items-center gap-3 rounded-2xl border px-4 py-3.5 transition-all duration-300 sm:w-auto ${
         isPassenger
-          ? 'border-light-300 bg-white text-navy-900 shadow-[0_8px_30px_-8px_rgba(15,23,42,0.12)] hover:border-accent/25 hover:shadow-[0_12px_40px_-8px_rgba(220,38,38,0.15)]'
+          ? 'border-light-300 bg-white text-navy-900 shadow-[0_8px_30px_-8px_rgba(15,23,42,0.12)] hover:border-accent/25 hover:shadow-[0_12px_40px_-8px_rgba(36,95,141,0.18)]'
           : 'border-navy-700/10 bg-navy-900 text-white shadow-[0_8px_30px_-8px_rgba(15,23,42,0.25)] hover:bg-navy-800'
       }`}
     >
@@ -226,7 +229,7 @@ export default function LandingPage() {
           'Historial y tarifas transparentes',
         ]}
         href={PLAY_PASSENGER}
-        banner={{ src: '/portada%201024x500--05.png', alt: 'Profesional Pasajero — portada de la app' }}
+        banner={{ src: '/landing/optimized/passenger-banner.webp', alt: 'Profesional Pasajero — portada de la app', ...BANNER_IMAGE }}
         screenshots={PASSENGER_SCREENSHOTS}
       />
 
@@ -243,7 +246,7 @@ export default function LandingPage() {
           'Comunicación directa con operaciones',
         ]}
         href={PLAY_DRIVER}
-        banner={{ src: '/portada%20conductor-05.png', alt: 'Profesional Conductor — portada de la app' }}
+        banner={{ src: '/landing/optimized/driver-banner.webp', alt: 'Profesional Conductor — portada de la app', ...BANNER_IMAGE }}
         screenshots={DRIVER_SCREENSHOTS}
         reversed
       />

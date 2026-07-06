@@ -10,14 +10,14 @@ const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://profesional-dashboa
 
 export const metadata = {
   metadataBase: new URL(SITE_URL),
-  title: 'Profesional App · Transporte en Salta Capital',
+  title: 'Profesional App · Viajes en Salta Capital',
   description:
     'Pedí tu viaje o unite a la flota. Apps para pasajeros y conductores en Salta Capital, Argentina.',
   alternates: {
     canonical: SITE_URL,
   },
   openGraph: {
-    title: 'Profesional App · Transporte en Salta Capital',
+    title: 'Profesional App · Viajes en Salta Capital',
     description:
       'Descargá Profesional Pasajero o Profesional Conductor. Viajes en tiempo real en Salta Capital.',
     url: SITE_URL,
@@ -27,7 +27,7 @@ export const metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Profesional App · Transporte en Salta Capital',
+    title: 'Profesional App · Viajes en Salta Capital',
     description:
       'Descargá Profesional Pasajero o Profesional Conductor. Viajes en tiempo real en Salta Capital.',
   },
