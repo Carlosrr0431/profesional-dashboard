@@ -425,12 +425,12 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 }
 
 .landing-hero-pin-origin {
-  transform-origin: 72px 262px;
+  transform-origin: 52px 282px;
   animation: landing-hero-pin-pulse 2.8s ease-in-out infinite;
 }
 
 .landing-hero-pin-dest {
-  transform-origin: 312px 72px;
+  transform-origin: 292px 42px;
   animation: landing-hero-pin-pulse 2.8s ease-in-out 1.4s infinite;
 }
 
@@ -443,7 +443,7 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 }
 
 .landing-hero-eta {
-  animation: landing-hero-eta-float 5s ease-in-out infinite;
+  /* Tarjeta fija debajo del mapa — sin animación flotante */
 }
 
 .landing-route-line {

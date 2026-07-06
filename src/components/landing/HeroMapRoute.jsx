@@ -3,34 +3,52 @@
 /** Duración compartida con `.landing-hero-progress` en globals.css */
 const TRIP_DURATION = '8s';
 
-function DriverEtaCard({ compact = false }) {
+/** Ruta solo por calles (intersecciones del grid del mapa). */
+const ROUTE_PATH = 'M 52 282 L 52 222 L 212 222 L 212 102 L 292 102 L 292 42';
+const ORIGIN = { x: 52, y: 282 };
+const DEST = { x: 292, y: 42 };
+
+function DriverEtaCard() {
   return (
-    <div
-      className={`rounded-xl border border-white/80 bg-white/95 shadow-lg backdrop-blur-sm sm:rounded-2xl ${
-        compact ? 'px-3 py-2' : 'px-3 py-2.5 sm:px-3.5 sm:py-3'
-      }`}
-    >
-      <div className="flex items-center gap-2">
-        <span
-          className={`flex shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent sm:rounded-xl ${
-            compact ? 'h-6 w-6' : 'h-7 w-7 sm:h-8 sm:w-8'
-          }`}
-        >
-          <svg className={compact ? 'h-3 w-3' : 'h-3.5 w-3.5 sm:h-4 sm:w-4'} fill="currentColor" viewBox="0 0 24 24">
-            <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z" />
-          </svg>
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className={`truncate font-bold text-navy-900 ${compact ? 'text-[11px]' : 'text-[11px] sm:text-xs'}`}>
-            Chofer en camino
-          </p>
-          <p className="text-[10px] text-slate-500">Llegada · 4 min</p>
-        </div>
-      </div>
-      <div className={`overflow-hidden rounded-full bg-light-200 ${compact ? 'mt-1.5 h-1' : 'mt-2 h-1.5 sm:mt-2.5'}`}>
+    <div className="rounded-lg border border-white/90 bg-white/95 px-2 py-1.5 shadow-[0_8px_24px_-6px_rgba(15,23,42,0.18)] backdrop-blur-sm sm:rounded-xl sm:px-2.5 sm:py-2">
+      <p className="text-[10px] font-bold leading-tight text-navy-900 sm:text-[11px]">Chofer en camino</p>
+      <p className="mt-0.5 text-[9px] text-slate-500 sm:text-[10px]">Llegada · 4 min</p>
+      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-light-200">
         <div className="landing-hero-progress h-full rounded-full bg-gradient-to-r from-[#282e69] via-[#245f8d] to-[#3480b8]" />
       </div>
     </div>
+  );
+}
+
+/** Auto visto desde arriba — orientado hacia +X para animateMotion rotate="auto". */
+function MapCarIcon() {
+  return (
+    <g transform="translate(-20, -11)">
+      <ellipse cx="20" cy="11" rx="15" ry="9" fill="rgba(15,23,42,0.12)" />
+      <path
+        d="M 5 7.5 Q 5 5 8.5 4.5 L 28 4 Q 32 4 33 6.5 L 34.5 9.5 Q 35.5 11 34.5 12.5 L 33 15.5 Q 32 18 28 18 L 8.5 17.5 Q 5 17 5 14.5 L 4 12 Q 3 11 4 9.5 Z"
+        fill="#245f8d"
+        stroke="#1e293b"
+        strokeWidth="0.9"
+      />
+      <path d="M 10 6 L 18.5 5.5 L 17.5 10 L 11 10.2 Z" fill="#bfdbfe" stroke="#93c5fd" strokeWidth="0.4" />
+      <path d="M 20 5.5 L 29 5 L 28 9.8 L 20.5 10 Z" fill="#64748b" opacity="0.55" />
+      <path d="M 8 10.5 H 31" stroke="#1e3a5f" strokeWidth="0.5" opacity="0.25" />
+      <rect x="6.5" y="2.5" width="5" height="3.2" rx="1.2" fill="#0f172a" />
+      <rect x="6.5" y="16.3" width="5" height="3.2" rx="1.2" fill="#0f172a" />
+      <rect x="28.5" y="2.5" width="5" height="3.2" rx="1.2" fill="#0f172a" />
+      <rect x="28.5" y="16.3" width="5" height="3.2" rx="1.2" fill="#0f172a" />
+      <circle cx="9" cy="4.1" r="1" fill="#cbd5e1" />
+      <circle cx="9" cy="17.9" r="1" fill="#cbd5e1" />
+      <circle cx="31" cy="4.1" r="1" fill="#cbd5e1" />
+      <circle cx="31" cy="17.9" r="1" fill="#cbd5e1" />
+      <rect x="33.5" y="7" width="2.2" height="2.8" rx="0.6" fill="#fde047" />
+      <rect x="33.5" y="12.2" width="2.2" height="2.8" rx="0.6" fill="#fde047" />
+      <rect x="4.2" y="7.2" width="1.8" height="2.2" rx="0.4" fill="#f87171" />
+      <rect x="4.2" y="12.6" width="1.8" height="2.2" rx="0.4" fill="#f87171" />
+      <ellipse cx="12" cy="4.8" rx="1.2" ry="0.8" fill="#245f8d" stroke="#1e293b" strokeWidth="0.4" />
+      <ellipse cx="12" cy="17.2" rx="1.2" ry="0.8" fill="#245f8d" stroke="#1e293b" strokeWidth="0.4" />
+    </g>
   );
 }
 
@@ -50,11 +68,16 @@ export default function HeroMapRoute() {
         </div>
 
         <div className="relative aspect-[5/4] w-full max-w-full bg-[#e8edf4]">
+          {/* ETA compacta — esquina superior izquierda del mapa */}
+          <div className="landing-hero-eta absolute left-2 top-2 z-10 w-[max(42%,9.5rem)] max-w-[148px] sm:left-3 sm:top-3 sm:max-w-[158px]">
+            <DriverEtaCard />
+          </div>
+
           <svg
             className="absolute inset-0 h-full w-full"
             viewBox="0 0 400 320"
             fill="none"
-            preserveAspectRatio="xMidYMid slice"
+            preserveAspectRatio="xMidYMid meet"
             aria-hidden
           >
             <defs>
@@ -70,15 +93,13 @@ export default function HeroMapRoute() {
                   <feMergeNode in="SourceGraphic" />
                 </feMerge>
               </filter>
-              <filter id="landing-car-shadow" x="-50%" y="-50%" width="200%" height="200%">
-                <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="#1e293b" floodOpacity="0.35" />
+              <filter id="landing-car-shadow" x="-60%" y="-60%" width="220%" height="220%">
+                <feDropShadow dx="0" dy="1.5" stdDeviation="2.5" floodColor="#0f172a" floodOpacity="0.4" />
               </filter>
             </defs>
 
-            {/* Fondo base */}
             <rect width="400" height="320" fill="#e8edf4" />
 
-            {/* Manzanas (bloques entre calles) */}
             {[
               [8, 8, 44, 34], [58, 8, 74, 34], [138, 8, 74, 34], [218, 8, 74, 34], [298, 8, 94, 34],
               [8, 48, 44, 54], [58, 48, 74, 54], [138, 48, 74, 54], [218, 48, 74, 54], [298, 48, 94, 54],
@@ -87,38 +108,21 @@ export default function HeroMapRoute() {
               [8, 228, 44, 34], [58, 228, 74, 34], [138, 228, 74, 34], [218, 228, 74, 34], [298, 228, 94, 34],
               [8, 268, 44, 44], [58, 268, 74, 44], [138, 268, 74, 44], [218, 268, 74, 44], [298, 268, 94, 44],
             ].map(([x, y, w, h], i) => (
-              <rect
-                key={`block-${i}`}
-                x={x}
-                y={y}
-                width={w}
-                height={h}
-                rx={3}
-                fill="#dce4ee"
-                stroke="#cdd7e4"
-                strokeWidth="0.75"
-              />
+              <rect key={`block-${i}`} x={x} y={y} width={w} height={h} rx={3} fill="#dce4ee" stroke="#cdd7e4" strokeWidth="0.75" />
             ))}
 
-            {/* Plazas / espacios verdes */}
             <rect x="142" y="112" width="66" height="46" rx="6" fill="#d4e8dc" stroke="#b8d4c4" strokeWidth="0.75" />
             <rect x="62" y="232" width="62" height="28" rx="5" fill="#d4e8dc" stroke="#b8d4c4" strokeWidth="0.75" />
 
-            {/* Calles principales (más anchas) */}
             <path d="M0 42 H400 M0 102 H400 M0 162 H400 M0 222 H400 M0 282 H400" stroke="#f8fafc" strokeWidth="14" strokeLinecap="square" />
             <path d="M52 0 V320 M132 0 V320 M212 0 V320 M292 0 V320 M372 0 V320" stroke="#f8fafc" strokeWidth="14" strokeLinecap="square" />
-
-            {/* Calles secundarias */}
             <path d="M0 72 H400 M0 132 H400 M0 192 H400 M0 252 H400" stroke="#f1f5f9" strokeWidth="8" />
             <path d="M92 0 V320 M172 0 V320 M252 0 V320 M332 0 V320" stroke="#f1f5f9" strokeWidth="8" />
-
-            {/* Marcas de calle / líneas centrales punteadas */}
             <path d="M0 42 H400 M0 102 H400 M0 162 H400 M0 222 H400" stroke="rgba(148,163,184,0.35)" strokeWidth="1" strokeDasharray="6 10" />
             <path d="M52 0 V320 M132 0 V320 M212 0 V320 M292 0 V320" stroke="rgba(148,163,184,0.35)" strokeWidth="1" strokeDasharray="6 10" />
 
-            {/* Ruta sobre calles: origen abajo-izq → destino arriba-der */}
             <path
-              d="M 72 262 L 212 262 L 212 162 L 312 162 L 312 72"
+              d={ROUTE_PATH}
               stroke="rgba(36, 95, 141, 0.12)"
               strokeWidth="12"
               strokeLinejoin="round"
@@ -128,7 +132,7 @@ export default function HeroMapRoute() {
             <path
               id="landing-hero-route"
               className="landing-hero-route-path"
-              d="M 72 262 L 212 262 L 212 162 L 312 162 L 312 72"
+              d={ROUTE_PATH}
               stroke="url(#landing-route-gradient)"
               strokeWidth="5"
               strokeLinejoin="round"
@@ -136,54 +140,30 @@ export default function HeroMapRoute() {
               filter="url(#landing-route-glow)"
             />
 
-            {/* Pin origen */}
             <g className="landing-hero-pin landing-hero-pin-origin">
-              <circle cx="72" cy="262" r="14" fill="rgba(36, 95, 141, 0.12)" />
-              <circle cx="72" cy="262" r="7" fill="#245f8d" stroke="#fff" strokeWidth="2.5" />
+              <circle cx={ORIGIN.x} cy={ORIGIN.y} r="14" fill="rgba(36, 95, 141, 0.12)" />
+              <circle cx={ORIGIN.x} cy={ORIGIN.y} r="7" fill="#245f8d" stroke="#fff" strokeWidth="2.5" />
             </g>
 
-            {/* Pin destino */}
             <g className="landing-hero-pin landing-hero-pin-dest">
-              <circle cx="312" cy="72" r="14" fill="rgba(52, 128, 184, 0.14)" />
-              <circle cx="312" cy="72" r="7" fill="#282e69" stroke="#fff" strokeWidth="2.5" />
+              <circle cx={DEST.x} cy={DEST.y} r="14" fill="rgba(52, 128, 184, 0.14)" />
+              <circle cx={DEST.x} cy={DEST.y} r="7" fill="#282e69" stroke="#fff" strokeWidth="2.5" />
             </g>
 
-            {/* Auto en movimiento — sincronizado con barra de progreso (8s) */}
             <g filter="url(#landing-car-shadow)">
               <g>
                 <animateMotion
                   dur={TRIP_DURATION}
                   repeatCount="indefinite"
-                  calcMode="spline"
-                  keyTimes="0;1"
-                  keySplines="0.42 0 0.58 1"
+                  calcMode="linear"
                   rotate="auto"
                 >
                   <mpath href="#landing-hero-route" />
                 </animateMotion>
-                <g transform="translate(-11, -16) scale(0.9)">
-                  <rect x="4" y="6" width="14" height="22" rx="4" fill="#282e69" />
-                  <rect x="6" y="8" width="10" height="7" rx="2" fill="#3480b8" opacity="0.85" />
-                  <rect x="6" y="19" width="10" height="5" rx="1.5" fill="#245f8d" opacity="0.7" />
-                  <circle cx="3" cy="11" r="2.2" fill="#1e293b" />
-                  <circle cx="19" cy="11" r="2.2" fill="#1e293b" />
-                  <circle cx="3" cy="23" r="2.2" fill="#1e293b" />
-                  <circle cx="19" cy="23" r="2.2" fill="#1e293b" />
-                  <rect x="7" y="4" width="8" height="2" rx="1" fill="#fbbf24" opacity="0.9" />
-                </g>
+                <MapCarIcon />
               </g>
             </g>
           </svg>
-
-          {/* Desktop/tablet: tarjeta superpuesta abajo del mapa */}
-          <div className="landing-hero-eta absolute bottom-4 left-4 right-4 hidden sm:block">
-            <DriverEtaCard />
-          </div>
-        </div>
-
-        {/* Mobile: tarjeta debajo del mapa para no tapar origen ni ruta */}
-        <div className="landing-hero-eta border-t border-light-300/70 bg-light-100/60 px-3 py-2.5 sm:hidden">
-          <DriverEtaCard compact />
         </div>
       </div>
 
