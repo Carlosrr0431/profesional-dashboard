@@ -30,9 +30,9 @@ export default function LandingNav({ open, onOpenChange }) {
 
   return (
     <>
-      <header className="sticky top-0 z-50 border-b border-light-300/80 bg-white/90 backdrop-blur-xl supports-[backdrop-filter]:bg-white/75">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
-          <Link href="/" className="shrink-0" onClick={close}>
+      <header className="sticky top-0 z-50 border-b border-light-300/80 bg-white/90 backdrop-blur-xl supports-[backdrop-filter]:bg-white/75 pt-[env(safe-area-inset-top)]">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:px-8">
+          <Link href="/" className="min-w-0 shrink" onClick={close}>
             <LandingLogo size="sm" className="sm:hidden" />
             <LandingLogo size="md" className="hidden sm:inline-flex" />
           </Link>
@@ -102,7 +102,7 @@ export default function LandingNav({ open, onOpenChange }) {
             aria-label="Cerrar menú"
             onClick={close}
           />
-          <div className="absolute left-0 right-0 top-[57px] border-b border-light-300 bg-white px-4 py-5 shadow-2xl sm:top-[65px]">
+          <div className="absolute left-0 right-0 top-[calc(3.5rem+env(safe-area-inset-top))] max-h-[calc(100dvh-3.5rem-env(safe-area-inset-top))] overflow-y-auto border-b border-light-300 bg-white px-4 py-5 shadow-2xl sm:top-[calc(4.25rem+env(safe-area-inset-top))]">
             <nav className="flex flex-col gap-1" aria-label="Menú móvil">
               {LINKS.map((link) =>
                 link.isRoute ? (

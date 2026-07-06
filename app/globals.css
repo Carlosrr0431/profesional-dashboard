@@ -284,6 +284,9 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 .landing-scroll {
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
 }
 
 @keyframes landing-float {
@@ -386,8 +389,8 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 }
 
 @keyframes landing-hero-route-draw {
-  0% { stroke-dashoffset: 520; opacity: 0.35; }
-  40% { opacity: 1; }
+  0% { stroke-dashoffset: 480; opacity: 0.35; }
+  35% { opacity: 1; }
   100% { stroke-dashoffset: 0; opacity: 1; }
 }
 
@@ -402,9 +405,9 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 }
 
 @keyframes landing-hero-progress-fill {
-  0% { width: 38%; }
-  50% { width: 72%; }
-  100% { width: 38%; }
+  0% { width: 18%; }
+  92% { width: 94%; }
+  100% { width: 18%; }
 }
 
 @keyframes landing-hero-eta-float {
@@ -417,18 +420,18 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 }
 
 .landing-hero-route-path {
-  stroke-dasharray: 520;
-  animation: landing-hero-route-draw 2.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  stroke-dasharray: 480;
+  animation: landing-hero-route-draw 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .landing-hero-pin-origin {
-  transform-origin: 58px 252px;
-  animation: landing-hero-pin-pulse 2.4s ease-in-out infinite;
+  transform-origin: 72px 262px;
+  animation: landing-hero-pin-pulse 2.8s ease-in-out infinite;
 }
 
 .landing-hero-pin-dest {
-  transform-origin: 338px 62px;
-  animation: landing-hero-pin-pulse 2.4s ease-in-out 1.2s infinite;
+  transform-origin: 312px 72px;
+  animation: landing-hero-pin-pulse 2.8s ease-in-out 1.4s infinite;
 }
 
 .landing-hero-live-dot {
@@ -436,7 +439,7 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 }
 
 .landing-hero-progress {
-  animation: landing-hero-progress-fill 4.5s ease-in-out infinite;
+  animation: landing-hero-progress-fill 8s cubic-bezier(0.42, 0, 0.58, 1) infinite;
 }
 
 .landing-hero-eta {
