@@ -279,3 +279,110 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
     transform: translateX(0);
   }
 }
+
+/* ── Landing page ─────────────────────────────────────────────────────────── */
+.landing-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+@keyframes landing-float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-14px); }
+}
+
+@keyframes landing-float-delayed {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes landing-pulse-glow {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50% { opacity: 0.75; transform: scale(1.06); }
+}
+
+@keyframes landing-shimmer {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+
+@keyframes landing-route-draw {
+  from { stroke-dashoffset: 120; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes landing-fade-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes landing-grid-pan {
+  from { transform: translateY(0); }
+  to { transform: translateY(48px); }
+}
+
+.landing-animate-float {
+  animation: landing-float 6s ease-in-out infinite;
+}
+
+.landing-animate-float-delayed {
+  animation: landing-float-delayed 7.5s ease-in-out infinite;
+  animation-delay: 1.2s;
+}
+
+.landing-animate-glow {
+  animation: landing-pulse-glow 5s ease-in-out infinite;
+}
+
+.landing-hero-enter {
+  animation: landing-fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.landing-hero-enter-delay-1 { animation-delay: 0.1s; }
+.landing-hero-enter-delay-2 { animation-delay: 0.2s; }
+.landing-hero-enter-delay-3 { animation-delay: 0.35s; }
+.landing-hero-enter-delay-4 { animation-delay: 0.5s; }
+
+.landing-reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.landing-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.landing-shimmer-text {
+  background: linear-gradient(90deg, #fff 0%, #fca5a5 35%, #fff 70%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: landing-shimmer 4s linear infinite;
+}
+
+.landing-route-line {
+  stroke-dasharray: 120;
+  animation: landing-route-draw 2.4s ease-out 0.8s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-animate-float,
+  .landing-animate-float-delayed,
+  .landing-animate-glow,
+  .landing-hero-enter,
+  .landing-shimmer-text,
+  .landing-route-line {
+    animation: none !important;
+  }
+
+  .landing-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
