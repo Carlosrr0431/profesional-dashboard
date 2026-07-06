@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useReveal } from './useReveal';
-import LandingLogo from './LandingLogo';
 import LandingNav from './LandingNav';
 import AppShowcase from './AppShowcase';
 
@@ -162,8 +161,7 @@ export default function LandingPage() {
         </div>
 
         <div className="relative mx-auto max-w-6xl px-4 pb-20 pt-8 sm:px-6 sm:pb-24 sm:pt-12 lg:px-8 lg:pt-16">
-          <div className="landing-hero-enter mb-8 flex flex-col gap-5 sm:mb-10 sm:flex-row sm:items-end sm:justify-between">
-            <LandingLogo size="hero" withGlow className="landing-hero-enter-delay-1" />
+          <div className="landing-hero-enter mb-8 flex justify-start sm:mb-10">
             <div className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-4 py-1.5">
               <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
               <span className="text-xs font-semibold tracking-wide text-emerald-800">Salta Capital · Argentina</span>
@@ -338,12 +336,6 @@ export default function LandingPage() {
               <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-accent/20 blur-3xl" />
               <div className="relative z-10 flex flex-col gap-6 sm:gap-8 lg:flex-row lg:items-center lg:justify-between">
                 <div className="max-w-xl">
-                  <img
-                    src="/Profesional%20app-02.svg"
-                    alt="Profesional App"
-                    className="mb-5 h-10 w-auto max-w-[180px] brightness-0 invert sm:mb-6 sm:h-12"
-                    draggable={false}
-                  />
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/50 sm:text-sm">Para operadores</p>
                   <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-white sm:text-3xl lg:text-4xl">
                     Panel de control operativo
@@ -371,8 +363,8 @@ export default function LandingPage() {
       <footer className="border-t border-light-300/70 bg-light-100 pb-28 pt-10 sm:pb-12 sm:pt-12">
         <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 sm:px-6 lg:flex-row lg:items-start lg:justify-between lg:px-8">
           <div className="max-w-sm">
-            <LandingLogo size="lg" />
-            <p className="mt-5 text-sm leading-relaxed text-slate-600">
+            <p className="text-lg font-extrabold tracking-tight text-navy-900">Profesional App</p>
+            <p className="mt-3 text-sm leading-relaxed text-slate-600">
               Plataforma de transporte en Salta Capital. Apps para pasajeros y conductores.
             </p>
           </div>
