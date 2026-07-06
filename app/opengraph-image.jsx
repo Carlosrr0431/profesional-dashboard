@@ -1,10 +1,17 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { ImageResponse } from 'next/og';
+
+export const runtime = 'nodejs';
 
 export const alt = 'Profesional App · Transporte en Salta Capital';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
-export default function OpenGraphImage() {
+export default async function OpenGraphImage() {
+  const svg = await readFile(join(process.cwd(), 'public', 'Profesional app-02.svg'));
+  const logoSrc = `data:image/svg+xml;base64,${svg.toString('base64')}`;
+
   return new ImageResponse(
     (
       <div
@@ -43,32 +50,16 @@ export default function OpenGraphImage() {
           }}
         />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18, position: 'relative' }}>
-          <div
-            style={{
-              width: 72,
-              height: 72,
-              borderRadius: 22,
-              background: 'linear-gradient(145deg, #282e69 0%, #245f8d 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#ffffff',
-              fontSize: 42,
-              fontWeight: 800,
-              boxShadow: '0 18px 40px rgba(40, 46, 105, 0.25)',
-            }}
-          >
-            P
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: 34, fontWeight: 800, color: '#282e69', letterSpacing: -1 }}>
-              Profesional App
-            </span>
-            <span style={{ fontSize: 20, fontWeight: 600, color: '#245f8d', marginTop: 4 }}>
-              Salta Capital · Argentina
-            </span>
-          </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, position: 'relative' }}>
+          <img
+            src={logoSrc}
+            alt="Profesional App"
+            height={72}
+            style={{ objectFit: 'contain', objectPosition: 'left center' }}
+          />
+          <span style={{ fontSize: 20, fontWeight: 600, color: '#245f8d' }}>
+            Salta Capital · Argentina
+          </span>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18, position: 'relative', maxWidth: 920 }}>
