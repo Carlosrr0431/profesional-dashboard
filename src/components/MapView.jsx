@@ -92,8 +92,8 @@ function buildPointGeoJSON(lat, lng) {
   };
 }
 
-const DriverMapPin = memo(function DriverMapPin({ driver, isSelected, onSelect }) {
-  const spec = buildDriverMarkerIconSpec(driver, isSelected, false);
+const DriverMapPin = memo(function DriverMapPin({ driver, isSelected, isMultiSelected, onSelect }) {
+  const spec = buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected);
   return (
     <Marker
       longitude={Number(driver.lng)}
@@ -113,7 +113,7 @@ const DriverMapPin = memo(function DriverMapPin({ driver, isSelected, onSelect }
         style={{
           cursor: 'pointer',
           display: 'block',
-          transform: isSelected ? 'scale(1.08)' : 'scale(1)',
+          transform: isSelected || isMultiSelected ? 'scale(1.08)' : 'scale(1)',
           transition: 'transform 0.12s ease-out',
         }}
       />
@@ -125,13 +125,24 @@ const MapView = memo(function MapView({
   mapRef,
   drivers = [],
   trips = [],
-  selectedDriverId,
+  pendingPassengers = [],
+  selectedId = null,
+  selectedDriverId = null,
+  onSelectDriver,
   onDriverClick,
   onAssignTrip,
   previewRoute,
+  multiSelectMode = false,
+  multiSelectedIds = null,
+  onToggleMultiSelect,
 }) {
   const [activeInfo, setActiveInfo] = useState(null);
   const internalMapRef = useRef(null);
+  const resolvedSelectedId = selectedId ?? selectedDriverId ?? null;
+  const tripList = trips?.length ? trips : pendingPassengers;
+  const selectedSet = multiSelectedIds instanceof Set
+    ? multiSelectedIds
+    : new Set(Array.isArray(multiSelectedIds) ? multiSelectedIds : []);
 
   useEffect(() => {
     if (activeInfo?.type !== 'driver') return undefined;
@@ -141,6 +152,11 @@ const MapView = memo(function MapView({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeInfo?.type]);
+
+  // En modo selección múltiple no mostrar el modal de detalle
+  useEffect(() => {
+    if (multiSelectMode) setActiveInfo(null);
+  }, [multiSelectMode]);
 
   useEffect(() => {
     if (!mapRef) return;
@@ -154,13 +170,18 @@ const MapView = memo(function MapView({
   });
 
   const handleMapClick = useCallback(() => {
-    setActiveInfo(null);
-  }, []);
+    if (!multiSelectMode) setActiveInfo(null);
+  }, [multiSelectMode]);
 
   const handleDriverSelect = useCallback((driver) => {
+    if (multiSelectMode) {
+      onToggleMultiSelect?.(driver.id);
+      return;
+    }
     setActiveInfo({ type: 'driver', data: driver });
+    onSelectDriver?.(driver.id);
     onDriverClick?.(driver);
-  }, [onDriverClick]);
+  }, [multiSelectMode, onToggleMultiSelect, onSelectDriver, onDriverClick]);
 
   const routeGeoJSON = buildRouteGeoJSON(previewRoute?.polylineCoords);
   const routeOriginJSON = buildPointGeoJSON(previewRoute?.origin?.lat, previewRoute?.origin?.lng);
@@ -233,21 +254,27 @@ const MapView = memo(function MapView({
 
         {drivers.map((driver) => {
           if (!driver.lat || !driver.lng) return null;
+          const isMultiSelected = multiSelectMode && selectedSet.has(driver.id);
           return (
             <DriverMapPin
               key={driver.id}
               driver={driver}
-              isSelected={driver.id === selectedDriverId}
+              isSelected={!multiSelectMode && driver.id === resolvedSelectedId}
+              isMultiSelected={isMultiSelected}
               onSelect={handleDriverSelect}
             />
           );
         })}
 
-        {trips.map((trip) => {
-          const pasLat = Number(trip.passenger_lat ?? trip.pickup_lat);
-          const pasLng = Number(trip.passenger_lng ?? trip.pickup_lng);
+        {tripList.map((trip) => {
+          const pasLat = Number(
+            trip.passenger_lat ?? trip.pickup_lat ?? trip.origin_lat ?? trip.lat,
+          );
+          const pasLng = Number(
+            trip.passenger_lng ?? trip.pickup_lng ?? trip.origin_lng ?? trip.lng,
+          );
           if (!Number.isFinite(pasLat) || !Number.isFinite(pasLng)) return null;
-          const spec = buildPassengerMarkerIconSpec(trip.created_at, trip.status);
+          const spec = buildPassengerMarkerIconSpec(trip.created_at ?? trip.createdAt, trip.status);
           return (
             <Marker
               key={`trip-${trip.id}`}
@@ -256,6 +283,7 @@ const MapView = memo(function MapView({
               anchor="center"
               onClick={(e) => {
                 e.originalEvent.stopPropagation();
+                if (multiSelectMode) return;
                 setActiveInfo({ type: 'trip', data: trip });
               }}
             >
@@ -265,16 +293,26 @@ const MapView = memo(function MapView({
                 height={spec.height}
                 alt="pasajero"
                 draggable={false}
-                style={{ cursor: 'pointer', display: 'block' }}
+                style={{ cursor: multiSelectMode ? 'default' : 'pointer', display: 'block' }}
               />
             </Marker>
           );
         })}
 
-        {activeInfo?.type === 'trip' && (
+        {activeInfo?.type === 'trip' && !multiSelectMode && (
           <Popup
-            longitude={Number(activeInfo.data.passenger_lng ?? activeInfo.data.pickup_lng)}
-            latitude={Number(activeInfo.data.passenger_lat ?? activeInfo.data.pickup_lat)}
+            longitude={Number(
+              activeInfo.data.passenger_lng
+              ?? activeInfo.data.pickup_lng
+              ?? activeInfo.data.origin_lng
+              ?? activeInfo.data.lng,
+            )}
+            latitude={Number(
+              activeInfo.data.passenger_lat
+              ?? activeInfo.data.pickup_lat
+              ?? activeInfo.data.origin_lat
+              ?? activeInfo.data.lat,
+            )}
             anchor="bottom"
             offset={[0, -8]}
             onClose={() => setActiveInfo(null)}
@@ -289,7 +327,7 @@ const MapView = memo(function MapView({
         )}
       </Map>
 
-      {activeInfo?.type === 'driver' ? (
+      {activeInfo?.type === 'driver' && !multiSelectMode ? (
         <>
           <button
             type="button"

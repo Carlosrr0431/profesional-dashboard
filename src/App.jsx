@@ -105,10 +105,14 @@ export default function App() {
   }, []);
 
   const handleFleetDriverSelect = useCallback((id) => {
+    if (multiSelectMode) {
+      toggleMultiSelect(id);
+      return;
+    }
     setSelectedId(id);
     setPanelDriverId(id);
     if (!isDesktopLayout) setFleetDrawerOpen(false);
-  }, [isDesktopLayout]);
+  }, [isDesktopLayout, multiSelectMode, toggleMultiSelect]);
 
   const multiSelectedDrivers = drivers.filter((d) => multiSelectedIds.has(d.id));
 
