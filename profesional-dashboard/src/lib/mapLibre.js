@@ -2,17 +2,23 @@
 
 const { buildCartoRasterStyle } = require('../../shared/geo/hybridMapStyle');
 
-/** Carto Voyager raster — estable en navegador (sin overlay vectorial OpenFreeMap). */
-export const CARTO_RASTER_STYLE = buildCartoRasterStyle({ maxZoom: 19 });
+/**
+ * OpenFreeMap Liberty — estilo vectorial gratuito, estética cercana a Google Maps.
+ * Carga más liviana al panear (vector) vs muchos PNG raster.
+ */
+export const OPENFREEMAP_LIBERTY_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+
+/** Carto Voyager retina — fallback local si no hay URL externa. */
+export const CARTO_RASTER_STYLE = buildCartoRasterStyle({ maxZoom: 19, retina: true });
 
 const envStyleUrl = typeof process !== 'undefined'
   ? process.env.NEXT_PUBLIC_MAP_STYLE_URL?.trim()
   : '';
 
 /**
- * Estilo del mapa: URL externa si está configurada; si no, Carto raster local.
+ * Estilo del mapa: URL de env → OpenFreeMap Liberty → Carto retina.
  */
-export const MAP_STYLE = envStyleUrl || CARTO_RASTER_STYLE;
+export const MAP_STYLE = envStyleUrl || OPENFREEMAP_LIBERTY_STYLE;
 
 /** @deprecated Usar MAP_STYLE — alias para compatibilidad. */
 export const MAP_STYLE_URL = MAP_STYLE;
@@ -24,7 +30,11 @@ export const DEFAULT_MAP_VIEW = {
 };
 
 export const mapLibreOptions = {
-  attributionControl: false,
+  attributionControl: true,
   maxPitch: 0,
   cooperativeGestures: false,
+  fadeDuration: 0,
+  maxTileCacheSize: 120,
+  collectResourceTiming: false,
+  refreshExpiredTiles: false,
 };

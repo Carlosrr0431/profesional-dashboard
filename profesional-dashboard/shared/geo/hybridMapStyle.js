@@ -137,18 +137,19 @@ function buildOneWayLayers(emphasizeOneway = false) {
 }
 
 /**
- * Solo Carto Voyager raster — sin dependencia de OpenFreeMap (más estable en web).
- * @param {{ maxZoom?: number }} [options]
+ * Carto Voyager raster (retina) — fallback rápido y nítido, estética cercana a Google Maps.
+ * @param {{ maxZoom?: number, retina?: boolean }} [options]
  */
 function buildCartoRasterStyle(options = {}) {
-  const maxZoom = options.maxZoom ?? 18;
+  const maxZoom = options.maxZoom ?? 19;
+  const retina = options.retina !== false;
 
   return {
     version: 8,
     sources: {
       'carto-voyager': {
         type: 'raster',
-        tiles: cartoTiles('voyager'),
+        tiles: cartoTiles('voyager', { retina }),
         tileSize: 256,
         scheme: 'xyz',
         attribution: '© OpenStreetMap contributors © CARTO',
@@ -159,7 +160,7 @@ function buildCartoRasterStyle(options = {}) {
       {
         id: 'background',
         type: 'background',
-        paint: { 'background-color': '#f4f4f0' },
+        paint: { 'background-color': '#e8e6df' },
       },
       {
         id: 'osm-tiles',
@@ -167,6 +168,10 @@ function buildCartoRasterStyle(options = {}) {
         source: 'carto-voyager',
         minzoom: 0,
         maxzoom: maxZoom,
+        paint: {
+          'raster-fade-duration': 0,
+          'raster-opacity': 1,
+        },
       },
     ],
   };
