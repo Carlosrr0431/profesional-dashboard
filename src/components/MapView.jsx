@@ -1,65 +1,123 @@
 'use client';
 
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { GoogleMap, Marker, Polyline, InfoWindow } from '@react-google-maps/api';
+import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
+import Map, { Marker, Popup, Source, Layer, NavigationControl } from 'react-map-gl/maplibre';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { SALTA_CENTER, DEFAULT_ZOOM } from '../lib/constants';
 import {
   buildDriverMarkerIconSpec,
   buildPassengerMarkerIconSpec,
-  toGoogleMarkerIcon,
 } from '../lib/driverMarkerIcon';
-import { useGoogleMapsLoader } from '../lib/googleMaps';
 import DriverInfoWindow from './DriverInfoWindow';
 import PassengerInfoWindow from './PassengerInfoWindow';
+import { MAP_STYLE, mapLibreOptions } from '../lib/mapLibre';
 
-const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
+const MAP_CSS = `
+.maplibregl-map { font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
+.maplibregl-canvas { outline: none; }
+.maplibregl-ctrl-group {
+  border-radius: 2px !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2) !important;
+  border: none !important;
+  overflow: hidden !important;
+}
+.maplibregl-ctrl-group button {
+  width: 28px !important;
+  height: 28px !important;
+  background: #fff !important;
+  border: none !important;
+  cursor: pointer !important;
+}
+.maplibregl-ctrl-group button:hover { background: #F1F5F9 !important; }
+.maplibregl-ctrl-group button + button { border-top: 1px solid #E2E8F0 !important; }
+.maplibregl-ctrl-attrib {
+  font-size: 10px !important;
+  background: rgba(255,255,255,0.72) !important;
+  border-radius: 4px 0 0 0 !important;
+  padding: 2px 6px !important;
+}
+.maplibregl-ctrl-logo { display: none !important; }
+.maplibregl-popup-content {
+  padding: 0 !important;
+  border-radius: 14px !important;
+  overflow: hidden !important;
+  box-shadow: 0 8px 32px rgba(15,23,42,0.20) !important;
+  border: 1px solid rgba(226,232,240,0.9) !important;
+  background: #fff !important;
+}
+.maplibregl-popup-close-button { display: none !important; }
+.maplibregl-popup-tip { display: none !important; }
+`;
 
-const MAP_OPTIONS = {
-  disableDefaultUI: true,
-  zoomControl: true,
-  zoomControlOptions: { position: 1 }, // TOP_LEFT when loaded
-  mapTypeControl: false,
-  streetViewControl: false,
-  fullscreenControl: false,
-  clickableIcons: false,
-  gestureHandling: 'greedy',
-  // Mapa estándar de Google (mismo look que maps.google.com)
-  mapTypeId: 'roadmap',
+const ROUTE_BORDER_LAYER = {
+  id: 'route-border',
+  type: 'line',
+  layout: { 'line-cap': 'round', 'line-join': 'round' },
+  paint: { 'line-color': '#FFFFFF', 'line-width': 10, 'line-opacity': 0.9 },
+};
+const ROUTE_LINE_LAYER = {
+  id: 'route-line',
+  type: 'line',
+  layout: { 'line-cap': 'round', 'line-join': 'round' },
+  paint: { 'line-color': '#DC2626', 'line-width': 5, 'line-opacity': 0.92 },
+};
+const ROUTE_ORIGIN_LAYER = {
+  id: 'route-origin',
+  type: 'circle',
+  paint: { 'circle-radius': 9, 'circle-color': '#DC2626', 'circle-stroke-width': 3, 'circle-stroke-color': '#fff' },
+};
+const ROUTE_DEST_LAYER = {
+  id: 'route-dest',
+  type: 'circle',
+  paint: { 'circle-radius': 9, 'circle-color': '#1D4ED8', 'circle-stroke-width': 3, 'circle-stroke-color': '#fff' },
 };
 
-function wrapMapApi(map) {
-  if (!map || !window.google?.maps) return null;
+function buildRouteGeoJSON(polylineCoords) {
+  if (!polylineCoords?.length) return null;
   return {
-    flyTo: ({ center, zoom }) => {
-      const [lng, lat] = center;
-      map.panTo({ lat, lng });
-      if (zoom != null) map.setZoom(zoom);
+    type: 'Feature',
+    geometry: {
+      type: 'LineString',
+      coordinates: polylineCoords.map((p) => [Number(p.lng), Number(p.lat)]),
     },
-    fitBounds: (bounds, opts = {}) => {
-      // bounds: [[swLng, swLat], [neLng, neLat]]
-      const [[swLng, swLat], [neLng, neLat]] = bounds;
-      const gBounds = new window.google.maps.LatLngBounds(
-        { lat: swLat, lng: swLng },
-        { lat: neLat, lng: neLng },
-      );
-      const padding = typeof opts.padding === 'number' ? opts.padding : 64;
-      map.fitBounds(gBounds, padding);
-    },
-    getMap: () => map,
+  };
+}
+
+function buildPointGeoJSON(lat, lng) {
+  if (!lat || !lng) return null;
+  return {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [Number(lng), Number(lat)] },
   };
 }
 
 const DriverMapPin = memo(function DriverMapPin({ driver, isSelected, onSelect }) {
   const spec = buildDriverMarkerIconSpec(driver, isSelected, false);
-  const icon = toGoogleMarkerIcon(spec);
   return (
     <Marker
-      position={{ lat: Number(driver.lat), lng: Number(driver.lng) }}
-      icon={icon}
-      zIndex={isSelected ? 20 : 10}
-      onClick={() => onSelect(driver)}
-      title={driver.full_name ?? driver.fullName ?? 'Chofer'}
-    />
+      longitude={Number(driver.lng)}
+      latitude={Number(driver.lat)}
+      anchor="bottom"
+      onClick={(e) => {
+        e.originalEvent.stopPropagation();
+        onSelect(driver);
+      }}
+    >
+      <img
+        src={spec.url}
+        width={spec.width}
+        height={spec.height}
+        alt={driver.full_name ?? driver.fullName ?? 'chofer'}
+        draggable={false}
+        style={{
+          cursor: 'pointer',
+          display: 'block',
+          transform: isSelected ? 'scale(1.08)' : 'scale(1)',
+          transition: 'transform 0.12s ease-out',
+        }}
+      />
+    </Marker>
   );
 });
 
@@ -72,9 +130,8 @@ const MapView = memo(function MapView({
   onAssignTrip,
   previewRoute,
 }) {
-  const { isLoaded, loadError } = useGoogleMapsLoader();
   const [activeInfo, setActiveInfo] = useState(null);
-  const googleMapRef = useRef(null);
+  const internalMapRef = useRef(null);
 
   useEffect(() => {
     if (activeInfo?.type !== 'driver') return undefined;
@@ -85,18 +142,16 @@ const MapView = memo(function MapView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeInfo?.type]);
 
-  const exposeMapApi = useCallback((map) => {
-    googleMapRef.current = map;
-    if (!mapRef) return;
-    mapRef.current = wrapMapApi(map);
-  }, [mapRef]);
-
   useEffect(() => {
-    if (!mapRef) return undefined;
-    return () => {
-      mapRef.current = null;
-    };
-  }, [mapRef]);
+    if (!mapRef) return;
+    mapRef.current = internalMapRef.current
+      ? {
+          flyTo: (opts) => internalMapRef.current.flyTo(opts),
+          fitBounds: (bounds, opts) => internalMapRef.current.fitBounds(bounds, opts),
+          getMap: () => internalMapRef.current,
+        }
+      : null;
+  });
 
   const handleMapClick = useCallback(() => {
     setActiveInfo(null);
@@ -107,28 +162,23 @@ const MapView = memo(function MapView({
     onDriverClick?.(driver);
   }, [onDriverClick]);
 
-  const routePath = useMemo(() => {
-    if (!previewRoute?.polylineCoords?.length) return null;
-    return previewRoute.polylineCoords.map((p) => ({
-      lat: Number(p.lat),
-      lng: Number(p.lng),
-    }));
-  }, [previewRoute]);
+  const routeGeoJSON = buildRouteGeoJSON(previewRoute?.polylineCoords);
+  const routeOriginJSON = buildPointGeoJSON(previewRoute?.origin?.lat, previewRoute?.origin?.lng);
+  const routeDestJSON = buildPointGeoJSON(previewRoute?.destination?.lat, previewRoute?.destination?.lng);
 
   useEffect(() => {
-    const api = wrapMapApi(googleMapRef.current);
-    if (!previewRoute || !api) return;
+    if (!previewRoute || !internalMapRef.current) return;
 
     if (previewRoute?.polylineCoords?.length > 1) {
       const coords = previewRoute.polylineCoords;
       const lngs = coords.map((p) => Number(p.lng));
       const lats = coords.map((p) => Number(p.lat));
-      api.fitBounds(
+      internalMapRef.current.fitBounds(
         [
           [Math.min(...lngs) - 0.002, Math.min(...lats) - 0.002],
           [Math.max(...lngs) + 0.002, Math.max(...lats) + 0.002],
         ],
-        { padding: 72 },
+        { padding: 72, duration: 900 },
       );
       return;
     }
@@ -136,104 +186,50 @@ const MapView = memo(function MapView({
     const lat = Number(previewRoute?.origin?.lat);
     const lng = Number(previewRoute?.origin?.lng);
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      api.flyTo({ center: [lng, lat], zoom: 16 });
+      internalMapRef.current.flyTo({ center: [lng, lat], zoom: 16, duration: 900 });
     }
   }, [previewRoute]);
 
-  const mapOptions = useMemo(() => {
-    if (!isLoaded || !window.google?.maps) return MAP_OPTIONS;
-    return {
-      ...MAP_OPTIONS,
-      zoomControlOptions: {
-        position: window.google.maps.ControlPosition.LEFT_TOP,
-      },
-    };
-  }, [isLoaded]);
-
-  if (loadError) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-slate-100 px-6 text-center text-sm text-slate-600">
-        No se pudo cargar Google Maps. Verificá NEXT_PUBLIC_GOOGLE_MAPS_API_KEY en Vercel.
-      </div>
-    );
-  }
-
-  if (!isLoaded) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-slate-50 text-sm text-slate-500">
-        Cargando mapa…
-      </div>
-    );
-  }
-
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <GoogleMap
-        mapContainerStyle={MAP_CONTAINER_STYLE}
-        center={SALTA_CENTER}
-        zoom={DEFAULT_ZOOM}
-        options={mapOptions}
-        onLoad={exposeMapApi}
+      <style>{MAP_CSS}</style>
+      <Map
+        ref={internalMapRef}
+        mapLib={maplibregl}
+        mapStyle={MAP_STYLE}
+        initialViewState={{
+          longitude: SALTA_CENTER.lng,
+          latitude: SALTA_CENTER.lat,
+          zoom: DEFAULT_ZOOM,
+        }}
+        style={{ width: '100%', height: '100%' }}
         onClick={handleMapClick}
+        reuseMaps
+        attributionControl={mapLibreOptions.attributionControl}
+        maxPitch={mapLibreOptions.maxPitch}
+        fadeDuration={mapLibreOptions.fadeDuration}
+        maxTileCacheSize={mapLibreOptions.maxTileCacheSize}
+        collectResourceTiming={mapLibreOptions.collectResourceTiming}
+        refreshExpiredTiles={mapLibreOptions.refreshExpiredTiles}
       >
-        {routePath ? (
-          <>
-            <Polyline
-              path={routePath}
-              options={{
-                strokeColor: '#FFFFFF',
-                strokeOpacity: 0.95,
-                strokeWeight: 10,
-                zIndex: 1,
-              }}
-            />
-            <Polyline
-              path={routePath}
-              options={{
-                strokeColor: '#DC2626',
-                strokeOpacity: 0.92,
-                strokeWeight: 5,
-                zIndex: 2,
-              }}
-            />
-          </>
-        ) : null}
+        <NavigationControl position="top-left" showCompass={false} />
 
-        {previewRoute?.origin?.lat && previewRoute?.origin?.lng ? (
-          <Marker
-            position={{
-              lat: Number(previewRoute.origin.lat),
-              lng: Number(previewRoute.origin.lng),
-            }}
-            icon={{
-              path: window.google.maps.SymbolPath.CIRCLE,
-              scale: 9,
-              fillColor: '#DC2626',
-              fillOpacity: 1,
-              strokeColor: '#fff',
-              strokeWeight: 3,
-            }}
-            zIndex={5}
-          />
-        ) : null}
-
-        {previewRoute?.destination?.lat && previewRoute?.destination?.lng ? (
-          <Marker
-            position={{
-              lat: Number(previewRoute.destination.lat),
-              lng: Number(previewRoute.destination.lng),
-            }}
-            icon={{
-              path: window.google.maps.SymbolPath.CIRCLE,
-              scale: 9,
-              fillColor: '#1D4ED8',
-              fillOpacity: 1,
-              strokeColor: '#fff',
-              strokeWeight: 3,
-            }}
-            zIndex={5}
-          />
-        ) : null}
+        {routeGeoJSON && (
+          <Source id="route-source" type="geojson" data={routeGeoJSON}>
+            <Layer {...ROUTE_BORDER_LAYER} />
+            <Layer {...ROUTE_LINE_LAYER} />
+          </Source>
+        )}
+        {routeOriginJSON && (
+          <Source id="route-origin-source" type="geojson" data={routeOriginJSON}>
+            <Layer {...ROUTE_ORIGIN_LAYER} />
+          </Source>
+        )}
+        {routeDestJSON && (
+          <Source id="route-dest-source" type="geojson" data={routeDestJSON}>
+            <Layer {...ROUTE_DEST_LAYER} />
+          </Source>
+        )}
 
         {drivers.map((driver) => {
           if (!driver.lat || !driver.lng) return null;
@@ -255,29 +251,43 @@ const MapView = memo(function MapView({
           return (
             <Marker
               key={`trip-${trip.id}`}
-              position={{ lat: pasLat, lng: pasLng }}
-              icon={toGoogleMarkerIcon(spec)}
-              zIndex={8}
-              onClick={() => setActiveInfo({ type: 'trip', data: trip })}
-            />
+              longitude={pasLng}
+              latitude={pasLat}
+              anchor="center"
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setActiveInfo({ type: 'trip', data: trip });
+              }}
+            >
+              <img
+                src={spec.url}
+                width={spec.width}
+                height={spec.height}
+                alt="pasajero"
+                draggable={false}
+                style={{ cursor: 'pointer', display: 'block' }}
+              />
+            </Marker>
           );
         })}
 
-        {activeInfo?.type === 'trip' ? (
-          <InfoWindow
-            position={{
-              lat: Number(activeInfo.data.passenger_lat ?? activeInfo.data.pickup_lat),
-              lng: Number(activeInfo.data.passenger_lng ?? activeInfo.data.pickup_lng),
-            }}
-            onCloseClick={() => setActiveInfo(null)}
+        {activeInfo?.type === 'trip' && (
+          <Popup
+            longitude={Number(activeInfo.data.passenger_lng ?? activeInfo.data.pickup_lng)}
+            latitude={Number(activeInfo.data.passenger_lat ?? activeInfo.data.pickup_lat)}
+            anchor="bottom"
+            offset={[0, -8]}
+            onClose={() => setActiveInfo(null)}
+            closeOnClick={false}
+            maxWidth="300px"
           >
             <PassengerInfoWindow
               trip={activeInfo.data}
               onClose={() => setActiveInfo(null)}
             />
-          </InfoWindow>
-        ) : null}
-      </GoogleMap>
+          </Popup>
+        )}
+      </Map>
 
       {activeInfo?.type === 'driver' ? (
         <>
