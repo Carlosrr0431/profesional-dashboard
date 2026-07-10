@@ -11,11 +11,12 @@ import {
 } from '../lib/driverMarkerIcon';
 import DriverInfoWindow from './DriverInfoWindow';
 import PassengerInfoWindow from './PassengerInfoWindow';
-import { MAP_STYLE } from '../lib/mapLibre';
+import { MAP_STYLE, mapLibreOptions } from '../lib/mapLibre';
 
 /* ── Estilos CSS globales para los controles ─────────────────────────────── */
 const MAP_CSS = `
-.maplibregl-map { font-family: 'Roboto', 'Inter', system-ui, sans-serif !important; }
+.maplibregl-map { font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
+.maplibregl-canvas { outline: none; }
 
 /* Controles de zoom — estilo Google Maps */
 .maplibregl-ctrl-group {
@@ -107,6 +108,39 @@ function buildPointGeoJSON(lat, lng) {
   };
 }
 
+const DriverMapPin = memo(function DriverMapPin({ driver, isSelected, onSelect }) {
+  const spec = buildDriverMarkerIconSpec(driver, isSelected, false);
+  return (
+    <Marker
+      longitude={Number(driver.lng)}
+      latitude={Number(driver.lat)}
+      anchor="bottom"
+      onClick={(e) => {
+        e.originalEvent.stopPropagation();
+        onSelect(driver);
+      }}
+    >
+      <img
+        src={spec.url}
+        width={spec.width}
+        height={spec.height}
+        alt={driver.full_name ?? driver.fullName ?? 'chofer'}
+        draggable={false}
+        style={{
+          cursor: 'pointer',
+          display: 'block',
+          transform: isSelected ? 'scale(1.1)' : 'scale(1)',
+          filter: isSelected
+            ? 'drop-shadow(0 0 8px rgba(220,38,38,0.75))'
+            : 'drop-shadow(0 3px 6px rgba(0,0,0,0.38))',
+          transition: 'transform 0.12s ease-out, filter 0.12s ease-out',
+          willChange: 'transform',
+        }}
+      />
+    </Marker>
+  );
+});
+
 /* ── Componente MapView ───────────────────────────────────────────────────── */
 const MapView = memo(function MapView({
   mapRef,
@@ -145,6 +179,11 @@ const MapView = memo(function MapView({
   const handleMapClick = useCallback(() => {
     setActiveInfo(null);
   }, []);
+
+  const handleDriverSelect = useCallback((driver) => {
+    setActiveInfo({ type: 'driver', data: driver });
+    onDriverClick?.(driver);
+  }, [onDriverClick]);
 
   /* Calcular GeoJSON de ruta */
   const routeGeoJSON     = buildRouteGeoJSON(previewRoute?.polylineCoords);
@@ -193,6 +232,12 @@ const MapView = memo(function MapView({
         style={{ width: '100%', height: '100%' }}
         onClick={handleMapClick}
         reuseMaps
+        attributionControl={mapLibreOptions.attributionControl}
+        maxPitch={mapLibreOptions.maxPitch}
+        fadeDuration={mapLibreOptions.fadeDuration}
+        maxTileCacheSize={mapLibreOptions.maxTileCacheSize}
+        collectResourceTiming={mapLibreOptions.collectResourceTiming}
+        refreshExpiredTiles={mapLibreOptions.refreshExpiredTiles}
       >
         <NavigationControl position="top-left" showCompass={false} />
 
@@ -217,37 +262,13 @@ const MapView = memo(function MapView({
         {/* ── Marcadores de conductores ──────────────────────────────── */}
         {drivers.map((driver) => {
           if (!driver.lat || !driver.lng) return null;
-          const isSelected = driver.id === selectedDriverId;
-          const spec = buildDriverMarkerIconSpec(driver, isSelected, false);
           return (
-            <Marker
+            <DriverMapPin
               key={driver.id}
-              longitude={Number(driver.lng)}
-              latitude={Number(driver.lat)}
-              anchor="bottom"
-              onClick={(e) => {
-                e.originalEvent.stopPropagation();
-                setActiveInfo({ type: 'driver', data: driver });
-                onDriverClick?.(driver);
-              }}
-            >
-              {/* spec.url es un data-URI SVG generado por buildDriverMarkerIconSpec */}
-              <img
-                src={spec.url}
-                width={spec.width}
-                height={spec.height}
-                alt={driver.full_name ?? 'chofer'}
-                style={{
-                  cursor: 'pointer',
-                  display: 'block',
-                  transform: isSelected ? 'scale(1.15)' : 'scale(1)',
-                  filter: isSelected
-                    ? 'drop-shadow(0 0 6px rgba(220,38,38,0.8))'
-                    : 'drop-shadow(0 2px 5px rgba(0,0,0,0.35))',
-                  transition: 'transform 0.15s, filter 0.15s',
-                }}
-              />
-            </Marker>
+              driver={driver}
+              isSelected={driver.id === selectedDriverId}
+              onSelect={handleDriverSelect}
+            />
           );
         })}
 
