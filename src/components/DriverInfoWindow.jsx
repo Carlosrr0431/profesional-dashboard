@@ -2,208 +2,243 @@ import { timeAgo, formatSpeed, formatPrice, getTripStatus } from '../lib/utils';
 
 function getDriverStatusInfo(driver) {
   if (driver.commissionOverdue) {
-    return { label: 'Bloqueado', color: '#F59E0B', bg: 'rgba(245,158,11,0.15)', busy: true };
+    return {
+      label: 'Bloqueado',
+      className: 'bg-amber-50 text-amber-700 ring-amber-200',
+      busy: true,
+    };
   }
   if (driver.activeTrip) {
     const s = getTripStatus(driver.activeTrip.status);
-    return { label: s.label, color: '#EF4444', bg: 'rgba(220,38,38,0.15)', busy: true };
+    return {
+      label: s.label,
+      className: 'bg-red-50 text-red-600 ring-red-200',
+      busy: true,
+    };
   }
-  if (driver.isOnline) return { label: 'Disponible', color: '#22C55E', bg: 'rgba(34,197,94,0.1)', busy: false };
-  return { label: 'Desconectado', color: '#94A3B8', bg: 'rgba(148,163,184,0.1)', busy: true };
+  if (driver.isOnline) {
+    return {
+      label: 'Disponible',
+      className: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+      busy: false,
+    };
+  }
+  return {
+    label: 'Desconectado',
+    className: 'bg-slate-100 text-slate-500 ring-slate-200',
+    busy: true,
+  };
 }
 
-export default function DriverInfoWindow({ driver, onAssignTrip, onClose }) {
-  const initials = driver.fullName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-  const status = getDriverStatusInfo(driver);
-  const canAssign = !status.busy;
-
+function Badge({ children, className }) {
   return (
-    <div style={{ background: '#FFFFFF', color: '#0F172A', padding: '14px', minWidth: '250px', borderRadius: '12px', boxShadow: '0 8px 32px rgba(15,23,42,0.18)', border: '1px solid rgba(226,232,240,0.9)' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid #E2E8F0' }}>
-        <div style={{
-          width: '38px', height: '38px', borderRadius: '10px',
-          background: driver.isOnline ? 'rgba(34,197,94,0.1)' : 'rgba(148,163,184,0.1)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: '13px', fontWeight: 700,
-          color: driver.isOnline ? '#22C55E' : '#94A3B8',
-        }}>
-          {initials}
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <p style={{ color: '#0F172A', fontSize: '14px', fontWeight: 700, margin: 0 }}>{driver.fullName}</p>
-            {driver.isAssignedDriver ? (
-              <span style={{
-                fontSize: '9px', fontWeight: 800, color: '#4F46E5',
-                background: 'rgba(79,70,229,0.12)', padding: '1px 6px',
-                borderRadius: '5px',
-              }}>Asignado</span>
-            ) : null}
-            {driver.isFleetOwner ? (
-              <span style={{
-                fontSize: '9px', fontWeight: 800, color: '#B45309',
-                background: 'rgba(245,158,11,0.15)', padding: '1px 6px',
-                borderRadius: '5px',
-              }}>Titular</span>
-            ) : null}
-            {driver.driverNumber != null && !driver.isAssignedDriver ? (
-              <span style={{
-                fontSize: '10px', fontWeight: 800, color: '#EF4444',
-                background: 'rgba(220,38,38,0.15)', padding: '1px 6px',
-                borderRadius: '5px',
-              }}>#{driver.driverNumber}</span>
-            ) : null}
-            {driver.isAssignedDriver && driver.driverNumber != null ? (
-              <span style={{
-                fontSize: '10px', fontWeight: 800, color: '#4F46E5',
-                background: 'rgba(79,70,229,0.12)', padding: '1px 6px',
-                borderRadius: '5px',
-              }}>Móvil #{driver.driverNumber}</span>
-            ) : null}
-          </div>
-          <p style={{ color: '#94A3B8', fontSize: '11px', margin: '2px 0 0' }}>
-            {driver.isAssignedDriver
-              ? `Titular: ${driver.ownerPhone || driver.fleetContactPhone || 'Sin teléfono'}`
-              : (driver.phone || 'Sin teléfono')}
-          </p>
-          {driver.isAssignedDriver && driver.ownerName ? (
-            <p style={{ color: '#6366F1', fontSize: '10px', margin: '2px 0 0' }}>
-              Vehículo de {driver.ownerName}
-            </p>
-          ) : null}
-        </div>
-        <span style={{
-          fontSize: '10px', fontWeight: 600, padding: '3px 8px', borderRadius: '20px',
-          background: status.bg, color: status.color,
-        }}>
-          {status.label}
-        </span>
-        {onClose ? (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onClose(); }}
-            aria-label="Cerrar"
-            style={{
-              marginLeft: '2px',
-              width: '28px',
-              height: '28px',
-              border: 'none',
-              borderRadius: '8px',
-              background: '#F1F5F9',
-              color: '#64748B',
-              cursor: 'pointer',
-              fontSize: '16px',
-              lineHeight: 1,
-              flexShrink: 0,
-            }}
-          >
-            ×
-          </button>
-        ) : null}
-      </div>
-
-      {/* Vehicle info */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
-        <div style={{
-          background: driver.vehicleType === 'moto' ? 'rgba(245,158,11,0.12)' : 'rgba(220,38,38,0.12)',
-          borderRadius: '8px', padding: '8px', textAlign: 'center', minWidth: '50px',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <span style={{ fontSize: '16px' }}>{driver.vehicleType === 'moto' ? '🏍️' : '🚗'}</span>
-          <p style={{
-            fontSize: '9px', fontWeight: 700, margin: '2px 0 0',
-            color: driver.vehicleType === 'moto' ? '#F59E0B' : '#EF4444',
-          }}>
-            {driver.vehicleType === 'moto' ? 'Moto' : 'Auto'}
-          </p>
-        </div>
-        <div style={{ flex: 1, background: '#F1F3F8', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
-          <p style={{ fontSize: '10px', color: '#94A3B8', margin: 0 }}>Vehículo</p>
-          <p style={{ fontSize: '12px', fontWeight: 600, color: '#0F172A', margin: '2px 0 0' }}>{driver.vehicleBrand} {driver.vehicleModel}</p>
-        </div>
-        <div style={{ background: '#F1F3F8', borderRadius: '8px', padding: '8px', textAlign: 'center', minWidth: '70px' }}>
-          <p style={{ fontSize: '10px', color: '#94A3B8', margin: 0 }}>Patente</p>
-          <p style={{ fontSize: '12px', fontWeight: 700, color: '#DC2626', margin: '2px 0 0' }}>{driver.vehiclePlate || '-'}</p>
-        </div>
-      </div>
-
-      {/* Stats grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
-        <InfoStat label="Velocidad" value={formatSpeed(driver.speed)} />
-        <InfoStat label="Rating" value={`⭐ ${driver.rating.toFixed(1)}`} />
-        <InfoStat label="Viajes" value={String(driver.totalTrips)} />
-      </div>
-
-      {/* Last seen */}
-      <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '10px', color: '#94A3B8' }}>Última actualización</span>
-        <span style={{ fontSize: '10px', color: '#EF4444', fontWeight: 500 }}>{timeAgo(driver.updatedAt)}</span>
-      </div>
-
-      {/* Active trip info */}
-      {driver.activeTrip && (
-        <div style={{ marginTop: '10px', background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: '8px', padding: '8px 10px' }}>
-          <p style={{ fontSize: '10px', color: '#EF4444', fontWeight: 600, margin: 0 }}>{driver.vehicleType === 'moto' ? '🏍️' : '🚗'} Viaje activo</p>
-          <p style={{ fontSize: '11px', color: '#ccc', margin: '3px 0 0' }}>→ {driver.activeTrip.destination_address}</p>
-        </div>
-      )}
-
-      {/* Commission balance */}
-      {driver.commissionBalance > 0 && (
-        <div style={{
-          marginTop: '10px', borderRadius: '8px', padding: '8px 10px',
-          background: driver.commissionOverdue ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
-          border: `1px solid ${driver.commissionOverdue ? 'rgba(239,68,68,0.25)' : 'rgba(245,158,11,0.25)'}`,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <p style={{ fontSize: '10px', color: driver.commissionOverdue ? '#EF4444' : '#F59E0B', fontWeight: 600, margin: 0 }}>
-              {driver.commissionOverdue ? '⚠️ Comisión vencida' : '💰 Comisión pendiente'}
-            </p>
-            <p style={{ fontSize: '12px', color: driver.commissionOverdue ? '#EF4444' : '#F59E0B', fontWeight: 700, margin: 0 }}>
-              {formatPrice(driver.commissionBalance)}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Assign Trip Button */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          if (canAssign && onAssignTrip) onAssignTrip(driver);
-        }}
-        disabled={!canAssign}
-        title={!canAssign ? (driver.commissionOverdue ? 'Comisión vencida' : driver.activeTrip ? 'Chofer en viaje' : 'Chofer desconectado') : 'Asignar un viaje'}
-        style={{
-          width: '100%',
-          marginTop: '10px',
-          padding: '8px 12px',
-          background: canAssign ? 'linear-gradient(135deg, #EF4444, #DC2626)' : '#E2E8F0',
-          border: 'none',
-          borderRadius: '8px',
-          color: canAssign ? '#fff' : '#666',
-          fontSize: '12px',
-          fontWeight: 700,
-          cursor: canAssign ? 'pointer' : 'not-allowed',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '6px',
-          opacity: canAssign ? 1 : 0.6,
-        }}
-      >
-        {canAssign ? '🚖 Asignar Viaje' : (driver.commissionOverdue ? '⚠️ Bloqueado' : driver.activeTrip ? '🔒 En viaje' : '🔒 Desconectado')}
-      </button>
-    </div>
+    <span
+      className={`inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-none ${className}`}
+    >
+      {children}
+    </span>
   );
 }
 
 function InfoStat({ label, value }) {
   return (
-    <div style={{ background: '#F1F3F8', borderRadius: '8px', padding: '6px', textAlign: 'center' }}>
-      <p style={{ fontSize: '9px', color: '#94A3B8', margin: 0 }}>{label}</p>
-      <p style={{ fontSize: '12px', fontWeight: 600, color: '#0F172A', margin: '2px 0 0' }}>{value}</p>
+    <div className="min-w-0 rounded-xl bg-slate-50 px-2 py-2.5 text-center ring-1 ring-slate-100">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="mt-1 truncate text-[13px] font-semibold text-navy-900">{value}</p>
+    </div>
+  );
+}
+
+export default function DriverInfoWindow({ driver, onAssignTrip, onClose }) {
+  const name = String(driver.fullName || 'Chofer').trim();
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((n) => n[0])
+    .join('')
+    .substring(0, 2)
+    .toUpperCase() || '?';
+  const status = getDriverStatusInfo(driver);
+  const canAssign = !status.busy;
+  const vehicleLabel = [driver.vehicleBrand, driver.vehicleModel].filter(Boolean).join(' ') || '—';
+  const phone = driver.isAssignedDriver
+    ? (driver.ownerPhone || driver.fleetContactPhone || 'Sin teléfono')
+    : (driver.phone || 'Sin teléfono');
+
+  let actionLabel = 'Asignar viaje';
+  if (!canAssign) {
+    if (driver.commissionOverdue) actionLabel = 'Bloqueado por comisión';
+    else if (driver.activeTrip) actionLabel = 'En viaje';
+    else actionLabel = 'Desconectado';
+  }
+
+  return (
+    <div className="w-full overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_16px_40px_rgba(15,23,42,0.18)]">
+      {/* Header */}
+      <div className="relative border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-4 pb-3.5 pt-4">
+        <div className="flex items-start gap-3">
+          <div
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
+              driver.isOnline
+                ? 'bg-emerald-100 text-emerald-700 ring-2 ring-emerald-200'
+                : 'bg-slate-100 text-slate-500 ring-2 ring-slate-200'
+            }`}
+          >
+            {initials}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="truncate text-[15px] font-bold leading-snug text-navy-900">
+                {name}
+              </h3>
+              {onClose ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose();
+                  }}
+                  aria-label="Cerrar"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-lg leading-none text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
+
+            <p className="mt-0.5 truncate text-xs text-slate-500">{phone}</p>
+
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {driver.isFleetOwner ? (
+                <Badge className="bg-amber-50 text-amber-700">Titular</Badge>
+              ) : null}
+              {driver.isAssignedDriver ? (
+                <Badge className="bg-indigo-50 text-indigo-700">Asignado</Badge>
+              ) : null}
+              {driver.driverNumber != null ? (
+                <Badge className="bg-red-50 text-red-600">
+                  {driver.isAssignedDriver ? `Móvil #${driver.driverNumber}` : `#${driver.driverNumber}`}
+                </Badge>
+              ) : null}
+              <Badge className={`ring-1 ${status.className}`}>{status.label}</Badge>
+            </div>
+
+            {driver.isAssignedDriver && driver.ownerName ? (
+              <p className="mt-1.5 truncate text-[11px] text-indigo-600">
+                Vehículo de {driver.ownerName}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="space-y-3 px-4 py-3.5">
+        <div className="grid grid-cols-[auto_1fr_auto] gap-2">
+          <div
+            className={`flex min-w-[52px] flex-col items-center justify-center rounded-xl px-2.5 py-2.5 ${
+              driver.vehicleType === 'moto'
+                ? 'bg-amber-50 text-amber-700'
+                : 'bg-red-50 text-red-600'
+            }`}
+          >
+            <span className="text-base leading-none" aria-hidden>
+              {driver.vehicleType === 'moto' ? '🏍️' : '🚗'}
+            </span>
+            <span className="mt-1 text-[10px] font-bold">
+              {driver.vehicleType === 'moto' ? 'Moto' : 'Auto'}
+            </span>
+          </div>
+
+          <div className="min-w-0 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-100">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Vehículo</p>
+            <p className="mt-0.5 truncate text-[13px] font-semibold text-navy-900">{vehicleLabel}</p>
+          </div>
+
+          <div className="min-w-[72px] rounded-xl bg-slate-50 px-2.5 py-2.5 text-center ring-1 ring-slate-100">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Patente</p>
+            <p className="mt-0.5 text-[13px] font-bold tracking-wide text-red-600">
+              {driver.vehiclePlate || '—'}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <InfoStat label="Velocidad" value={formatSpeed(driver.speed)} />
+          <InfoStat label="Rating" value={`${Number(driver.rating || 0).toFixed(1)} ★`} />
+          <InfoStat label="Viajes" value={String(driver.totalTrips ?? 0)} />
+        </div>
+
+        <div className="flex items-center justify-between gap-2 text-[11px]">
+          <span className="text-slate-400">Última actualización</span>
+          <span className="shrink-0 font-semibold text-red-500">{timeAgo(driver.updatedAt)}</span>
+        </div>
+
+        {driver.activeTrip ? (
+          <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2.5">
+            <p className="text-[11px] font-bold text-red-600">Viaje activo</p>
+            <p className="mt-0.5 truncate text-xs text-slate-600">
+              → {driver.activeTrip.destination_address || 'Sin destino'}
+            </p>
+          </div>
+        ) : null}
+
+        {driver.commissionBalance > 0 ? (
+          <div
+            className={`rounded-xl border px-3 py-2.5 ${
+              driver.commissionOverdue
+                ? 'border-red-100 bg-red-50'
+                : 'border-amber-100 bg-amber-50'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p
+                className={`min-w-0 truncate text-[11px] font-bold ${
+                  driver.commissionOverdue ? 'text-red-600' : 'text-amber-700'
+                }`}
+              >
+                {driver.commissionOverdue ? 'Comisión vencida' : 'Comisión pendiente'}
+              </p>
+              <p
+                className={`shrink-0 text-sm font-bold ${
+                  driver.commissionOverdue ? 'text-red-600' : 'text-amber-700'
+                }`}
+              >
+                {formatPrice(driver.commissionBalance)}
+              </p>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Footer action */}
+      <div className="border-t border-slate-100 px-4 py-3">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (canAssign && onAssignTrip) onAssignTrip(driver);
+          }}
+          disabled={!canAssign}
+          title={
+            canAssign
+              ? 'Asignar un viaje'
+              : driver.commissionOverdue
+                ? 'Comisión vencida'
+                : driver.activeTrip
+                  ? 'Chofer en viaje'
+                  : 'Chofer desconectado'
+          }
+          className={`flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[13px] font-bold transition ${
+            canAssign
+              ? 'bg-accent text-white shadow-sm hover:bg-accent-light'
+              : 'cursor-not-allowed bg-slate-100 text-slate-400'
+          }`}
+        >
+          {actionLabel}
+        </button>
+      </div>
     </div>
   );
 }

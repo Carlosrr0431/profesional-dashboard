@@ -299,7 +299,7 @@ const MapView = memo(function MapView({
           />
           <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
             <div
-              className="pointer-events-auto w-full max-w-[min(320px,calc(100%-2rem))]"
+              className="pointer-events-auto w-full max-w-[min(360px,calc(100%-2rem))] overflow-hidden"
               onClick={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
