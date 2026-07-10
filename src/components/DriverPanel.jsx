@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useDriverTrips } from '../hooks/useTrips';
 import { formatPrice, formatKm, formatDuration, formatTime, formatDateTime, getTripStatus } from '../lib/utils';
 import VoiceChat from './VoiceChat';
@@ -10,7 +10,50 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
   const [tab, setTab] = useState('today');
   const [payingCommission, setPayingCommission] = useState(false);
   const [payAmount, setPayAmount] = useState('');
+  const [submittingPayment, setSubmittingPayment] = useState(false);
   const [showVoice, setShowVoice] = useState(false);
+
+  const submitCommissionPayment = useCallback(async (rawAmount, { total = false } = {}) => {
+    const amount = Number(rawAmount);
+    if (!driver?.id || !Number.isFinite(amount) || amount <= 0) {
+      toast.warning('Ingresá un monto válido');
+      return;
+    }
+
+    const capped = Math.min(amount, Math.max(0, Number(stats.commissionBalance) || 0));
+    if (capped <= 0) {
+      toast.info('No hay comisión pendiente');
+      return;
+    }
+
+    setSubmittingPayment(true);
+    try {
+      const response = await fetch('/api/driver-management/commission-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driverId: driver.id,
+          amount: capped,
+          notes: total
+            ? `Pago total desde panel del mapa (${new Date().toISOString()})`
+            : `Pago parcial desde panel del mapa (${new Date().toISOString()})`,
+          resetPendingToZero: total,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error?.message || 'No se pudo registrar el pago');
+      }
+      setPayAmount('');
+      setPayingCommission(false);
+      await Promise.all([refetchPayments(), refetch()]);
+      toast.success(`Pago de ${formatPrice(capped)} registrado`);
+    } catch (err) {
+      toast.error(err?.message || 'No se pudo registrar el pago');
+    } finally {
+      setSubmittingPayment(false);
+    }
+  }, [driver?.id, refetch, refetchPayments, stats.commissionBalance, toast]);
 
   if (!driver) return null;
 
@@ -229,42 +272,20 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
                     placeholder="Monto"
                     value={payAmount}
                     onChange={(e) => setPayAmount(e.target.value)}
+                    disabled={submittingPayment}
                     className="flex-1 bg-light-200 border border-light-300/50 rounded-lg px-2 py-1.5 text-xs text-navy-900 focus:outline-none focus:border-accent"
                   />
                   <button
-                    onClick={async () => {
-                      const amount = parseFloat(payAmount);
-                      if (!amount || amount <= 0) {
-                        toast.warning('Ingresá un monto válido');
-                        return;
-                      }
-                      try {
-                        const response = await fetch('/api/driver-management/commission-payment', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            driverId: driver.id,
-                            amount: Math.min(amount, stats.commissionBalance),
-                            notes: 'Pago desde panel del mapa',
-                          }),
-                        });
-                        const payload = await response.json();
-                        if (!response.ok) {
-                          throw new Error(payload?.error?.message || 'No se pudo registrar el pago');
-                        }
-                        setPayAmount('');
-                        setPayingCommission(false);
-                        await Promise.all([refetchPayments(), refetch()]);
-                        toast.success(`Pago de ${formatPrice(Math.min(amount, stats.commissionBalance))} registrado`);
-                      } catch (err) {
-                        toast.error(err?.message || 'No se pudo registrar el pago');
-                      }
-                    }}
-                    className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-[10px] font-semibold text-white transition-colors"
+                    type="button"
+                    disabled={submittingPayment}
+                    onClick={() => submitCommissionPayment(payAmount, { total: false })}
+                    className="px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-[10px] font-semibold text-white transition-colors disabled:opacity-60"
                   >
-                    ✓
+                    {submittingPayment ? '…' : '✓'}
                   </button>
                   <button
+                    type="button"
+                    disabled={submittingPayment}
                     onClick={() => { setPayingCommission(false); setPayAmount(''); }}
                     className="px-2 py-1.5 bg-light-200 rounded-lg text-[10px] text-gray-400 hover:text-navy-800 transition-colors"
                   >
@@ -274,12 +295,16 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
               ) : (
                 <div className="flex gap-2">
                   <button
-                    onClick={() => { setPayAmount(String(stats.commissionBalance)); setPayingCommission(true); }}
-                    className="flex-1 text-[10px] font-semibold py-1.5 rounded-lg bg-green-600/15 text-green-400 hover:bg-green-600/25 transition-colors"
+                    type="button"
+                    disabled={submittingPayment}
+                    onClick={() => submitCommissionPayment(stats.commissionBalance, { total: true })}
+                    className="flex-1 text-[10px] font-semibold py-1.5 rounded-lg bg-green-600/15 text-green-400 hover:bg-green-600/25 transition-colors disabled:opacity-60"
                   >
-                    Registrar pago total
+                    {submittingPayment ? 'Registrando…' : 'Registrar pago total'}
                   </button>
                   <button
+                    type="button"
+                    disabled={submittingPayment}
                     onClick={() => setPayingCommission(true)}
                     className="flex-1 text-[10px] font-semibold py-1.5 rounded-lg bg-light-200 text-gray-400 hover:text-navy-800 transition-colors"
                   >

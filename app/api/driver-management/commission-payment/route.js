@@ -22,6 +22,7 @@ export async function POST(request) {
       amount,
       paymentSource: 'dashboard',
       notes,
+      resetPendingToZero: Boolean(body?.resetPendingToZero),
     });
 
     return NextResponse.json({
@@ -29,6 +30,7 @@ export async function POST(request) {
       data: {
         pending_commission: result.pending_commission ?? 0,
         duplicated: result.duplicated || false,
+        paymentId: result.paymentId || null,
       },
     });
   } catch (err) {

@@ -7,25 +7,17 @@ function buildPayperticNotes(payperticId) {
   return payperticId ? `Pago online via Paypertic - ID: ${payperticId}` : 'Pago online via Paypertic';
 }
 
-async function findExistingPayment(supabase, { driverId, payperticId, notes }) {
-  if (payperticId) {
-    const { data } = await supabase
-      .from('commission_payments')
-      .select('id')
-      .eq('paypertic_id', payperticId)
-      .maybeSingle();
-    if (data?.id) return data;
-  }
+async function findExistingPayment(supabase, { payperticId }) {
+  // Solo Paypertic usa idempotencia por ID externo.
+  // Los pagos del dashboard reutilizan notes genéricas; no deben bloquearse entre sí.
+  if (!payperticId) return null;
 
-  if (notes) {
-    const { data } = await supabase
-      .from('commission_payments')
-      .select('id')
-      .eq('driver_id', driverId)
-      .eq('notes', notes)
-      .maybeSingle();
-    if (data?.id) return data;
-  }
+  const { data } = await supabase
+    .from('commission_payments')
+    .select('id')
+    .eq('paypertic_id', payperticId)
+    .maybeSingle();
+  if (data?.id) return data;
 
   return null;
 }
@@ -90,13 +82,20 @@ export async function registerCommissionPayment(supabase, {
     ?? (paymentSource === 'paypertic' ? buildPayperticNotes(payperticId) : null);
 
   const existing = await findExistingPayment(supabase, {
-    driverId,
     payperticId,
-    notes: resolvedNotes,
   });
 
   if (existing?.id) {
-    return { duplicated: true, paymentId: existing.id, pending_commission: null };
+    const { data: driverRow } = await supabase
+      .from('drivers')
+      .select('pending_commission')
+      .eq('id', driverId)
+      .maybeSingle();
+    return {
+      duplicated: true,
+      paymentId: existing.id,
+      pending_commission: Number(driverRow?.pending_commission) || 0,
+    };
   }
 
   const insertRow = {
