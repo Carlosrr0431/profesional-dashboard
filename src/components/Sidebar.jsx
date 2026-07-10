@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { timeAgo, formatSpeed, getTripStatus } from '../lib/utils';
+import DriverAvatar from './DriverAvatar';
 
 export default function Sidebar({
   drivers,
@@ -51,6 +52,18 @@ export default function Sidebar({
         'postgres_changes',
         { event: '*', schema: 'public', table: 'drivers' },
         (payload) => {
+          if (payload.eventType === 'DELETE') {
+            const removedId = payload.old?.id;
+            if (!removedId) return;
+            setAvailability((prev) => {
+              if (!(removedId in prev)) return prev;
+              const next = { ...prev };
+              delete next[removedId];
+              return next;
+            });
+            return;
+          }
+
           const row = payload.new;
           if (!row?.id) return;
           setAvailability((prev) => ({
@@ -311,13 +324,6 @@ export default function Sidebar({
 }
 
 function DriverRow({ driver, isSelected, onClick }) {
-  const initials = driver.fullName
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .substring(0, 2)
-    .toUpperCase();
-
   const tripStatus = driver.activeTrip ? getTripStatus(driver.activeTrip.status) : null;
 
   const statusTone = tripStatus
@@ -340,11 +346,12 @@ function DriverRow({ driver, isSelected, onClick }) {
       }`}
     >
       <div className="relative flex-shrink-0">
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold ${
-          driver.isOnline ? 'bg-light-200 text-navy-800' : 'bg-light-200/60 text-gray-400'
-        }`}>
-          {initials}
-        </div>
+        <DriverAvatar
+          photoUrl={driver.photoUrl}
+          name={driver.fullName}
+          size="sm"
+          online={driver.isOnline}
+        />
         {driver.driverNumber != null && (
           <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5 rounded-md bg-navy-900 text-white text-[9px] font-bold flex items-center justify-center border border-white">
             {driver.driverNumber}

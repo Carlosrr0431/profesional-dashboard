@@ -7,6 +7,7 @@ import { formatPrice, timeAgo } from '../lib/utils';
 import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
 import { isAssignedDriver } from '../lib/driverRoles';
+import DriverAvatar from './DriverAvatar';
 
 export default function DriverManagement({ onBack }) {
   const toast = useToast();
@@ -28,12 +29,18 @@ export default function DriverManagement({ onBack }) {
     if (updated) setDetailDriver(updated);
   }, [drivers, detailDriver?.id]);
 
-  const fleetDrivers = useMemo(() => drivers.filter((d) => !isAssignedDriver(d)), [drivers]);
+  const ownerById = useMemo(() => {
+    const map = {};
+    drivers.forEach((d) => {
+      if (!isAssignedDriver(d)) map[d.id] = d;
+    });
+    return map;
+  }, [drivers]);
 
   const assignedCountByOwner = useMemo(() => {
     const map = {};
     drivers.forEach((d) => {
-      if (d.is_assigned_driver && d.owner_id) {
+      if (isAssignedDriver(d) && d.owner_id) {
         map[d.owner_id] = (map[d.owner_id] || 0) + 1;
       }
     });
@@ -41,23 +48,47 @@ export default function DriverManagement({ onBack }) {
   }, [drivers]);
 
   const filtered = useMemo(() => {
-    return fleetDrivers.filter((d) => {
+    const matches = drivers.filter((d) => {
       if (filter === 'active' && !d.is_available) return false;
       if (filter === 'inactive' && d.is_available) return false;
       if (filter === 'blocked' && !d.commission_blocked) return false;
       if (filter === 'owes' && !(d.pending_commission > 0)) return false;
       if (search) {
         const q = search.toLowerCase();
+        const ownerName = isAssignedDriver(d)
+          ? (ownerById[d.owner_id]?.full_name || '')
+          : '';
         return (
           (d.full_name || '').toLowerCase().includes(q) ||
           (d.phone || '').includes(q) ||
           (d.vehicle_plate || '').toLowerCase().includes(q) ||
-          (d.driver_number?.toString() || '').includes(q)
+          (d.driver_number?.toString() || '').includes(q) ||
+          ownerName.toLowerCase().includes(q)
         );
       }
       return true;
     });
-  }, [fleetDrivers, search, filter]);
+
+    // Agrupar: titular primero, luego sus asignados
+    return matches.sort((a, b) => {
+      const aRoot = isAssignedDriver(a) ? a.owner_id : a.id;
+      const bRoot = isAssignedDriver(b) ? b.owner_id : b.id;
+      if (aRoot !== bRoot) {
+        const aOwner = ownerById[aRoot] || a;
+        const bOwner = ownerById[bRoot] || b;
+        const aNum = Number(aOwner.driver_number);
+        const bNum = Number(bOwner.driver_number);
+        if (Number.isFinite(aNum) && Number.isFinite(bNum) && aNum !== bNum) {
+          return aNum - bNum;
+        }
+        return String(aOwner.full_name || '').localeCompare(String(bOwner.full_name || ''), 'es');
+      }
+      const aAssigned = isAssignedDriver(a) ? 1 : 0;
+      const bAssigned = isAssignedDriver(b) ? 1 : 0;
+      if (aAssigned !== bAssigned) return aAssigned - bAssigned;
+      return String(a.full_name || '').localeCompare(String(b.full_name || ''), 'es');
+    });
+  }, [drivers, search, filter, ownerById]);
 
   const handleSave = async (formData) => {
     setSaving(true);
@@ -145,7 +176,7 @@ export default function DriverManagement({ onBack }) {
               </button>
               <div className="min-w-0">
                 <h1 className="text-lg font-bold text-navy-900 truncate sm:text-xl">Gestión de Choferes</h1>
-                <p className="text-xs text-gray-500">{fleetDrivers.length} choferes registrados</p>
+                <p className="text-xs text-gray-500">{drivers.length} choferes registrados</p>
               </div>
             </div>
             <button
@@ -220,7 +251,7 @@ export default function DriverManagement({ onBack }) {
         {mainView === 'payments' ? (
           <CommissionPaymentsReport
             onSelectDriver={(driverId) => {
-              const driver = fleetDrivers.find((d) => d.id === driverId);
+              const driver = drivers.find((d) => d.id === driverId);
               if (driver) {
                 setMainView('drivers');
                 setDetailDriver(driver);
@@ -256,6 +287,11 @@ export default function DriverManagement({ onBack }) {
                       key={driver.id}
                       driver={driver}
                       assignedCount={assignedCountByOwner[driver.id] || 0}
+                      ownerName={
+                        isAssignedDriver(driver)
+                          ? (ownerById[driver.owner_id]?.full_name || null)
+                          : null
+                      }
                       onView={() => setDetailDriver(driver)}
                       onEdit={() => handleEdit(driver)}
                       isSelected={detailDriver?.id === driver.id}
@@ -456,36 +492,48 @@ function ConfirmCommissionPaymentModal({ driver, loading, onCancel, onConfirm })
   );
 }
 
-function DriverTableRow({ driver, assignedCount = 0, onView, onEdit, isSelected, onToggleBlock }) {
-  const initials = (driver.full_name || 'NN')
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .substring(0, 2)
-    .toUpperCase();
+function DriverTableRow({
+  driver,
+  assignedCount = 0,
+  ownerName = null,
+  onView,
+  onEdit,
+  isSelected,
+  onToggleBlock,
+}) {
+  const assigned = isAssignedDriver(driver);
 
   return (
     <tr
       className={`border-b border-light-300/30 transition-all cursor-pointer ${
-        isSelected ? 'bg-accent/5' : 'hover:bg-light-200/50'
+        isSelected ? 'bg-accent/5' : assigned ? 'bg-indigo-50/40 hover:bg-indigo-50/70' : 'hover:bg-light-200/50'
       }`}
       onClick={onView}
     >
       {/* Driver info */}
       <td className="px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-light-200 flex items-center justify-center text-sm font-bold text-gray-400 flex-shrink-0 overflow-hidden">
-            {driver.photo_url ? (
-              <img src={driver.photo_url} alt="" className="w-full h-full object-cover" />
-            ) : initials}
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <p className="text-sm font-semibold text-navy-900">{driver.full_name}</p>
-              {driver.driver_number && (
-                <span className="text-[10px] font-bold text-accent bg-accent/15 px-1.5 py-0.5 rounded-md">#{driver.driver_number}</span>
-              )}
-              {assignedCount > 0 ? (
+        <div className={`flex items-center gap-3 ${assigned ? 'pl-4' : ''}`}>
+          <DriverAvatar
+            photoUrl={driver.photo_url}
+            name={driver.full_name}
+            size="sm"
+            online={!driver.commission_blocked && driver.is_available}
+            className={`!w-10 !h-10 text-sm ${assigned ? 'bg-indigo-100 text-indigo-600' : ''}`}
+          />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <p className="text-sm font-semibold text-navy-900 truncate">{driver.full_name}</p>
+              {driver.driver_number ? (
+                <span className="text-[10px] font-bold text-accent bg-accent/15 px-1.5 py-0.5 rounded-md">
+                  #{driver.driver_number}
+                </span>
+              ) : null}
+              {assigned ? (
+                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded-md">
+                  Asignado
+                </span>
+              ) : null}
+              {!assigned && assignedCount > 0 ? (
                 <span className="text-[10px] font-bold text-online bg-online/10 px-1.5 py-0.5 rounded-md">
                   +{assignedCount} asignado{assignedCount !== 1 ? 's' : ''}
                 </span>
@@ -493,6 +541,7 @@ function DriverTableRow({ driver, assignedCount = 0, onView, onEdit, isSelected,
             </div>
             <p className="text-[11px] text-gray-500">
               {driver.vehicle_type === 'moto' ? '🏍️' : '🚗'} {driver.vehicle_type || 'auto'}
+              {assigned && ownerName ? ` · Titular: ${ownerName}` : ''}
             </p>
           </div>
         </div>

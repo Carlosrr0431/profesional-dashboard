@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatPrice, formatDateTime } from '../lib/utils';
 import { paymentSourceLabel, toAnchorString } from '../lib/commissionPaymentPeriods';
 import CommissionPeriodPicker from './CommissionPeriodPicker';
+import { supabase } from '../lib/supabase';
 
 export default function CommissionPaymentsReport({ onSelectDriver }) {
   const [period, setPeriod] = useState('week');
@@ -9,9 +10,11 @@ export default function CommissionPaymentsReport({ onSelectDriver }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const channelRef = useRef(null);
+  const refetchTimerRef = useRef(null);
 
-  const loadReport = useCallback(async () => {
-    setLoading(true);
+  const loadReport = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     setError('');
     try {
       const params = new URLSearchParams({ period });
@@ -31,12 +34,33 @@ export default function CommissionPaymentsReport({ onSelectDriver }) {
       setError(err?.message || 'Error al cargar pagos');
       setData(null);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [period, anchorDate]);
 
   useEffect(() => {
     loadReport();
+  }, [loadReport]);
+
+  useEffect(() => {
+    const scheduleReload = () => {
+      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+      refetchTimerRef.current = setTimeout(() => {
+        refetchTimerRef.current = null;
+        loadReport({ silent: true });
+      }, 300);
+    };
+
+    channelRef.current = supabase
+      .channel('commission_payments_report_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'commission_payments' }, scheduleReload)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'drivers' }, scheduleReload)
+      .subscribe();
+
+    return () => {
+      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
+    };
   }, [loadReport]);
 
   const handleModeChange = (nextMode) => {

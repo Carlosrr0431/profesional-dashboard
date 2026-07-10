@@ -1,4 +1,5 @@
 import { timeAgo, formatSpeed, formatPrice, getTripStatus } from '../lib/utils';
+import DriverAvatar from './DriverAvatar';
 
 function getDriverStatusInfo(driver) {
   if (driver.commissionOverdue) {
@@ -51,13 +52,6 @@ function InfoStat({ label, value }) {
 
 export default function DriverInfoWindow({ driver, onAssignTrip, onClose }) {
   const name = String(driver.fullName || 'Chofer').trim();
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((n) => n[0])
-    .join('')
-    .substring(0, 2)
-    .toUpperCase() || '?';
   const status = getDriverStatusInfo(driver);
   const canAssign = !status.busy;
   const vehicleLabel = [driver.vehicleBrand, driver.vehicleModel].filter(Boolean).join(' ') || '—';
@@ -77,15 +71,17 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onClose }) {
       {/* Header */}
       <div className="relative border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-4 pb-3.5 pt-4">
         <div className="flex items-start gap-3">
-          <div
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
+          <DriverAvatar
+            photoUrl={driver.photoUrl}
+            name={name}
+            size="md"
+            online={driver.isOnline}
+            ringClassName={
               driver.isOnline
-                ? 'bg-emerald-100 text-emerald-700 ring-2 ring-emerald-200'
-                : 'bg-slate-100 text-slate-500 ring-2 ring-slate-200'
-            }`}
-          >
-            {initials}
-          </div>
+                ? 'ring-2 ring-emerald-200'
+                : 'ring-2 ring-slate-200'
+            }
+          />
 
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">

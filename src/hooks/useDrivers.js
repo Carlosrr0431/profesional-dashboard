@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 const POLL_INTERVAL_MS = 2000;
+const REALTIME_REFETCH_DEBOUNCE_MS = 300;
 
 function toNumber(value, fallback = 0) {
   const n = Number(value);
@@ -25,6 +26,9 @@ function driversSnapshotUnchanged(prev, next) {
     if (a.commissionOverdue !== b.commissionOverdue) return false;
     if ((a.activeTrip?.id || null) !== (b.activeTrip?.id || null)) return false;
     if ((a.activeTrip?.status || null) !== (b.activeTrip?.status || null)) return false;
+    if (Boolean(a.isAssignedDriver) !== Boolean(b.isAssignedDriver)) return false;
+    if ((a.ownerId || null) !== (b.ownerId || null)) return false;
+    if ((a.photoUrl || '') !== (b.photoUrl || '')) return false;
   }
 
   return true;
@@ -35,6 +39,7 @@ export function useDrivers() {
   const [loading, setLoading] = useState(true);
   const channelRef = useRef(null);
   const pollRef = useRef(null);
+  const refetchTimerRef = useRef(null);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -67,13 +72,21 @@ export function useDrivers() {
     }
   }, []);
 
+  const scheduleFetchAll = useCallback(() => {
+    if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+    refetchTimerRef.current = setTimeout(() => {
+      refetchTimerRef.current = null;
+      fetchAll();
+    }, REALTIME_REFETCH_DEBOUNCE_MS);
+  }, [fetchAll]);
+
   useEffect(() => {
     fetchAll();
 
     // Polling de respaldo para datos enriquecidos (viajes activos, comisiones)
     pollRef.current = setInterval(fetchAll, POLL_INTERVAL_MS);
 
-    // Realtime: posición GPS + disponibilidad (is_available)
+    // Realtime: GPS, alta/baja de choferes, disponibilidad y viajes activos
     channelRef.current = supabase
       .channel('dashboard_location_realtime')
       .on(
@@ -84,7 +97,10 @@ export function useDrivers() {
           if (!loc?.driver_id) return;
           setDrivers((prev) => {
             const idx = prev.findIndex((d) => d.id === loc.driver_id);
-            if (idx === -1) return prev;
+            if (idx === -1) {
+              scheduleFetchAll();
+              return prev;
+            }
             const updated = [...prev];
             updated[idx] = {
               ...updated[idx],
@@ -102,17 +118,39 @@ export function useDrivers() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'drivers' },
         (payload) => {
+          const eventType = payload.eventType;
+          if (eventType === 'INSERT' || eventType === 'DELETE') {
+            scheduleFetchAll();
+            return;
+          }
+
           const row = payload.new;
-          if (!row?.id) return;
+          if (!row?.id) {
+            scheduleFetchAll();
+            return;
+          }
+
           setDrivers((prev) => {
             const idx = prev.findIndex((d) => d.id === row.id);
-            if (idx === -1) return prev;
+            if (idx === -1) {
+              scheduleFetchAll();
+              return prev;
+            }
             const updated = [...prev];
             const pendingCommission = Math.max(0, toNumber(row.pending_commission, updated[idx].pendingCommission));
             updated[idx] = {
               ...updated[idx],
               isOnline: Boolean(row.is_available),
               isAvailable: Boolean(row.is_available),
+              fullName: row.full_name || updated[idx].fullName,
+              driverNumber: row.driver_number ?? updated[idx].driverNumber,
+              phone: row.phone || updated[idx].phone,
+              photoUrl: row.photo_url || updated[idx].photoUrl || '',
+              vehicleBrand: row.vehicle_brand || updated[idx].vehicleBrand,
+              vehicleModel: row.vehicle_model || updated[idx].vehicleModel,
+              vehiclePlate: row.vehicle_plate || updated[idx].vehiclePlate,
+              vehicleColor: row.vehicle_color || updated[idx].vehicleColor,
+              vehicleType: row.vehicle_type || updated[idx].vehicleType,
               updatedAt: row.updated_at || updated[idx].updatedAt,
               pendingCommission,
               lastCommissionPaymentAt: row.last_commission_payment_at || updated[idx].lastCommissionPaymentAt,
@@ -122,21 +160,38 @@ export function useDrivers() {
                   ? new Date(row.commission_debt_since_at) < new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
                   : false
               ),
+              isAssignedDriver: Boolean(row.is_assigned_driver && row.owner_id),
+              ownerId: row.owner_id || null,
             };
             return updated;
           });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trips' },
+        () => {
+          scheduleFetchAll();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'commission_payments' },
+        () => {
+          scheduleFetchAll();
         }
       )
       .subscribe();
 
     return () => {
       clearInterval(pollRef.current);
+      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
     };
-  }, [fetchAll]);
+  }, [fetchAll, scheduleFetchAll]);
 
   return { drivers, loading, refetch: fetchAll };
 }

@@ -13,6 +13,7 @@ import Sidebar from './components/Sidebar';
 import DriverPanel from './components/DriverPanel';
 import TripAssignModal from './components/TripAssignModal';
 import NewTripModal from './components/NewTripModal';
+import AiAgentConfirmModal from './components/AiAgentConfirmModal';
 import DriverManagement from './components/DriverManagement';
 import ZoneManagement from './components/ZoneManagement';
 import BroadcastVoiceChat from './components/BroadcastVoiceChat';
@@ -23,6 +24,7 @@ import GeocodeErrorsPanel from './components/GeocodeErrorsPanel';
 import EmulatorGpsSimulator from './components/EmulatorGpsSimulator';
 import AdminUsersPanel from './components/admin/AdminUsersPanel';
 import DashboardBrand from './components/DashboardBrand';
+import DashboardLoadingScreen from './components/DashboardLoadingScreen';
 import { useTripStatistics } from './hooks/useTripStatistics';
 import { isSuperAdminUser } from './lib/adminSuperUser';
 
@@ -59,6 +61,7 @@ export default function App() {
   const [panelDriverId,   setPanelDriverId]   = useState(null);
   const [tripModalDriver, setTripModalDriver] = useState(null);
   const [showNewTripModal, setShowNewTripModal] = useState(false);
+  const [showAiAgentModal, setShowAiAgentModal] = useState(false);
   const [currentView,     setCurrentView]     = useState(VIEWS.map);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [multiSelectedIds,setMultiSelectedIds]= useState(new Set());
@@ -317,20 +320,7 @@ export default function App() {
 
   // ── Pantalla de carga ──────────────────────────────────────────────────────
   if (loading) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-light-100">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative w-12 h-12">
-            <div className="absolute inset-0 border-[3px] border-accent/20 rounded-full" />
-            <div className="absolute inset-0 border-[3px] border-accent border-t-transparent rounded-full animate-spin" />
-          </div>
-          <div className="text-center">
-            <DashboardBrand className="justify-center mb-3" imageClassName="h-10 w-auto max-w-[150px] object-contain" />
-            <p className="text-gray-400 text-xs mt-0.5">Cargando operaciones...</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <DashboardLoadingScreen message="Cargando operaciones…" />;
   }
 
   const showFleetSidebar = isDesktopLayout || fleetDrawerOpen;
@@ -359,7 +349,7 @@ export default function App() {
         <div className="ml-auto flex shrink-0 items-center gap-1 lg:gap-1.5">
           <button
             type="button"
-            onClick={() => updateSetting('whatsapp_agent_enabled', whatsappAgentEnabled ? 'false' : 'true')}
+            onClick={() => setShowAiAgentModal(true)}
             className={`flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] font-semibold transition-all lg:px-3 ${
               whatsappAgentEnabled
                 ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
@@ -690,6 +680,17 @@ export default function App() {
           commissionPercent={commissionPercent}
         />
       )}
+
+      {showAiAgentModal ? (
+        <AiAgentConfirmModal
+          enabled={whatsappAgentEnabled}
+          onCancel={() => setShowAiAgentModal(false)}
+          onConfirm={async (nextEnabled) => {
+            await updateSetting('whatsapp_agent_enabled', nextEnabled ? 'true' : 'false');
+            setShowAiAgentModal(false);
+          }}
+        />
+      ) : null}
 
       {/* ── Broadcast de audio ─────────────────────────────────────────────── */}
       {showBroadcast && multiSelectedDrivers.length > 0 && (

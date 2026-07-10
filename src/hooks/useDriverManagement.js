@@ -5,10 +5,15 @@ function patchDriverInList(list, driverId, patch) {
   return list.map((driver) => (driver.id === driverId ? { ...driver, ...patch } : driver));
 }
 
+const POLL_INTERVAL_MS = 8000;
+const REALTIME_REFETCH_DEBOUNCE_MS = 250;
+
 export function useDriverManagement() {
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const channelRef = useRef(null);
+  const pollRef = useRef(null);
+  const refetchTimerRef = useRef(null);
 
   const fetchDrivers = useCallback(async () => {
     try {
@@ -36,22 +41,65 @@ export function useDriverManagement() {
     }
   }, []);
 
+  const scheduleFetchDrivers = useCallback(() => {
+    if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+    refetchTimerRef.current = setTimeout(() => {
+      refetchTimerRef.current = null;
+      fetchDrivers();
+    }, REALTIME_REFETCH_DEBOUNCE_MS);
+  }, [fetchDrivers]);
+
   const patchDriver = useCallback((driverId, patch) => {
     setDrivers((prev) => patchDriverInList(prev, driverId, patch));
   }, []);
 
   useEffect(() => {
     fetchDrivers();
+
+    pollRef.current = setInterval(fetchDrivers, POLL_INTERVAL_MS);
+
     channelRef.current = supabase
       .channel('driver_mgmt_realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, () => fetchDrivers())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => fetchDrivers())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'commission_payments' }, () => fetchDrivers())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, (payload) => {
+        const eventType = payload.eventType;
+        if (eventType === 'DELETE') {
+          const removedId = payload.old?.id;
+          if (removedId) {
+            setDrivers((prev) => prev.filter((d) => d.id !== removedId));
+          }
+          scheduleFetchDrivers();
+          return;
+        }
+
+        const row = payload.new;
+        if (!row?.id) {
+          scheduleFetchDrivers();
+          return;
+        }
+
+        if (eventType === 'INSERT') {
+          setDrivers((prev) => {
+            if (prev.some((d) => d.id === row.id)) return prev;
+            return [row, ...prev];
+          });
+          scheduleFetchDrivers();
+          return;
+        }
+
+        // UPDATE inmediato + refetch para campos derivados
+        setDrivers((prev) => patchDriverInList(prev, row.id, row));
+        scheduleFetchDrivers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => scheduleFetchDrivers())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'commission_payments' }, () => scheduleFetchDrivers())
       .subscribe();
+
     return () => {
+      clearInterval(pollRef.current);
+      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
       if (channelRef.current) supabase.removeChannel(channelRef.current);
     };
-  }, [fetchDrivers]);
+  }, [fetchDrivers, scheduleFetchDrivers]);
 
   const createDriver = useCallback(async ({ email, password, ...profileData }) => {
     const response = await fetch('/api/driver-management/drivers', {

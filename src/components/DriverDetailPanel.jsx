@@ -6,6 +6,7 @@ import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
 import { isFleetRoot } from '../lib/driverRoles';
 import AssignedDriversTab from './AssignedDriversTab';
+import DriverAvatar from './DriverAvatar';
 
 export default function DriverDetailPanel({
   driver,
@@ -143,13 +144,12 @@ export default function DriverDetailPanel({
       <div className="flex-shrink-0 px-5 py-4 border-b border-light-300/50">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-light-200 flex items-center justify-center text-lg font-bold text-gray-400 overflow-hidden flex-shrink-0">
-              {driver.photo_url ? (
-                <img src={driver.photo_url} alt="" className="w-full h-full object-cover" />
-              ) : (
-                (driver.full_name || 'NN').split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()
-              )}
-            </div>
+            <DriverAvatar
+              photoUrl={driver.photo_url}
+              name={driver.full_name}
+              size="lg"
+              online={Boolean(driver.is_available)}
+            />
             <div>
               <div className="flex items-center gap-1.5">
                 <h3 className="text-base font-bold text-navy-900">{driver.full_name}</h3>

@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatPhoneForDisplay, MAX_ASSIGNED_DRIVERS } from '../lib/driverRoles';
 import { useToast } from '../context/ToastContext';
+import { supabase } from '../lib/supabase';
+import DriverAvatar from './DriverAvatar';
 
 function statusLabel(status) {
   if (status === 'registered') return { text: 'Registrado', className: 'bg-online/15 text-online' };
@@ -25,22 +27,55 @@ export default function AssignedDriversTab({
   const [expandedTrips, setExpandedTrips] = useState([]);
   const [loadingTrips, setLoadingTrips] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const channelRef = useRef(null);
+  const refetchTimerRef = useRef(null);
 
-  const loadAssigned = useCallback(async () => {
-    setLoading(true);
+  const loadAssigned = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       const rows = await fetchAssignedDrivers(ownerDriver.id);
       setAssigned(rows);
     } catch (err) {
       toast.error(err?.message || 'No se pudieron cargar los choferes asignados');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [ownerDriver.id, fetchAssignedDrivers, toast]);
 
   useEffect(() => {
     loadAssigned();
   }, [loadAssigned]);
+
+  useEffect(() => {
+    const scheduleReload = () => {
+      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+      refetchTimerRef.current = setTimeout(() => {
+        refetchTimerRef.current = null;
+        loadAssigned({ silent: true });
+      }, 250);
+    };
+
+    channelRef.current = supabase
+      .channel(`assigned_drivers_${ownerDriver.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'drivers' },
+        (payload) => {
+          const row = payload.new || payload.old;
+          if (!row) return;
+          // Alta/baja/cambio de asignados de este titular, o cambios del propio titular
+          if (row.id === ownerDriver.id || row.owner_id === ownerDriver.id) {
+            scheduleReload();
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
+    };
+  }, [ownerDriver.id, loadAssigned]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -190,7 +225,14 @@ export default function AssignedDriversTab({
               <div key={row.id} className="rounded-xl border border-light-300/60 bg-light-50 overflow-hidden">
                 <div className="p-3">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <DriverAvatar
+                        photoUrl={row.photo_url}
+                        name={row.full_name}
+                        size="sm"
+                        online={Boolean(row.is_available)}
+                      />
+                      <div className="min-w-0">
                       <p className="text-sm font-semibold text-navy-900 truncate">{row.full_name}</p>
                       <p className="text-xs text-gray-500 mt-0.5">
                         {formatPhoneForDisplay(row.phone) || row.phone || '—'}
@@ -207,6 +249,7 @@ export default function AssignedDriversTab({
                         <span className="text-[10px] font-medium text-gray-500 bg-light-200 px-2 py-0.5 rounded-full">
                           {row.total_trips || 0} viajes
                         </span>
+                      </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">

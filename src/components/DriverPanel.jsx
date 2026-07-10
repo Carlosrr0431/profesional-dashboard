@@ -3,6 +3,7 @@ import { useDriverTrips } from '../hooks/useTrips';
 import { formatPrice, formatKm, formatDuration, formatTime, formatDateTime, getTripStatus } from '../lib/utils';
 import VoiceChat from './VoiceChat';
 import { useToast } from '../context/ToastContext';
+import DriverAvatar from './DriverAvatar';
 
 export default function DriverPanel({ driver, onClose, onAssignTrip, commissionPercent }) {
   const toast = useToast();
@@ -57,13 +58,6 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
 
   if (!driver) return null;
 
-  const initials = driver.fullName
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .substring(0, 2)
-    .toUpperCase();
-
   // Determine driver activity status
   const getDriverStatus = () => {
     if (stats.inProgress) {
@@ -117,11 +111,12 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
 
         {/* Driver info card */}
         <div className="flex items-center gap-3 mb-3">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-sm font-bold ${
-            driver.isOnline ? 'bg-online-dim text-online' : 'bg-light-300/50 text-gray-400'
-          }`}>
-            {initials}
-          </div>
+          <DriverAvatar
+            photoUrl={driver.photoUrl}
+            name={driver.fullName}
+            size="lg"
+            online={driver.isOnline}
+          />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
               <p className="text-sm font-semibold text-navy-900 truncate">{driver.fullName}</p>
