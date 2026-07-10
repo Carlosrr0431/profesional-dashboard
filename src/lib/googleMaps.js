@@ -1,15 +1,29 @@
-/**
- * @deprecated Google Maps eliminado — usar mapLibre.js y geo/index.js
- */
-export { MAP_STYLE_URL as GOOGLE_MAPS_KEY } from './mapLibre';
-export { MAP_STYLE_URL, DEFAULT_MAP_VIEW, mapLibreOptions } from './mapLibre';
+'use client';
+
+import { useJsApiLoader } from '@react-google-maps/api';
+
+const LIBRARIES = [];
+
+export const GOOGLE_MAPS_KEY =
+  (typeof process !== 'undefined' &&
+    (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || '')) ||
+  '';
+
+export const GOOGLE_MAPS_LIBRARIES = LIBRARIES;
 
 export function useGoogleMapsLoader() {
-  return { isLoaded: true, loadError: null };
+  const { isLoaded, loadError } = useJsApiLoader({
+    id: 'profesional-dashboard-google-maps',
+    googleMapsApiKey: GOOGLE_MAPS_KEY,
+    libraries: LIBRARIES,
+  });
+
+  return {
+    isLoaded: Boolean(GOOGLE_MAPS_KEY) && isLoaded,
+    loadError: !GOOGLE_MAPS_KEY ? new Error('Falta NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') : loadError,
+  };
 }
 
 export function isGoogleMapsPlacesReady() {
-  return true;
+  return Boolean(typeof window !== 'undefined' && window.google?.maps?.places);
 }
-
-export const GOOGLE_MAPS_LIBRARIES = [];

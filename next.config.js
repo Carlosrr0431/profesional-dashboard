@@ -12,6 +12,10 @@ const nextConfig = {
     NEXT_PUBLIC_OSRM_URL: process.env.NEXT_PUBLIC_OSRM_URL || process.env.OSRM_BASE_URL || '',
     NEXT_PUBLIC_NOMINATIM_URL: process.env.NEXT_PUBLIC_NOMINATIM_URL || process.env.NOMINATIM_BASE_URL || '',
     NEXT_PUBLIC_MAP_STYLE_URL: process.env.NEXT_PUBLIC_MAP_STYLE_URL || '',
+    NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:
+      process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+      || process.env.VITE_GOOGLE_MAPS_API_KEY
+      || '',
   },
 };
 
