@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { formatError } from '../lib/errorFormat';
 import { encodeToWav } from '../lib/audioEncoder';
 import { useToast } from '../context/ToastContext';
+import { insertVoiceMessagesViaApi } from '../lib/voiceMessagesApi';
 
 export default function VoiceChat({ driver, onClose }) {
   const toast = useToast();
@@ -161,19 +162,16 @@ export default function VoiceChat({ driver, onClose }) {
 
       const { data: urlData } = supabase.storage.from('voice-messages').getPublicUrl(fileName);
 
-      const { error: insertError } = await supabase
-        .from('voice_messages')
-        .insert({
-          driver_id: driverId,
-          sender_type: 'base',
-          audio_url: urlData.publicUrl,
-          duration_seconds: recordingTime,
-        });
-      if (insertError) throw insertError;
+      await insertVoiceMessagesViaApi([{
+        driver_id: driverId,
+        sender_type: 'base',
+        audio_url: urlData.publicUrl,
+        duration_seconds: recordingTime,
+      }]);
       toast.success(`Mensaje de voz enviado a ${driver?.fullName || 'chofer'}`);
     } catch (err) {
       console.error('Error sending voice:', formatError(err));
-      toast.error('No se pudo enviar el mensaje de voz');
+      toast.error(err?.message || 'No se pudo enviar el mensaje de voz');
     } finally {
       setSending(false);
       setRecordingTime(0);
