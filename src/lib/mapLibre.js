@@ -1,14 +1,17 @@
 /** Config de mapa para componentes cliente (sin imports de Node). */
 
 const { buildCartoRasterStyle } = require('../../shared/geo/hybridMapStyle');
+const googleMapsLikeStyle = require('./map-styles/googleMapsLike.json');
 
 /**
- * OpenFreeMap Liberty — estilo vectorial gratuito, estética cercana a Google Maps.
- * Carga más liviana al panear (vector) vs muchos PNG raster.
+ * Estilo vectorial personalizado (paleta tipo Google Maps) sobre tiles OpenFreeMap.
  */
+export const GOOGLE_MAPS_LIKE_STYLE = googleMapsLikeStyle;
+
+/** OpenFreeMap Liberty — respaldo vectorial. */
 export const OPENFREEMAP_LIBERTY_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 
-/** Carto Voyager retina — fallback local si no hay URL externa. */
+/** Carto Voyager retina — fallback raster. */
 export const CARTO_RASTER_STYLE = buildCartoRasterStyle({ maxZoom: 19, retina: true });
 
 const envStyleUrl = typeof process !== 'undefined'
@@ -16,9 +19,9 @@ const envStyleUrl = typeof process !== 'undefined'
   : '';
 
 /**
- * Estilo del mapa: URL de env → OpenFreeMap Liberty → Carto retina.
+ * Estilo del mapa: URL de env → Google Maps-like personalizado.
  */
-export const MAP_STYLE = envStyleUrl || OPENFREEMAP_LIBERTY_STYLE;
+export const MAP_STYLE = envStyleUrl || GOOGLE_MAPS_LIKE_STYLE;
 
 /** @deprecated Usar MAP_STYLE — alias para compatibilidad. */
 export const MAP_STYLE_URL = MAP_STYLE;

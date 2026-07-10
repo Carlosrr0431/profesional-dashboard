@@ -43,9 +43,9 @@ function badgeFontSize(text) {
 
 export function buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected) {
   const style = getMarkerStyle(isMultiSelected, driver);
-  const scale = isSelected || isMultiSelected ? 1.12 : 1;
-  const width = Math.round(48 * scale);
-  const height = Math.round(58 * scale);
+  const scale = isSelected || isMultiSelected ? 1.1 : 1;
+  const width = Math.round(38 * scale);
+  const height = Math.round(46 * scale);
 
   // Priorizar número de móvil; "A" solo si no hay número
   let badgeText = '';
@@ -62,7 +62,7 @@ export function buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 48 58">
     <defs>
       <filter id="sh" x="-25%" y="-15%" width="150%" height="150%">
-        <feDropShadow dx="0" dy="2" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.32"/>
+        <feDropShadow dx="0" dy="1.5" stdDeviation="1.3" flood-color="#0f172a" flood-opacity="0.3"/>
       </filter>
     </defs>
     <g opacity="${style.opacity}" filter="url(#sh)">
