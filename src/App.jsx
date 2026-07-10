@@ -17,6 +17,7 @@ import AiAgentConfirmModal from './components/AiAgentConfirmModal';
 import DriverManagement from './components/DriverManagement';
 import ZoneManagement from './components/ZoneManagement';
 import BroadcastVoiceChat from './components/BroadcastVoiceChat';
+import VoiceChat from './components/VoiceChat';
 import QueuePanel from './components/QueuePanel';
 import ScheduledTripsPanel from './components/ScheduledTripsPanel';
 import StatisticsPanel from './components/StatisticsPanel';
@@ -66,6 +67,7 @@ export default function App() {
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [multiSelectedIds,setMultiSelectedIds]= useState(new Set());
   const [showBroadcast,   setShowBroadcast]   = useState(false);
+  const [voiceChatDriver, setVoiceChatDriver] = useState(null);
   // Ruta de preview al asignar viaje: { polylineCoords?, origin, destination? } | null
   const [previewRoute,    setPreviewRoute]    = useState(null);
   const [fleetDrawerOpen,   setFleetDrawerOpen] = useState(false);
@@ -399,6 +401,7 @@ export default function App() {
                 setMultiSelectMode(true);
                 setPanelDriverId(null);
                 setSelectedId(null);
+                setVoiceChatDriver(null);
               }
             }}
           >
@@ -415,6 +418,7 @@ export default function App() {
               setMultiSelectMode(true);
               selectAllAvailable();
               setShowBroadcast(true);
+              setVoiceChatDriver(null);
               setPanelDriverId(null);
               setSelectedId(null);
             }}
@@ -537,6 +541,10 @@ export default function App() {
                 multiSelectedIds={multiSelectedIds}
                 onToggleMultiSelect={toggleMultiSelect}
                 previewRoute={previewRoute}
+                onSendAudio={(driver) => {
+                  setShowBroadcast(false);
+                  setVoiceChatDriver(driver);
+                }}
               />
 
               {!fleetDrawerOpen && !panelDriverId ? (
@@ -703,6 +711,17 @@ export default function App() {
           onClose={() => setShowBroadcast(false)}
         />
       )}
+
+      {voiceChatDriver ? (
+        <div className="fixed bottom-6 left-1/2 z-50 w-[400px] max-w-[calc(100%-2rem)] -translate-x-1/2 overflow-hidden rounded-2xl border border-light-300/60 bg-light-50 shadow-2xl shadow-black/25 sm:left-auto sm:right-6 sm:translate-x-0">
+          <div className="flex h-[min(460px,70vh)] flex-col">
+            <VoiceChat
+              driver={voiceChatDriver}
+              onClose={() => setVoiceChatDriver(null)}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

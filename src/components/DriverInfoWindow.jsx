@@ -50,7 +50,7 @@ function InfoStat({ label, value }) {
   );
 }
 
-export default function DriverInfoWindow({ driver, onAssignTrip, onClose }) {
+export default function DriverInfoWindow({ driver, onAssignTrip, onSendAudio, onClose }) {
   const name = String(driver.fullName || 'Chofer').trim();
   const status = getDriverStatusInfo(driver);
   const canAssign = !status.busy;
@@ -208,32 +208,51 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onClose }) {
         ) : null}
       </div>
 
-      {/* Footer action */}
+      {/* Footer actions */}
       <div className="border-t border-slate-100 px-4 py-3">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (canAssign && onAssignTrip) onAssignTrip(driver);
-          }}
-          disabled={!canAssign}
-          title={
-            canAssign
-              ? 'Asignar un viaje'
-              : driver.commissionOverdue
-                ? 'Comisión vencida'
-                : driver.activeTrip
-                  ? 'Chofer en viaje'
-                  : 'Chofer desconectado'
-          }
-          className={`flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[13px] font-bold transition ${
-            canAssign
-              ? 'bg-accent text-white shadow-sm hover:bg-accent-light'
-              : 'cursor-not-allowed bg-slate-100 text-slate-400'
-          }`}
-        >
-          {actionLabel}
-        </button>
+        <div className="flex gap-2">
+          {onSendAudio ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSendAudio(driver);
+              }}
+              title={`Enviar audio solo a ${name}`}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-accent/25 bg-accent/5 px-3 py-2.5 text-[13px] font-bold text-accent transition hover:bg-accent/10"
+            >
+              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+              </svg>
+              Audio
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (canAssign && onAssignTrip) onAssignTrip(driver);
+            }}
+            disabled={!canAssign}
+            title={
+              canAssign
+                ? 'Asignar un viaje'
+                : driver.commissionOverdue
+                  ? 'Comisión vencida'
+                  : driver.activeTrip
+                    ? 'Chofer en viaje'
+                    : 'Chofer desconectado'
+            }
+            className={`flex flex-[1.4] items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[13px] font-bold transition ${
+              canAssign
+                ? 'bg-accent text-white shadow-sm hover:bg-accent-light'
+                : 'cursor-not-allowed bg-slate-100 text-slate-400'
+            }`}
+          >
+            {actionLabel}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -135,6 +135,7 @@ const MapView = memo(function MapView({
   multiSelectMode = false,
   multiSelectedIds = null,
   onToggleMultiSelect,
+  onSendAudio,
 }) {
   const [activeInfo, setActiveInfo] = useState(null);
   const internalMapRef = useRef(null);
@@ -346,6 +347,10 @@ const MapView = memo(function MapView({
               <DriverInfoWindow
                 driver={activeInfo.data}
                 onAssignTrip={(d) => { setActiveInfo(null); onAssignTrip?.(d); }}
+                onSendAudio={onSendAudio ? (d) => {
+                  setActiveInfo(null);
+                  onSendAudio(d);
+                } : undefined}
                 onClose={() => setActiveInfo(null)}
               />
             </div>
