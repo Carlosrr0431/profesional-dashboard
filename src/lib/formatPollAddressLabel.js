@@ -38,6 +38,8 @@ const GOOGLE_POLL_STREET_REPLACEMENTS = [
   [/Bv\.?\s+/gi, 'Bulevar '],
   [/Pje\.?\s+/gi, 'Pasaje '],
   [/Pas\.?\s+/gi, 'Pasaje '],
+  [/Mtro\.?\s+R\.?\s+Alvarado/gi, 'Ministro R. Alvarado'],
+  [/Gral\.?\s+R\.?\s+Alvarado/gi, 'General R. Alvarado'],
 ];
 
 function applyStreetNameExpansions(text) {

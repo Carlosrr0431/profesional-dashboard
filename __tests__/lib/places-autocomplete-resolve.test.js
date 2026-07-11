@@ -18,7 +18,7 @@ describe('placesAutocompleteResolve', () => {
     expect(/mitre/i.test(hits[0].formattedAddress)).toBe(true);
   });
 
-  it('geocodeAddressViaPlaces devuelve el primer hit resuelto', async () => {
+  it('geocodeAddressViaPlaces elige el mejor match por score, no el primer hit', async () => {
     const geo = await geocodeAddressViaPlaces('Chacabuco 350, Salta');
     expect(geo.lat).toBeCloseTo(-24.7889, 3);
     expect(/chacabuco/i.test(geo.formattedAddress)).toBe(true);

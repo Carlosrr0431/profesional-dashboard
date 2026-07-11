@@ -51,3 +51,24 @@ export function sortGuemesStreetCandidates(items) {
     return (b?.score || 0) - (a?.score || 0);
   });
 }
+
+/**
+ * Si el pasajero dijo solo el apellido/nombre corto (ej. "Alvarado") y existe
+ * una calle con ese nameKey exacto, descartar compuestos tipo
+ * "C Barbaran Alvarado" / "Mtro R Alvarado". Güemes se exceptúa (homónimos reales).
+ */
+export function preferExactCatalogStreetMatches(ranked, queryTokens = [], streetSegment = '') {
+  const tokens = (queryTokens || []).filter(Boolean);
+  const queryNameKey = tokens.join(' ');
+  if (!queryNameKey || !Array.isArray(ranked) || ranked.length === 0) {
+    return ranked || [];
+  }
+  if (isGuemesHomonymQuery(streetSegment, tokens)) {
+    return ranked;
+  }
+  const exact = ranked.filter((item) => {
+    const nameKey = String(item?.street?.nameKey || item?.nameKey || '').trim();
+    return nameKey === queryNameKey || item?.exactNameMatch === true;
+  });
+  return exact.length >= 1 ? exact : ranked;
+}

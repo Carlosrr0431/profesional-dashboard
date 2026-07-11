@@ -15,6 +15,7 @@ import { buildAddressPollPayload, formatAddressForWhatsAppPoll } from '../../../
 import {
   GUEMES_POLL_OPTION_LIMIT,
   isGuemesHomonymQuery,
+  preferExactCatalogStreetMatches,
   sortGuemesStreetCandidates,
 } from '../../../src/lib/saltaStreetHomonyms';
 import {
@@ -2773,25 +2774,40 @@ function getCatalogRankedStreetMatches(address, maxResults = 4) {
     }
   }
 
-  return [...candidateMap.values()]
+  const ranked = [...candidateMap.values()]
     .map(({ street, overlap }) => {
       const overlapScore = overlap / queryTokens.length;
       const fullTokenMatch = overlap >= queryTokens.length;
+      const queryNameKey = queryTokens.join(' ');
+      const streetNameKey = String(street.nameKey || '').trim();
+      const streetTokenCount = streetNameKey ? streetNameKey.split(/\s+/).filter(Boolean).length : 0;
       let score = overlapScore;
       if (/\b(?:pasaje|pje)\b/i.test(normalizedInput) && street.type === 'pasaje') score += 0.2;
       if (/\b(?:avenida|avda|av)\b/i.test(normalizedInput) && street.type === 'avenida') score += 0.2;
       if (houseNumber) score += 0.05;
       if (street.type === 'avenida' && fullTokenMatch) score += 0.10;
-      const nameTokenCount = (street.nameKey || '').split(/\s+/).length;
-      if (nameTokenCount <= 3) score += 0.05;
-      return { street, score, overlap, houseNumber };
+      if (streetTokenCount <= 3) score += 0.05;
+      // "Alvarado" debe ganar a "C Barbaran Alvarado" / "Mtro R Alvarado", etc.
+      if (queryNameKey && streetNameKey === queryNameKey) {
+        score += 0.55;
+      } else if (
+        queryTokens.length === 1
+        && streetTokenCount > 1
+        && !isGuemesHomonymQuery(streetSegment, queryTokens)
+      ) {
+        score -= 0.4;
+      }
+      return { street, score, overlap, houseNumber, exactNameMatch: streetNameKey === queryNameKey };
     })
     .filter((item) => {
       if (queryTokens.length >= 2 && item.overlap < queryTokens.length) return false;
       return item.score >= 0.6;
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, maxResults);
+    .slice(0, Math.max(maxResults * 2, maxResults));
+
+  // Si hay calle con nombre exacto (ej. Calle Alvarado), no mezclar homónimos compuestos.
+  return preferExactCatalogStreetMatches(ranked, queryTokens, streetSegment).slice(0, maxResults);
 }
 
 function getCatalogAddressVariants(address, maxResults = 4) {
@@ -5340,6 +5356,38 @@ async function geocodePollCandidate(candidate, votedLabel = '') {
     seen.add(key);
     try {
       const geo = await geocodeAddress(query);
+      const expectedStreetKey = String(candidate?.street?.nameKey || '').trim();
+      if (expectedStreetKey) {
+        const resolvedKey = normalizeForMatch(geo.formattedAddress || '');
+        const expectedTokens = expectedStreetKey.split(/\s+/).filter(Boolean);
+        const missing = expectedTokens.filter((token) => token.length >= 3 && !resolvedKey.includes(token));
+        // Si el catálogo dijo "Alvarado" y Google devolvió "Ministro Alvarado",
+        // exigir que no aparezcan tokens extra de otras calles del mismo apellido.
+        if (missing.length > 0) {
+          logWebhook('poll_candidate_geocode_street_mismatch', {
+            query,
+            expectedStreetKey,
+            resolved: geo.formattedAddress,
+          });
+          continue;
+        }
+        if (
+          expectedTokens.length === 1
+          && /\b(ministro|mtro|barbaran|general|gral)\b/.test(resolvedKey)
+          && !expectedTokens.includes('ministro')
+          && !expectedTokens.includes('mtro')
+          && !expectedTokens.includes('barbaran')
+          && !expectedTokens.includes('general')
+          && !expectedTokens.includes('gral')
+        ) {
+          logWebhook('poll_candidate_geocode_homonym_rejected', {
+            query,
+            expectedStreetKey,
+            resolved: geo.formattedAddress,
+          });
+          continue;
+        }
+      }
       return {
         label: candidate?.label || votedLabel || query,
         formattedAddress: geo.formattedAddress,
@@ -7239,6 +7287,16 @@ async function maybeSendDestinationAddressPoll({
     : catalogDestPoll.length >= 2
       ? catalogDestPoll
       : googleDestPoll;
+
+  // Match exacto de catálogo (ej. "Alvarado" → solo Calle Alvarado): no abrir poll
+  // con Barbarán/Gral/Mtro Alvarado ni con sugerencias Google ambiguas.
+  if (!destIsGuemesHomonym && catalogDestPoll.length === 1) {
+    logWebhook('destination_address_poll_skipped_exact_catalog', {
+      hint: finalDestinationHint,
+      catalogAddress: catalogDestPoll[0]?.formattedAddress || null,
+    });
+    return null;
+  }
 
   const destPollCandidates = collapseEquivalentPollCandidates(
     filterSaltaCapitalCandidates(rawDestPollCandidates),

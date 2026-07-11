@@ -138,6 +138,8 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
 
 /**
  * Geocodifica una dirección usando autocomplete + mejor match + Place Details.
+ * Elige por score contra el query (no el primer hit de Google): evita que
+ * "Calle Alvarado 550" resuelva a "Pasaje Ministro Alvarado".
  */
 export async function geocodeAddressViaPlaces(query, options = {}) {
   const text = String(query || '').trim();
@@ -150,23 +152,50 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
   const sessionToken = options.sessionToken || createSessionToken();
   const suggestions = await autocompleteAddressSalta(text, 5, { sessionToken });
 
+  const resolved = [];
+  let sessionUsed = false;
   for (const hit of suggestions) {
     try {
-      const place = await resolvePlaceSuggestion(hit, sessionToken);
+      const effectiveToken = sessionUsed ? undefined : (hit?.sessionToken || sessionToken);
+      const place = await resolvePlaceSuggestion(
+        { ...hit, sessionToken: effectiveToken },
+        effectiveToken,
+      );
+      sessionUsed = true;
       if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
-      return {
+
+      const labelForScore = [place.title, place.formattedAddress].filter(Boolean).join(', ');
+      const score = Math.max(
+        scoreCandidateAgainstQuery(place.formattedAddress, text),
+        scoreCandidateAgainstQuery(labelForScore, text),
+        scoreCandidateAgainstQuery(hit?.title || '', text),
+      );
+      resolved.push({
         formattedAddress: place.formattedAddress,
         lat: place.lat,
         lng: place.lng,
         placeId: place.placeId || null,
         geocodeSource: place.geocodeSource || null,
-      };
+        score,
+      });
     } catch {
       // Probar la siguiente sugerencia del autocomplete.
     }
   }
 
-  throw new Error('No se encontró la dirección');
+  resolved.sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+  const best = resolved.find((item) => Number(item.score || 0) >= 0.35) || resolved[0];
+  if (!best) {
+    throw new Error('No se encontró la dirección');
+  }
+
+  return {
+    formattedAddress: best.formattedAddress,
+    lat: best.lat,
+    lng: best.lng,
+    placeId: best.placeId || null,
+    geocodeSource: best.geocodeSource || null,
+  };
 }
 
 /**
