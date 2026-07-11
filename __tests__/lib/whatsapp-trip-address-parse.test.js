@@ -72,6 +72,30 @@ describe('whatsappTripAddressParse', () => {
     expect(getAddressPollIdentityKey(candidates[0])).toBe(getAddressPollIdentityKey(candidates[1]));
   });
 
+  it('colapsa intersección duplicada "y" vs "&"', () => {
+    const candidates = [
+      {
+        title: 'Alvarado y Santa Fe',
+        formattedAddress: 'Alvarado y Santa Fe, Salta, Argentina',
+        lat: -24.7891,
+        lng: -65.4112,
+        score: 0.92,
+      },
+      {
+        title: 'Alvarado & Santa Fe',
+        formattedAddress: 'Alvarado & Santa Fe, Salta, Argentina',
+        lat: -24.7892,
+        lng: -65.4113,
+        score: 0.9,
+      },
+    ];
+
+    const collapsed = collapseEquivalentPollCandidates(candidates);
+
+    expect(collapsed).toHaveLength(1);
+    expect(getAddressPollIdentityKey(candidates[0])).toBe(getAddressPollIdentityKey(candidates[1]));
+  });
+
   it('conserva calles homónimas distintas (Güemes)', () => {
     const candidates = [
       {

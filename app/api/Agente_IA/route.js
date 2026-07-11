@@ -2385,9 +2385,15 @@ function isGenericStreetWithoutName(value) {
 }
 
 function isIntersectionAddress(value) {
-  const normalized = normalizeForMatch(value || '');
-  if (!normalized || !/\s+y\s+/.test(normalized)) return false;
-  const parts = normalized.split(/\s+y\s+/);
+  const raw = String(value || '');
+  // Antes de strip de puntuación: "A & B" / "A esquina B".
+  const withConnectors = normalizeText(raw)
+    .replace(/\s*(?:&+|esquina(?:\s+con)?|esq\.?|x)\s+/gi, ' y ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!withConnectors || !/\s+y\s+/.test(withConnectors)) return false;
+  const parts = withConnectors.split(/\s+y\s+/);
   if (parts.length !== 2) return false;
   return getAddressContentTokens(parts[0]).length > 0 && getAddressContentTokens(parts[1]).length > 0;
 }
@@ -10682,11 +10688,12 @@ async function processClaimedConversation(batch) {
   const pickupQueryTokens = getAddressContentTokens(normalizeForMatch(normalizedPickupForGeo || ''));
   const pickupIsGuemesHomonym = isGuemesHomonymQuery(normalizedPickupForGeo, pickupQueryTokens);
 
+  const pickupIsExactIntersection = isIntersectionAddress(normalizedPickupForGeo);
   if (
     !tripExtracted._preGeocodedPickup?.lat
     && !knownPoiMatch
     && !pickupIsGuemesHomonym
-    && isSpecificStreetAddress(normalizedPickupForGeo)
+    && (isSpecificStreetAddress(normalizedPickupForGeo) || pickupIsExactIntersection)
     && !pendingScheduleInfo
   ) {
     try {
@@ -10700,12 +10707,14 @@ async function processClaimedConversation(batch) {
         conversationId: batch?.id || null,
         pickup: normalizedPickupForGeo,
         formattedAddress: directGeo.formattedAddress,
+        reason: pickupIsExactIntersection ? 'intersection' : 'street_number',
       });
     } catch (err) {
       logWebhook('conversation_pickup_direct_geocode_fail', {
         conversationId: batch?.id || null,
         pickup: normalizedPickupForGeo,
         error: err?.message || 'unknown',
+        reason: pickupIsExactIntersection ? 'intersection' : 'street_number',
       });
     }
   }

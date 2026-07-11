@@ -99,6 +99,15 @@ describe('formatPollOptionLabel (POIs)', () => {
     ).toBe('Cerro San Bernardo');
   });
 
+  it('normaliza intersección & a y en el label', () => {
+    expect(
+      formatPollOptionLabel({
+        title: 'Alvarado & Santa Fe',
+        formattedAddress: 'Alvarado & Santa Fe, Salta, Argentina',
+      })
+    ).toBe('Alvarado y Santa Fe');
+  });
+
   it('usa formattedAddress cuando no hay title de POI', () => {
     expect(
       formatPollOptionLabel({

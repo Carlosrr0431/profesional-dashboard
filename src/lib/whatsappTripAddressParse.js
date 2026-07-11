@@ -74,6 +74,10 @@ function normalizePollStreetKey(value) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
+    // Intersecciones: "A & B" / "A esquina B" / "A x B" → misma identidad que "A y B".
+    .replace(/&+/g, ' y ')
+    .replace(/\b(?:esquina(?:\s+con)?|esq)\b/g, ' y ')
+    .replace(/\s+x\s+/g, ' y ')
     .replace(/\b(gral|general|calle|av(?:enida)?|avda|dr|doctor|prof|profesor|boulevard|bv|bvd)\b/g, ' ')
     .replace(/\bbartolome\b/g, ' ')
     .replace(/[^a-z0-9\s]/g, ' ')
@@ -98,6 +102,16 @@ function getAddressPollIdentityKey(candidate) {
   return `${street}|${number}`;
 }
 
+function candidatesAreNearDuplicate(a, b) {
+  const aLat = Number(a?.lat);
+  const aLng = Number(a?.lng);
+  const bLat = Number(b?.lat);
+  const bLng = Number(b?.lng);
+  if (![aLat, aLng, bLat, bLng].every(Number.isFinite)) return false;
+  // ~80 m en Salta: misma esquina con labels distintos (y vs &).
+  return Math.abs(aLat - bLat) < 0.0008 && Math.abs(aLng - bLng) < 0.0008;
+}
+
 function collapseEquivalentPollCandidates(candidates) {
   const seen = new Map();
   for (const candidate of candidates || []) {
@@ -108,7 +122,21 @@ function collapseEquivalentPollCandidates(candidates) {
       seen.set(key, candidate);
     }
   }
-  return [...seen.values()].sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
+
+  const collapsed = [...seen.values()];
+  const out = [];
+  for (const candidate of collapsed) {
+    const nearIdx = out.findIndex((prev) => candidatesAreNearDuplicate(prev, candidate));
+    if (nearIdx < 0) {
+      out.push(candidate);
+      continue;
+    }
+    if (Number(candidate?.score || 0) > Number(out[nearIdx]?.score || 0)) {
+      out[nearIdx] = candidate;
+    }
+  }
+
+  return out.sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
 }
 
 module.exports = {
@@ -118,4 +146,5 @@ module.exports = {
   extractFullTripByPattern,
   collapseEquivalentPollCandidates,
   getAddressPollIdentityKey,
+  normalizePollStreetKey,
 };

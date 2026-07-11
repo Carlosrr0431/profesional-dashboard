@@ -73,6 +73,8 @@ function formatStreetPartForPoll(streetPart) {
     result = result.replace(pattern, replacement);
   }
   result = applyStreetNameExpansions(result);
+  // Preferir español en intersecciones ("Alvarado & Santa Fe" → "Alvarado y Santa Fe").
+  result = result.replace(/\s*&\s*/g, ' y ');
   return result.replace(/\s+/g, ' ').trim();
 }
 
