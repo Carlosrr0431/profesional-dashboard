@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { createTripViaApi, cancelTripViaApi, fetchTripViaTracking } from '../services/tripService';
 import { isPickupCoveredByServiceZones } from '../services/serviceZones';
-import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../../../shared/geo/serviceZones';
+import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../../shared/geo/serviceZones';
 import { useTripStore } from '../stores/tripStore';
 import { getPassengerPhoneVariants } from '../utils/phone';
 

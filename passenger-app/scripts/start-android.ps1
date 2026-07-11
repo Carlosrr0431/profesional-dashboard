@@ -151,6 +151,24 @@ function Wait-MetroReady {
   throw "Metro no respondió en http://localhost:$MetroPort a tiempo."
 }
 
+function Wait-MetroBundleReady {
+  $bundleUrl = "http://127.0.0.1:$MetroPort/node_modules/expo/AppEntry.bundle?platform=android&dev=true&minify=false&app=$PackageName"
+  Write-Step 'Precalentando bundle Android (primera carga puede tardar)...'
+  $deadline = (Get-Date).AddMinutes(5)
+  while ((Get-Date) -lt $deadline) {
+    try {
+      $response = Invoke-WebRequest -Uri $bundleUrl -UseBasicParsing -TimeoutSec 120
+      if ($response.StatusCode -eq 200) {
+        Write-Step 'Bundle Android listo.'
+        return
+      }
+    } catch {
+      Start-Sleep -Seconds 2
+    }
+  }
+  throw 'Metro no generó el bundle Android a tiempo.'
+}
+
 function Start-MetroBundler {
   Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
   Remove-Item Env:CI -ErrorAction SilentlyContinue
@@ -219,6 +237,7 @@ if ($needsInstall) {
 }
 
 Wait-MetroReady
+Wait-MetroBundleReady
 Open-PassengerDevClient
 
 Write-Host ''

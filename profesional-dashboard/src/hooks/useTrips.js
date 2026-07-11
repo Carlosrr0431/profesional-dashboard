@@ -7,6 +7,7 @@ export function useDriverTrips(driverId) {
   const [driverFinancials, setDriverFinancials] = useState({
     pendingCommission: 0,
     lastCommissionPaymentAt: null,
+    commissionDebtSinceAt: null,
   });
   const [loading, setLoading] = useState(false);
   const channelRef = useRef(null);
@@ -37,6 +38,7 @@ export function useDriverTrips(driverId) {
       commissionPayments: payload?.data?.commissionPayments || [],
       pendingCommission: Number(payload?.data?.pendingCommission) || 0,
       lastCommissionPaymentAt: payload?.data?.lastCommissionPaymentAt || null,
+      commissionDebtSinceAt: payload?.data?.commissionDebtSinceAt || null,
     };
   }, [driverId]);
 
@@ -50,6 +52,7 @@ export function useDriverTrips(driverId) {
       setDriverFinancials({
         pendingCommission: snapshot.pendingCommission,
         lastCommissionPaymentAt: snapshot.lastCommissionPaymentAt,
+        commissionDebtSinceAt: snapshot.commissionDebtSinceAt,
       });
     } catch (err) {
       console.error('Error fetching trips:', {
@@ -71,6 +74,7 @@ export function useDriverTrips(driverId) {
       setDriverFinancials({
         pendingCommission: snapshot.pendingCommission,
         lastCommissionPaymentAt: snapshot.lastCommissionPaymentAt,
+        commissionDebtSinceAt: snapshot.commissionDebtSinceAt,
       });
     } catch (err) {
       console.error('Error fetching commission payments:', {
@@ -86,7 +90,7 @@ export function useDriverTrips(driverId) {
     if (!driverId) {
       setTrips([]);
       setCommissionPayments([]);
-      setDriverFinancials({ pendingCommission: 0, lastCommissionPaymentAt: null });
+      setDriverFinancials({ pendingCommission: 0, lastCommissionPaymentAt: null, commissionDebtSinceAt: null });
       return;
     }
     fetchTrips();
@@ -132,7 +136,7 @@ export function useDriverTrips(driverId) {
 function computeStats(
   trips,
   commissionPayments = [],
-  { pendingCommission = 0, lastCommissionPaymentAt = null } = {}
+  { pendingCommission = 0, lastCommissionPaymentAt = null, commissionDebtSinceAt = null } = {}
 ) {
   const completed = trips.filter((t) => t.status === 'completed');
   const cancelled = trips.filter((t) => t.status === 'cancelled');
@@ -158,12 +162,13 @@ function computeStats(
     ? 0
     : Math.max(0, Math.round((totalPaid - totalCommission) * 100) / 100);
 
+  const debtSince = commissionDebtSinceAt ? new Date(commissionDebtSinceAt) : null;
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+  const isOverdue = commissionBalance > 0 && debtSince !== null && debtSince < threeDaysAgo;
   const lastPayment = lastCommissionPaymentAt
     ? new Date(lastCommissionPaymentAt)
     : (commissionPayments.length > 0 ? new Date(commissionPayments[0].created_at) : null);
-  const threeDaysAgo = new Date();
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-  const isOverdue = commissionBalance > 0 && (!lastPayment || lastPayment < threeDaysAgo);
 
   // Today stats
   const todayStart = new Date();

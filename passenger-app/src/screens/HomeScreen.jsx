@@ -24,6 +24,7 @@ import { useTripStore } from '../stores/tripStore';
 import { useTrip } from '../hooks/useTrip';
 import { useTripRealtime } from '../hooks/useRealtime';
 import { usePassengerActiveTrip } from '../hooks/usePassengerActiveTrip';
+import { useResponsive } from '../hooks/useResponsive';
 import ExpandableTripSheet from '../components/home/ExpandableTripSheet';
 import TripPlanRouteOverlay from '../components/map/TripPlanRouteOverlay';
 import ActiveTripMapOverlay from '../components/map/ActiveTripMapOverlay';
@@ -49,7 +50,11 @@ function clamp(value, min, max) {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { width: screenW, height: screenH } = useWindowDimensions();
+  const { s, fs, isLandscape, isTablet, screenPadding } = useResponsive();
   const navigation = useNavigation();
+  const iconBtnSize = s(44, { min: 40, max: 52 });
+  const locateBtnSize = s(52, { min: 46, max: 58 });
+  const menuMaxW = isTablet || isLandscape ? 360 : 320;
   const mapViewRef = useRef(null);
   const cameraRef = useRef(null);
   const mapRef = useRef(null);
@@ -58,7 +63,7 @@ export default function HomeScreen() {
   }
   const appStateRef = useRef(AppState.currentState);
 
-  const { location, isLoading: locationLoading } = useLocation();
+  const { location, isLoading: locationLoading, getCurrentLocation } = useLocation();
   const { activeTrip, activeTripId, setActiveTrip, loadPersistedTripId } = useTripStore();
   const { fetchTrip } = useTrip();
 
@@ -129,6 +134,21 @@ export default function HomeScreen() {
     });
     return () => sub.remove();
   }, [activeTripId]);
+
+  // Centra inmediatamente en el GPS del pasajero al abrir la app con un viaje activo.
+  // Evita que el mapa aparezca en SALTA_CENTER hasta que cargue la ruta.
+  // usePassengerActiveTrip luego reajusta la cámara para mostrar la ruta completa.
+  const activeTripCameraInitRef = useRef(false);
+  useEffect(() => {
+    if (!hasLiveTripMap) {
+      activeTripCameraInitRef.current = false;
+      return;
+    }
+    if (activeTripCameraInitRef.current || !mapReady || !location) return;
+    mapRef.current?.animateToRegion({ ...location, ...USER_LOCATION_DELTA }, 300);
+    userCenteredRef.current = true;
+    activeTripCameraInitRef.current = true;
+  }, [hasLiveTripMap, mapReady, location?.latitude, location?.longitude]);
 
   const handleCenterMap = useCallback(() => {
     if (!mapRef.current) return;
@@ -291,7 +311,10 @@ export default function HomeScreen() {
       <MapLibreGL.MapView
         ref={mapViewRef}
         style={StyleSheet.absoluteFill}
-        mapPadding={mapPadding}
+        mapType="standard"
+        mapStyle={[]}
+        mapPadding={undefined}
+        userInterfaceStyle="light"
         compassEnabled={false}
         logoEnabled={false}
         attributionEnabled={false}
@@ -337,21 +360,25 @@ export default function HomeScreen() {
             pickup={routePreview.pickup}
             paradas={routePreview.paradas}
             mapRef={mapRef}
-            mapPadding={mapPadding}
+            mapPadding={mapReady ? mapPadding : undefined}
             userMovedMapRef={routeMapUserGestureRef}
           />
         ) : null}
       </MapLibreGL.MapView>
 
-      <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]}>
+      <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm, paddingHorizontal: screenPadding }]}>
         <Pressable
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setMenuVisible(true);
           }}
-          style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
+          style={({ pressed }) => [
+            styles.iconBtn,
+            { width: iconBtnSize, height: iconBtnSize },
+            pressed && styles.iconBtnPressed,
+          ]}
         >
-          <Ionicons name="menu" size={22} color={colors.primary} />
+          <Ionicons name="menu" size={Math.round(fs(22))} color={colors.primary} />
         </Pressable>
 
         <View style={[styles.brandChip, shadow.soft]}>
@@ -359,17 +386,17 @@ export default function HomeScreen() {
             colors={colors.gradient.brand}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.brandIcon}
+            style={[styles.brandIcon, { width: s(36, { min: 32 }), height: s(36, { min: 32 }) }]}
           >
-            <Ionicons name="car-sport" size={18} color="#FFFFFF" />
+            <Ionicons name="car-sport" size={Math.round(fs(18))} color="#FFFFFF" />
           </LinearGradient>
           <View style={styles.brandText}>
-            <Text style={styles.brandTitle}>Profesional</Text>
-            <Text style={styles.brandSub}>Salta Capital</Text>
+            <Text style={[styles.brandTitle, { fontSize: fs(14) }]}>Profesional</Text>
+            <Text style={[styles.brandSub, { fontSize: fs(10) }]}>Salta Capital</Text>
           </View>
         </View>
 
-        <View style={styles.iconBtnPlaceholder} />
+        <View style={[styles.iconBtnPlaceholder, { width: iconBtnSize }]} />
       </View>
 
       <Modal
@@ -382,7 +409,11 @@ export default function HomeScreen() {
           <Pressable
             style={[
               styles.menuPanel,
-              { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.lg },
+              {
+                maxWidth: menuMaxW,
+                paddingTop: insets.top + spacing.xl,
+                paddingBottom: insets.bottom + spacing.lg,
+              },
             ]}
             onPress={(e) => e.stopPropagation()}
           >
@@ -434,7 +465,12 @@ export default function HomeScreen() {
           style={({ pressed }) => [
             styles.locateBtn,
             shadow.float,
-            { bottom: locateBtnBottom },
+            {
+              bottom: locateBtnBottom,
+              right: screenPadding,
+              width: locateBtnSize,
+              height: locateBtnSize,
+            },
             pressed && { opacity: 0.92 },
           ]}
         >
@@ -442,7 +478,7 @@ export default function HomeScreen() {
             colors={['#FFFFFF', colors.accentSoft]}
             style={styles.locateBtnInner}
           >
-            <Ionicons name="locate" size={22} color={colors.primary} />
+            <Ionicons name="locate" size={Math.round(fs(22))} color={colors.primary} />
           </LinearGradient>
         </Pressable>
       )}
@@ -458,6 +494,7 @@ export default function HomeScreen() {
         onRoutePreviewChange={handleRoutePreviewChange}
         activeTripUi={activeTripUi}
         onActiveTripFinish={handleActiveTripFinish}
+        getCurrentLocation={getCurrentLocation}
       />
     </View>
   );
@@ -475,11 +512,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
   },
   iconBtn: {
-    width: 44,
-    height: 44,
     borderRadius: radius.md,
     backgroundColor: colors.surface,
     alignItems: 'center',
@@ -488,7 +522,7 @@ const styles = StyleSheet.create({
     borderColor: colors.borderLight,
   },
   iconBtnPressed: { opacity: 0.88 },
-  iconBtnPlaceholder: { width: 44 },
+  iconBtnPlaceholder: {},
 
   brandChip: {
     flexDirection: 'row',
@@ -503,21 +537,17 @@ const styles = StyleSheet.create({
     borderColor: colors.borderLight,
   },
   brandIcon: {
-    width: 36,
-    height: 36,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
   brandText: { alignItems: 'center' },
   brandTitle: {
-    fontSize: 14,
     fontFamily: 'Inter_700Bold',
     color: colors.primary,
     letterSpacing: -0.2,
   },
   brandSub: {
-    fontSize: 10,
     fontFamily: 'Inter_500Medium',
     color: colors.textMuted,
     marginTop: 1,
@@ -525,9 +555,6 @@ const styles = StyleSheet.create({
 
   locateBtn: {
     position: 'absolute',
-    right: spacing.lg,
-    width: 52,
-    height: 52,
     borderRadius: radius.lg,
     overflow: 'hidden',
     zIndex: 11,

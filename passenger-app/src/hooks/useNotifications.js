@@ -10,6 +10,7 @@ import {
 } from '../services/notifications';
 import { useAuthStore } from '../stores/authStore';
 import { navigate } from '../navigation/navigationRef';
+import { whenLocationBootstrapSettled } from './useLocation';
 
 const globalScope = globalThis;
 
@@ -44,7 +45,8 @@ export const useNotifications = () => {
       registerForPushNotifications(auth).catch(console.warn);
     };
 
-    registerPush();
+    // Ubicación primero: en Android solo puede mostrarse un diálogo de permisos a la vez.
+    whenLocationBootstrapSettled().then(registerPush);
 
     runtime.tokenRefreshSub?.remove?.();
     runtime.tokenRefreshSub = subscribeToTokenRefresh(auth);

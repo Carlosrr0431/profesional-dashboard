@@ -20,16 +20,30 @@ export function isPassengerInitiatedCancellation(tripOrReason) {
 }
 
 /** Estados en los que el pasajero puede cancelar desde la app. */
-export const PASSENGER_CANCELLABLE_STATUSES = ['queued', 'pending'];
+export const PASSENGER_CANCELLABLE_STATUSES = [
+  'queued',
+  'pending',
+  'going_to_pickup',
+];
 
-export function buildPassengerCancelledTripUpdate(extra = {}) {
+/**
+ * Payload de cancelación.
+ * Conserva driver_id cuando el viaje ya estaba asignado, para que Realtime
+ * llegue al chofer (ownsNow) y se refleje al instante en driver-app.
+ */
+export function buildPassengerCancelledTripUpdate(existing = {}, extra = {}) {
+  const status = String(existing?.status || '').toLowerCase();
+  const hadAssignedDriver = Boolean(existing?.driver_id)
+    && ['accepted', 'going_to_pickup', 'in_progress', 'pending'].includes(status);
+
   return {
     status: 'cancelled',
     dispatch_status: 'cancelled',
     cancel_reason: PASSENGER_CANCEL_REASON,
-    driver_id: null,
-    assigned_at: null,
-    accepted_at: null,
+    // Solo liberamos driver_id en cola temprana sin asignación real útil.
+    ...(hadAssignedDriver
+      ? {}
+      : { driver_id: null, assigned_at: null, accepted_at: null }),
     next_dispatch_at: null,
     status_updated_at: new Date().toISOString(),
     ...extra,

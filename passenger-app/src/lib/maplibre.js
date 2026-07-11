@@ -120,7 +120,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   const [showUserLocation, setShowUserLocation] = useState(false);
 
   const {
-    mapStyle: _mapStyle,
+    mapStyle,
     compassEnabled,
     logoEnabled: _logoEnabled,
     attributionEnabled: _attributionEnabled,
@@ -133,10 +133,22 @@ const MapView = forwardRef(function MapView(props, ref) {
     onRegionIsChanging,
     onRegionDidChange,
     pointerEvents,
+    mapPadding: mapPaddingRaw,
     children,
     style,
     ...rest
   } = props;
+
+  // Sanitize mapPadding: react-native-maps crashes on Android (NullPointerException in
+  // applyBaseMapPadding) if any value is null/undefined/NaN. Only pass it when all
+  // four sides are valid finite numbers.
+  const mapPadding = mapPaddingRaw &&
+    Number.isFinite(mapPaddingRaw.top) &&
+    Number.isFinite(mapPaddingRaw.right) &&
+    Number.isFinite(mapPaddingRaw.bottom) &&
+    Number.isFinite(mapPaddingRaw.left)
+    ? mapPaddingRaw
+    : undefined;
 
   const getMapRef = () => innerRef.current;
 
@@ -191,6 +203,8 @@ const MapView = forwardRef(function MapView(props, ref) {
         ref={innerRef}
         provider={PROVIDER_GOOGLE}
         style={style}
+        customMapStyle={mapStyle}
+        mapPadding={mapPadding}
         showsCompass={compassEnabled ?? false}
         rotateEnabled={rotateEnabled}
         pitchEnabled={pitchEnabled}

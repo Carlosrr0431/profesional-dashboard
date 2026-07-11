@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -27,6 +28,8 @@ import { loadFrequentPlaces, addRecentPlace } from '../services/recentPlaces';
 import AddressSearchInput from '../components/ui/AddressSearchInput';
 import PickupCoverageBanner from '../components/ui/PickupCoverageBanner';
 import MapPinPickerModal from '../components/map/MapPinPickerModal';
+import { useResponsive } from '../hooks/useResponsive';
+import { CONTENT_MAX_WIDTH } from '../utils/responsive';
 
 const ACTIVE_FIELD = { pickup: 'pickup', destination: 'destination' };
 
@@ -34,6 +37,8 @@ export default function TripSearchScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute();
+  const { screenPadding, isTablet, isLandscape } = useResponsive();
+  const contentMaxW = (isTablet || isLandscape) ? CONTENT_MAX_WIDTH : undefined;
 
   const { profile } = useAuthStore();
   const { getCurrentLocation } = useLocation();
@@ -56,7 +61,32 @@ export default function TripSearchScreen() {
 
   const loadPickupFromGPS = useCallback(async () => {
     setPickupLoading(true);
+    let quickLoaded = false;
+
     try {
+      // Fase 1: mostrar última ubicación conocida inmediatamente
+      const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 5 * 60 * 1000 })
+        .catch(() => null);
+
+      if (lastKnown) {
+        const quickAddress = await reverseGeocode(
+          lastKnown.coords.latitude,
+          lastKnown.coords.longitude,
+        ).catch(() => null);
+
+        if (quickAddress && !isCoordinateFallbackText(quickAddress)) {
+          setPickup({
+            address: quickAddress,
+            lat: lastKnown.coords.latitude,
+            lng: lastKnown.coords.longitude,
+            placeId: null,
+          });
+          setPickupLoading(false);
+          quickLoaded = true;
+        }
+      }
+
+      // Fase 2: posición fresca → actualizar silenciosamente
       const loc = await getCurrentLocation();
       let address = await reverseGeocode(loc.latitude, loc.longitude);
       if (isCoordinateFallbackText(address)) {
@@ -70,7 +100,9 @@ export default function TripSearchScreen() {
         placeId: null,
       });
     } catch {
-      Toast.show({ type: 'error', text1: 'No se pudo obtener tu ubicación' });
+      if (!quickLoaded) {
+        Toast.show({ type: 'error', text1: 'No se pudo obtener tu ubicación' });
+      }
     } finally {
       setPickupLoading(false);
     }
@@ -280,7 +312,11 @@ export default function TripSearchScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+      <View style={[
+        styles.contentWrap,
+        contentMaxW ? { maxWidth: contentMaxW, alignSelf: 'center', width: '100%' } : null,
+      ]}>
+      <View style={[styles.header, { paddingTop: insets.top + 8, paddingHorizontal: Math.max(8, screenPadding - 12) }]}>
         <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </Pressable>
@@ -423,6 +459,7 @@ export default function TripSearchScreen() {
           </LinearGradient>
         </Pressable>
       </View>
+      </View>
 
       <MapPinPickerModal
         visible={mapPickerField != null}
@@ -437,6 +474,7 @@ export default function TripSearchScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
+  contentWrap: { flex: 1, width: '100%' },
   flex: { flex: 1 },
 
   header: {

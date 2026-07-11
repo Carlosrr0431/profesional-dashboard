@@ -70,3 +70,9 @@ export function resolveFleetActiveTrip(driver, fleetActiveTripByRoot) {
   if (!rootId || !fleetActiveTripByRoot) return null;
   return fleetActiveTripByRoot.get(rootId) || null;
 }
+
+/** Viaje activo para UI: solo el chofer que realiza el viaje (trip.driver_id). */
+export function resolveDisplayActiveTrip(driverId, activeTripsMap) {
+  if (!driverId || !activeTripsMap) return null;
+  return activeTripsMap[driverId] || null;
+}

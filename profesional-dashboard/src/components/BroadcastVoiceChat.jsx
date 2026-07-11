@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { formatError } from '../lib/errorFormat';
 import { encodeToWav } from '../lib/audioEncoder';
 import { useToast } from '../context/ToastContext';
+import { insertVoiceMessagesViaApi } from '../lib/voiceMessagesApi';
 
 export default function BroadcastVoiceChat({ drivers, onClose }) {
   const toast = useToast();
@@ -85,7 +86,7 @@ export default function BroadcastVoiceChat({ drivers, onClose }) {
 
       const { data: urlData } = supabase.storage.from('voice-messages').getPublicUrl(fileName);
 
-      // Insert a voice message for each selected driver
+      // Insert a voice message for each selected driver (vía API: bypass RLS)
       const rows = drivers.map((d) => ({
         driver_id: d.id,
         sender_type: 'base',
@@ -93,17 +94,14 @@ export default function BroadcastVoiceChat({ drivers, onClose }) {
         duration_seconds: recordingTime,
       }));
 
-      const { error: insertError } = await supabase
-        .from('voice_messages')
-        .insert(rows);
-      if (insertError) throw insertError;
+      await insertVoiceMessagesViaApi(rows);
 
       setSent(true);
       toast.success(`Mensaje de voz enviado a ${drivers.length} choferes`);
       setTimeout(() => setSent(false), 3000);
     } catch (err) {
       console.error('Error sending broadcast voice:', formatError(err));
-      toast.error('No se pudo enviar el mensaje de voz');
+      toast.error(err?.message || 'No se pudo enviar el mensaje de voz');
     } finally {
       setSending(false);
       setRecordingTime(0);

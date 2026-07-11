@@ -101,11 +101,97 @@ export function isFleetOwner(driver) {
   return (driver?.role === 'owner' || driver?.isFleetOwner === true) && !isAssignedDriver(driver);
 }
 
+/** Clave de teléfono canónica para agrupar titulares socios. */
+export function getDriverPhoneKey(driver) {
+  if (!driver) return '';
+  return normalizeDriverPhone(driver.phone_normalized || driver.phone) || '';
+}
+
+/**
+ * Titulares que comparten el mismo teléfono (socios).
+ * No incluye al propio owner.
+ */
+export function findOwnerPartners(drivers, owner) {
+  if (!owner || isAssignedDriver(owner)) return [];
+  const phoneKey = getDriverPhoneKey(owner);
+  if (!phoneKey) return [];
+  return (drivers || []).filter(
+    (d) =>
+      d?.id
+      && d.id !== owner.id
+      && !isAssignedDriver(d)
+      && getDriverPhoneKey(d) === phoneKey,
+  );
+}
+
+/**
+ * Clave de agrupación en lista: socios (mismo teléfono) + sus asignados juntos.
+ */
+export function getFleetListGroupKey(driver, ownerById = {}) {
+  if (isAssignedDriver(driver)) {
+    const owner = ownerById[driver.owner_id];
+    const phoneKey = getDriverPhoneKey(owner);
+    if (phoneKey) return `phone:${phoneKey}`;
+    return `owner:${driver.owner_id || driver.id}`;
+  }
+  const phoneKey = getDriverPhoneKey(driver);
+  if (phoneKey) return `phone:${phoneKey}`;
+  return `owner:${driver.id}`;
+}
+
 export function getAssignedDriverRegistrationStatus(driver) {
   if (!driver) return 'unknown';
   if (driver.user_id && driver.password_initialized !== false) return 'registered';
   if (driver.user_id) return 'registered';
   return 'pending';
+}
+
+/**
+ * Match de búsqueda para lista de choferes (mapa / gestión).
+ * Acepta snake_case o camelCase. Incluye nº de móvil (#49, 49, móvil 49).
+ * Consultas solo numéricas priorizan móvil exacto (no parciales en patente).
+ */
+export function matchesDriverSearch(driver, rawQuery, extraText = '') {
+  const q = String(rawQuery || '').trim().toLowerCase();
+  if (!q) return true;
+  if (!driver) return false;
+
+  const name = String(driver.full_name || driver.fullName || '').toLowerCase();
+  const plate = String(driver.vehicle_plate || driver.vehiclePlate || '').toLowerCase();
+  const phone = String(driver.phone || '');
+  const phoneDigits = phone.replace(/\D/g, '');
+  const queryDigits = q.replace(/\D/g, '');
+  const driverNumber = driver.driver_number ?? driver.driverNumber;
+  const numberStr = driverNumber != null && driverNumber !== '' ? String(driverNumber) : '';
+  const extra = String(extraText || '').toLowerCase();
+
+  const numberQuery = q
+    .replace(/^#/, '')
+    .replace(/^m[oó]vil\s*#?/, '')
+    .replace(/^n[ºo°.]?\s*(de\s*)?(chofer|m[oó]vil)?\s*#?/, '')
+    .trim();
+
+  const isMobileNumberQuery = /^\d+$/.test(numberQuery);
+
+  if (isMobileNumberQuery) {
+    if (numberStr && numberStr === numberQuery) return true;
+    if (queryDigits.length >= 3 && phoneDigits.includes(queryDigits)) return true;
+    return false;
+  }
+
+  if (name.includes(q)) return true;
+  if (plate.includes(q)) return true;
+  if (extra && extra.includes(q)) return true;
+  if (phone.toLowerCase().includes(q)) return true;
+  if (queryDigits.length >= 3 && phoneDigits.includes(queryDigits)) return true;
+
+  if (numberStr) {
+    if (numberStr === numberQuery) return true;
+    if (numberStr === q.replace(/^#/, '').trim()) return true;
+    if (numberStr.includes(numberQuery)) return true;
+  }
+
+  return false;
 }
 
 export const MAX_ASSIGNED_DRIVERS = 3;

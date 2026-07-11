@@ -70,6 +70,12 @@ async function requestAndroidNotificationPermission() {
   if (Platform.OS !== 'android' || Platform.Version < 33) return true;
 
   try {
+    // Verificar si ya está concedido (el usuario puede haberlo activado desde Ajustes)
+    const alreadyGranted = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+    );
+    if (alreadyGranted) return true;
+
     const result = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
     );
@@ -103,10 +109,16 @@ async function requestNotificationPermission(messaging) {
   return true;
 }
 
+let _registerInFlight = false;
+
 export const registerForPushNotifications = async ({ phone, sessionToken } = {}) => {
+  if (_registerInFlight) return null;
+  _registerInFlight = true;
+
   const passengerPhone = String(phone || '').trim();
   const messaging = getMessagingInstance();
   if (!messaging) {
+    _registerInFlight = false;
     console.warn(
       '[PassengerPush] Firebase Messaging no disponible. ' +
       'Rebuild necesario: cd passenger-app && npm run start:android:install'
@@ -153,6 +165,8 @@ export const registerForPushNotifications = async ({ phone, sessionToken } = {})
   } catch (error) {
     console.warn('[PassengerPush] Error en registro:', error?.message || error);
     return null;
+  } finally {
+    _registerInFlight = false;
   }
 };
 

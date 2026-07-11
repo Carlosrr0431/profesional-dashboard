@@ -1,11 +1,7 @@
 import React, { useRef, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Platform, InteractionManager } from 'react-native';
 import { colors } from '../../theme/colors';
-
-const SIZES = {
-  sm: { box: 46, height: 54, fontSize: 20, gap: 8, radius: 14 },
-  md: { box: 56, height: 64, fontSize: 26, gap: 12, radius: 16 },
-};
+import { useResponsive } from '../../hooks/useResponsive';
 
 export default function OtpInput({
   value = '',
@@ -18,7 +14,21 @@ export default function OtpInput({
   autoComplete,
 }) {
   const inputRef = useRef(null);
-  const metrics = SIZES[size] || SIZES.md;
+  const { s, fs, isCompactHeight } = useResponsive();
+
+  const metrics = useMemo(() => {
+    const sizes = {
+      sm: { box: s(46), height: s(54, { min: 48 }), fontSize: fs(20), gap: s(8), radius: s(14) },
+      md: {
+        box: s(isCompactHeight ? 48 : 56, { min: 44 }),
+        height: s(isCompactHeight ? 56 : 64, { min: 48 }),
+        fontSize: fs(isCompactHeight ? 22 : 26),
+        gap: s(12),
+        radius: s(16),
+      },
+    };
+    return sizes[size] || sizes.md;
+  }, [s, fs, size, isCompactHeight]);
 
   const cleanValue = String(value || '').replace(/\D/g, '').slice(0, length);
 
@@ -42,7 +52,6 @@ export default function OtpInput({
   const focusInput = useCallback(() => {
     const input = inputRef.current;
     if (!input) return;
-    // Si el teclado se cerró sin blur, focus() no lo reabre; blur + focus lo corrige en iOS y Android.
     input.blur();
     setTimeout(() => input.focus(), 64);
   }, []);
@@ -52,7 +61,6 @@ export default function OtpInput({
 
     let focusTimer;
     const interaction = InteractionManager.runAfterInteractions(() => {
-      // Esperar la animación de entrada de la card antes de abrir el teclado.
       const delay = Platform.OS === 'android' ? 480 : 320;
       focusTimer = setTimeout(focusInput, delay);
     });

@@ -9,7 +9,7 @@ import {
   isPickupInActiveZones,
   PICKUP_OUTSIDE_COVERAGE_MESSAGE,
   PICKUP_OUTSIDE_COVERAGE_TITLE,
-} from '../../../shared/geo/serviceZones';
+} from '../../shared/geo/serviceZones';
 
 export function notifyPickupOutsideCoverage() {
   Toast.show({
@@ -44,8 +44,21 @@ export function useServiceZoneCoverage(pickup) {
 
   useEffect(() => {
     let cancelled = false;
+    let channel = null;
 
-    const load = async () => {
+    const setup = async () => {
+      // Elimina canales huérfanos con el mismo topic antes de suscribir.
+      // Necesario en React StrictMode (double-invoke) para evitar el error
+      // "cannot add postgres_changes callbacks after subscribe()".
+      const orphans = supabase
+        .getChannels()
+        .filter((ch) => String(ch.topic || '').includes('passenger_service_zones'));
+      if (orphans.length) {
+        await Promise.all(orphans.map((ch) => supabase.removeChannel(ch)));
+      }
+
+      if (cancelled) return;
+
       try {
         const data = await fetchActiveServiceZones();
         if (!cancelled) setZones(data);
@@ -55,24 +68,31 @@ export function useServiceZoneCoverage(pickup) {
       } finally {
         if (!cancelled) setZonesReady(true);
       }
+
+      if (cancelled) return;
+
+      channel = supabase
+        .channel('passenger_service_zones')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'service_zones' },
+          () => {
+            if (!cancelled) reloadZones();
+          }
+        )
+        .subscribe();
     };
 
-    load();
-
-    const channel = supabase
-      .channel('passenger_service_zones')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'service_zones' },
-        () => {
-          if (!cancelled) reloadZones();
-        }
-      )
-      .subscribe();
+    setup().catch((err) =>
+      console.warn('useServiceZoneCoverage setup:', err?.message || err)
+    );
 
     return () => {
       cancelled = true;
-      supabase.removeChannel(channel);
+      if (channel) {
+        supabase.removeChannel(channel).catch(() => {});
+        channel = null;
+      }
     };
   }, [reloadZones]);
 

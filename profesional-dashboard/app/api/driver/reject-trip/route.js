@@ -64,7 +64,7 @@ export async function POST(request) {
 
     const { data: tripRow, error: tripError } = await supabase
       .from('trips')
-      .select('id, status, driver_id, wa_context, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng')
+      .select('id, status, driver_id, wa_context, notes, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng')
       .eq('id', tripId)
       .maybeSingle();
 

@@ -1,8 +1,8 @@
 /**
  * Geocodificación vía dashboard (mismo flujo que TripAssignModal / AddressAutocomplete).
  */
-const shared = require('../../../shared/geo/dashboardGeoApi');
-const placeResolve = require('../../../shared/geo/geoPlaceResolve');
+const shared = require('../../shared/geo/dashboardGeoApi');
+const placeResolve = require('../../shared/geo/geoPlaceResolve');
 
 export const geocodeAddress = shared.geocodeAddress;
 export const geocodeAddressMultiple = shared.geocodeAddressMultiple;

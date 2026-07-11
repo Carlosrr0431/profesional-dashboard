@@ -1,45 +1,41 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useResponsive } from '../../hooks/useResponsive';
 
 export default function AppSplashScreen() {
   const insets = useSafeAreaInsets();
+  const { s, fs } = useResponsive();
+  const logoSize = s(140, { min: 96, max: 180 });
 
   return (
-    <View style={styles.container}>
+    <View style={{
+      flex: 1,
+      backgroundColor: '#FFFFFF',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}>
       <Image
         source={require('../../../assets/adaptive-icon.png')}
-        style={styles.logo}
+        style={{ width: logoSize, height: logoSize }}
         contentFit="contain"
       />
-      <View style={[styles.footer, { bottom: Math.max(insets.bottom, 24) + 56 }]}>
-        <Text style={styles.footerText}>Profesional</Text>
+      <View style={{
+        position: 'absolute',
+        alignItems: 'center',
+        bottom: Math.max(insets.bottom, s(24)) + s(56),
+      }}>
+        <Text style={{
+          color: '#8E8E93',
+          fontSize: fs(13),
+          fontFamily: 'Inter_400Regular',
+          letterSpacing: 1.5,
+          textTransform: 'uppercase',
+        }}>
+          Profesional
+        </Text>
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logo: {
-    width: 140,
-    height: 140,
-  },
-  footer: {
-    position: 'absolute',
-    alignItems: 'center',
-  },
-  footerText: {
-    color: '#8E8E93',
-    fontSize: 13,
-    fontFamily: 'Inter_400Regular',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-  },
-});

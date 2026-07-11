@@ -15,6 +15,14 @@ body {
   overflow: hidden;
 }
 
+.admin-login-input:-webkit-autofill,
+.admin-login-input:-webkit-autofill:hover,
+.admin-login-input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+  -webkit-text-fill-color: #0f172a;
+  transition: background-color 9999s ease-out 0s;
+}
+
 /* Slide-in animation for DriverPanel */
 @keyframes slideIn {
   from { transform: translateX(100%); opacity: 0; }
@@ -253,6 +261,14 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   color: #1D4ED8;
 }
 
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes toastIn {
   from {
     opacity: 0;
@@ -261,5 +277,208 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+/* ── Landing page ─────────────────────────────────────────────────────────── */
+.landing-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
+}
+
+@keyframes landing-float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-14px); }
+}
+
+@keyframes landing-float-delayed {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes landing-pulse-glow {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50% { opacity: 0.75; transform: scale(1.06); }
+}
+
+@keyframes landing-shimmer {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+
+@keyframes landing-route-draw {
+  from { stroke-dashoffset: 120; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes landing-fade-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes landing-grid-pan {
+  from { transform: translateY(0); }
+  to { transform: translateY(48px); }
+}
+
+.landing-animate-float {
+  animation: landing-float 6s ease-in-out infinite;
+}
+
+.landing-animate-float-delayed {
+  animation: landing-float-delayed 7.5s ease-in-out infinite;
+  animation-delay: 1.2s;
+}
+
+.landing-animate-glow {
+  animation: landing-pulse-glow 5s ease-in-out infinite;
+}
+
+.landing-hero-enter {
+  animation: landing-fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.landing-hero-enter-delay-1 { animation-delay: 0.1s; }
+.landing-hero-enter-delay-2 { animation-delay: 0.2s; }
+.landing-hero-enter-delay-3 { animation-delay: 0.35s; }
+.landing-hero-enter-delay-4 { animation-delay: 0.5s; }
+
+.landing-reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.landing-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.landing-shimmer-text {
+  background: linear-gradient(90deg, #282e69 0%, #245f8d 45%, #3480b8 70%, #282e69 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: landing-shimmer 4s linear infinite;
+}
+
+.landing-screenshots-scroll {
+  scroll-snap-type: x mandatory;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.landing-screenshots-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.landing-screenshots-scroll > * {
+  scroll-snap-align: center;
+}
+
+/* Hero map route animation */
+@keyframes landing-hero-map-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes landing-hero-route-draw {
+  0% { stroke-dashoffset: 480; opacity: 0.35; }
+  35% { opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 1; }
+}
+
+@keyframes landing-hero-pin-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.08); opacity: 0.85; }
+}
+
+@keyframes landing-hero-live-blink {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+  50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+}
+
+@keyframes landing-hero-progress-fill {
+  0% { width: 18%; }
+  92% { width: 94%; }
+  100% { width: 18%; }
+}
+
+@keyframes landing-hero-eta-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.landing-hero-map-float {
+  animation: landing-hero-map-float 7s ease-in-out infinite;
+}
+
+.landing-hero-route-path {
+  stroke-dasharray: 480;
+  animation: landing-hero-route-draw 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.landing-hero-pin-origin {
+  transform-origin: 52px 282px;
+  animation: landing-hero-pin-pulse 2.8s ease-in-out infinite;
+}
+
+.landing-hero-pin-dest {
+  transform-origin: 292px 42px;
+  animation: landing-hero-pin-pulse 2.8s ease-in-out 1.4s infinite;
+}
+
+.landing-hero-live-dot {
+  animation: landing-hero-live-blink 2s ease-in-out infinite;
+}
+
+.landing-hero-progress {
+  animation: landing-hero-progress-fill 8s cubic-bezier(0.42, 0, 0.58, 1) infinite;
+}
+
+.landing-hero-eta {
+  /* Tarjeta fija debajo del mapa — sin animación flotante */
+}
+
+.landing-route-line {
+  stroke-dasharray: 120;
+  animation: landing-route-draw 2.4s ease-out 0.8s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-animate-float,
+  .landing-animate-float-delayed,
+  .landing-animate-glow,
+  .landing-hero-enter,
+  .landing-shimmer-text,
+  .landing-route-line,
+  .landing-hero-map-float,
+  .landing-hero-route-path,
+  .landing-hero-pin-origin,
+  .landing-hero-pin-dest,
+  .landing-hero-live-dot,
+  .landing-hero-progress,
+  .landing-hero-eta {
+    animation: none !important;
+  }
+
+  .landing-hero-route-path {
+    stroke-dashoffset: 0;
+  }
+
+  .landing-hero-progress {
+    width: 65%;
+  }
+
+  .landing-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
   }
 }

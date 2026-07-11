@@ -250,21 +250,24 @@ export const useTrips = () => {
         // El trigger lo incrementa al completar viajes y el webhook lo resetea a 0 al pagar.
         const { data: driverData, error: driverErr } = await supabase
           .from('drivers')
-          .select('pending_commission, last_commission_payment_at')
+          .select('pending_commission, last_commission_payment_at, commission_debt_since_at')
           .eq('id', driver.id)
           .single();
 
         if (driverErr) throw driverErr;
 
         const balance = Math.round((Number(driverData?.pending_commission) || 0) * 100) / 100;
-        const lastPaymentDate = driverData?.last_commission_payment_at
-          ? new Date(driverData.last_commission_payment_at)
-          : null;
 
-        // isOverdue: tiene saldo y el último pago fue hace más de 3 días (o nunca pagó)
+        // isOverdue: la deuda lleva más de 3 días sin pagarse.
+        // Se usa commission_debt_since_at (cuándo empezó la deuda actual),
+        // no last_commission_payment_at, para evitar suspender al instante
+        // cuando el chofer nunca ha pagado pero acaba de generar su primera comisión.
+        const debtSince = driverData?.commission_debt_since_at
+          ? new Date(driverData.commission_debt_since_at)
+          : null;
         const threeDaysAgo = new Date();
         threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-        const isOverdue = balance > 0 && (!lastPaymentDate || lastPaymentDate < threeDaysAgo);
+        const isOverdue = balance > 0 && debtSince !== null && debtSince < threeDaysAgo;
 
         return {
           balance,

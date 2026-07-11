@@ -1,5 +1,5 @@
-import { readDashboardUrl } from '../../../shared/geo/dashboardGeoApi';
-import { pickPassengerFareRoute } from '../../../shared/salta-route';
+import { readDashboardUrl } from '../../shared/geo/dashboardGeoApi';
+import { pickPassengerFareRoute } from '../../shared/salta-route';
 
 const ROUTE_CACHE_TTL_MS = 45 * 1000;
 const ROUTE_CACHE_MAX = 120;

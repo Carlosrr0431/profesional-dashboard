@@ -1,21 +1,27 @@
 import React from 'react';
-import { Dimensions } from 'react-native';
+import { useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import Animated, { FadeIn } from 'react-native-reanimated';
+import { useResponsive } from '../../hooks/useResponsive';
 
-const { width } = Dimensions.get('window');
-export const LOGO_WIDTH = width * 0.58;
 export const BRAND_BLUE = '#282e69';
 
 export function LoginBrandHeader({ style }) {
+  const { width } = useWindowDimensions();
+  const { isLandscape, isTablet, s } = useResponsive();
+  const logoWidth = Math.min(
+    width * (isLandscape ? 0.32 : 0.58),
+    isTablet ? 280 : 220,
+  );
+
   return (
     <Animated.View
       entering={FadeIn.delay(150).duration(500)}
-      style={[{ alignItems: 'center', width: '100%', marginBottom: 20 }, style]}
+      style={[{ alignItems: 'center', width: '100%', marginBottom: s(isLandscape ? 12 : 20) }, style]}
     >
       <Image
         source={require('../../../assets/logo-light.png')}
-        style={{ width: LOGO_WIDTH, height: undefined, aspectRatio: 550 / 295 }}
+        style={{ width: logoWidth, height: undefined, aspectRatio: 550 / 295 }}
         contentFit="contain"
       />
     </Animated.View>

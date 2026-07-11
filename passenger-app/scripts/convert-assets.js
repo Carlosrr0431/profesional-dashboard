@@ -6,13 +6,19 @@ const { Resvg } = require('../../driver-app/node_modules/@resvg/resvg-js');
 const sharp = require('../../driver-app/node_modules/sharp');
 const fs = require('fs');
 const path = require('path');
+const { generateNotificationAssets } = require('../../shared/generate-notification-assets');
+const { generateLauncherPreview } = require('../../shared/generate-launcher-preview');
+const { ADAPTIVE_ISOTIPO_WIDTH, ICON_ISOTIPO_WIDTH } = require('../../shared/launcher-icon-config');
 
 const assetsDir = path.join(__dirname, '..', 'assets');
 const resDir = path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'res');
 const WHITE_BG = { r: 255, g: 255, b: 255, alpha: 1 };
 
-function renderSvg(svgPath, width) {
-  const svgData = fs.readFileSync(svgPath, 'utf8');
+function renderSvg(svgPath, width, makeWhite) {
+  let svgData = fs.readFileSync(svgPath, 'utf8');
+  if (makeWhite) {
+    svgData = svgData.replace(/fill:\s*#[0-9a-fA-F]{3,6}/g, 'fill: #FFFFFF');
+  }
   const resvg = new Resvg(svgData, {
     fitTo: { mode: 'width', value: width },
     font: { loadSystemFonts: true },
@@ -85,7 +91,7 @@ async function convertAssets() {
 
   // 3. icon.png — isotipo sobre fondo blanco
   const iconSize = 1024;
-  const isotipo = renderSvg(isotipoSvg, 600);
+  const isotipo = renderSvg(isotipoSvg, ICON_ISOTIPO_WIDTH);
   await sharp({
     create: { width: iconSize, height: iconSize, channels: 4, background: WHITE_BG },
   })
@@ -100,7 +106,7 @@ async function convertAssets() {
 
   // 4. adaptive-icon.png — isotipo transparente (capa foreground)
   const adaptiveSize = 1024;
-  const isotipoAdaptive = renderSvg(isotipoSvg, 500);
+  const isotipoAdaptive = renderSvg(isotipoSvg, ADAPTIVE_ISOTIPO_WIDTH);
   await sharp({
     create: { width: adaptiveSize, height: adaptiveSize, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
   })
@@ -144,6 +150,68 @@ async function convertAssets() {
     isAdaptive: true,
   });
   console.log('ic_launcher mipmap OK');
+
+  // 7. Vista previa launcher — fondo oscuro + ícono + cuadrado guía (safe zone 66%)
+  const previewCanvas = 560;
+  const iconTile = 220;
+  const iconBuffer = await sharp(path.join(assetsDir, 'icon.png'))
+    .resize(iconTile, iconTile)
+    .png()
+    .toBuffer();
+  const safeSize = Math.round(iconTile * 0.66);
+  const safeOffset = Math.round((iconTile - safeSize) / 2);
+  const iconLeft = Math.round((previewCanvas - iconTile) / 2);
+  const iconTop = Math.round((previewCanvas - iconTile) / 2) - 20;
+  const guideSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${iconTile}" height="${iconTile}" xmlns="http://www.w3.org/2000/svg">
+  <rect x="${safeOffset}" y="${safeOffset}" width="${safeSize}" height="${safeSize}"
+    fill="none" stroke="#E53935" stroke-width="3" stroke-dasharray="10 6" rx="8"/>
+</svg>`);
+  await sharp({
+    create: {
+      width: previewCanvas,
+      height: previewCanvas + 80,
+      channels: 4,
+      background: { r: 26, g: 26, b: 30, alpha: 1 },
+    },
+  })
+    .composite([
+      { input: iconBuffer, left: iconLeft, top: iconTop },
+      { input: guideSvg, left: iconLeft, top: iconTop },
+      {
+        input: Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${previewCanvas}" height="80" xmlns="http://www.w3.org/2000/svg">
+  <text x="${previewCanvas / 2}" y="34" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" fill="#FFFFFF">Profesional Pasajero</text>
+  <text x="${previewCanvas / 2}" y="58" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" fill="#9CA3AF">Cuadrado rojo = zona segura del launcher</text>
+</svg>`),
+        left: 0,
+        top: previewCanvas,
+      },
+    ])
+    .png()
+    .toFile(path.join(assetsDir, 'icon-launcher-preview.png'));
+  console.log('icon-launcher-preview.png OK');
+
+  await generateLauncherPreview({
+    sharp,
+    renderSvg,
+    assetsDir,
+    currentIsotipoWidth: ADAPTIVE_ISOTIPO_WIDTH,
+    appLabel: 'Profesional Pasajero',
+    appShortName: 'Pasajero',
+    accentColor: '#282e69',
+  });
+
+  // 8. Ícono FCM + simulación antes/después
+  await generateNotificationAssets({
+    sharp,
+    renderSvg,
+    assetsDir,
+    appLabel: 'Profesional Pasajero',
+    accentColor: '#282e69',
+    sampleTitle: 'Tu conductor va en camino',
+    sampleBody: 'Llegará en aproximadamente 5 minutos.',
+  });
 }
 
 convertAssets().catch((err) => {

@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
   StatusBar,
   Platform,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import MapLibreGL from '../../lib/maplibre';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,8 +25,8 @@ import { radius, shadow, spacing } from '../../theme/layout';
 import { reverseGeocode } from '../../services/googleMaps';
 import { useLocation } from '../../hooks/useLocation';
 import { createMapCameraController } from '../../utils/mapCamera';
+import { useResponsive } from '../../hooks/useResponsive';
 
-const { height: SCREEN_H } = Dimensions.get('window');
 const SALTA_CENTER = { latitude: -24.7829, longitude: -65.4122 };
 const PICKER_DELTA = { latitudeDelta: 0.006, longitudeDelta: 0.006 };
 const GEOCODE_DEBOUNCE_MS = 350;
@@ -54,8 +54,12 @@ const FIELD_CONFIG = {
 
 function CenterMapPin({ fieldType, isDragging, topInset }) {
   const lift = useSharedValue(0);
+  const { height: screenH } = useWindowDimensions();
+  const { s, isLandscape } = useResponsive();
   const config = FIELD_CONFIG[fieldType] || FIELD_CONFIG.destination;
   const isPickup = fieldType === 'pickup';
+  const bottomCardH = s(BOTTOM_CARD_H, { min: 160 });
+  const pinHeight = s(PIN_HEIGHT, { min: 32 });
 
   useEffect(() => {
     lift.value = withSpring(isDragging ? -14 : 0, { damping: 16, stiffness: 280 });
@@ -70,9 +74,9 @@ function CenterMapPin({ fieldType, isDragging, topInset }) {
     transform: [{ scaleX: isDragging ? 0.65 : 1 }, { scaleY: isDragging ? 0.65 : 1 }],
   }));
 
-  const topPad = topInset + 88;
-  const bottomPad = BOTTOM_CARD_H + Math.max(topInset, spacing.lg);
-  const pinTop = topPad + (SCREEN_H - topPad - bottomPad) / 2 - PIN_HEIGHT;
+  const topPad = topInset + s(isLandscape ? 64 : 88);
+  const bottomPad = bottomCardH + Math.max(topInset, spacing.lg);
+  const pinTop = topPad + (screenH - topPad - bottomPad) / 2 - pinHeight;
 
   return (
     <View style={[styles.pinOverlay, { top: pinTop }]} pointerEvents="none">
@@ -87,7 +91,7 @@ function CenterMapPin({ fieldType, isDragging, topInset }) {
             ]}
           />
         </View>
-        <View style={[styles.pinLine, { backgroundColor: config.pinInner }]} />
+        <View style={[styles.pinLine, { backgroundColor: config.pinInner, height: pinHeight - 12 }]} />
       </Animated.View>
     </View>
   );
@@ -132,6 +136,8 @@ export default function MapPinPickerModal({
   onClose,
 }) {
   const insets = useSafeAreaInsets();
+  const { s, isLandscape, isTablet, screenPadding, contentMaxWidth } = useResponsive();
+  const bottomCardH = s(BOTTOM_CARD_H, { min: isLandscape ? 140 : 160 });
   const mapViewRef = useRef(null);
   const mapCameraRef = useRef(null);
   const mapRef = useRef(null);
@@ -360,14 +366,33 @@ export default function MapPinPickerModal({
           style={({ pressed }) => [
             styles.locateBtn,
             shadow.float,
-            { bottom: 200 + insets.bottom },
+            { bottom: bottomCardH + insets.bottom, right: screenPadding },
             pressed && { opacity: 0.9 },
           ]}
         >
           <Ionicons name="locate" size={22} color={colors.primary} />
         </Pressable>
 
-        <View style={[styles.bottomCard, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}>
+        <View
+          style={[
+            styles.bottomCard,
+            {
+              paddingBottom: Math.max(insets.bottom, spacing.lg),
+              paddingHorizontal: screenPadding,
+              ...(isTablet || isLandscape
+                ? {
+                    left: Math.max(0, (insets.left || 0)),
+                    right: Math.max(0, (insets.right || 0)),
+                    alignItems: 'center',
+                  }
+                : null),
+            },
+          ]}
+        >
+          <View style={[
+            styles.bottomCardInner,
+            (isTablet || isLandscape) ? { maxWidth: contentMaxWidth, width: '100%' } : null,
+          ]}>
           <View style={styles.addressCard}>
             <View style={[styles.addressIcon, { backgroundColor: `${config.pinInner}18` }]}>
               <Ionicons name={config.icon} size={20} color={config.pinInner} />
@@ -413,6 +438,7 @@ export default function MapPinPickerModal({
               <Text style={styles.confirmBtnText}>{config.confirmLabel}</Text>
             </LinearGradient>
           </Pressable>
+          </View>
         </View>
       </View>
     </Modal>
@@ -551,7 +577,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 4,
-    paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.xl,
@@ -559,6 +584,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderLight,
     ...shadow.float,
+  },
+  bottomCardInner: {
+    width: '100%',
   },
   addressCard: {
     flexDirection: 'row',

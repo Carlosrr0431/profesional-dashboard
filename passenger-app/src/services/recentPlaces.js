@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { resolveTripFinalDestCoords } from '../../../shared/trip-contract';
+import { resolveTripFinalDestCoords } from '../../shared/trip-contract';
 import { normalizePassengerPhone } from '../utils/phone';
 
 export { normalizePassengerPhone };

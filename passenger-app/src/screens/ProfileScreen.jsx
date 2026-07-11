@@ -19,11 +19,15 @@ import * as Haptics from 'expo-haptics';
 import Toast from 'react-native-toast-message';
 import { colors } from '../theme/colors';
 import { useAuthStore } from '../stores/authStore';
+import { useResponsive } from '../hooks/useResponsive';
+import { CONTENT_MAX_WIDTH } from '../utils/responsive';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.6';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const { screenPadding, isTablet, isLandscape } = useResponsive();
+  const contentMaxW = (isTablet || isLandscape) ? CONTENT_MAX_WIDTH : undefined;
   const { profile, updateProfileFields, clearProfile } = useAuthStore();
 
   const [name, setName] = useState(profile?.name || '');
@@ -76,7 +80,16 @@ export default function ProfileScreen() {
         style={{ flex: 1 }}
       >
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
+          contentContainerStyle={[
+            styles.content,
+            {
+              paddingBottom: insets.bottom + 32,
+              paddingHorizontal: screenPadding,
+              maxWidth: contentMaxW,
+              width: '100%',
+              alignSelf: 'center',
+            },
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
@@ -207,7 +220,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 24, fontFamily: 'Inter_700Bold', color: colors.text, letterSpacing: -0.3 },
 
-  content: { paddingHorizontal: 16, paddingTop: 24 },
+  content: { paddingTop: 24 },
 
   avatarSection: {
     alignItems: 'center', marginBottom: 28,

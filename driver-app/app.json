@@ -2,8 +2,8 @@
   "expo": {
     "name": "Profesional Conductor",
     "slug": "driver-app",
-    "version": "1.0.0",
-    "runtimeVersion": "1.0.0",
+    "version": "1.0.6",
+    "runtimeVersion": "1.0.6",
     "updates": {
       "url": "https://u.expo.dev/21599c2c-8f85-4d49-84d7-71202995c3e5"
     },
@@ -48,6 +48,7 @@
         "backgroundColor": "#FFFFFF"
       },
       "package": "com.remises.driverapp",
+      "versionCode": 8,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "ACCESS_FINE_LOCATION",
@@ -66,6 +67,22 @@
     },
     "plugins": [
       "expo-dev-client",
+      [
+        "expo-splash-screen",
+        {
+          "android": {
+            "image": "./assets/icon.png",
+            "imageWidth": 200,
+            "resizeMode": "contain",
+            "backgroundColor": "#FFFFFF"
+          },
+          "ios": {
+            "image": "./assets/splash.png",
+            "resizeMode": "cover",
+            "backgroundColor": "#FFFFFF"
+          }
+        }
+      ],
       [
         "expo-build-properties",
         {
@@ -90,7 +107,6 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
           "color": "#DC2626"
         }
       ],

@@ -15,6 +15,7 @@ import { colors } from '../../theme/colors';
 import { radius, spacing } from '../../theme/layout';
 import { autocompleteAddressSalta, resolvePlaceFromSuggestion } from '../../services/googleMaps';
 import MapPickerIcon from './MapPickerIcon';
+import { useResponsive } from '../../hooks/useResponsive';
 
 const DEBOUNCE_MS = 350;
 
@@ -41,6 +42,8 @@ const AddressSearchInput = forwardRef(({
   onSuggestionsChange,
   showLeadingIcon = true,
 }, ref) => {
+  const { s, isCompactHeight } = useResponsive();
+  const suggestionsMaxH = s(isCompactHeight ? 160 : 220, { min: 120, max: 280 });
   const [query, setQuery] = useState(value?.address || '');
   const [suggestions, setSuggestions] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -405,6 +408,7 @@ const AddressSearchInput = forwardRef(({
           style={[
             styles.suggestionsContainer,
             suggestionsAbove && styles.suggestionsAbove,
+            { maxHeight: suggestionsMaxH },
           ]}
         >
           <FlatList
@@ -606,7 +610,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
     overflow: 'hidden',
-    maxHeight: 220,
   },
   suggestionsAbove: {
     top: undefined,

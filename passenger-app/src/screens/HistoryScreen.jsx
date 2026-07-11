@@ -20,11 +20,13 @@ import { useAuthStore } from '../stores/authStore';
 import { useTrip } from '../hooks/useTrip';
 import { useTripStore } from '../stores/tripStore';
 import { formatArs } from '../utils/formatMoney';
+import { useResponsive } from '../hooks/useResponsive';
+import { CONTENT_MAX_WIDTH } from '../utils/responsive';
 import {
   extractFinalDestFromNotes,
   resolveTripPickupCoords,
   resolveTripFinalDestCoords,
-} from '../../../shared/trip-contract';
+} from '../../shared/trip-contract';
 
 const HISTORY_PAGE_SIZE = 40;
 const OPEN_STATUSES = new Set(['queued', 'pending', 'accepted', 'going_to_pickup', 'in_progress']);
@@ -164,6 +166,8 @@ function TripHistoryCard({ trip, onPress }) {
 export default function HistoryScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const { screenPadding, isTablet, isLandscape } = useResponsive();
+  const contentMaxW = (isTablet || isLandscape) ? CONTENT_MAX_WIDTH : undefined;
   const { profile } = useAuthStore();
   const { fetchTripHistory } = useTrip();
   const { setActiveTrip } = useTripStore();
@@ -247,12 +251,12 @@ export default function HistoryScreen() {
       />
 
       {isLoading ? (
-        <View style={styles.centered}>
+        <View style={[styles.centered, contentMaxW ? { maxWidth: contentMaxW, alignSelf: 'center', width: '100%' } : null]}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Cargando historial…</Text>
         </View>
       ) : trips.length === 0 ? (
-        <View style={styles.centered}>
+        <View style={[styles.centered, contentMaxW ? { maxWidth: contentMaxW, alignSelf: 'center', width: '100%' } : null]}>
           <View style={styles.emptyIcon}>
             <Ionicons name="time-outline" size={48} color={colors.textLight} />
           </View>
@@ -271,7 +275,11 @@ export default function HistoryScreen() {
               onPress={OPEN_STATUSES.has(item.status) ? () => handleOpenTrip(item) : undefined}
             />
           )}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingHorizontal: screenPadding },
+            contentMaxW ? { maxWidth: contentMaxW, alignSelf: 'center', width: '100%' } : null,
+          ]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -321,7 +329,7 @@ const styles = StyleSheet.create({
     textAlign: 'center', marginTop: 10, lineHeight: 22,
   },
 
-  listContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 20 },
+  listContent: { paddingTop: 16, paddingBottom: 20 },
   footerLoader: { paddingVertical: 20, alignItems: 'center' },
 
   card: {

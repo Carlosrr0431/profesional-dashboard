@@ -13,15 +13,12 @@ import DriverInfoWindow from './DriverInfoWindow';
 import PassengerInfoWindow from './PassengerInfoWindow';
 import { MAP_STYLE, mapLibreOptions } from '../lib/mapLibre';
 
-/* ── Estilos CSS globales para los controles ─────────────────────────────── */
 const MAP_CSS = `
 .maplibregl-map { font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
 .maplibregl-canvas { outline: none; }
-
-/* Controles de zoom — estilo Google Maps */
 .maplibregl-ctrl-group {
   border-radius: 2px !important;
-  box-shadow: 0 1px 5px rgba(0,0,0,0.22) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2) !important;
   border: none !important;
   overflow: hidden !important;
 }
@@ -34,33 +31,25 @@ const MAP_CSS = `
 }
 .maplibregl-ctrl-group button:hover { background: #F1F5F9 !important; }
 .maplibregl-ctrl-group button + button { border-top: 1px solid #E2E8F0 !important; }
-
-/* Atribución discreta */
 .maplibregl-ctrl-attrib {
   font-size: 10px !important;
   background: rgba(255,255,255,0.72) !important;
-  backdrop-filter: blur(4px) !important;
   border-radius: 4px 0 0 0 !important;
   padding: 2px 6px !important;
 }
 .maplibregl-ctrl-logo { display: none !important; }
-
-/* Popup limpio estilo Google Maps */
 .maplibregl-popup-content {
   padding: 0 !important;
   border-radius: 14px !important;
   overflow: hidden !important;
-  box-shadow: 0 8px 32px rgba(15,23,42,0.20), 0 2px 8px rgba(15,23,42,0.10) !important;
+  box-shadow: 0 8px 32px rgba(15,23,42,0.20) !important;
   border: 1px solid rgba(226,232,240,0.9) !important;
   background: #fff !important;
-  min-width: 0 !important;
 }
 .maplibregl-popup-close-button { display: none !important; }
 .maplibregl-popup-tip { display: none !important; }
-.maplibregl-popup { filter: drop-shadow(0 6px 20px rgba(15,23,42,0.15)) !important; }
 `;
 
-/* ── Capas de la ruta OSRM ────────────────────────────────────────────────── */
 const ROUTE_BORDER_LAYER = {
   id: 'route-border',
   type: 'line',
@@ -71,11 +60,7 @@ const ROUTE_LINE_LAYER = {
   id: 'route-line',
   type: 'line',
   layout: { 'line-cap': 'round', 'line-join': 'round' },
-  paint: {
-    'line-color': '#DC2626',
-    'line-width': 5,
-    'line-opacity': 0.92,
-  },
+  paint: { 'line-color': '#DC2626', 'line-width': 5, 'line-opacity': 0.92 },
 };
 const ROUTE_ORIGIN_LAYER = {
   id: 'route-origin',
@@ -88,7 +73,6 @@ const ROUTE_DEST_LAYER = {
   paint: { 'circle-radius': 9, 'circle-color': '#1D4ED8', 'circle-stroke-width': 3, 'circle-stroke-color': '#fff' },
 };
 
-/* ── Utilidades ──────────────────────────────────────────────────────────── */
 function buildRouteGeoJSON(polylineCoords) {
   if (!polylineCoords?.length) return null;
   return {
@@ -108,8 +92,8 @@ function buildPointGeoJSON(lat, lng) {
   };
 }
 
-const DriverMapPin = memo(function DriverMapPin({ driver, isSelected, onSelect }) {
-  const spec = buildDriverMarkerIconSpec(driver, isSelected, false);
+const DriverMapPin = memo(function DriverMapPin({ driver, isSelected, isMultiSelected, onSelect }) {
+  const spec = buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected);
   return (
     <Marker
       longitude={Number(driver.lng)}
@@ -129,29 +113,37 @@ const DriverMapPin = memo(function DriverMapPin({ driver, isSelected, onSelect }
         style={{
           cursor: 'pointer',
           display: 'block',
-          transform: isSelected ? 'scale(1.1)' : 'scale(1)',
-          filter: isSelected
-            ? 'drop-shadow(0 0 8px rgba(220,38,38,0.75))'
-            : 'drop-shadow(0 3px 6px rgba(0,0,0,0.38))',
-          transition: 'transform 0.12s ease-out, filter 0.12s ease-out',
-          willChange: 'transform',
+          transform: isSelected || isMultiSelected ? 'scale(1.08)' : 'scale(1)',
+          transition: 'transform 0.12s ease-out',
         }}
       />
     </Marker>
   );
 });
 
-/* ── Componente MapView ───────────────────────────────────────────────────── */
 const MapView = memo(function MapView({
   mapRef,
   drivers = [],
   trips = [],
-  selectedDriverId,
+  pendingPassengers = [],
+  selectedId = null,
+  selectedDriverId = null,
+  onSelectDriver,
   onDriverClick,
   onAssignTrip,
   previewRoute,
+  multiSelectMode = false,
+  multiSelectedIds = null,
+  onToggleMultiSelect,
+  onSendAudio,
 }) {
   const [activeInfo, setActiveInfo] = useState(null);
+  const internalMapRef = useRef(null);
+  const resolvedSelectedId = selectedId ?? selectedDriverId ?? null;
+  const tripList = trips?.length ? trips : pendingPassengers;
+  const selectedSet = multiSelectedIds instanceof Set
+    ? multiSelectedIds
+    : new Set(Array.isArray(multiSelectedIds) ? multiSelectedIds : []);
 
   useEffect(() => {
     if (activeInfo?.type !== 'driver') return undefined;
@@ -162,8 +154,11 @@ const MapView = memo(function MapView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeInfo?.type]);
 
-  /* Exponer la API del mapa al padre vía mapRef */
-  const internalMapRef = useRef(null);
+  // En modo selección múltiple no mostrar el modal de detalle
+  useEffect(() => {
+    if (multiSelectMode) setActiveInfo(null);
+  }, [multiSelectMode]);
+
   useEffect(() => {
     if (!mapRef) return;
     mapRef.current = internalMapRef.current
@@ -175,22 +170,24 @@ const MapView = memo(function MapView({
       : null;
   });
 
-  /* Cierrar popup al hacer click en el mapa */
   const handleMapClick = useCallback(() => {
-    setActiveInfo(null);
-  }, []);
+    if (!multiSelectMode) setActiveInfo(null);
+  }, [multiSelectMode]);
 
   const handleDriverSelect = useCallback((driver) => {
+    if (multiSelectMode) {
+      onToggleMultiSelect?.(driver.id);
+      return;
+    }
     setActiveInfo({ type: 'driver', data: driver });
+    onSelectDriver?.(driver.id);
     onDriverClick?.(driver);
-  }, [onDriverClick]);
+  }, [multiSelectMode, onToggleMultiSelect, onSelectDriver, onDriverClick]);
 
-  /* Calcular GeoJSON de ruta */
-  const routeGeoJSON     = buildRouteGeoJSON(previewRoute?.polylineCoords);
-  const routeOriginJSON  = buildPointGeoJSON(previewRoute?.origin?.lat, previewRoute?.origin?.lng);
-  const routeDestJSON    = buildPointGeoJSON(previewRoute?.destination?.lat, previewRoute?.destination?.lng);
+  const routeGeoJSON = buildRouteGeoJSON(previewRoute?.polylineCoords);
+  const routeOriginJSON = buildPointGeoJSON(previewRoute?.origin?.lat, previewRoute?.origin?.lng);
+  const routeDestJSON = buildPointGeoJSON(previewRoute?.destination?.lat, previewRoute?.destination?.lng);
 
-  /* Auto-zoom cuando llega la ruta o un punto suelto de preview */
   useEffect(() => {
     if (!previewRoute || !internalMapRef.current) return;
 
@@ -198,22 +195,20 @@ const MapView = memo(function MapView({
       const coords = previewRoute.polylineCoords;
       const lngs = coords.map((p) => Number(p.lng));
       const lats = coords.map((p) => Number(p.lat));
-      const swLng = Math.min(...lngs) - 0.002;
-      const swLat = Math.min(...lats) - 0.002;
-      const neLng = Math.max(...lngs) + 0.002;
-      const neLat = Math.max(...lats) + 0.002;
-      internalMapRef.current.fitBounds([[swLng, swLat], [neLng, neLat]], { padding: 72, duration: 900 });
+      internalMapRef.current.fitBounds(
+        [
+          [Math.min(...lngs) - 0.002, Math.min(...lats) - 0.002],
+          [Math.max(...lngs) + 0.002, Math.max(...lats) + 0.002],
+        ],
+        { padding: 72, duration: 900 },
+      );
       return;
     }
 
     const lat = Number(previewRoute?.origin?.lat);
     const lng = Number(previewRoute?.origin?.lng);
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      internalMapRef.current.flyTo({
-        center: [lng, lat],
-        zoom: 16,
-        duration: 900,
-      });
+      internalMapRef.current.flyTo({ center: [lng, lat], zoom: 16, duration: 900 });
     }
   }, [previewRoute]);
 
@@ -241,7 +236,6 @@ const MapView = memo(function MapView({
       >
         <NavigationControl position="top-left" showCompass={false} />
 
-        {/* ── Ruta OSRM ──────────────────────────────────────────────── */}
         {routeGeoJSON && (
           <Source id="route-source" type="geojson" data={routeGeoJSON}>
             <Layer {...ROUTE_BORDER_LAYER} />
@@ -259,26 +253,29 @@ const MapView = memo(function MapView({
           </Source>
         )}
 
-        {/* ── Marcadores de conductores ──────────────────────────────── */}
         {drivers.map((driver) => {
           if (!driver.lat || !driver.lng) return null;
+          const isMultiSelected = multiSelectMode && selectedSet.has(driver.id);
           return (
             <DriverMapPin
               key={driver.id}
               driver={driver}
-              isSelected={driver.id === selectedDriverId}
+              isSelected={!multiSelectMode && driver.id === resolvedSelectedId}
+              isMultiSelected={isMultiSelected}
               onSelect={handleDriverSelect}
             />
           );
         })}
 
-        {/* ── Marcadores de viajes en curso ─────────────────────────── */}
-        {trips.map((trip) => {
-          const pasLat = Number(trip.passenger_lat ?? trip.pickup_lat);
-          const pasLng = Number(trip.passenger_lng ?? trip.pickup_lng);
+        {tripList.map((trip) => {
+          const pasLat = Number(
+            trip.passenger_lat ?? trip.pickup_lat ?? trip.origin_lat ?? trip.lat,
+          );
+          const pasLng = Number(
+            trip.passenger_lng ?? trip.pickup_lng ?? trip.origin_lng ?? trip.lng,
+          );
           if (!Number.isFinite(pasLat) || !Number.isFinite(pasLng)) return null;
-          // Firma correcta: buildPassengerMarkerIconSpec(createdAt, status)
-          const spec = buildPassengerMarkerIconSpec(trip.created_at, trip.status);
+          const spec = buildPassengerMarkerIconSpec(trip.created_at ?? trip.createdAt, trip.status);
           return (
             <Marker
               key={`trip-${trip.id}`}
@@ -287,6 +284,7 @@ const MapView = memo(function MapView({
               anchor="center"
               onClick={(e) => {
                 e.originalEvent.stopPropagation();
+                if (multiSelectMode) return;
                 setActiveInfo({ type: 'trip', data: trip });
               }}
             >
@@ -295,21 +293,27 @@ const MapView = memo(function MapView({
                 width={spec.width}
                 height={spec.height}
                 alt="pasajero"
-                style={{
-                  cursor: 'pointer',
-                  display: 'block',
-                  filter: 'drop-shadow(0 2px 5px rgba(0,0,0,0.3))',
-                }}
+                draggable={false}
+                style={{ cursor: multiSelectMode ? 'default' : 'pointer', display: 'block' }}
               />
             </Marker>
           );
         })}
 
-        {/* ── Popup pasajero ────────────────────────────────────────── */}
-        {activeInfo?.type === 'trip' && (
+        {activeInfo?.type === 'trip' && !multiSelectMode && (
           <Popup
-            longitude={Number(activeInfo.data.passenger_lng ?? activeInfo.data.pickup_lng)}
-            latitude={Number(activeInfo.data.passenger_lat ?? activeInfo.data.pickup_lat)}
+            longitude={Number(
+              activeInfo.data.passenger_lng
+              ?? activeInfo.data.pickup_lng
+              ?? activeInfo.data.origin_lng
+              ?? activeInfo.data.lng,
+            )}
+            latitude={Number(
+              activeInfo.data.passenger_lat
+              ?? activeInfo.data.pickup_lat
+              ?? activeInfo.data.origin_lat
+              ?? activeInfo.data.lat,
+            )}
             anchor="bottom"
             offset={[0, -8]}
             onClose={() => setActiveInfo(null)}
@@ -324,7 +328,7 @@ const MapView = memo(function MapView({
         )}
       </Map>
 
-      {activeInfo?.type === 'driver' ? (
+      {activeInfo?.type === 'driver' && !multiSelectMode ? (
         <>
           <button
             type="button"
@@ -334,7 +338,7 @@ const MapView = memo(function MapView({
           />
           <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
             <div
-              className="pointer-events-auto w-full max-w-[min(320px,calc(100%-2rem))]"
+              className="pointer-events-auto w-full max-w-[min(360px,calc(100%-2rem))] overflow-hidden"
               onClick={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
@@ -343,6 +347,10 @@ const MapView = memo(function MapView({
               <DriverInfoWindow
                 driver={activeInfo.data}
                 onAssignTrip={(d) => { setActiveInfo(null); onAssignTrip?.(d); }}
+                onSendAudio={onSendAudio ? (d) => {
+                  setActiveInfo(null);
+                  onSendAudio(d);
+                } : undefined}
                 onClose={() => setActiveInfo(null)}
               />
             </div>

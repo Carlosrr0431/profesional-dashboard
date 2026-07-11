@@ -15,10 +15,10 @@ function toCoord(place) {
 
 function buildRouteFitPadding(mapPadding = {}) {
   return {
-    top: Math.round((mapPadding.top ?? 96) * 0.8),
-    right: Math.round((mapPadding.right ?? 48) * 0.55),
-    bottom: Math.round((mapPadding.bottom ?? 200) * 0.5),
-    left: Math.round((mapPadding.left ?? 64) * 0.55),
+    top: Math.round((mapPadding.top ?? 96) * 0.9),
+    right: Math.round((mapPadding.right ?? 48) * 0.75),
+    bottom: Math.round((mapPadding.bottom ?? 220) * 0.9),
+    left: Math.round((mapPadding.left ?? 64) * 0.75),
   };
 }
 
@@ -64,9 +64,18 @@ export default function TripPlanRouteOverlay({
     if (!force && lastFittedRouteKeyRef.current === routeKey) return;
 
     const fitPadding = buildRouteFitPadding(mapPaddingRef.current);
-    const fitTarget = markerPoints;
+    const routePoints = (coords || []).filter(
+      (point) => Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude),
+    );
+    const fitTarget = routePoints.length > 1 ? routePoints : markerPoints;
+    const preferFullRouteFit = fitTarget.length > 2;
 
-    if (typeof mapRef.current.fitRouteToCoordinates === 'function') {
+    if (preferFullRouteFit && typeof mapRef.current.fitToCoordinates === 'function') {
+      mapRef.current.fitToCoordinates(fitTarget, {
+        edgePadding: fitPadding,
+        animated,
+      });
+    } else if (typeof mapRef.current.fitRouteToCoordinates === 'function') {
       mapRef.current.fitRouteToCoordinates(fitTarget, {
         edgePadding: fitPadding,
         animated,
@@ -139,7 +148,7 @@ export default function TripPlanRouteOverlay({
         />
       ) : null}
 
-      <PickupMarker coordinate={pickupCoord} showLabel />
+      <PickupMarker coordinate={pickupCoord} />
 
       {stopCoords.map((coord, index) => {
         const isFinal = index === stopCoords.length - 1;

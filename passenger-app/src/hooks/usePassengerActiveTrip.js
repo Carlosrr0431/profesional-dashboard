@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useTrip } from './useTrip';
 import { recordTripDestination } from '../services/recentPlaces';
 import { getDirections } from '../services/googleMaps';
-import { resolveTripPickupCoords, resolveTripFinalDestCoords } from '../../../shared/trip-contract';
+import { resolveTripPickupCoords, resolveTripFinalDestCoords } from '../../shared/trip-contract';
 import {
   getTripPickupDisplayAddress,
   getTripDestinationDisplayAddress,
@@ -52,7 +52,7 @@ export const TRIP_STATUS_CONFIG = {
     label: 'Conductor en camino',
     desc: 'Se dirige al punto de recogida',
     showDriver: true,
-    canCancel: false,
+    canCancel: true,
     pulse: false,
     progress: 0.72,
   },
@@ -427,11 +427,15 @@ export function usePassengerActiveTrip({
   const handleCancel = useCallback(() => {
     if (!activeTrip?.id) return null;
 
+    const isPickupPhase = status === 'going_to_pickup';
+
     return {
       title: isSearching ? 'Cancelar solicitud' : 'Cancelar viaje',
       message: isSearching
         ? '¿Confirmás que querés cancelar la búsqueda de conductor?'
-        : '¿Confirmás que querés cancelar este viaje?',
+        : isPickupPhase
+          ? 'El conductor ya está en camino a buscarte. ¿Confirmás que querés cancelar?'
+          : '¿Confirmás que querés cancelar este viaje?',
       onConfirm: async () => {
         setIsCancelling(true);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -440,7 +444,7 @@ export function usePassengerActiveTrip({
         return result;
       },
     };
-  }, [activeTrip?.id, cancelTrip, isSearching]);
+  }, [activeTrip?.id, cancelTrip, isSearching, status]);
 
   const handleFinish = useCallback(async () => {
     await clearActiveTrip();

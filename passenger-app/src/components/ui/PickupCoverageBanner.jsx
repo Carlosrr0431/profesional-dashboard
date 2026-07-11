@@ -1,40 +1,41 @@
 import React, { memo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
-import { radius, spacing } from '../../theme/layout';
-import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../../../../shared/geo/serviceZones';
+import { useResponsive } from '../../hooks/useResponsive';
+import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../../../shared/geo/serviceZones';
 
 function PickupCoverageBanner({ visible = false }) {
+  const { s, fs } = useResponsive();
   if (!visible) return null;
 
   return (
-    <View style={styles.banner} accessibilityRole="alert">
-      <Ionicons name="alert-circle" size={18} color={colors.warningDark} />
-      <Text style={styles.text}>{PICKUP_OUTSIDE_COVERAGE_MESSAGE}</Text>
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: s(8),
+        marginTop: s(8),
+        padding: s(8),
+        borderRadius: s(14),
+        backgroundColor: colors.warningBg,
+        borderWidth: 1,
+        borderColor: 'rgba(217, 119, 6, 0.25)',
+      }}
+      accessibilityRole="alert"
+    >
+      <Ionicons name="alert-circle" size={s(18)} color={colors.warningDark} />
+      <Text style={{
+        flex: 1,
+        fontSize: fs(13),
+        lineHeight: fs(18),
+        fontFamily: 'Inter_500Medium',
+        color: colors.warningDark,
+      }}>
+        {PICKUP_OUTSIDE_COVERAGE_MESSAGE}
+      </Text>
     </View>
   );
 }
 
 export default memo(PickupCoverageBanner);
-
-const styles = StyleSheet.create({
-  banner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-    padding: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.warningBg,
-    borderWidth: 1,
-    borderColor: 'rgba(217, 119, 6, 0.25)',
-  },
-  text: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
-    fontFamily: 'Inter_500Medium',
-    color: colors.warningDark,
-  },
-});

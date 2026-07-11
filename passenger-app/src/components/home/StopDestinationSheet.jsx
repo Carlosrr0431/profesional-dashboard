@@ -17,6 +17,8 @@ import { colors } from '../../theme/colors';
 import { radius, spacing } from '../../theme/layout';
 import AddressSearchInput from '../ui/AddressSearchInput';
 import { resolvePlaceFromSuggestion } from '../../services/googleMaps';
+import { useResponsive } from '../../hooks/useResponsive';
+import { CONTENT_MAX_WIDTH } from '../../utils/responsive';
 
 /**
  * Sheet dedicado para buscar cada parada intermedia (estilo DiDi).
@@ -32,6 +34,8 @@ export default function StopDestinationSheet({
   onMapPress,
 }) {
   const insets = useSafeAreaInsets();
+  const { screenPadding, isTablet, isLandscape } = useResponsive();
+  const contentMaxW = (isTablet || isLandscape) ? CONTENT_MAX_WIDTH : undefined;
   const inputRef = useRef(null);
   const [suggestions, setSuggestions] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -92,7 +96,11 @@ export default function StopDestinationSheet({
       onRequestClose={handleClose}
     >
       <View style={[styles.root, { paddingTop: Math.max(insets.top, Platform.OS === 'android' ? 24 : 0) }]}>
-        <View style={styles.header}>
+        <View style={[
+          styles.contentWrap,
+          contentMaxW ? { maxWidth: contentMaxW, alignSelf: 'center', width: '100%' } : null,
+        ]}>
+        <View style={[styles.header, { paddingHorizontal: screenPadding }]}>
           <Pressable
             onPress={handleClose}
             hitSlop={12}
@@ -105,7 +113,7 @@ export default function StopDestinationSheet({
           <View style={styles.headerBtn} />
         </View>
 
-        <View style={styles.inputBlock}>
+        <View style={[styles.inputBlock, { paddingHorizontal: screenPadding }]}>
           <View style={styles.inputRow}>
             <View style={styles.dotStop} />
             <View style={styles.inputCol}>
@@ -136,7 +144,10 @@ export default function StopDestinationSheet({
           style={styles.results}
           contentContainerStyle={[
             styles.resultsContent,
-            { paddingBottom: Math.max(insets.bottom, spacing.lg) },
+            {
+              paddingBottom: Math.max(insets.bottom, spacing.lg),
+              paddingHorizontal: screenPadding,
+            },
           ]}
           keyboardShouldPersistTaps="always"
           keyboardDismissMode="on-drag"
@@ -209,6 +220,7 @@ export default function StopDestinationSheet({
             </View>
           ) : null}
         </ScrollView>
+        </View>
       </View>
     </Modal>
   );
@@ -219,11 +231,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.surface,
   },
+  contentWrap: {
+    flex: 1,
+    width: '100%',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
   },
   headerBtn: {
@@ -245,7 +260,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   inputBlock: {
-    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderLight,
@@ -281,7 +295,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   resultsContent: {
-    paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
   loadingRow: {

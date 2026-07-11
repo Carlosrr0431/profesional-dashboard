@@ -1,6 +1,8 @@
 -- Configuración del webhook que despierta dispatch-worker al encolar viajes.
--- IMPORTANTE: dispatch_worker_secret debe coincidir con CRON_SECRET en Vercel.
+-- IMPORTANTE: dispatch_worker_secret debe coincidir EXACTAMENTE con CRON_SECRET en Vercel.
 -- Si CRON_SECRET está vacío en Vercel, dejá dispatch_worker_secret vacío también.
+--
+-- Si ves http_get_unauthorized en logs, ejecutá fix_dispatch_worker_wake_auth.sql
 
 INSERT INTO public.settings (key, value, updated_at)
 VALUES

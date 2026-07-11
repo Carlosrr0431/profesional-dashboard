@@ -3,7 +3,10 @@
  * y para refinar pickup/destino cuando el mensaje trae direcciones concretas.
  */
 import { deepseekChatCompletion, isDeepSeekConfigured } from './deepseekClient';
-import { buildTripIntentSystemPrompt } from './tripIntentSystemPrompt';
+import {
+  buildTripIntentSystemPrompt,
+  TRIP_ADDRESS_EXTRACT_SYSTEM_PROMPT,
+} from './tripIntentSystemPrompt';
 import {
   buildPatternTripExtraction,
   looksLikeAddressText,
@@ -31,13 +34,23 @@ const DEFAULT_EXTRACTION = {
 };
 
 function looksLikeRouteWithDestination(text) {
-  return /\b(?:es\s+para\s+ir\s+(?:hasta|a)|voy\s+(?:para|a)\s+|me\s+llev(?:a|as|en)\s+a\s+|destino(?:\s+es)?\s+|hasta\s+[a-záéíóúü]|hacia\s+[a-záéíóúü])/i.test(
+  return /\b(?:es\s+para\s+ir\s+(?:hasta|a)|(?:me\s+)?voy\s+(?:para|a)\s+|me\s+llev(?:a|as|en)\s+a\s+|destino(?:\s+es)?\s+|hasta\s+[a-záéíóúü]|hacia\s+[a-záéíóúü])/i.test(
     String(text || ''),
   );
 }
 
 function pickupLooksContaminated(pickup) {
-  return /\b(?:es\s+para\s+ir|voy\s+para|me\s+llev(?:a|as|en)\s+a)\b/i.test(String(pickup || ''));
+  const value = String(pickup || '');
+  return (
+    /\b(?:es\s+para\s+ir|voy\s+para|me\s+voy|me\s+llev(?:a|as|en)\s+a)\b/i.test(value) ||
+    /,\s*(?:me|yo)\s*$/i.test(value)
+  );
+}
+
+function addressLooksValid(value) {
+  const normalized = normalizeExtractedAddress(value);
+  if (!normalized || normalized.length < 3) return false;
+  return !pickupLooksContaminated(normalized);
 }
 
 function normalizeExtractedAddress(value) {
@@ -73,20 +86,31 @@ function shouldRefineTripAddressesWithDeepSeek({
   );
 }
 
-function mergeTripAddressExtraction(patternResult, aiResult, heuristics) {
+function mergeTripAddressExtraction(patternResult, aiResult, heuristics, { preferAiAddresses = false } = {}) {
   const aiConf = Number(aiResult?.confidence) || 0;
-  const preferAiAddresses = aiConf >= 0.55;
+  const aiPickup = normalizeExtractedAddress(aiResult?.pickup_location);
+  const aiDestination = normalizeExtractedAddress(aiResult?.destination);
+
+  const useAiPickup =
+    addressLooksValid(aiPickup) && (preferAiAddresses || aiConf >= 0.55);
+  const useAiDestination =
+    addressLooksValid(aiDestination) && (preferAiAddresses || aiConf >= 0.55);
+
+  const patternPickup = normalizeExtractedAddress(patternResult.pickup_location);
+  const heuristicPickup = normalizeExtractedAddress(heuristics?.pickup);
+  const patternDestination = normalizeExtractedAddress(patternResult.destination);
+  const heuristicDestination = normalizeExtractedAddress(heuristics?.destination);
 
   const pickup =
-    (preferAiAddresses ? normalizeExtractedAddress(aiResult.pickup_location) : null) ||
-    normalizeExtractedAddress(patternResult.pickup_location) ||
-    normalizeExtractedAddress(heuristics?.pickup) ||
+    (useAiPickup ? aiPickup : null) ||
+    (addressLooksValid(patternPickup) ? patternPickup : null) ||
+    (addressLooksValid(heuristicPickup) ? heuristicPickup : null) ||
     null;
 
   const destination =
-    (preferAiAddresses ? normalizeExtractedAddress(aiResult.destination) : null) ||
-    normalizeExtractedAddress(patternResult.destination) ||
-    normalizeExtractedAddress(heuristics?.destination) ||
+    (useAiDestination ? aiDestination : null) ||
+    patternDestination ||
+    heuristicDestination ||
     null;
 
   const missingFields = Array.isArray(aiResult.missing_fields) && aiResult.missing_fields.length
@@ -98,7 +122,7 @@ function mergeTripAddressExtraction(patternResult, aiResult, heuristics) {
     intent: 'trip_request',
     passenger_name: aiResult.passenger_name || patternResult.passenger_name,
     pickup_location: pickup,
-    origin: normalizeExtractedAddress(aiResult.origin) || patternResult.origin || null,
+    origin: normalizeExtractedAddress(aiResult.origin) || patternResult.origin || pickup,
     destination,
     notes: aiResult.notes || patternResult.notes || null,
     reply: aiResult.reply ?? patternResult.reply ?? null,
@@ -107,6 +131,47 @@ function mergeTripAddressExtraction(patternResult, aiResult, heuristics) {
     schedule_time: aiResult.schedule_time || patternResult.schedule_time || null,
     cancel_confirmed: aiResult.cancel_confirmed ?? patternResult.cancel_confirmed ?? false,
   };
+}
+
+async function extractTripAddressesWithDeepSeek({
+  combinedText,
+  patternPickup = null,
+  patternDestination = null,
+  logFn,
+}) {
+  const userContent = [
+    patternPickup || patternDestination
+      ? `Detección automática previa (puede estar mal): retiro="${patternPickup || ''}", destino="${patternDestination || ''}"`
+      : null,
+    `Mensaje del pasajero:\n${combinedText}`,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  const { content } = await deepseekChatCompletion({
+    systemPrompt: TRIP_ADDRESS_EXTRACT_SYSTEM_PROMPT,
+    userContent,
+    maxTokens: 160,
+    jsonMode: true,
+    logFn,
+    purpose: 'trip_address_extract',
+  });
+
+  const parsed = parseTripIntentJson(content, {
+    pickup_location: null,
+    destination: null,
+    confidence: 0,
+  });
+
+  if (logFn) {
+    logFn('ai_extract_addresses_ok', {
+      pickup: parsed.pickup_location ? '[set]' : null,
+      destination: parsed.destination ? '[set]' : null,
+      confidence: parsed.confidence,
+    });
+  }
+
+  return parsed;
 }
 
 export function parseTripIntentJson(raw, fallback = DEFAULT_EXTRACTION) {
@@ -163,18 +228,16 @@ export async function extractTripIntentHybrid({
         });
       }
 
-      const aiResult = await extractTripIntentWithDeepSeek({
+      const aiResult = await extractTripAddressesWithDeepSeek({
         combinedText,
-        context,
-        pushName,
-        history,
-        conversationStatus,
-        lastBotReply,
-        patternFallback: patternResult,
+        patternPickup: patternResult.pickup_location || heuristics?.pickup || null,
+        patternDestination: patternResult.destination || heuristics?.destination || null,
         logFn,
       });
 
-      const merged = mergeTripAddressExtraction(patternResult, aiResult, heuristics);
+      const merged = mergeTripAddressExtraction(patternResult, aiResult, heuristics, {
+        preferAiAddresses: true,
+      });
       if (logFn) {
         logFn('ai_extract_intent_pattern_deepseek_merged', {
           phone,

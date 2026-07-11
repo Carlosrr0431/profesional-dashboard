@@ -1,35 +1,64 @@
-node_modules/
-.expo/
-dist/
+# NOTA: EAS ignora este archivo. El .easignore activo está en la raíz del monorepo:
+# ProfesionalApp/.easignore
+# (Expo solo lee .easignore en la raíz del repositorio git.)
+#
+# Referencia local — rutas relativas a ProfesionalApp/:
 
-android/app/build/
-android/.gradle/
-android/build/
-android/app/.cxx/
-ios/Pods/
-ios/build/
-coverage/
+# Otros sub-proyectos
+driver-app/
+profesional-dashboard/
+infra/
+railway-services/
+builds/
 
-.tools/
-*.tsbuildinfo
-*.log
-npm-debug.*
-yarn-debug.*
-yarn-error.*
+# Metadatos del monorepo (no necesarios para compilar)
+.github/
+.cursor/
+.agents/
+.vscode/
+*.md
+skills-lock.json
+test-viajes-whatsapp.txt
 
-.env
-.env.local
+# Artefactos locales de passenger-app
+passenger-app/node_modules/
+passenger-app/.expo/
+passenger-app/dist/
+passenger-app/coverage/
+passenger-app/.tools/
 
-# Monorepo: excluir otros sub-proyectos y archivos pesados
-../driver-app/
-../profesional-dashboard/
-../infra/
-../railway-services/
-../*.md
-../.github/
-../.cursor/
-../.agents/
+# Inspecciones EAS anidadas (copias locales del monorepo, ~3 GB)
+passenger-app/.eas-inspect/
+passenger-app/.eas-inspect-vcs/
+passenger-app/.eas-inspect-vcs2/
+**/.eas-inspect/
+**/.eas-inspect-vcs/
+**/.eas-inspect-vcs2/
 
-# Necesario para compilar Firebase en EAS Android
-!google-services.json
-!android/app/google-services.json
+passenger-app/android/app/build/
+passenger-app/android/.gradle/
+passenger-app/android/build/
+passenger-app/android/app/.cxx/
+passenger-app/ios/Pods/
+passenger-app/ios/build/
+
+passenger-app/*.tsbuildinfo
+passenger-app/*.log
+passenger-app/npm-debug.*
+passenger-app/yarn-debug.*
+passenger-app/yarn-error.*
+
+passenger-app/.env
+passenger-app/.env.local
+
+**/*.zip
+**/*.7z
+*firebase-adminsdk*.json
+
+# Código compartido del monorepo (imports ../../../shared)
+!shared/
+!shared/**
+
+# Firebase Android
+!passenger-app/google-services.json
+!passenger-app/android/app/google-services.json

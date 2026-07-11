@@ -47,6 +47,11 @@ Thumbs.db
 # Cursor
 .cursor/
 
+# Copias locales de EAS inspect (no commitear)
+**/.eas-inspect/
+**/.eas-inspect-vcs/
+**/.eas-inspect-vcs2/
+
 # Railway service repos (cada uno es un Git independiente en railway-services/)
 railway-services/profesional-osrm/
 railway-services/profesional-nominatim/

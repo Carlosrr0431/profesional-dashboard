@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { isPickupInActiveZones } from '../../../shared/geo/serviceZones';
+import { isPickupInActiveZones } from '../../shared/geo/serviceZones';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 

@@ -1,7 +1,7 @@
 const {
   isPointInPolygon,
   isPickupInActiveZones,
-} = require('../../../shared/geo/serviceZones');
+} = require('../../shared/geo/serviceZones');
 
 describe('serviceZones', () => {
   const saltaBox = [

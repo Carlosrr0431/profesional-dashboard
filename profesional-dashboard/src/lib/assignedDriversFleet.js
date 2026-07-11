@@ -74,9 +74,25 @@ export async function setFleetDriverOnlineStatus(supabase, driverId, online) {
     if (rootError) throw rootError;
 
     if (fleetRoot?.vehicle_operator_id && fleetRoot.vehicle_operator_id !== driverId) {
-      const err = new Error('El vehículo ya está en uso por otro chofer. Solo uno puede operarlo a la vez.');
-      err.code = 'CONFLICT';
-      throw err;
+      const { data: currentOperator, error: operatorError } = await supabase
+        .from('drivers')
+        .select('id, is_available')
+        .eq('id', fleetRoot.vehicle_operator_id)
+        .maybeSingle();
+
+      if (operatorError) throw operatorError;
+
+      if (currentOperator?.is_available) {
+        const err = new Error('El vehículo ya está en uso por otro chofer. Solo uno puede operarlo a la vez.');
+        err.code = 'CONFLICT';
+        throw err;
+      }
+
+      await supabase
+        .from('drivers')
+        .update({ vehicle_operator_id: null, updated_at: new Date().toISOString() })
+        .eq('id', fleetRootId)
+        .eq('vehicle_operator_id', fleetRoot.vehicle_operator_id);
     }
 
     const { data: busyDrivers, error: busyError } = await supabase

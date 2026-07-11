@@ -1,4 +1,4 @@
-const { pickPassengerFareRoute } = require('../../../shared/salta-route');
+const { pickPassengerFareRoute } = require('../../shared/salta-route');
 
 function makeRoute(distanceMeters, durationSeconds) {
   return {

@@ -7,7 +7,7 @@ const {
   formatNominatimDisplayLabel,
   applyQueryHouseNumberToLabel,
   parseStreetHouseFromQuery,
-} = require('../../../shared/salta-address');
+} = require('../../shared/salta-address');
 
 describe('salta-address', () => {
   it('normaliza "mitre 350" con corrección fonética', () => {

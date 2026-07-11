@@ -19,7 +19,7 @@
     <meta-data android:name="com.google.android.geo.API_KEY" android:value="AIzaSyCBk9j5dOJTovVY7fMIMwnntLQnWUsozwc"/>
     <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="viajes" tools:replace="android:value"/>
     <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/notification_icon_color" tools:replace="android:resource"/>
-    <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/notification_icon" tools:replace="android:resource"/>
+    <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@mipmap/ic_launcher" tools:replace="android:resource"/>
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="true"/>
     <meta-data android:name="expo.modules.updates.EXPO_RUNTIME_VERSION" android:value="@string/expo_runtime_version"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>

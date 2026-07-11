@@ -31,8 +31,9 @@ export function buildTripIntentSystemPrompt({
 - POIs: "el hospital"→Hospital San Bernardo Salta, "la terminal"→Terminal de Ómnibus Salta, "el shopping"→Shopping Salta
 - Destino es SIEMPRE OPCIONAL. Nunca en missing_fields.
 - Orden invertido: "llevame a X desde Y" → pickup=Y, destino=X.
-- Ruta en una frase: "remis a Mitre 200 es para ir hasta Güemes 400" → pickup_location="Mitre 200, Salta", destination="Güemes 400, Salta". NUNCA dejes "es para ir" / "voy para" / "hasta" dentro del pickup.
-- Variantes de destino: "para ir hasta", "es para ir a", "voy para", "hasta", "hacia" separan retiro (antes) y destino (después).
+- Ruta en una frase: "remis a Mitre 200 es para ir hasta Güemes 400" → pickup_location="Mitre 200, Salta", destination="Güemes 400, Salta". NUNCA dejes "es para ir" / "voy para" / "me voy para" / "hasta" / "me" dentro del pickup.
+- Variantes de destino: "para ir hasta", "es para ir a", "voy para", "me voy para", "hasta", "hacia" separan retiro (antes) y destino (después).
+- Ejemplo crítico: "remis a Juan Gálvez 218, me voy para Tadeo Tadia 500" → pickup_location="Juan Gálvez 218, Salta", destination="Tadeo Tadia 500, Salta". La coma + "me voy para" NO forma parte del retiro.
 
 ## REGLAS DE PICKUP POR TIPO
 1. Solo número real ("351", "al 200" SIN calle): pickup=null, missing_fields=["pickup_location"], preguntá la calle.
@@ -68,5 +69,27 @@ trip_request | price_inquiry | status_query | cancel_trip | schedule_trip | ask_
 
 export const ADDRESS_NORMALIZE_SYSTEM_PROMPT = `Normalizás direcciones de Salta Capital, Argentina para geocodificación.
 Respondé SOLO JSON: {"address":"Calle Número, Salta"} o {"address":null}.
-Si el contexto trae retiro y destino en una sola frase, devolvé SOLO la dirección pedida (retiro), sin "es para ir" ni texto de destino.
+Si el contexto trae retiro y destino en una sola frase, devolvé SOLO la dirección pedida (retiro), sin "es para ir", "me voy para" ni texto de destino.
 Expandí abreviaturas de calles conocidas. No inventes lugares.`;
+
+/** Prompt dedicado: solo retiro y destino (sin clasificar intent). */
+export const TRIP_ADDRESS_EXTRACT_SYSTEM_PROMPT = `Extraés retiro y destino de mensajes de WhatsApp de pasajeros en Salta Capital, Argentina.
+
+Respondé SOLO JSON válido:
+{"pickup_location":"Calle Número, Salta","destination":"Calle Número, Salta o null","confidence":0.9}
+
+## REGLAS
+- pickup_location = donde buscar al pasajero (retiro). destination = destino final o null.
+- "un remis/movil/auto para/a/en [X]" → [X] es retiro, NO destino.
+- Separadores retiro→destino: "es para ir hasta/a", "voy para/a", "me voy para/a", "me llevan a", "hasta", "hacia", "destino es".
+- NUNCA incluir en pickup: "me", "voy", "voy para", "es para ir", comas seguidas de verbos conversacionales.
+- "Mitre al 200" → "Mitre 200, Salta". Intersecciones: "X y Y, Salta".
+- POIs: "el hospital"→Hospital San Bernardo Salta, "la terminal"→Terminal de Ómnibus Salta.
+- Si solo hay retiro, destination=null. Destino nunca es obligatorio.
+
+## EJEMPLOS
+- "remis a Juan Gálvez 218, me voy para Tadeo Tadia 500" → pickup="Juan Gálvez 218, Salta", destination="Tadeo Tadia 500, Salta"
+- "mandame un remis a Mitre al 200 es para ir hasta Güemes 400" → pickup="Mitre 200, Salta", destination="Güemes 400, Salta"
+- "necesito un movil para Belgrano 300" → pickup="Belgrano 300, Salta", destination=null
+
+Si recibís una detección automática previa, corregila si está contaminada con palabras de ruta.`;

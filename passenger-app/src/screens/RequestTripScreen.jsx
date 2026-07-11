@@ -28,11 +28,15 @@ import { reverseGeocode, isCoordinateFallbackText } from '../services/googleMaps
 import AddressSearchInput from '../components/ui/AddressSearchInput';
 import PickupCoverageBanner from '../components/ui/PickupCoverageBanner';
 import MapPinPickerModal from '../components/map/MapPinPickerModal';
+import { useResponsive } from '../hooks/useResponsive';
+import { CONTENT_MAX_WIDTH } from '../utils/responsive';
 
 export default function RequestTripScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute();
+  const { screenPadding, isTablet, isLandscape } = useResponsive();
+  const contentMaxW = (isTablet || isLandscape) ? CONTENT_MAX_WIDTH : undefined;
   const { profile } = useAuthStore();
   const { location, getCurrentLocation } = useLocation();
   const { requestTrip } = useTrip();
@@ -179,8 +183,12 @@ export default function RequestTripScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
+      <View style={[
+        styles.contentWrap,
+        contentMaxW ? { maxWidth: contentMaxW, alignSelf: 'center', width: '100%' } : null,
+      ]}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 12, paddingHorizontal: screenPadding }]}>
         <Pressable onPress={() => navigation.goBack()} style={styles.closeBtn}>
           <Ionicons name="close" size={22} color={colors.textDark} />
         </Pressable>
@@ -196,7 +204,10 @@ export default function RequestTripScreen() {
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: insets.bottom + 120 },
+            {
+              paddingBottom: insets.bottom + 120,
+              paddingHorizontal: screenPadding,
+            },
           ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -350,6 +361,7 @@ export default function RequestTripScreen() {
           </LinearGradient>
         </Pressable>
       </View>
+      </View>
 
       <MapPinPickerModal
         visible={mapPickerField != null}
@@ -364,10 +376,11 @@ export default function RequestTripScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
+  contentWrap: { flex: 1, width: '100%' },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingBottom: 12,
+    paddingBottom: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1, borderBottomColor: colors.border,
   },
@@ -380,7 +393,7 @@ const styles = StyleSheet.create({
     fontSize: 17, fontFamily: 'Inter_700Bold', color: colors.text,
   },
 
-  scrollContent: { paddingHorizontal: 16, paddingTop: 20 },
+  scrollContent: { paddingTop: 20 },
 
   section: { marginBottom: 16 },
   sectionTitle: {

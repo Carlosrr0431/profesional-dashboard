@@ -1,67 +1,62 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { colors } from '../../theme/colors';
-import { radius, spacing } from '../../theme/layout';
+import { useResponsive } from '../../hooks/useResponsive';
 
 export default function ScreenBackHeader({ title, subtitle }) {
   const navigation = useNavigation();
+  const { s, fs, screenPadding } = useResponsive();
+  const btnSize = s(44, { min: 40 });
 
   return (
-    <View style={styles.wrap}>
-      <View style={styles.row}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
-          <Ionicons name="arrow-back" size={22} color={colors.primary} />
+    <View style={{
+      paddingHorizontal: screenPadding,
+      paddingBottom: s(12),
+      borderBottomWidth: 1,
+      borderBottomColor: colors.borderLight,
+      backgroundColor: colors.surface,
+    }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          style={{
+            width: btnSize,
+            height: btnSize,
+            borderRadius: s(14),
+            backgroundColor: colors.accentMuted,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          hitSlop={12}
+        >
+          <Ionicons name="arrow-back" size={s(22)} color={colors.primary} />
         </Pressable>
-        <View style={styles.textCol}>
-          <Text style={styles.title}>{title}</Text>
-          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+        <View style={{ flex: 1, alignItems: 'center', paddingHorizontal: s(8) }}>
+          <Text style={{
+            fontSize: fs(18),
+            fontFamily: 'Inter_700Bold',
+            color: colors.primary,
+            letterSpacing: -0.3,
+            textAlign: 'center',
+          }}>
+            {title}
+          </Text>
+          {subtitle ? (
+            <Text style={{
+              fontSize: fs(13),
+              fontFamily: 'Inter_400Regular',
+              color: colors.textMuted,
+              marginTop: 2,
+              textAlign: 'center',
+            }}>
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
-        <View style={styles.backBtnPlaceholder} />
+        <View style={{ width: btnSize }} />
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: {
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderLight,
-    backgroundColor: colors.surface,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    backgroundColor: colors.accentMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backBtnPlaceholder: { width: 44 },
-  textCol: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-  },
-  title: {
-    fontSize: 18,
-    fontFamily: 'Inter_700Bold',
-    color: colors.primary,
-    letterSpacing: -0.3,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 13,
-    fontFamily: 'Inter_400Regular',
-    color: colors.textMuted,
-    marginTop: 2,
-    textAlign: 'center',
-  },
-});

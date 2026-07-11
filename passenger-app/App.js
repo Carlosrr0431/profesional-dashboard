@@ -20,12 +20,26 @@ import { useAuthStore, isSessionValid } from './src/stores/authStore';
 import { normalizePassengerPhone } from './src/utils/phone';
 import { validatePassengerSession } from './src/services/authService';
 import { useNotifications } from './src/hooks/useNotifications';
+import { ResponsiveProvider } from './src/hooks/useResponsive';
+import { useStoreUpdateCheck } from './src/hooks/useStoreUpdateCheck';
+import { StoreUpdateModal } from './src/components/ui/StoreUpdateModal';
 
 SplashScreen.preventAutoHideAsync();
 
 function RootApp() {
   useNotifications();
-  return <AppNavigator />;
+  const { visible: updateVisible, dismiss: dismissUpdate, openUpdate } = useStoreUpdateCheck();
+
+  return (
+    <>
+      <AppNavigator />
+      <StoreUpdateModal
+        visible={updateVisible}
+        onUpdate={openUpdate}
+        onDismiss={dismissUpdate}
+      />
+    </>
+  );
 }
 
 export default function App() {
@@ -106,9 +120,11 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayoutRootView}>
       <SafeAreaProvider>
-        <StatusBar style="light" />
-        <RootApp />
-        <Toast position="top" topOffset={60} />
+        <ResponsiveProvider>
+          <StatusBar style="light" />
+          <RootApp />
+          <Toast position="top" topOffset={60} />
+        </ResponsiveProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

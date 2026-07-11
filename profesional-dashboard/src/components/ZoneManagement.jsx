@@ -5,7 +5,6 @@ import Map, { Source, Layer } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { SALTA_CENTER } from '../lib/constants';
 import { MAP_STYLE_URL, DEFAULT_MAP_VIEW, mapLibreOptions } from '../lib/mapLibre';
-import { useGoogleMapsLoader } from '../lib/googleMaps';
 import { useServiceZones } from '../hooks/useServiceZones';
 import { useToast } from '../context/ToastContext';
 
@@ -36,8 +35,7 @@ export default function ZoneManagement({ onBack }) {
   const [deletingId, setDeletingId] = useState(null);
   const [error, setError] = useState('');
   const [isMapLoaded, setIsMapLoaded] = useState(false);
-  const { isLoaded: mapsApiReady } = useGoogleMapsLoader();
-  const isLoaded = mapsApiReady && isMapLoaded;
+  const isLoaded = isMapLoaded;
   const [viewState, setViewState] = useState({
     ...DEFAULT_MAP_VIEW,
     longitude: SALTA_CENTER.lng,

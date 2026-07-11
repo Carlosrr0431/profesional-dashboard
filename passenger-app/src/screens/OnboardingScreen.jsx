@@ -22,6 +22,8 @@ import { normalizePassengerPhone } from '../utils/phone';
 import { sendPassengerOtp, verifyPassengerOtp } from '../services/authService';
 import OtpInput from '../components/ui/OtpInput';
 import { LoginBrandHeader } from '../components/auth/LoginBrandHeader';
+import { useResponsive } from '../hooks/useResponsive';
+import { CONTENT_MAX_WIDTH } from '../utils/responsive';
 
 const RESEND_COOLDOWN_SEC = 60;
 
@@ -41,6 +43,7 @@ function formatPhoneDisplay(digits) {
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { saveProfile } = useAuthStore();
+  const { s, fs, isLandscape, screenPadding } = useResponsive();
 
   const [phase, setPhase] = useState('phone');
   const [phone, setPhone] = useState('');
@@ -164,8 +167,18 @@ export default function OnboardingScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.flex}
       >
-        <View style={[styles.inner, { paddingTop: insets.top + 28, paddingBottom: insets.bottom + 16 }]}>
-          <LoginBrandHeader style={styles.brand} />
+        <View style={[
+          styles.inner,
+          {
+            paddingTop: insets.top + s(isLandscape ? 12 : 28),
+            paddingBottom: insets.bottom + s(16),
+            paddingHorizontal: screenPadding,
+            maxWidth: CONTENT_MAX_WIDTH,
+            width: '100%',
+            alignSelf: 'center',
+          },
+        ]}>
+          <LoginBrandHeader style={[styles.brand, isLandscape && { marginBottom: s(8) }]} />
 
           {/* Card única de login */}
           <Animated.View entering={FadeInUp.delay(120).duration(500)} style={styles.card}>

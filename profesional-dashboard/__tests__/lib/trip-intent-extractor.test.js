@@ -27,12 +27,9 @@ describe('extractTripIntentHybrid + DeepSeek refine', () => {
   it('refina pickup y destino con DeepSeek aunque el patrón tenga alta confianza', async () => {
     deepseekChatCompletion.mockResolvedValue({
       content: JSON.stringify({
-        intent: 'trip_request',
-        passenger_name: 'Juan',
         pickup_location: 'Mitre 200, Salta',
         destination: 'Güemes 400, Salta',
         confidence: 0.92,
-        missing_fields: [],
       }),
       usage: {},
     });
@@ -53,6 +50,57 @@ describe('extractTripIntentHybrid + DeepSeek refine', () => {
     expect(result.pickup_location).toBe('Mitre 200, Salta');
     expect(result.destination).toBe('Güemes 400, Salta');
     expect(logs.some((entry) => entry.stage === 'ai_extract_intent_deepseek_refine')).toBe(true);
+    expect(logs.some((entry) => entry.stage === 'ai_extract_addresses_ok')).toBe(true);
+  });
+
+  it('prioriza direcciones de DeepSeek aunque el patrón haya contaminado el retiro con ", me"', async () => {
+    deepseekChatCompletion.mockResolvedValue({
+      content: JSON.stringify({
+        pickup_location: 'Juan Gálvez 218, Salta',
+        destination: 'Tadeo Tadia 500, Salta',
+        confidence: 0.88,
+      }),
+      usage: {},
+    });
+
+    const text =
+      'Hola, me mandas un remis a Juan Gálvez 218, me voy para Tadeo tadia al 500';
+    const result = await extractTripIntentHybrid({
+      combinedText: text,
+      context: {},
+      pushName: 'Juan',
+      phone: '5493878630173',
+      inferHeuristics: inferTripHeuristics,
+    });
+
+    expect(result.intent).toBe('trip_request');
+    expect(result.pickup_location).toBe('Juan Gálvez 218, Salta');
+    expect(result.destination).toBe('Tadeo Tadia 500, Salta');
+    expect(result.pickup_location).not.toMatch(/,\s*me\b/i);
+  });
+
+  it('usa direcciones de DeepSeek aunque devuelva confidence baja', async () => {
+    deepseekChatCompletion.mockResolvedValue({
+      content: JSON.stringify({
+        pickup_location: 'Juan Gálvez 218, Salta',
+        destination: 'Tadeo Tadia 500, Salta',
+        confidence: 0,
+      }),
+      usage: {},
+    });
+
+    const text =
+      'Hola, me mandas un remis a Juan Gálvez 218, me voy para Tadeo tadia al 500';
+    const result = await extractTripIntentHybrid({
+      combinedText: text,
+      context: {},
+      pushName: 'Juan',
+      phone: '5493878630173',
+      inferHeuristics: inferTripHeuristics,
+    });
+
+    expect(result.pickup_location).toBe('Juan Gálvez 218, Salta');
+    expect(result.destination).toBe('Tadeo Tadia 500, Salta');
   });
 
   it('no llama DeepSeek para saludos sin dirección', async () => {

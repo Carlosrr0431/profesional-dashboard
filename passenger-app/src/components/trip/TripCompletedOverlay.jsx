@@ -14,11 +14,12 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
+import { useResponsive } from '../../hooks/useResponsive';
 
 const VISIBLE_MS = 2200;
 const FADE_OUT_MS = 400;
 
-function SuccessPulse() {
+function SuccessPulse({ size = 112 }) {
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0.5);
 
@@ -40,10 +41,22 @@ function SuccessPulse() {
     opacity: opacity.value,
   }));
 
-  return <Animated.View style={[styles.pulseRing, ringStyle]} />;
+  return (
+    <Animated.View
+      style={[
+        styles.pulseRing,
+        { width: size, height: size, borderRadius: size / 2 },
+        ringStyle,
+      ]}
+    />
+  );
 }
 
 export function TripCompletedOverlay({ onComplete }) {
+  const { s, fs } = useResponsive();
+  const iconOuter = s(112, { min: 88, max: 128 });
+  const iconInner = s(88, { min: 72, max: 104 });
+
   useEffect(() => {
     const timer = setTimeout(() => onComplete?.(), VISIBLE_MS + FADE_OUT_MS);
     return () => clearTimeout(timer);
@@ -53,7 +66,7 @@ export function TripCompletedOverlay({ onComplete }) {
     <Animated.View
       entering={FadeIn.duration(320)}
       exiting={FadeOut.duration(FADE_OUT_MS)}
-      style={styles.root}
+      style={[styles.root, { paddingHorizontal: s(32, { min: 20, max: 48 }) }]}
       pointerEvents="auto"
     >
       <LinearGradient
@@ -62,17 +75,17 @@ export function TripCompletedOverlay({ onComplete }) {
       />
 
       <Animated.View entering={ZoomIn.springify().damping(13).stiffness(140)} style={styles.card}>
-        <View style={styles.iconWrap}>
-          <SuccessPulse />
-          <View style={styles.iconCircle}>
-            <Ionicons name="checkmark" size={42} color="#FFFFFF" />
+        <View style={[styles.iconWrap, { width: iconOuter, height: iconOuter }]}>
+          <SuccessPulse size={iconOuter} />
+          <View style={[styles.iconCircle, { width: iconInner, height: iconInner, borderRadius: iconInner / 2 }]}>
+            <Ionicons name="checkmark" size={Math.round(fs(42))} color="#FFFFFF" />
           </View>
         </View>
 
-        <Animated.Text entering={FadeInUp.delay(120).springify()} style={styles.title}>
+        <Animated.Text entering={FadeInUp.delay(120).springify()} style={[styles.title, { fontSize: fs(26) }]}>
           ¡Gracias por viajar!
         </Animated.Text>
-        <Animated.Text entering={FadeInUp.delay(220).springify()} style={styles.subtitle}>
+        <Animated.Text entering={FadeInUp.delay(220).springify()} style={[styles.subtitle, { fontSize: fs(16) }]}>
           Esperamos verte pronto de nuevo
         </Animated.Text>
       </Animated.View>
@@ -86,30 +99,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 20,
-    paddingHorizontal: 32,
   },
   card: {
     alignItems: 'center',
     maxWidth: 320,
   },
   iconWrap: {
-    width: 112,
-    height: 112,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 28,
   },
   pulseRing: {
     position: 'absolute',
-    width: 112,
-    height: 112,
-    borderRadius: 56,
     backgroundColor: colors.success,
   },
   iconCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
     backgroundColor: colors.success,
     alignItems: 'center',
     justifyContent: 'center',
@@ -120,14 +124,12 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   title: {
-    fontSize: 26,
     fontFamily: 'Inter_700Bold',
     color: '#FFFFFF',
     textAlign: 'center',
     letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 16,
     fontFamily: 'Inter_400Regular',
     color: 'rgba(255,255,255,0.82)',
     textAlign: 'center',

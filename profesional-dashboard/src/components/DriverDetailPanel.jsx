@@ -4,8 +4,9 @@ import { filterPaymentsByPeriod, sumPaymentAmounts, paymentSourceLabel, toAnchor
 import CommissionPeriodPicker from './CommissionPeriodPicker';
 import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
-import { isFleetRoot } from '../lib/driverRoles';
+import { isFleetRoot, isAssignedDriver } from '../lib/driverRoles';
 import AssignedDriversTab from './AssignedDriversTab';
+import DriverAvatar from './DriverAvatar';
 
 export default function DriverDetailPanel({
   driver,
@@ -20,6 +21,7 @@ export default function DriverDetailPanel({
   deleteAssignedDriver,
   toggleAssignedDriverStatus,
   assignedCount = 0,
+  partnerOwners = [],
 }) {
   const toast = useToast();
   const [trips, setTrips] = useState([]);
@@ -143,23 +145,30 @@ export default function DriverDetailPanel({
       <div className="flex-shrink-0 px-5 py-4 border-b border-light-300/50">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-light-200 flex items-center justify-center text-lg font-bold text-gray-400 overflow-hidden flex-shrink-0">
-              {driver.photo_url ? (
-                <img src={driver.photo_url} alt="" className="w-full h-full object-cover" />
-              ) : (
-                (driver.full_name || 'NN').split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()
-              )}
-            </div>
+            <DriverAvatar
+              photoUrl={driver.photo_url}
+              name={driver.full_name}
+              size="lg"
+              online={Boolean(driver.is_available)}
+            />
             <div>
               <div className="flex items-center gap-1.5">
                 <h3 className="text-base font-bold text-navy-900">{driver.full_name}</h3>
                 {driver.driver_number && (
                   <span className="text-[10px] font-bold text-accent bg-accent/15 px-1.5 py-0.5 rounded-md">#{driver.driver_number}</span>
                 )}
+                {!isAssignedDriver(driver) && partnerOwners.length > 0 ? (
+                  <span className="text-[10px] font-bold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded-md">Socio</span>
+                ) : null}
               </div>
               <p className="text-xs text-gray-500">
                 {driver.vehicle_type === 'moto' ? '🏍️' : '🚗'} {driver.vehicle_brand} {driver.vehicle_model} · {driver.vehicle_plate}
               </p>
+              {!isAssignedDriver(driver) && partnerOwners.length > 0 ? (
+                <p className="text-[11px] text-teal-700 mt-0.5">
+                  Socio de {partnerOwners.map((p) => p.full_name).filter(Boolean).join(', ')}
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -247,6 +256,7 @@ export default function DriverDetailPanel({
             {tab === 'assigned' && canManageAssigned ? (
               <AssignedDriversTab
                 ownerDriver={driver}
+                partnerOwners={partnerOwners}
                 fetchAssignedDrivers={fetchAssignedDrivers}
                 createAssignedDriver={createAssignedDriver}
                 deleteAssignedDriver={deleteAssignedDriver}

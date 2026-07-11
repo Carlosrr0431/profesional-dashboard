@@ -12,6 +12,7 @@ import {
   PixelRatio,
   Dimensions,
 } from 'react-native';
+import * as Location from 'expo-location';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -33,7 +34,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../theme/colors';
 import { radius, shadow, spacing } from '../../theme/layout';
 import { useAuthStore } from '../../stores/authStore';
-import { useLocation } from '../../hooks/useLocation';
 import { useTrip } from '../../hooks/useTrip';
 import { useTripStore } from '../../stores/tripStore';
 import { useServiceZoneCoverage } from '../../hooks/useServiceZoneCoverage';
@@ -56,21 +56,21 @@ import {
   getTripPickupDisplayAddress,
   getTripDestinationDisplayAddress,
 } from '../../utils/tripDisplayAddresses';
+import { useResponsive } from '../../hooks/useResponsive';
+import { CONTENT_MAX_WIDTH } from '../../utils/responsive';
 
 function sheetHorizontalMargin(screenWidth) {
   return clamp(Math.round(screenWidth * 0.042), spacing.md, spacing.lg);
 }
 const KEYBOARD_SHEET_GAP = 8;
 const SHEET_BOTTOM_GAP = 12;
+const COLLAPSED_SHEET_EXTRA_BOTTOM = spacing.lg;
 const DISMISS_DRAG_PX = 100;
 const DISMISS_VELOCITY = 700;
 
-const SHEET_RATIOS = {
-  collapsed: 0.115,
+const DEFAULT_SHEET_RATIOS = {
   browse: 0.84,
-  searchMax: 0.56,
   confirmationMin: 0.78,
-  searchMin: 0.4,
   absoluteMin: 0.32,
 };
 
@@ -156,6 +156,13 @@ function buildReviewUiScale(fontScale) {
   };
 }
 
+function computeCollapsedContentHeight(fontScale) {
+  const iconSize = scaleByFont(48, fontScale);
+  const pillPadV = spacing.sm * 2;
+  const innerPadV = spacing.md * 2;
+  return iconSize + pillPadV + innerPadV;
+}
+
 function computeSheetMetrics({
   layoutScreenH,
   topInset,
@@ -169,17 +176,19 @@ function computeSheetMetrics({
   fontScale,
   tripReviewMode,
   stopCount = 0,
+  sheetRatios = DEFAULT_SHEET_RATIOS,
 }) {
-  const collapsedH = clamp(Math.round(layoutScreenH * SHEET_RATIOS.collapsed), 84, 108);
+  const ratios = sheetRatios || DEFAULT_SHEET_RATIOS;
+  const collapsedH = computeCollapsedContentHeight(fontScale);
   const sheetBottomGap = Math.max(bottomInset, SHEET_BOTTOM_GAP);
   const sheetBottomExpanded = keyboardSearchMode && !tripReviewMode
     ? keyboardHeight + KEYBOARD_SHEET_GAP
     : sheetBottomGap;
-  const sheetBottomCollapsed = sheetBottomGap + spacing.sm;
+  const sheetBottomCollapsed = sheetBottomGap + COLLAPSED_SHEET_EXTRA_BOTTOM;
   const topSafeMargin = topInset + spacing.sm;
 
   const maxSheetHeight = Math.max(
-    Math.round(layoutScreenH * SHEET_RATIOS.absoluteMin),
+    Math.round(layoutScreenH * ratios.absoluteMin),
     layoutScreenH - sheetBottomGap - topSafeMargin
   );
 
@@ -202,12 +211,11 @@ function computeSheetMetrics({
   const confirmationContentH =
     chromeH + routeH + fareH + footerH + spacing.xl * 3 + spacing.lg;
 
-  const browseSheetHeight = Math.round(maxSheetHeight * SHEET_RATIOS.browse);
-  const searchSheetMaxH = Math.round(maxSheetHeight * SHEET_RATIOS.searchMax);
+  const browseSheetHeight = Math.round(maxSheetHeight * ratios.browse);
 
   const confirmationSheetHeight = clamp(
-    Math.max(confirmationContentH, Math.round(maxSheetHeight * SHEET_RATIOS.confirmationMin)),
-    Math.round(maxSheetHeight * SHEET_RATIOS.absoluteMin),
+    Math.max(confirmationContentH, Math.round(maxSheetHeight * ratios.confirmationMin)),
+    Math.round(maxSheetHeight * ratios.absoluteMin),
     maxSheetHeight
   );
 
@@ -222,8 +230,8 @@ function computeSheetMetrics({
       minHeight: Math.min(confirmationContentH, maxSheetHeight),
     };
   } else if (activeSearchMode) {
-    // Altura fija mientras se busca: el scroll va dentro del listado, no redimensiona el sheet.
-    const fixedSearchH = searchSheetMaxH;
+    // Misma altura que browse: no achicar el modal al mostrar POIs o buscar direcciones.
+    const fixedSearchH = browseSheetHeight;
     expandedSheetHeight = keyboardSearchMode
       ? Math.min(fixedSearchH, maxHeightAboveKeyboard)
       : fixedSearchH;
@@ -271,12 +279,14 @@ export default function ExpandableTripSheet({
   onRoutePreviewChange,
   activeTripUi = null,
   onActiveTripFinish,
+  getCurrentLocation,
 }) {
   const pickupInputRef = useRef(null);
   const firstParadaInputRef = useRef(null);
 
   const insets = useSafeAreaInsets();
   const { height: windowH, width: screenW } = useWindowDimensions();
+  const { sheetRatios, isLandscape, contentMaxWidth } = useResponsive();
   const fontScale = PixelRatio.getFontScale();
   const topInset = Math.max(insets.top, Platform.OS === 'android' ? 24 : 0);
   const safeBottom = Math.max(bottomInset, insets.bottom);
@@ -284,9 +294,10 @@ export default function ExpandableTripSheet({
     windowH,
     Dimensions.get('screen').height - topInset - safeBottom
   );
-  const sheetHMargin = sheetHorizontalMargin(screenW);
+  const sheetHMargin = sheetHorizontalMargin(
+    isLandscape ? Math.min(screenW, contentMaxWidth) : screenW
+  );
   const { profile } = useAuthStore();
-  const { getCurrentLocation } = useLocation();
   const { requestTrip, fetchTripHistory } = useTrip();
   const { isCreating, activeTrip } = useTripStore();
 
@@ -399,7 +410,9 @@ export default function ExpandableTripSheet({
     keyboardSearchMode || showSuggestions || suggestionsLoading;
 
   // Shared value para el gesto de pan (worklet, no puede leer JS state).
-  isSearchingSv.value = activeSearchMode ? 1 : 0;
+  useEffect(() => {
+    isSearchingSv.set(activeSearchMode ? 1 : 0);
+  }, [activeSearchMode, isSearchingSv]);
 
   const layout = useMemo(
     () => computeSheetMetrics({
@@ -415,6 +428,7 @@ export default function ExpandableTripSheet({
       fontScale,
       tripReviewMode: false,
       stopCount: 0,
+      sheetRatios,
     }),
     [
       layoutScreenH,
@@ -426,6 +440,7 @@ export default function ExpandableTripSheet({
       listData.length,
       suggestionsLoading,
       fontScale,
+      sheetRatios,
     ]
   );
 
@@ -524,18 +539,52 @@ export default function ExpandableTripSheet({
   }, [expanded, paradasAreComplete, isEditingRoute]);
 
   const loadPickupFromGPS = useCallback(async () => {
+    // No sobreescribir el pickup del viaje activo con coordenadas GPS;
+    // evita disparar el toast de cobertura mientras hay un viaje en curso.
+    if (useTripStore.getState().activeTrip) return;
+
     setPickupLoading(true);
+    let quickLoaded = false;
+
     try {
+      // Fase 1: mostrar la última ubicación conocida de inmediato (sin esperar GPS)
+      const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 5 * 60 * 1000 })
+        .catch(() => null);
+
+      if (lastKnown) {
+        const quickAddress = await reverseGeocode(
+          lastKnown.coords.latitude,
+          lastKnown.coords.longitude,
+        ).catch(() => null);
+
+        if (quickAddress) {
+          setPickup({
+            address: quickAddress,
+            lat: lastKnown.coords.latitude,
+            lng: lastKnown.coords.longitude,
+            placeId: null,
+          });
+          setPickupLoading(false);
+          quickLoaded = true;
+        }
+      }
+
+      // Fase 2: obtener posición fresca y actualizar silenciosamente
       const loc = await getCurrentLocation();
       const address = await reverseGeocode(loc.latitude, loc.longitude);
-      setPickup({
-        address,
-        lat: loc.latitude,
-        lng: loc.longitude,
-        placeId: null,
-      });
+      // Re-chequear por si un viaje fue creado mientras el GPS resolvía
+      if (!useTripStore.getState().activeTrip) {
+        setPickup({
+          address,
+          lat: loc.latitude,
+          lng: loc.longitude,
+          placeId: null,
+        });
+      }
     } catch {
-      Toast.show({ type: 'error', text1: 'No se pudo obtener tu ubicación' });
+      if (!quickLoaded) {
+        Toast.show({ type: 'error', text1: 'No se pudo obtener tu ubicación' });
+      }
     } finally {
       setPickupLoading(false);
     }
@@ -1060,7 +1109,6 @@ export default function ExpandableTripSheet({
         }
         : {
           height: collapsedH,
-          minHeight: 92,
         };
   const sheetBottomStyle = sheetIsOpen
     ? (isDismissing && dismissLayoutRef.current
@@ -1279,7 +1327,7 @@ export default function ExpandableTripSheet({
   const compactSearchLayout = activeSearchMode;
   const showFrequentLabel =
     !activeSearchMode && recentPlaces.length > 0 && (paradas.length === 0 || isEditingRoute);
-  const showBrowseFooter = sheetIsOpen && !activeSearchMode;
+  const showSheetFooter = sheetIsOpen;
 
   useEffect(() => {
     const collapsedSheetH = activeTripMode
@@ -1637,8 +1685,12 @@ export default function ExpandableTripSheet({
             shadow.float,
             {
               bottom: sheetBottomStyle,
-              left: sheetHMargin,
-              width: screenW - sheetHMargin * 2,
+              left: isLandscape
+                ? Math.max(sheetHMargin, (screenW - Math.min(screenW - sheetHMargin * 2, contentMaxWidth)) / 2)
+                : sheetHMargin,
+              width: isLandscape
+                ? Math.min(screenW - sheetHMargin * 2, contentMaxWidth)
+                : screenW - sheetHMargin * 2,
             },
             sheetSizeStyle,
             sheetIsOpen ? sheetDragStyle : null,
@@ -1651,6 +1703,7 @@ export default function ExpandableTripSheet({
           <View
             style={[
               styles.sheetInner,
+              !sheetIsOpen && styles.sheetInnerCollapsed,
               sheetIsOpen && styles.sheetInnerExpanded,
               (routeReviewVisible || activeTripMode) && styles.sheetInnerReview,
               activeTripMode && styles.sheetInnerActiveTrip,
@@ -1698,7 +1751,7 @@ export default function ExpandableTripSheet({
                   style={styles.resultsList}
                   contentContainerStyle={[
                     styles.resultsListContent,
-                    showBrowseFooter && styles.resultsListContentWithFooter,
+                    showSheetFooter && styles.resultsListContentWithFooter,
                   ]}
                   keyboardShouldPersistTaps="always"
                   keyboardDismissMode={activeSearchMode ? 'none' : 'on-drag'}
@@ -1712,7 +1765,7 @@ export default function ExpandableTripSheet({
                   {resultsListBody}
                 </Animated.ScrollView>
 
-                {showBrowseFooter ? (
+                {showSheetFooter ? (
                   <View style={styles.sheetFooterBrowse}>
                     <Pressable
                       onPress={handleCancelTrip}
@@ -1778,6 +1831,11 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.md,
   },
+  sheetInnerCollapsed: {
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    justifyContent: 'center',
+  },
   sheetInnerExpanded: {
     paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
@@ -1800,7 +1858,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.sm,
   },
   collapsedIcon: {
     width: 48,

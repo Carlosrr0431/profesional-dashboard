@@ -2,6 +2,7 @@ import {
   buildFleetActiveTripByRoot,
   expandBusyDriverIdsToFleet,
   getFleetRootId,
+  resolveDisplayActiveTrip,
   resolveFleetActiveTrip,
 } from '../../src/lib/fleetDispatch';
 
@@ -23,7 +24,7 @@ describe('fleetDispatch', () => {
     expect(expanded.has('owner-1')).toBe(true);
   });
 
-  it('propaga viaje activo del asignado al titular en el mapa', () => {
+  it('agrupa viaje activo por móvil para lógica de flota', () => {
     const trip = {
       driver_id: 'a1',
       status: 'in_progress',
@@ -33,5 +34,17 @@ describe('fleetDispatch', () => {
     const byRoot = buildFleetActiveTripByRoot([owner, assigned], [trip]);
     expect(resolveFleetActiveTrip(owner, byRoot)).toEqual(trip);
     expect(resolveFleetActiveTrip(assigned, byRoot)).toEqual(trip);
+  });
+
+  it('solo muestra viaje activo en UI al chofer que lo realiza', () => {
+    const trip = {
+      driver_id: 'a1',
+      status: 'going_to_pickup',
+      passenger_name: 'Carlos',
+      destination_address: 'Juan Gálvez 1000',
+    };
+    const activeTripsMap = { a1: trip };
+    expect(resolveDisplayActiveTrip('a1', activeTripsMap)).toEqual(trip);
+    expect(resolveDisplayActiveTrip('owner-1', activeTripsMap)).toBeNull();
   });
 });

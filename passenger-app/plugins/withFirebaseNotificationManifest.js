@@ -1,40 +1,12 @@
-const fs = require('fs');
-const path = require('path');
 const {
   withAndroidManifest,
   withAndroidColors,
-  withDangerousMod,
   withMainApplication,
   AndroidConfig,
 } = require('expo/config-plugins');
 
 const NOTIFICATION_COLOR = '#282e69';
 const CHANNEL_SETUP_MARKER = 'createPassengerNotificationChannels';
-
-function withNotificationIcon(config) {
-  return withDangerousMod(config, [
-    'android',
-    async (config) => {
-      const projectRoot = config.modRequest.projectRoot;
-      const iconSrc = path.join(projectRoot, 'assets', 'notification-icon.png');
-      const drawableDir = path.join(
-        config.modRequest.platformProjectRoot,
-        'app/src/main/res/drawable'
-      );
-
-      if (!fs.existsSync(iconSrc)) {
-        throw new Error(
-          'Falta assets/notification-icon.png para las notificaciones FCM de passenger-app.'
-        );
-      }
-
-      fs.mkdirSync(drawableDir, { recursive: true });
-      fs.copyFileSync(iconSrc, path.join(drawableDir, 'notification_icon.png'));
-
-      return config;
-    },
-  ]);
-}
 
 function withNotificationColors(config) {
   return withAndroidColors(config, (config) => {
@@ -71,7 +43,7 @@ function withFirebaseManifestMeta(config) {
       {
         $: {
           'android:name': 'com.google.firebase.messaging.default_notification_icon',
-          'android:resource': '@drawable/notification_icon',
+          'android:resource': '@mipmap/ic_launcher',
           'tools:replace': 'android:resource',
         },
       },
@@ -156,7 +128,6 @@ function withNotificationChannels(config) {
 }
 
 function withFirebaseNotificationManifest(config) {
-  config = withNotificationIcon(config);
   config = withNotificationColors(config);
   config = withFirebaseManifestMeta(config);
   config = withNotificationChannels(config);

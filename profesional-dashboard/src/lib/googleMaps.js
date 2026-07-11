@@ -1,15 +1,16 @@
 /**
- * @deprecated Google Maps eliminado — usar mapLibre.js y geo/index.js
+ * Google Maps JS API desactivado en el dashboard:
+ * la clave actual dispara ApiNotActivatedMapError
+ * (hay que activar "Maps JavaScript API" en Google Cloud).
+ * El mapa usa MapLibre.
  */
-export { MAP_STYLE_URL as GOOGLE_MAPS_KEY } from './mapLibre';
-export { MAP_STYLE_URL, DEFAULT_MAP_VIEW, mapLibreOptions } from './mapLibre';
+export const GOOGLE_MAPS_KEY = '';
+export const GOOGLE_MAPS_LIBRARIES = [];
 
 export function useGoogleMapsLoader() {
-  return { isLoaded: true, loadError: null };
+  return { isLoaded: false, loadError: null };
 }
 
 export function isGoogleMapsPlacesReady() {
-  return true;
+  return false;
 }
-
-export const GOOGLE_MAPS_LIBRARIES = [];

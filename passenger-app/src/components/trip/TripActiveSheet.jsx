@@ -12,6 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { colors } from '../../theme/colors';
 import { radius, spacing } from '../../theme/layout';
+import { useResponsive } from '../../hooks/useResponsive';
 
 function SearchingPulse() {
   const scale = useSharedValue(1);
@@ -147,9 +148,11 @@ export default function TripActiveSheet({
   onFinish,
   isCancelling = false,
 }) {
+  const { fs, isCompactHeight } = useResponsive();
   if (!cfg) return null;
 
   const compact = isSearching;
+  const titleSize = fs(compact || isCompactHeight ? 17 : 20);
 
   return (
     <Animated.View entering={FadeIn.duration(280)} style={[styles.sheet, compact && styles.sheetCompact]}>
@@ -160,8 +163,8 @@ export default function TripActiveSheet({
       <Animated.View entering={FadeInDown.duration(360).delay(60)} style={[styles.statusBlock, compact && styles.statusBlockCompact]}>
         <StatusIcon status={status} pulse={cfg.pulse} />
         <View style={styles.statusCopy}>
-          <Text style={styles.statusTitle}>{cfg.label}</Text>
-          <Text style={styles.statusSubtitle}>{cfg.desc}</Text>
+          <Text style={[styles.statusTitle, { fontSize: titleSize }]}>{cfg.label}</Text>
+          <Text style={[styles.statusSubtitle, { fontSize: fs(14) }]}>{cfg.desc}</Text>
         </View>
       </Animated.View>
 
@@ -202,17 +205,21 @@ export default function TripActiveSheet({
             onPress={onCancel}
             disabled={isCancelling}
             style={({ pressed }) => [
-              styles.cancelPressable,
-              compact && styles.cancelPressableCompact,
-              pressed && { opacity: 0.55 },
+              styles.cancelBtn,
+              compact && styles.cancelBtnCompact,
+              pressed && !isCancelling && styles.cancelBtnPressed,
+              isCancelling && styles.cancelBtnDisabled,
             ]}
           >
             {isCancelling ? (
-              <ActivityIndicator color={colors.textMuted} size="small" />
+              <ActivityIndicator color={colors.danger} size="small" />
             ) : (
-              <Text style={styles.cancelText}>
-                {isSearching ? 'Cancelar solicitud' : 'Cancelar viaje'}
-              </Text>
+              <>
+                <Ionicons name="close-circle-outline" size={18} color={colors.danger} />
+                <Text style={styles.cancelText}>
+                  {isSearching ? 'Cancelar solicitud' : 'Cancelar viaje'}
+                </Text>
+              </>
             )}
           </Pressable>
         </Animated.View>
@@ -261,13 +268,11 @@ const styles = StyleSheet.create({
   },
   statusCopy: { flex: 1 },
   statusTitle: {
-    fontSize: 20,
     fontFamily: 'Inter_700Bold',
     color: colors.primary,
     letterSpacing: -0.4,
   },
   statusSubtitle: {
-    fontSize: 14,
     fontFamily: 'Inter_400Regular',
     color: colors.textMuted,
     marginTop: 3,
@@ -417,21 +422,34 @@ const styles = StyleSheet.create({
     color: colors.textLight,
     marginTop: 4,
   },
-  cancelPressable: {
+  cancelBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.md,
-    marginTop: spacing.xs,
+    gap: 8,
+    marginTop: spacing.sm,
+    paddingVertical: 14,
     borderRadius: radius.md,
+    backgroundColor: colors.dangerBg,
+    borderWidth: 1,
+    borderColor: `${colors.danger}33`,
   },
-  cancelPressableCompact: {
-    paddingVertical: spacing.sm,
-    marginTop: 0,
+  cancelBtnCompact: {
+    marginTop: spacing.xs,
+    paddingVertical: 12,
+  },
+  cancelBtnPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.985 }],
+  },
+  cancelBtnDisabled: {
+    opacity: 0.6,
   },
   cancelText: {
     fontSize: 15,
     fontFamily: 'Inter_600SemiBold',
-    color: colors.textMuted,
+    color: colors.danger,
+    letterSpacing: -0.2,
   },
   primaryBtn: {
     height: 48,
