@@ -1973,6 +1973,11 @@ function isAgentDisabledBypassPhone(phone) {
   return [...AGENT_DISABLED_BYPASS_PHONES].some((allowed) => phonesMatchFlexible(normalized, allowed));
 }
 
+/** Eventos de ciclo de vida (aceptar/rechazar) que deben pasar aunque el agente IA esté apagado. */
+function isLifecycleSystemEvent(event) {
+  return event === 'trip.transition' || event === 'trip.driver_reject' || event === 'webhook.test';
+}
+
 /** Extrae el teléfono del payload del webhook sin I/O (para el gate de agente desactivado). */
 function peekWebhookPhone(body) {
   try {
@@ -11760,15 +11765,13 @@ async function processPendingConversationsRequest({
     });
 
     ensureServerConfig();
-    const expireResult = onlyBypassPhones
-      ? { expired: 0 }
-      : SUPABASE_DISPATCH_ONLY
-        ? await requeueTimedOutPendingTripsSupabaseDispatchOnly()
-        : await expireTimedOutPendingTrips();
+    // Timeouts y notificaciones de ciclo de vida (aceptado → WhatsApp + seguimiento)
+    // siguen activos aunque el agente IA esté apagado; onlyBypassPhones solo limita el chat IA.
+    const expireResult = SUPABASE_DISPATCH_ONLY
+      ? await requeueTimedOutPendingTripsSupabaseDispatchOnly()
+      : await expireTimedOutPendingTrips();
     const pendingResult = await processPendingConversations({ onlyBypassPhones });
-    const transitionResult = onlyBypassPhones
-      ? { processed: 0 }
-      : await processTripLifecycleTransitions();
+    const transitionResult = await processTripLifecycleTransitions();
     return {
       status: 200,
       body: {
@@ -11832,11 +11835,13 @@ export async function POST(req) {
   const body = await req.json();
   const agentEnabled = await isWhatsAppAgentEnabled();
   const peekedPhone = peekWebhookPhone(body);
+  const lifecycleEvent = isLifecycleSystemEvent(body?.event);
   const bypassAllowlist = !agentEnabled && isAgentDisabledBypassPhone(peekedPhone);
 
-  if (!agentEnabled && !bypassAllowlist) {
+  if (!agentEnabled && !bypassAllowlist && !lifecycleEvent) {
     logWebhook('http_post_skipped', {
       reason: 'whatsapp_agent_disabled',
+      event: body?.event || null,
       phone: peekedPhone ? maskPhone(peekedPhone) : null,
     });
     return Response.json({ success: true, disabled: true, ignored: true }, { status: 200 });
@@ -11846,6 +11851,11 @@ export async function POST(req) {
     logWebhook('http_post_bypass_allowlist', {
       reason: 'whatsapp_agent_disabled_allowlist',
       phone: maskPhone(peekedPhone),
+    });
+  } else if (!agentEnabled && lifecycleEvent) {
+    logWebhook('http_post_bypass_lifecycle', {
+      reason: 'whatsapp_agent_disabled_lifecycle',
+      event: body?.event || null,
     });
   }
 
@@ -11858,6 +11868,7 @@ export async function POST(req) {
     event: body?.event || null,
     agentEnabled,
     bypassAllowlist,
+    lifecycleEvent,
   });
   const result = await processWebhookBody(body, {
     authHeader,
