@@ -149,6 +149,7 @@ export function getAssignedDriverRegistrationStatus(driver) {
 /**
  * Match de búsqueda para lista de choferes (mapa / gestión).
  * Acepta snake_case o camelCase. Incluye nº de móvil (#49, 49, móvil 49).
+ * Consultas solo numéricas priorizan móvil exacto (no parciales en patente).
  */
 export function matchesDriverSearch(driver, rawQuery, extraText = '') {
   const q = String(rawQuery || '').trim().toLowerCase();
@@ -170,6 +171,14 @@ export function matchesDriverSearch(driver, rawQuery, extraText = '') {
     .replace(/^n[ºo°.]?\s*(de\s*)?(chofer|m[oó]vil)?\s*#?/, '')
     .trim();
 
+  const isMobileNumberQuery = /^\d+$/.test(numberQuery);
+
+  if (isMobileNumberQuery) {
+    if (numberStr && numberStr === numberQuery) return true;
+    if (queryDigits.length >= 3 && phoneDigits.includes(queryDigits)) return true;
+    return false;
+  }
+
   if (name.includes(q)) return true;
   if (plate.includes(q)) return true;
   if (extra && extra.includes(q)) return true;
@@ -179,8 +188,7 @@ export function matchesDriverSearch(driver, rawQuery, extraText = '') {
   if (numberStr) {
     if (numberStr === numberQuery) return true;
     if (numberStr === q.replace(/^#/, '').trim()) return true;
-    // Búsqueda parcial solo si no es un número puro (evita que "2" traiga 12, 20, 32…)
-    if (!/^\d+$/.test(numberQuery) && numberStr.includes(numberQuery)) return true;
+    if (numberStr.includes(numberQuery)) return true;
   }
 
   return false;
