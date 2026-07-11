@@ -18,7 +18,7 @@ import DriverManagement from './components/DriverManagement';
 import ZoneManagement from './components/ZoneManagement';
 import BroadcastVoiceChat from './components/BroadcastVoiceChat';
 import VoiceChat from './components/VoiceChat';
-import QueuePanel from './components/QueuePanel';
+import ViajesPanel from './components/ViajesPanel';
 import ScheduledTripsPanel from './components/ScheduledTripsPanel';
 import StatisticsPanel from './components/StatisticsPanel';
 import GeocodeErrorsPanel from './components/GeocodeErrorsPanel';
@@ -27,12 +27,13 @@ import AdminUsersPanel from './components/admin/AdminUsersPanel';
 import DashboardBrand from './components/DashboardBrand';
 import DashboardLoadingScreen from './components/DashboardLoadingScreen';
 import { useTripStatistics } from './hooks/useTripStatistics';
+import { useLiveTrips } from './hooks/useLiveTrips';
 import { isSuperAdminUser } from './lib/adminSuperUser';
 
 // ─── Vista activa ─────────────────────────────────────────────────────────────
 const VIEWS = {
   map:        'map',
-  queue:      'queue',
+  trips:      'trips',
   scheduled:  'scheduled',
   management: 'management',
   zones:      'zones',
@@ -50,10 +51,13 @@ export default function App() {
   const { drivers, loading } = useDrivers();
   const pendingPassengers = usePendingPassengers();
   const queueData = useQueuedPassengers();
+  const liveTripsData = useLiveTrips();
   const scheduledData = useScheduledTrips();
+  const [tripsTab, setTripsTab] = useState('cola');
   const {
     tariffPerKm, tariffBase, commissionPercent,
     passengerAppTariffPerKm, passengerAppTariffBase, passengerAppCommissionPercent,
+    driverAppLatestVersionCode, passengerAppLatestVersionCode,
     whatsappAgentEnabled, calculatePrice, updateSetting,
   } = useSettings();
   const tripStatistics = useTripStatistics('30d');
@@ -194,9 +198,11 @@ export default function App() {
   const handleNewTripSuccess = useCallback(() => {
     setShowNewTripModal(false);
     queueData.refetch?.();
-    goTo(VIEWS.queue);
+    liveTripsData.refetch?.();
+    setTripsTab('cola');
+    goTo(VIEWS.trips);
     toast.success('Viaje encolado correctamente');
-  }, [queueData, goTo, toast]);
+  }, [queueData, liveTripsData, goTo, toast]);
 
   const renderNavigation = (compact = false) => (
     <>
@@ -216,18 +222,26 @@ export default function App() {
 
       <NavTab
         compact={compact}
-        active={currentView === VIEWS.queue}
-        onClick={() => goTo(currentView === VIEWS.queue ? VIEWS.map : VIEWS.queue)}
+        active={currentView === VIEWS.trips}
+        onClick={() => {
+          if (currentView === VIEWS.trips) goTo(VIEWS.map);
+          else {
+            setTripsTab('cola');
+            goTo(VIEWS.trips);
+          }
+        }}
         badge={queueData.stats.inQueue > 0 ? queueData.stats.inQueue : null}
         badgeColor="warning"
         icon={
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+              d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10m16 0V8a1 1 0 00-1-1h-3.5M6 8h2" />
           </svg>
         }
       >
-        Cola
+        Viajes
       </NavTab>
 
       <NavTab
@@ -464,9 +478,15 @@ export default function App() {
         ) : currentView === VIEWS.zones ? (
           <ZoneManagement onBack={() => goTo(VIEWS.map)} />
 
-        ) : currentView === VIEWS.queue ? (
+        ) : currentView === VIEWS.trips ? (
           <div className="flex-1 w-full min-w-0 min-h-0 flex flex-col">
-            <QueuePanel {...queueData} onBack={() => goTo(VIEWS.map)} />
+            <ViajesPanel
+              queueData={queueData}
+              liveTripsData={liveTripsData}
+              activeTab={tripsTab}
+              onTabChange={setTripsTab}
+              onBack={() => goTo(VIEWS.map)}
+            />
           </div>
 
         ) : currentView === VIEWS.scheduled ? (
@@ -522,6 +542,8 @@ export default function App() {
                     passengerAppTariffPerKm={passengerAppTariffPerKm}
                     passengerAppTariffBase={passengerAppTariffBase}
                     passengerAppCommissionPercent={passengerAppCommissionPercent}
+                    driverAppLatestVersionCode={driverAppLatestVersionCode}
+                    passengerAppLatestVersionCode={passengerAppLatestVersionCode}
                     onUpdateSetting={updateSetting}
                     onClose={!isDesktopLayout ? () => setFleetDrawerOpen(false) : undefined}
                   />
@@ -636,7 +658,10 @@ export default function App() {
                 {queueData.stats.inQueue > 0 && (
                   <button
                     className="pointer-events-auto flex max-w-[calc(100vw-6.5rem)] items-center gap-2 rounded-xl border border-accent/30 bg-white px-2.5 py-2 shadow-lg shadow-accent/10 transition-all hover:border-accent/50 hover:shadow-xl sm:max-w-none sm:px-3"
-                    onClick={() => goTo(VIEWS.queue)}
+                    onClick={() => {
+                      setTripsTab('cola');
+                      goTo(VIEWS.trips);
+                    }}
                     title="Ver cola de espera"
                   >
                     <span className="relative flex h-2.5 w-2.5 shrink-0">

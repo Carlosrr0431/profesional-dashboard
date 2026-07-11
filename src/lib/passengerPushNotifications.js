@@ -223,6 +223,9 @@ export async function sendPassengerPushNotification(pushToken, { title, body, da
         notification: {
           channelId: String(channelId || 'viajes'),
           sound: 'default',
+          // drawable/notification_icon = fondo blanco + logo azul.
+          // Sin `color`: un tint SRC_IN aplastaría el PNG a color.
+          icon: 'notification_icon',
         },
       },
     });

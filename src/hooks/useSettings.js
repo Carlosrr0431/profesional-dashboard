@@ -10,6 +10,8 @@ const SETTING_LABELS = {
   passenger_app_tariff_base: 'Tarifa base app pasajeros',
   passenger_app_commission_percent: 'Comisión app pasajeros',
   whatsapp_agent_enabled: 'Agente IA de WhatsApp',
+  driver_app_latest_version_code: 'versionCode app Conductor',
+  passenger_app_latest_version_code: 'versionCode app Pasajero',
 };
 
 function isTruthySetting(value, defaultValue = true) {
@@ -30,6 +32,13 @@ const NUMERIC_SETTING_KEYS = new Set([
   'passenger_app_tariff_per_km',
   'passenger_app_tariff_base',
   'passenger_app_commission_percent',
+  'driver_app_latest_version_code',
+  'passenger_app_latest_version_code',
+]);
+
+const VERSION_CODE_SETTING_KEYS = new Set([
+  'driver_app_latest_version_code',
+  'passenger_app_latest_version_code',
 ]);
 
 function normalizeNumericSettingValue(key, value) {
@@ -42,6 +51,9 @@ function normalizeNumericSettingValue(key, value) {
   let normalized = Math.round(parsed);
   if (key.endsWith('_commission_percent') && normalized > 100) {
     normalized = 100;
+  }
+  if (VERSION_CODE_SETTING_KEYS.has(key) && normalized < 1) {
+    normalized = 1;
   }
 
   return String(normalized);
@@ -147,6 +159,14 @@ export function useSettings() {
   const passengerAppTariffBase = parseFloat(settings.passenger_app_tariff_base) || 0;
   const passengerAppCommissionPercent = parseFloat(settings.passenger_app_commission_percent) || 0;
   const whatsappAgentEnabled = isTruthySetting(settings.whatsapp_agent_enabled, true);
+  const driverAppLatestVersionCode = Math.max(
+    0,
+    Math.round(Number(settings.driver_app_latest_version_code) || 0)
+  );
+  const passengerAppLatestVersionCode = Math.max(
+    0,
+    Math.round(Number(settings.passenger_app_latest_version_code) || 0)
+  );
 
   const calculatePrice = useCallback((distanceKm) => {
     if (!distanceKm || distanceKm <= 0) return null;
@@ -163,6 +183,8 @@ export function useSettings() {
     passengerAppTariffBase,
     passengerAppCommissionPercent,
     whatsappAgentEnabled,
+    driverAppLatestVersionCode,
+    passengerAppLatestVersionCode,
     updateSetting,
     calculatePrice,
     refetch: fetchSettings,

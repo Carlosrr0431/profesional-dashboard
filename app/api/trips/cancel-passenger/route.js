@@ -38,7 +38,7 @@ export async function POST(req) {
 
     const { data: existing, error: fetchError } = await supabase
       .from('trips')
-      .select('id, status, cancel_reason')
+      .select('id, status, cancel_reason, driver_id')
       .eq('id', tripId)
       .maybeSingle();
 
@@ -74,7 +74,7 @@ export async function POST(req) {
 
     const { data: trip, error: updateError } = await supabase
       .from('trips')
-      .update(buildPassengerCancelledTripUpdate())
+      .update(buildPassengerCancelledTripUpdate(existing))
       .eq('id', tripId)
       .in('status', PASSENGER_CANCELLABLE_STATUSES)
       .select()

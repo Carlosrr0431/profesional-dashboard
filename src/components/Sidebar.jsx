@@ -15,6 +15,8 @@ export default function Sidebar({
   passengerAppTariffPerKm,
   passengerAppTariffBase,
   passengerAppCommissionPercent,
+  driverAppLatestVersionCode = 0,
+  passengerAppLatestVersionCode = 0,
   onUpdateSetting,
   onClose,
 }) {
@@ -302,6 +304,58 @@ export default function Sidebar({
               <p className="text-[10px] text-gray-500 mt-2">
                 Ej: 5km = {passengerAppTariffBase > 0 ? `${passengerAppTariffBase} + ` : ''}{passengerAppTariffPerKm} × 5 = <span className="text-accent font-semibold">${Math.round(passengerAppTariffBase + passengerAppTariffPerKm * 5).toLocaleString('es-AR')}</span>
                 {' · '}Comisión: <span className="text-amber-400 font-semibold">${Math.round((passengerAppTariffBase + passengerAppTariffPerKm * 5) * passengerAppCommissionPercent / 100).toLocaleString('es-AR')}</span>
+              </p>
+            </div>
+
+            <div className="pt-3 border-t border-light-300/50">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500 mb-1">
+                Actualizaciones de apps (Google Play)
+              </p>
+              <p className="text-[10px] text-gray-400 mb-2 leading-relaxed">
+                Poné el <span className="font-semibold text-gray-500">versionCode</span> del último AAB
+                publicado en Play Console. Si el usuario tiene uno menor, la app muestra el modal
+                para actualizar. No confundir con la versión visible (ej. 1.0.7).
+              </p>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="text-[10px] text-gray-500 font-semibold block mb-1">
+                    CONDUCTOR (versionCode)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={driverAppLatestVersionCode > 0 ? String(driverAppLatestVersionCode) : ''}
+                    placeholder="ej. 9"
+                    onChange={(e) => onUpdateSetting(
+                      'driver_app_latest_version_code',
+                      e.target.value.replace(/\D/g, '')
+                    )}
+                    className="w-full bg-light-200 border border-light-300/50 rounded-lg px-3 py-1.5 text-sm text-navy-900 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="text-[10px] text-gray-500 font-semibold block mb-1">
+                    PASAJERO (versionCode)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={passengerAppLatestVersionCode > 0 ? String(passengerAppLatestVersionCode) : ''}
+                    placeholder="ej. 8"
+                    onChange={(e) => onUpdateSetting(
+                      'passenger_app_latest_version_code',
+                      e.target.value.replace(/\D/g, '')
+                    )}
+                    className="w-full bg-light-200 border border-light-300/50 rounded-lg px-3 py-1.5 text-sm text-navy-900 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
+                Referencia actual: Conductor 1.0.7 → <span className="font-semibold text-accent">9</span>
+                {' · '}Pasajero 1.0.7 → <span className="font-semibold text-accent">8</span>.
+                Cada vez que subas un AAB nuevo, incrementá este número.
               </p>
             </div>
           </div>

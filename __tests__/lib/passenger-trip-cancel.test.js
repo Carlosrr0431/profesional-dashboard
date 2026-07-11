@@ -14,10 +14,19 @@ describe('passengerTripCancel', () => {
   });
 
   it('buildPassengerCancelledTripUpdate marca dispatch cancelado', () => {
-    const payload = buildPassengerCancelledTripUpdate();
+    const payload = buildPassengerCancelledTripUpdate({ status: 'queued' });
     expect(payload.status).toBe('cancelled');
     expect(payload.dispatch_status).toBe('cancelled');
     expect(payload.driver_id).toBeNull();
+  });
+
+  it('conserva driver_id si el viaje ya estaba asignado', () => {
+    const payload = buildPassengerCancelledTripUpdate({
+      status: 'going_to_pickup',
+      driver_id: 'driver-1',
+    });
+    expect(payload.status).toBe('cancelled');
+    expect(payload.driver_id).toBeUndefined();
   });
 });
 
