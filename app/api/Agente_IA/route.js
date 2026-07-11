@@ -5186,6 +5186,48 @@ async function buildPassengerDriverConfirmationMessage(trip, driver) {
   return `Listo, tu viaje quedó confirmado.\n\nChofer: *${driver?.full_name || 'Sin nombre'}*${distText}${driverMeta ? `\n${driverMeta}` : ''}${etaText}\nRetiro: *${pickup.address || 'Sin dirección'}*${trackingText}`;
 }
 
+/**
+ * Claim atómico + WhatsApp de confirmación. Si falla el envío, libera wa_notified_at
+ * para que el próximo scan/cron pueda reintentar (antes se marcaba notificado sin enviar).
+ */
+async function claimAndNotifyPassengerTripAcceptedWhatsApp(trip) {
+  if (!trip?.id || !trip?.driver_id || !trip?.passenger_phone) {
+    return false;
+  }
+
+  const { data: claimed } = await getSupabase()
+    .from('trips')
+    .update({ wa_notified_at: new Date().toISOString() })
+    .eq('id', trip.id)
+    .is('wa_notified_at', null)
+    .select('id');
+  if (!claimed?.length) return false;
+
+  try {
+    const driver = await getDriverById(trip.driver_id);
+    if (!driver) {
+      throw new Error('driver_not_found');
+    }
+    const reply = await buildPassengerDriverConfirmationMessage(trip, driver);
+    await sendWhatsAppText(trip.passenger_phone, reply);
+    logWebhook('trip_transition_passenger_notified', {
+      tripId: trip.id,
+      status: trip.status || null,
+    });
+    return true;
+  } catch (err) {
+    await getSupabase()
+      .from('trips')
+      .update({ wa_notified_at: null })
+      .eq('id', trip.id);
+    logWebhook('trip_transition_passenger_notify_failed', {
+      tripId: trip.id,
+      error: err?.message || 'unknown',
+    });
+    return false;
+  }
+}
+
 async function extractTripIntent({
   combinedText,
   context,
@@ -8391,13 +8433,50 @@ async function requeueTimedOutPendingTripsSupabaseDispatchOnly() {
   for (const tripRow of tripsToRequeue || []) {
     if (!canRequeuePendingTrip(tripRow)) continue;
 
+    const currentAttempts = Number(tripRow.dispatch_attempts || 0);
+    const newAttempts = currentAttempts + 1;
+    const delaySec = Math.min(180, 30 * Math.pow(1.5, newAttempts));
+    const nextDispatchAt = new Date(Date.now() + delaySec * 1000).toISOString();
+    const excludedDriverId = String(tripRow.driver_id || '').trim() || null;
+    const updatedWaContext = excludedDriverId
+      ? buildWaContextWithExcludedDriver(tripRow.wa_context, excludedDriverId, 'pending_accept_timeout')
+      : safeJsonParse(tripRow.wa_context, {});
+
     const { error: requeueError } = await getSupabase()
       .from('trips')
-      .update(buildPendingToQueuedUpdate(tripRow))
+      .update(buildPendingToQueuedUpdate(tripRow, {
+        dispatch_attempts: newAttempts,
+        next_dispatch_at: nextDispatchAt,
+        wa_context: updatedWaContext,
+        cancel_reason: excludedDriverId
+          ? `[AUTO_REQUEUE] Sin respuesta del chofer ${excludedDriverId.slice(0, 8)}`
+          : '[AUTO_REQUEUE] Sin respuesta del chofer',
+      }))
       .eq('id', tripRow.id)
       .eq('status', 'pending');
 
-    if (!requeueError) expired += 1;
+    if (requeueError) continue;
+
+    // El trigger sync pone next_attempt_at/next_dispatch_at = NOW(); restaurar backoff.
+    await getSupabase()
+      .from('dispatch_queue')
+      .update({
+        next_attempt_at: nextDispatchAt,
+        queue_status: 'queued',
+        lock_token: null,
+        lock_owner: null,
+        lock_acquired_at: null,
+        lock_expires_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('trip_id', tripRow.id);
+    await getSupabase()
+      .from('trips')
+      .update({ next_dispatch_at: nextDispatchAt })
+      .eq('id', tripRow.id)
+      .eq('status', 'queued');
+
+    expired += 1;
   }
   logWebhook('expire_pending_db_first_done', {
     expired,
@@ -8466,21 +8545,9 @@ async function processTripLifecycleTransitions() {
         continue;
       }
 
-      // Claim atómico: solo uno de webhook/cron notifica al pasajero WhatsApp
-      const { data: claimed } = await getSupabase()
-        .from('trips')
-        .update({ wa_notified_at: new Date().toISOString() })
-        .eq('id', tripRow.id)
-        .is('wa_notified_at', null)
-        .select('id');
-      if (!claimed?.length) continue;
-
-      const driver = await getDriverById(trip.driver_id);
-      if (!driver) continue;
-      const reply = await buildPassengerDriverConfirmationMessage(trip, driver);
-      await sendWhatsAppText(trip.passenger_phone, reply).catch(() => {});
-      confirmed++;
-      logWebhook('trip_transition_passenger_notified', { tripId: trip.id, status: trip.status });
+      // Claim atómico + envío; si falla, libera wa_notified_at para reintentar
+      const notified = await claimAndNotifyPassengerTripAcceptedWhatsApp(trip);
+      if (notified) confirmed++;
     }
   }
 
@@ -8709,24 +8776,10 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
 
   // Notificar pasajero WhatsApp cuando chofer acepta
   if (ACTIVE_TRIP_STATUSES.includes(tripStatus) && !trip.wa_notified_at) {
-    const { data: claimed } = await getSupabase()
-      .from('trips')
-      .update({ wa_notified_at: new Date().toISOString() })
-      .eq('id', trip.id)
-      .is('wa_notified_at', null)
-      .select('id');
-
-    if (claimed?.length && trip.driver_id) {
-      const driver = await getDriverById(trip.driver_id);
-      if (driver) {
-        const reply = await buildPassengerDriverConfirmationMessage(trip, driver);
-        await sendWhatsAppText(trip.passenger_phone, reply).catch(() => {});
-        logWebhook('trip_transition_passenger_notified', { tripId, status: tripStatus });
-      }
-    }
+    const notified = await claimAndNotifyPassengerTripAcceptedWhatsApp(trip);
     const queueResult = await dispatchQueuedPassengers();
-    logWebhook('trip_transition_trip_scan_done', { tripId, confirmed: claimed?.length ? 1 : 0 });
-    return { confirmed: claimed?.length ? 1 : 0, reassigned: 0, queued: queueResult.dispatched };
+    logWebhook('trip_transition_trip_scan_done', { tripId, confirmed: notified ? 1 : 0 });
+    return { confirmed: notified ? 1 : 0, reassigned: 0, queued: queueResult.dispatched };
   }
 
   // Reasignar si el chofer canceló

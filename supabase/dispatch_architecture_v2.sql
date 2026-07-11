@@ -327,14 +327,14 @@ BEGIN
       COALESCE(NEW.passenger_phone, ''),
       'queued',
       COALESCE(NEW.created_at, NOW()),
-      NOW(),
+      COALESCE(NEW.next_dispatch_at, NOW()),
       100
     )
     ON CONFLICT (trip_id) DO UPDATE
     SET
       passenger_phone = COALESCE(EXCLUDED.passenger_phone, public.dispatch_queue.passenger_phone),
       queue_status = 'queued',
-      next_attempt_at = NOW(),
+      next_attempt_at = EXCLUDED.next_attempt_at,
       lock_token = NULL,
       lock_owner = NULL,
       lock_acquired_at = NULL,
@@ -344,7 +344,7 @@ BEGIN
       updated_at = NOW();
 
     UPDATE public.trips
-    SET dispatch_status = 'queued', next_dispatch_at = NOW()
+    SET dispatch_status = 'queued', next_dispatch_at = COALESCE(NEW.next_dispatch_at, NOW())
     WHERE id = NEW.id;
 
     RETURN NEW;

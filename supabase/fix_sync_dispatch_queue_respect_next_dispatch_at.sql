@@ -1,20 +1,19 @@
--- Agregar valor 'hold' al enum dispatch_status_enum.
--- Se usa para trips placeholder que esperan una selección de dirección (poll)
--- o confirmación de precio antes de ser despachados.
--- Sin este valor, los inserts con dispatch_status='hold' fallan y el flujo
--- de poll de dirección se corrompe (trip no se crea, candidatos se pierden,
--- y el viaje termina con origin=destination incorrecto).
+-- Fix: al pasar un viaje a status='queued', el trigger sync_dispatch_queue_from_trips
+-- forzaba next_attempt_at = NOW() y next_dispatch_at = NOW(), pisando el backoff
+-- que el dispatch-worker / Agente_IA habían escrito en trips.next_dispatch_at.
+-- Resultado: el mismo ciclo del worker re-claimaba el viaje al instante y el chofer
+-- que aceptaba tarde veía "Tiempo agotado" (status ya no era pending con su driver_id).
+--
+-- Aplicar manualmente en el SQL Editor de Supabase.
 
-ALTER TYPE public.dispatch_status_enum ADD VALUE IF NOT EXISTS 'hold';
-
--- Actualizar el trigger para que NO encole trips con dispatch_status='hold'.
--- Estos trips están esperando input del pasajero y no deben ser despachados.
 CREATE OR REPLACE FUNCTION public.sync_dispatch_queue_from_trips()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_next_attempt TIMESTAMPTZ;
 BEGIN
   IF TG_OP = 'DELETE' THEN
     DELETE FROM public.dispatch_queue WHERE trip_id = OLD.id;
@@ -22,6 +21,12 @@ BEGIN
   END IF;
 
   IF NEW.status = 'queued' AND NEW.dispatch_status IS DISTINCT FROM 'hold' THEN
+    -- Respetar backoff explícito; solo usar NOW() si no hay next_dispatch_at futuro.
+    v_next_attempt := COALESCE(NEW.next_dispatch_at, NOW());
+    IF v_next_attempt < NOW() THEN
+      v_next_attempt := NOW();
+    END IF;
+
     INSERT INTO public.dispatch_queue (
       trip_id,
       passenger_phone,
@@ -34,7 +39,7 @@ BEGIN
       COALESCE(NEW.passenger_phone, ''),
       'queued',
       COALESCE(NEW.created_at, NOW()),
-      COALESCE(NEW.next_dispatch_at, NOW()),
+      v_next_attempt,
       100
     )
     ON CONFLICT (trip_id) DO UPDATE
@@ -51,13 +56,15 @@ BEGIN
       updated_at = NOW();
 
     UPDATE public.trips
-    SET dispatch_status = 'queued', next_dispatch_at = COALESCE(NEW.next_dispatch_at, NOW())
+    SET
+      dispatch_status = 'queued',
+      next_dispatch_at = COALESCE(NEW.next_dispatch_at, NOW())
     WHERE id = NEW.id;
 
     RETURN NEW;
   END IF;
 
-  -- Si es hold, no enqueue pero tampoco borrar de dispatch_queue si estaba
+  -- Hold: no encolar ni borrar de la cola.
   IF NEW.status = 'queued' AND NEW.dispatch_status = 'hold' THEN
     RETURN NEW;
   END IF;

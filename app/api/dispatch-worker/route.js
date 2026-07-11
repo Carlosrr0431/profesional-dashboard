@@ -63,8 +63,10 @@ const DISPATCH_NOTIFY_FAIL_RETRY_SECONDS = Math.max(
   DISPATCH_RETRY_SECONDS,
   Math.round(Number(process.env.DISPATCH_WORKER_NOTIFY_FAIL_RETRY_SECONDS || 45) || 45)
 );
-const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 15 * 1000;
-const MIN_PENDING_ACCEPT_TIMEOUT_MS = 10 * 1000;
+// Alineado con Agente_IA (60s) y driver-app TRIP_ACCEPT_TIMEOUT.
+// 15s era demasiado corto: el worker reencolaba antes de que el chofer tocara Aceptar.
+const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 60 * 1000;
+const MIN_PENDING_ACCEPT_TIMEOUT_MS = 20 * 1000;
 const MAX_PENDING_ACCEPT_TIMEOUT_MS = 5 * 60 * 1000;
 const configuredPendingAcceptTimeoutMs = Number(
   process.env.WHATSAPP_PENDING_ACCEPT_TIMEOUT_MS || DEFAULT_PENDING_ACCEPT_TIMEOUT_MS
@@ -376,6 +378,51 @@ async function setDispatchQueueRetry(tripId, retrySeconds, reason = 'retry') {
   }
 }
 
+/**
+ * El trigger sync_dispatch_queue_from_trips pone next_attempt_at=NOW() y
+ * next_dispatch_at=NOW() al pasar a queued, pisando el backoff del expire.
+ * Restaurar ambos para no re-claimar el mismo viaje en el mismo ciclo.
+ */
+async function restoreDispatchBackoffAfterRequeue(tripId, nextDispatchAt, reason = 'requeue_backoff') {
+  if (!tripId || !nextDispatchAt) return;
+
+  const supabase = getSupabaseAdmin();
+  const { error: queueError } = await supabase
+    .from('dispatch_queue')
+    .update({
+      next_attempt_at: nextDispatchAt,
+      queue_status: 'queued',
+      lock_token: null,
+      lock_owner: null,
+      lock_acquired_at: null,
+      lock_expires_at: null,
+      last_error_code: 'retry',
+      last_error: String(reason || 'requeue_backoff').slice(0, 400),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('trip_id', tripId);
+
+  if (queueError) {
+    logWorker('restore_queue_backoff_error', {
+      tripId,
+      error: summarizeDbError(queueError),
+    });
+  }
+
+  const { error: tripError } = await supabase
+    .from('trips')
+    .update({ next_dispatch_at: nextDispatchAt })
+    .eq('id', tripId)
+    .eq('status', 'queued');
+
+  if (tripError) {
+    logWorker('restore_trip_backoff_error', {
+      tripId,
+      error: summarizeDbError(tripError),
+    });
+  }
+}
+
 async function expireTimedOutPendingTrips() {
   const cutoff = new Date(Date.now() - PENDING_ACCEPT_TIMEOUT_MS).toISOString();
   const supabase = getSupabaseAdmin();
@@ -498,6 +545,11 @@ async function expireTimedOutPendingTrips() {
       .eq('status', 'pending');
 
     if (!upErr) {
+      await restoreDispatchBackoffAfterRequeue(
+        t.id,
+        nextDispatchAt,
+        'pending_accept_timeout'
+      );
       expired += 1;
       if (excludedDriverId) {
         logWorkerVerbose('expire_pending_excluded_driver', {
@@ -506,6 +558,7 @@ async function expireTimedOutPendingTrips() {
           excludedCount: getTripDispatchExcludedDriverIds(updatedWaContext).length,
           driverOfferCount: getDispatchDriverOfferCounts(updatedWaContext)[excludedDriverId] || null,
           maxDriverOfferAttempts: MAX_DRIVER_OFFER_ATTEMPTS,
+          nextDispatchAt,
         });
       }
     }
@@ -1118,12 +1171,16 @@ async function requeuePendingTripAfterNotifyFailure(tripId, notifyReason = 'noti
   }
 
   const updatedWaContext = buildWaContextAfterNotifyFailure(tripRow?.wa_context, notifyReason);
+  const nextDispatchAt = new Date(
+    Date.now() + Math.max(1, DISPATCH_NOTIFY_FAIL_RETRY_SECONDS) * 1000
+  ).toISOString();
 
   const { data, error } = await getSupabaseAdmin()
     .from('trips')
     .update(buildPendingToQueuedUpdate(tripRow || {}, {
       cancel_reason: `[AUTO_REQUEUE] Falla de notificacion: ${String(notifyReason).slice(0, 140)}`,
       wa_context: updatedWaContext,
+      next_dispatch_at: nextDispatchAt,
     }))
     .eq('id', tripId)
     .eq('status', 'pending')
@@ -1137,6 +1194,10 @@ async function requeuePendingTripAfterNotifyFailure(tripId, notifyReason = 'noti
       error: summarizeDbError(error),
     });
     return false;
+  }
+
+  if (data?.id) {
+    await restoreDispatchBackoffAfterRequeue(tripId, nextDispatchAt, notifyReason);
   }
 
   return Boolean(data?.id);
