@@ -94,6 +94,8 @@ const ALLOWED_PHONES = new Set(
     .map((phone) => String(phone || '').replace(/\D/g, ''))
     .filter(Boolean),
 );
+/** Teléfonos que pueden usar el agente aunque `whatsapp_agent_enabled` esté apagado (testing). */
+const AGENT_DISABLED_BYPASS_PHONES = new Set(['3878630173', '3874446237']);
 const IS_SERVERLESS = Boolean(process.env.VERCEL);
 const IMMEDIATE_PROCESSING =
   (process.env.WHATSAPP_IMMEDIATE_PROCESSING || '').toLowerCase() === 'true';
@@ -1948,6 +1950,64 @@ function isAuthorizedPhone(phone) {
   if (ALLOWED_PHONES.size === 0) return true;
   const normalized = normalizePhone(phone);
   return [...ALLOWED_PHONES].some((allowed) => normalized === allowed || normalized.endsWith(allowed.slice(-10)));
+}
+
+/**
+ * Compara teléfonos ignorando 54/549, +, espacios y sufijos de JID.
+ * Acepta p.ej. 3878630173, 5493878630173, +54 9 387 863-0173.
+ */
+function phonesMatchFlexible(left, right) {
+  const a = normalizePhone(left);
+  const b = normalizePhone(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.endsWith(b) || b.endsWith(a)) return true;
+  const aTail = a.slice(-10);
+  const bTail = b.slice(-10);
+  return aTail.length >= 8 && aTail === bTail;
+}
+
+function isAgentDisabledBypassPhone(phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized || normalized.length < 8) return false;
+  return [...AGENT_DISABLED_BYPASS_PHONES].some((allowed) => phonesMatchFlexible(normalized, allowed));
+}
+
+/** Extrae el teléfono del payload del webhook sin I/O (para el gate de agente desactivado). */
+function peekWebhookPhone(body) {
+  try {
+    const payload = body || {};
+    const event = payload.event;
+
+    if (event === 'poll.results') {
+      const voters = Array.isArray(payload?.data?.pollResult)
+        ? payload.data.pollResult.flatMap((r) => (Array.isArray(r?.voters) ? r.voters : []))
+        : [];
+      for (const voter of voters) {
+        const digits = normalizePhone(voter);
+        if (digits.length >= 8) return digits;
+      }
+      const remote = normalizePhone(payload?.data?.key?.remoteJid || '');
+      if (remote.length >= 8) return remote;
+      return '';
+    }
+
+    const rawMessage = payload?.data?.messages || payload?.data;
+    const messageData = Array.isArray(rawMessage) ? rawMessage[0] : rawMessage;
+    if (messageData?.key) {
+      return extractPhoneFromMessage(messageData) || '';
+    }
+
+    return normalizePhone(
+      payload?.data?.key?.remoteJid ||
+        payload?.phone ||
+        payload?.passenger_phone ||
+        payload?.passengerPhone ||
+        '',
+    );
+  } catch {
+    return '';
+  }
 }
 
 function isTripTransitionAuthorized({ authHeader = '', tripTransitionSecretHeader = '' } = {}, allowedSecrets = null) {
@@ -10687,24 +10747,33 @@ function scheduleConversationProcessing(conversationId, delayMs = ACCUMULATION_M
   processingTimers.set(conversationId, timer);
 }
 
-async function processPendingConversations() {
-  logWebhook('pending_scan_start', { accumulationMs: ACCUMULATION_MS });
+async function processPendingConversations({ onlyBypassPhones = false } = {}) {
+  logWebhook('pending_scan_start', { accumulationMs: ACCUMULATION_MS, onlyBypassPhones });
   const threshold = new Date(Date.now() - ACCUMULATION_MS).toISOString();
   const { data, error } = await getSupabase()
     .from('whatsapp_conversations')
-    .select('id')
+    .select('id, phone')
     .eq('is_collecting', true)
     .lt('accumulation_started_at', threshold);
   if (error) throw error;
 
-  logWebhook('pending_scan_found', { total: (data || []).length, threshold });
+  const candidates = onlyBypassPhones
+    ? (data || []).filter((item) => isAgentDisabledBypassPhone(item?.phone))
+    : (data || []);
+
+  logWebhook('pending_scan_found', {
+    total: candidates.length,
+    scanned: (data || []).length,
+    threshold,
+    onlyBypassPhones,
+  });
 
   let processed = 0;
   let skipped = 0;
   // Procesamiento en paralelo: cada número de teléfono es independiente,
   // permitiendo manejar múltiples pedidos simultáneos sin bloqueos.
   const parallelResults = await Promise.allSettled(
-    (data || []).map((item) => processConversationById(item.id))
+    candidates.map((item) => processConversationById(item.id))
   );
   for (const r of parallelResults) {
     if (r.status === 'rejected') {
@@ -10716,14 +10785,17 @@ async function processPendingConversations() {
     }
   }
 
-  logWebhook('pending_scan_done', { processed, skipped, total: (data || []).length });
+  logWebhook('pending_scan_done', { processed, skipped, total: candidates.length });
 
   // Intentar despachar pasajeros en cola después de procesar todos los mensajes pendientes.
   // Esto cubre el caso donde en el mismo ciclo de cron hay nuevos pasajeros en cola Y
   // choferes que terminaron viajes (y por ende ya no están en DRIVER_BUSY_TRIP_STATUSES).
-  const queueResult = await dispatchQueuedPassengers();
+  // Con agente apagado (solo allowlist) no despachar cola global.
+  const queueResult = onlyBypassPhones
+    ? { dispatched: 0 }
+    : await dispatchQueuedPassengers();
 
-  return { processed, skipped, total: (data || []).length, queueDispatched: queueResult.dispatched };
+  return { processed, skipped, total: candidates.length, queueDispatched: queueResult.dispatched };
 }
 
 async function processWebhookBody(body, requestMeta = {}) {
@@ -11619,11 +11691,15 @@ async function processWebhookBody(body, requestMeta = {}) {
       accumulationMs: ACCUMULATION_MS,
     });
 
-    if (IMMEDIATE_PROCESSING) {
+    const shouldProcessImmediately =
+      IMMEDIATE_PROCESSING || Boolean(requestMeta.forceImmediateProcessing);
+
+    if (shouldProcessImmediately) {
       const processResult = await processConversationById(appendResult.conversation_id);
       logWebhook('processed_immediately', {
         conversationId: appendResult.conversation_id,
         skipped: Boolean(processResult?.skipped),
+        forceImmediateProcessing: Boolean(requestMeta.forceImmediateProcessing),
       });
       return {
         status: 200,
@@ -11663,7 +11739,12 @@ function isVercelCronInvocation({ userAgent = '', xVercelCron = '' } = {}) {
   return cronHeader === '1' || ua.includes('vercel-cron');
 }
 
-async function processPendingConversationsRequest({ authHeader = '', userAgent = '', xVercelCron = '' } = {}) {
+async function processPendingConversationsRequest({
+  authHeader = '',
+  userAgent = '',
+  xVercelCron = '',
+  onlyBypassPhones = false,
+} = {}) {
   try {
     const isVercelCron = isVercelCronInvocation({ userAgent, xVercelCron });
     if (CRON_SECRET) {
@@ -11675,14 +11756,19 @@ async function processPendingConversationsRequest({ authHeader = '', userAgent =
     logWebhook('cron_run', {
       viaVercelCron: isVercelCron,
       hasAuthHeader: Boolean(authHeader),
+      onlyBypassPhones,
     });
 
     ensureServerConfig();
-    const expireResult = SUPABASE_DISPATCH_ONLY
-      ? await requeueTimedOutPendingTripsSupabaseDispatchOnly()
-      : await expireTimedOutPendingTrips();
-    const pendingResult = await processPendingConversations();
-    const transitionResult = await processTripLifecycleTransitions();
+    const expireResult = onlyBypassPhones
+      ? { expired: 0 }
+      : SUPABASE_DISPATCH_ONLY
+        ? await requeueTimedOutPendingTripsSupabaseDispatchOnly()
+        : await expireTimedOutPendingTrips();
+    const pendingResult = await processPendingConversations({ onlyBypassPhones });
+    const transitionResult = onlyBypassPhones
+      ? { processed: 0 }
+      : await processTripLifecycleTransitions();
     return {
       status: 200,
       body: {
@@ -11690,6 +11776,7 @@ async function processPendingConversationsRequest({ authHeader = '', userAgent =
         ...pendingResult,
         expiredPending: expireResult.expired,
         tripTransitions: transitionResult,
+        onlyBypassPhones,
       },
     };
   } catch (error) {
@@ -11742,21 +11829,41 @@ async function ensureWarm() {
 }
 
 export async function POST(req) {
-  if (!(await isWhatsAppAgentEnabled())) {
-    logWebhook('http_post_skipped', { reason: 'whatsapp_agent_disabled' });
+  const body = await req.json();
+  const agentEnabled = await isWhatsAppAgentEnabled();
+  const peekedPhone = peekWebhookPhone(body);
+  const bypassAllowlist = !agentEnabled && isAgentDisabledBypassPhone(peekedPhone);
+
+  if (!agentEnabled && !bypassAllowlist) {
+    logWebhook('http_post_skipped', {
+      reason: 'whatsapp_agent_disabled',
+      phone: peekedPhone ? maskPhone(peekedPhone) : null,
+    });
     return Response.json({ success: true, disabled: true, ignored: true }, { status: 200 });
   }
 
+  if (bypassAllowlist) {
+    logWebhook('http_post_bypass_allowlist', {
+      reason: 'whatsapp_agent_disabled_allowlist',
+      phone: maskPhone(peekedPhone),
+    });
+  }
+
   await ensureWarm();
-  const body = await req.json();
   const authHeader = req.headers.get('authorization') || '';
   const tripTransitionSecretHeader = req.headers.get('x-trip-transition-secret') || '';
   logWebhook('http_post', {
     vercelId: req.headers.get('x-vercel-id') || null,
     hasEvent: Boolean(body?.event),
     event: body?.event || null,
+    agentEnabled,
+    bypassAllowlist,
   });
-  const result = await processWebhookBody(body, { authHeader, tripTransitionSecretHeader });
+  const result = await processWebhookBody(body, {
+    authHeader,
+    tripTransitionSecretHeader,
+    forceImmediateProcessing: bypassAllowlist,
+  });
   logWebhook('http_post_result', { status: result.status, success: result.body?.success === true });
   return Response.json(result.body, { status: result.status });
 }
@@ -11772,9 +11879,20 @@ export async function GET(req) {
     );
   }
 
-  if (!(await isWhatsAppAgentEnabled())) {
-    logWebhook('http_get_skipped', { reason: 'whatsapp_agent_disabled' });
-    return Response.json({ success: true, disabled: true, processed: 0 }, { status: 200 });
+  const agentEnabled = await isWhatsAppAgentEnabled();
+  if (!agentEnabled) {
+    logWebhook('http_get_allowlist_mode', { reason: 'whatsapp_agent_disabled_allowlist' });
+    await ensureWarm();
+    const authHeader = req.headers.get('authorization') || '';
+    const userAgent = req.headers.get('user-agent') || '';
+    const xVercelCron = req.headers.get('x-vercel-cron') || '';
+    const result = await processPendingConversationsRequest({
+      authHeader,
+      userAgent,
+      xVercelCron,
+      onlyBypassPhones: true,
+    });
+    return Response.json(result.body, { status: result.status });
   }
 
   await ensureWarm();
