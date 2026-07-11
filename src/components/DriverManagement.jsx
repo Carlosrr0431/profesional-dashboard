@@ -6,7 +6,7 @@ import CommissionPaymentsReport from './CommissionPaymentsReport';
 import { formatPrice, timeAgo } from '../lib/utils';
 import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
-import { isAssignedDriver, findOwnerPartners, getFleetListGroupKey, getDriverPhoneKey, normalizeDriverPhone } from '../lib/driverRoles';
+import { isAssignedDriver, findOwnerPartners, getFleetListGroupKey, getDriverPhoneKey, normalizeDriverPhone, matchesDriverSearch } from '../lib/driverRoles';
 import DriverAvatar from './DriverAvatar';
 
 export default function DriverManagement({ onBack }) {
@@ -55,17 +55,10 @@ export default function DriverManagement({ onBack }) {
       if (filter === 'blocked' && !d.commission_blocked) return false;
       if (filter === 'owes' && !(d.pending_commission > 0)) return false;
       if (search) {
-        const q = search.toLowerCase();
         const ownerName = isAssignedDriver(d)
           ? (ownerById[d.owner_id]?.full_name || '')
           : '';
-        return (
-          (d.full_name || '').toLowerCase().includes(q) ||
-          (d.phone || '').includes(q) ||
-          (d.vehicle_plate || '').toLowerCase().includes(q) ||
-          (d.driver_number?.toString() || '').includes(q) ||
-          ownerName.toLowerCase().includes(q)
-        );
+        return matchesDriverSearch(d, search, ownerName);
       }
       return true;
     });
@@ -255,7 +248,7 @@ export default function DriverManagement({ onBack }) {
               </svg>
               <input
                 type="text"
-                placeholder="Buscar por nombre, teléfono, patente o número..."
+                placeholder="Buscar por nombre, móvil, teléfono o patente..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full bg-light-200 border border-light-300/50 rounded-xl pl-9 pr-3 py-2.5 text-sm text-navy-900 placeholder-gray-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"

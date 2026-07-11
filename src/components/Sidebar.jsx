@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { timeAgo, formatSpeed, getTripStatus } from '../lib/utils';
+import { matchesDriverSearch } from '../lib/driverRoles';
 import DriverAvatar from './DriverAvatar';
 
 export default function Sidebar({
@@ -107,7 +108,7 @@ export default function Sidebar({
     if (filter === 'available' && (!d.isOnline || d.activeTrip)) return false;
     if (filter === 'intrip' && !d.activeTrip) return false;
     if (filter === 'offline' && d.isOnline) return false;
-    if (search && !d.fullName.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search && !matchesDriverSearch(d, search)) return false;
     return true;
   });
 
@@ -142,7 +143,7 @@ export default function Sidebar({
           </svg>
           <input
             type="text"
-            placeholder="Buscar chofer…"
+            placeholder="Buscar nombre o móvil…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-light-200/50 border border-light-300/50 rounded-lg pl-8 pr-3 py-1.5 text-xs text-navy-900 placeholder-gray-400 focus:outline-none focus:border-navy-700/20 focus:bg-white transition-all"
