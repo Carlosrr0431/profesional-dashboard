@@ -59,6 +59,7 @@ import {
   buildPendingToQueuedUpdate,
   canRequeuePendingTrip,
 } from '../../../src/lib/tripRequeue';
+import { isPassengerInitiatedCancellation } from '../../../src/lib/passengerTripCancel';
 import { buildWaContextWithExcludedDriver } from '../../../src/lib/dispatchExclusions';
 import {
   extractFullTripByPattern,
@@ -5091,19 +5092,43 @@ function getTripPickupPoint(trip) {
 }
 
 function shouldReassignCancelledTrip(trip) {
+  // Cancelación del pasajero: nunca recrear viaje ni mandar "encontré otro chofer".
+  if (isPassengerInitiatedCancellation(trip)) return false;
+
   const reason = normalizeReason(trip?.cancel_reason || '');
   if (!reason) return true;
 
-  const nonReassignableReasons = [
+  // Importante: match por substring (antes usaba Array.includes = igualdad exacta,
+  // y fallaba con motivos reales tipo "[PASSENGER_APP] Cancelado por el pasajero").
+  const nonReassignableMarkers = [
     'pasajero cancelo',
-    'pasajero cancelo el viaje',
     'cancelado por el pasajero',
-    'passenger_app',
+    'cancelado por pasajero',
+    'passenger app',
     'pasajero no encontrado',
     'direccion incorrecta',
   ];
+  if (nonReassignableMarkers.some((marker) => reason.includes(marker))) {
+    return false;
+  }
 
-  return !nonReassignableReasons.includes(reason);
+  // Con dispatch-worker, los timeouts de aceptación se reencolan en el mismo trip.
+  // No crear un viaje nuevo ni disparar el follow-up legacy.
+  if (
+    SUPABASE_DISPATCH_ONLY &&
+    (
+      reason.includes('auto timeout') ||
+      reason.includes('no acepto en tiempo') ||
+      reason.includes('no aceptado en tiempo') ||
+      reason.includes('sin respuesta del chofer') ||
+      reason.includes('auto reasignacion') ||
+      reason.includes('auto requeue')
+    )
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 /**
@@ -8481,7 +8506,14 @@ async function processTripLifecycleTransitions() {
         .select('id');
       if (!claimed?.length) continue;
 
-      if (!shouldReassignCancelledTrip(trip)) continue;
+      if (!shouldReassignCancelledTrip(trip)) {
+        logWebhook('trip_transition_skip_no_reassign', {
+          tripId: trip.id,
+          cancelReason: trip.cancel_reason || null,
+          passengerCancel: isPassengerInitiatedCancellation(trip),
+        });
+        continue;
+      }
 
       // Verificar que no haya otro viaje abierto para este pasajero
       const existingTrip = await getLatestOpenTripByPhone(trip.passenger_phone);
@@ -8712,7 +8744,12 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
     }
 
     if (!shouldReassignCancelledTrip(trip)) {
-      logWebhook('trip_transition_trip_scan_done', { tripId, reason: 'no_reassign' });
+      logWebhook('trip_transition_trip_scan_done', {
+        tripId,
+        reason: 'no_reassign',
+        cancelReason: trip.cancel_reason || null,
+        passengerCancel: isPassengerInitiatedCancellation(trip),
+      });
       const queueResult = await dispatchQueuedPassengers();
       return { confirmed: 0, reassigned: 0, queued: queueResult.dispatched };
     }
