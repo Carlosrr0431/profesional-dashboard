@@ -79,6 +79,26 @@ describe('formatPollOptionLabel (POIs)', () => {
     ).toBe('Belgrano 700');
   });
 
+  it('no duplica Nombre · Nombre cuando el subtitle es el mismo POI', () => {
+    expect(
+      formatPollOptionLabel({
+        title: 'Plaza Palermo Salta',
+        subtitle: 'Plaza Palermo Salta',
+        formattedAddress: 'Plaza Palermo Salta, Salta, Argentina',
+      })
+    ).toBe('Plaza Palermo Salta');
+  });
+
+  it('no duplica Cerro San Bernardo · Cerro San Bernardo', () => {
+    expect(
+      formatPollOptionLabel({
+        title: 'Cerro San Bernardo',
+        subtitle: 'Cerro San Bernardo',
+        formattedAddress: 'Cerro San Bernardo, Salta, Argentina',
+      })
+    ).toBe('Cerro San Bernardo');
+  });
+
   it('usa formattedAddress cuando no hay title de POI', () => {
     expect(
       formatPollOptionLabel({

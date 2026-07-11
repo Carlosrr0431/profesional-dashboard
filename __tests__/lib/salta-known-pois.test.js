@@ -3,6 +3,8 @@ const {
   looksLikeSaltaKnownPoi,
   fixPoiTypoTokens,
   getKnownPoiSearchQueries,
+  buildPoiAutocompleteQueries,
+  isCategoryPoiSearch,
   mergeDistinctAddressCandidates,
 } = require('../../src/lib/saltaKnownPois');
 
@@ -65,6 +67,30 @@ describe('saltaKnownPois', () => {
     const queries = getKnownPoiSearchQueries(poi);
     expect(queries.length).toBeGreaterThanOrEqual(2);
     expect(queries.some((q) => /omnibus/i.test(q))).toBe(true);
+  });
+
+  it('shopping genérico es categorySearch y apunta a centros reales (no Alto Palermo)', () => {
+    const poi = resolveSaltaKnownPoi('el shoping');
+    expect(poi?.id).toBe('shopping');
+    expect(poi?.categorySearch).toBe(true);
+    expect(isCategoryPoiSearch(poi)).toBe(true);
+    expect(isCategoryPoiSearch(poi, 'Belgrano')).toBe(false);
+
+    const queries = getKnownPoiSearchQueries(poi);
+    expect(queries.some((q) => /portal\s+salta/i.test(q))).toBe(true);
+    expect(queries.some((q) => /alto\s+noa/i.test(q))).toBe(true);
+    expect(queries.some((q) => /paseo\s+del\s+cabildo/i.test(q))).toBe(true);
+    expect(queries.some((q) => /alto\s+palermo/i.test(q))).toBe(false);
+
+    const autoQueries = buildPoiAutocompleteQueries('shoping');
+    expect(autoQueries.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('corrige bernado y resuelve hospital san bernardo', () => {
+    expect(fixPoiTypoTokens('hospital san bernado')).toBe('hospital san bernardo');
+    const poi = resolveSaltaKnownPoi('hospital san bernado');
+    expect(poi?.id).toBe('hospital');
+    expect(poi?.patterns?.length).toBeGreaterThan(0);
   });
 
   it('mergeDistinctAddressCandidates conserva lugares distintos', () => {

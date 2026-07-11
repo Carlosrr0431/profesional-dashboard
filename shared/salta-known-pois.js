@@ -20,6 +20,7 @@ function fixPoiTypoTokens(norm) {
     .replace(/\bterminak\b/g, 'terminal')
     .replace(/\btermnal\b/g, 'terminal')
     .replace(/\btermina+l\b/g, 'terminal')
+    .replace(/\bbernado\b/g, 'bernardo')
     .replace(/\bshoping\b/g, 'shopping')
     .replace(/\bshopingk\b/g, 'shopping')
     .replace(/\bshopp?ingk\b/g, 'shopping')
@@ -70,8 +71,18 @@ const SALTA_KNOWN_POIS = [
   {
     id: 'hospital',
     label: 'Hospital San Bernardo',
+    /** Búsqueda genérica sin calle: devolver varios hospitales de Salta. */
+    categorySearch: true,
     geocodeQuery: 'Hospital San Bernardo, Salta, Argentina',
-    alternateGeocodeQueries: ['Hospital San Bernardo Salta', 'Sanatorio San Bernardo Salta'],
+    alternateGeocodeQueries: [
+      'Hospital San Bernardo Salta',
+      'Hospital Señor del Milagro Salta',
+      'Hospital Público Materno Infantil Salta',
+      'Hospital Papa Francisco Salta',
+      'Hospital Militar Salta',
+      'Sanatorio San Bernardo Salta',
+      'hospital Salta Capital',
+    ],
     patterns: [
       /\bhospital\s+san\s+bernardo\b/,
       /\bsan\s+bernardo\b/,
@@ -84,6 +95,8 @@ const SALTA_KNOWN_POIS = [
       /\btres\s+cerritos\b/,
       /\bmilagro\b/,
       /\bpediatric/,
+      /\bcerro\b/,
+      /\btelef/,
     ],
   },
   {
@@ -382,7 +395,17 @@ const SALTA_KNOWN_POIS = [
   {
     id: 'plaza_9_de_julio',
     label: 'Plaza 9 de Julio',
+    categorySearch: true,
     geocodeQuery: 'Plaza 9 de Julio, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Plaza 9 de Julio Salta',
+      'Plaza 25 de Mayo Salta',
+      'Plaza Belgrano Salta',
+      'Plaza General Güemes Salta',
+      'Plaza Alvarado Salta',
+      'Plaza de la Juventud Salta',
+      'plaza Salta Capital',
+    ],
     patterns: [
       /\bplaza\s+9\s+de\s+julio\b/,
       /\bplaza\s+principal\b/,
@@ -468,18 +491,25 @@ const SALTA_KNOWN_POIS = [
   {
     id: 'shopping',
     label: 'Shopping Salta',
-    geocodeQuery: 'Shopping Salta, Salta, Argentina',
+    /** Búsqueda genérica sin calle: varios centros comerciales de Salta. */
+    categorySearch: true,
+    geocodeQuery: 'Portal Salta Shopping, Salta, Argentina',
     alternateGeocodeQueries: [
-      'Alto Palermo Salta',
-      'Shopping Alto Palermo Salta',
-      'Centro Comercial Del Norte Salta',
-      'Paseo San Cayetano Salta',
+      'Portal Salta Shopping, 20 de Febrero 1437, Salta',
+      'Alto NOA Shopping, Av. del Bicentenario 702, Salta',
+      'Paseo del Cabildo, Caseros 521, Salta',
+      'Galería Salta Shop, Salta',
+      'Nuevo Centro Shopping Salta',
+      'El Punto Shopping, San Lorenzo, Salta',
+      'Paseo Libertad Salta',
+      'centro comercial Salta Capital',
+      'shopping mall Salta',
     ],
     patterns: [
       /\b(el\s+)?shopping(?:\s+salta)?\b/,
       /\bshopping\s+salta\b/,
       /\bnuevo\s+centro\s+shopping\b/,
-      /\bcentro\s+comercial\s+shopping\b/,
+      /\bcentro\s+comercial(?:\s+shopping)?\b/,
     ],
     /** No confundir con "El Punto Shopping" u otros shoppings con nombre propio. */
     excludePatterns: [/\bpunto\s+shop/i],
@@ -609,7 +639,15 @@ const SALTA_KNOWN_POIS = [
   {
     id: 'macro',
     label: 'Banco Macro',
+    categorySearch: true,
     geocodeQuery: 'Banco Macro, Salta, Argentina',
+    alternateGeocodeQueries: [
+      'Banco Macro Belgrano Salta',
+      'Banco Macro España Salta',
+      'Banco Macro Bartolomé Mitre Salta',
+      'Banco Macro Caseros Salta',
+      'Banco Macro Salta Capital',
+    ],
     patterns: [/\bbanco\s+macro\b/, /\bmacro\b/],
   },
 
@@ -733,11 +771,18 @@ function resolveSaltaKnownPoi(value) {
         label: poi.label,
         geocodeQuery: poi.geocodeQuery,
         alternateGeocodeQueries: poi.alternateGeocodeQueries || [],
+        categorySearch: Boolean(poi.categorySearch),
+        patterns: poi.patterns || [],
       };
     }
   }
 
   return null;
+}
+
+/** POI genérico (shopping, hospital…) sin hint de calle → poll con varias opciones. */
+function isCategoryPoiSearch(poi, streetHint = '') {
+  return Boolean(poi?.categorySearch) && !String(streetHint || '').trim();
 }
 
 /**
@@ -828,10 +873,34 @@ function buildPoiAutocompleteQueries(value) {
     }
   }
 
-  if (/\bshopping\b/.test(norm)) {
+  if (/\bshopping\b/.test(norm) || /\bcentro\s+comercial\b/.test(norm)) {
+    add('Portal Salta Shopping Salta');
+    add('Alto NOA Shopping Salta');
+    add('Paseo del Cabildo Salta');
+    add('Galería Salta Shop Salta');
+    add('Nuevo Centro Shopping Salta');
+    add('El Punto Shopping San Lorenzo Salta');
+    add('Paseo Libertad Salta');
     add('centro comercial Salta');
     add('shopping mall Salta');
-    add('Alto NOA Shopping Salta');
+  }
+  if (/\bhospital\b/.test(norm)) {
+    add('Hospital San Bernardo Salta');
+    add('Hospital Señor del Milagro Salta');
+    add('Hospital Materno Infantil Salta');
+    add('Hospital Papa Francisco Salta');
+    add('Hospital Militar Salta');
+  }
+  if (/\bmacro\b/.test(norm) || /\bbanco\s+macro\b/.test(norm)) {
+    add('Banco Macro Belgrano Salta');
+    add('Banco Macro España Salta');
+    add('Banco Macro Mitre Salta');
+  }
+  if (/^(?:la\s+)?plaza$/.test(norm) || /\bplaza\s+principal\b/.test(norm)) {
+    add('Plaza 9 de Julio Salta');
+    add('Plaza 25 de Mayo Salta');
+    add('Plaza Belgrano Salta');
+    add('Plaza General Güemes Salta');
   }
   if (/\bhiper\s*libertad\b/.test(norm) || /\bhiperlibertad\b/.test(norm)) {
     add('Paseo Libertad Salta');
@@ -846,9 +915,6 @@ function buildPoiAutocompleteQueries(value) {
   }
   if (/\bterminal\b/.test(norm)) {
     add('terminal de omnibus Salta');
-  }
-  if (/\bhospital\b/.test(norm)) {
-    add('hospital Salta');
   }
   if (/\bunsa\b/.test(norm) || /\buniversidad\b/.test(norm)) {
     add('universidad Salta');
@@ -881,6 +947,7 @@ module.exports = {
   looksLikeSaltaKnownPoi,
   getKnownPoiSearchQueries,
   buildPoiAutocompleteQueries,
+  isCategoryPoiSearch,
   normalizePoiText,
   fixPoiTypoTokens,
 };

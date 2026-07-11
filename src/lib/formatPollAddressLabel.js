@@ -115,7 +115,7 @@ export function extractStreetAddressForPoll(subtitle, formattedAddress) {
       if (/^a?\d{4}$/i.test(part)) continue;
 
       const hasNumber = /\b\d{1,5}[a-z]?\b/i.test(part);
-      const isPoiName = /\b(banco|cajero|shopping|hospital|macro|restaurant|restaurante|farmacia|supermercado|terminal|universidad|colegio|escuela)\b/i.test(part);
+      const isPoiName = /\b(banco|cajero|shopping|hospital|macro|restaurant|restaurante|farmacia|supermercado|terminal|universidad|colegio|escuela|feria|plaza|paseo|portal|galeria|cerro|teleferico|telef[eé]rico|sanatorio)\b/i.test(part);
       const startsWithRoadType = /^(av(?:da|\.)?|avenida|calle|pasaje|pje\.?|ruta|bulevar|bv\.?)\b/i.test(part);
 
       if (hasNumber) {
@@ -126,6 +126,7 @@ export function extractStreetAddressForPoll(subtitle, formattedAddress) {
         ranked.push({ part, priority: 2 });
         continue;
       }
+      // Sin número: no usar el nombre del POI como "calle" (evita "Plaza X · Plaza X")
       if (isPoiName) continue;
       if (/^[a-záéíóúñü.\s'-]{3,}$/i.test(part)) {
         ranked.push({ part, priority: 1 });
@@ -159,11 +160,14 @@ export function formatPollOptionLabel(candidate = {}) {
     candidate.formattedAddress,
   );
 
-  if (title && streetLine && !titleAlreadyIncludesStreet(title, streetLine)) {
-    // Nombre de lugar sin altura → agregar calle/altura para distinguir sucursales
-    if (!/\b\d{1,5}\b/.test(title)) {
-      return truncatePollOption(`${formatStreetPartForPoll(title)} · ${streetLine}`);
-    }
+  // Título ya es la calle (o es idéntico al "street") → no duplicar "Nombre · Nombre"
+  if (title && streetLine && titleAlreadyIncludesStreet(title, streetLine)) {
+    return truncatePollOption(formatStreetPartForPoll(title));
+  }
+
+  if (title && streetLine && !/\b\d{1,5}\b/.test(title)) {
+    // POI sin altura en el título → agregar calle/altura
+    return truncatePollOption(`${formatStreetPartForPoll(title)} · ${streetLine}`);
   }
 
   if (title && /\b\d{1,5}\b/.test(title)) {

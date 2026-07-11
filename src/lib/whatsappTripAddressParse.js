@@ -82,13 +82,18 @@ function normalizePollStreetKey(value) {
 }
 
 function getAddressPollIdentityKey(candidate) {
-  const raw = candidate?.pollLabel || candidate?.title || candidate?.formattedAddress || '';
+  const title = String(candidate?.pollLabel || candidate?.title || '').trim();
+  const subtitle = String(candidate?.subtitle || '').trim();
+  // Incluir subtítulo para no colapsar "Hospital X · Boedo" con "Hospital X · Colón"
+  const raw = [title, subtitle, candidate?.formattedAddress]
+    .filter(Boolean)
+    .join(' | ');
   const normalized = normalizePollStreetKey(raw);
   const numMatch = normalized.match(/\b(\d{1,5})\b/);
   const number = numMatch ? numMatch[1] : '';
   const street = normalized.replace(/\b\d{1,5}\b/g, ' ').replace(/\s+/g, ' ').trim();
   if (candidate?.street?.nameKey) {
-    return `${candidate.street.nameKey}|${number}`;
+    return `${candidate.street.nameKey}|${number}|${normalizePollStreetKey(subtitle)}`;
   }
   return `${street}|${number}`;
 }
