@@ -332,6 +332,11 @@ export default function DriverManagement({ onBack }) {
       {showForm && (
         <DriverFormModal
           driver={editDriver}
+          ownerName={
+            editDriver && isAssignedDriver(editDriver)
+              ? (ownerById[editDriver.owner_id]?.full_name || null)
+              : null
+          }
           onClose={() => { setShowForm(false); setEditDriver(null); setError(''); }}
           onSave={handleSave}
           saving={saving}

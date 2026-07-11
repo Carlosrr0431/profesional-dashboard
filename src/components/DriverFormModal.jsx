@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { formatPhoneForDisplay } from '../lib/driverRoles';
+import { formatPhoneForDisplay, isAssignedDriver } from '../lib/driverRoles';
 
 const FIELD_CLASS = 'w-full bg-light-200 border border-light-300/50 rounded-xl px-3 py-2.5 text-sm text-navy-900 placeholder-gray-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all';
 const LABEL_CLASS = 'block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5';
@@ -10,8 +10,9 @@ function isPhoneLoginDriver(driver) {
   return Boolean(driver.phone_normalized || driver.phone || email.endsWith('@profesional.test'));
 }
 
-export default function DriverFormModal({ driver, onClose, onSave, saving, error }) {
+export default function DriverFormModal({ driver, ownerName = null, onClose, onSave, saving, error }) {
   const isEdit = !!driver;
+  const assigned = isEdit && isAssignedDriver(driver);
 
   const [form, setForm] = useState({
     full_name: '',
@@ -81,8 +82,29 @@ export default function DriverFormModal({ driver, onClose, onSave, saving, error
         {/* Header */}
         <div className="px-6 py-4 border-b border-light-300/50 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-bold text-navy-900">{isEdit ? 'Editar Chofer' : 'Nuevo Chofer'}</h2>
-            <p className="text-xs text-gray-500">{isEdit ? 'Modificar información del chofer' : 'Registrar un nuevo chofer con acceso a la app'}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-bold text-navy-900">{isEdit ? 'Editar Chofer' : 'Nuevo Chofer'}</h2>
+              {isEdit ? (
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                    assigned
+                      ? 'text-indigo-700 bg-indigo-100'
+                      : 'text-amber-700 bg-amber-100'
+                  }`}
+                >
+                  {assigned ? 'Asignado' : 'Titular'}
+                </span>
+              ) : null}
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {!isEdit
+                ? 'Registrar un nuevo chofer con acceso a la app'
+                : assigned
+                  ? (ownerName
+                    ? `Chofer asignado · Vehículo de ${ownerName}`
+                    : 'Chofer asignado al móvil de un titular')
+                  : 'Chofer titular / dueño del móvil'}
+            </p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-lg bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent transition-all">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
