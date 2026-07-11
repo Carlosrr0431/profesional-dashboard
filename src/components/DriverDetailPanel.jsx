@@ -4,7 +4,7 @@ import { filterPaymentsByPeriod, sumPaymentAmounts, paymentSourceLabel, toAnchor
 import CommissionPeriodPicker from './CommissionPeriodPicker';
 import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
-import { isFleetRoot } from '../lib/driverRoles';
+import { isFleetRoot, isAssignedDriver } from '../lib/driverRoles';
 import AssignedDriversTab from './AssignedDriversTab';
 import DriverAvatar from './DriverAvatar';
 
@@ -21,6 +21,7 @@ export default function DriverDetailPanel({
   deleteAssignedDriver,
   toggleAssignedDriverStatus,
   assignedCount = 0,
+  partnerOwners = [],
 }) {
   const toast = useToast();
   const [trips, setTrips] = useState([]);
@@ -156,10 +157,18 @@ export default function DriverDetailPanel({
                 {driver.driver_number && (
                   <span className="text-[10px] font-bold text-accent bg-accent/15 px-1.5 py-0.5 rounded-md">#{driver.driver_number}</span>
                 )}
+                {!isAssignedDriver(driver) && partnerOwners.length > 0 ? (
+                  <span className="text-[10px] font-bold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded-md">Socio</span>
+                ) : null}
               </div>
               <p className="text-xs text-gray-500">
                 {driver.vehicle_type === 'moto' ? '🏍️' : '🚗'} {driver.vehicle_brand} {driver.vehicle_model} · {driver.vehicle_plate}
               </p>
+              {!isAssignedDriver(driver) && partnerOwners.length > 0 ? (
+                <p className="text-[11px] text-teal-700 mt-0.5">
+                  Socio de {partnerOwners.map((p) => p.full_name).filter(Boolean).join(', ')}
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -247,6 +256,7 @@ export default function DriverDetailPanel({
             {tab === 'assigned' && canManageAssigned ? (
               <AssignedDriversTab
                 ownerDriver={driver}
+                partnerOwners={partnerOwners}
                 fetchAssignedDrivers={fetchAssignedDrivers}
                 createAssignedDriver={createAssignedDriver}
                 deleteAssignedDriver={deleteAssignedDriver}

@@ -276,25 +276,66 @@ export async function adminUpdateDriverLoginPhone({ driverId, phone }) {
   }
 
   const isAssigned = Boolean(driver.is_assigned_driver && driver.owner_id);
+  const isOwner = !isAssigned && !driver.owner_id;
   const nextAuthEmail = isAssigned
     ? buildAssignedDriverAuthEmail(normalizedPhone)
     : buildOwnerAuthEmail(normalizedPhone, driver.driver_number);
 
-  // Evitar que otro chofer ya use ese teléfono / email sintético
+  // Conflictos de teléfono:
+  // - Asignado: nunca puede compartir número
+  // - Titular: puede compartir con otro titular (socios); no con un asignado
   const { data: phoneConflicts, error: phoneConflictError } = await admin
     .from('drivers')
-    .select('id, full_name')
+    .select('id, full_name, is_assigned_driver, owner_id, driver_number')
     .neq('id', driverId)
-    .eq('phone_normalized', normalizedPhone)
-    .limit(1);
+    .eq('phone_normalized', normalizedPhone);
 
   if (phoneConflictError) throw phoneConflictError;
-  if (phoneConflicts?.length) {
+
+  const conflicts = phoneConflicts || [];
+  const assignedConflicts = conflicts.filter((row) => row.is_assigned_driver && row.owner_id);
+  const ownerConflicts = conflicts.filter((row) => !row.is_assigned_driver && !row.owner_id);
+
+  if (isAssigned && conflicts.length) {
     return {
       ok: false,
       status: 409,
-      message: `El teléfono ya está en uso por ${phoneConflicts[0].full_name || 'otro chofer'}`,
+      message: `El teléfono ya está en uso por ${conflicts[0].full_name || 'otro chofer'}`,
     };
+  }
+
+  if (isOwner && assignedConflicts.length) {
+    return {
+      ok: false,
+      status: 409,
+      message: `El teléfono ya está en uso por el chofer asignado ${assignedConflicts[0].full_name || ''}`.trim(),
+    };
+  }
+
+  let partnerOwners = [];
+  if (isOwner && ownerConflicts.length) {
+    if (driver.driver_number == null || String(driver.driver_number).trim() === '') {
+      return {
+        ok: false,
+        status: 400,
+        message: 'Para compartir teléfono con otro titular necesitás un Nº de chofer',
+      };
+    }
+    const partnerWithoutNumber = ownerConflicts.find(
+      (row) => row.driver_number == null || String(row.driver_number).trim() === '',
+    );
+    if (partnerWithoutNumber) {
+      return {
+        ok: false,
+        status: 400,
+        message: `${partnerWithoutNumber.full_name || 'El otro titular'} no tiene Nº de chofer; asignáselo antes de unir la flota`,
+      };
+    }
+    partnerOwners = ownerConflicts.map((row) => ({
+      id: row.id,
+      full_name: row.full_name,
+      driver_number: row.driver_number,
+    }));
   }
 
   const { data: emailConflicts, error: emailConflictError } = await admin
@@ -366,6 +407,8 @@ export async function adminUpdateDriverLoginPhone({ driverId, phone }) {
     auth_email: nextAuthEmail,
     previous_phone_normalized: previousNormalized || null,
     auth_email_changed: authEmailChanged,
+    partnered: partnerOwners.length > 0,
+    partners: partnerOwners,
     data: updated,
   };
 }

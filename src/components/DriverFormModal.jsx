@@ -64,7 +64,9 @@ export default function DriverFormModal({ driver, ownerName = null, onClose, onS
 
   const phoneLogin = isEdit && isPhoneLoginDriver(driver);
   const loginHint = phoneLogin
-    ? `Ingreso con teléfono: ${formatPhoneForDisplay(driver.phone) || driver.phone || '—'}. Si lo cambiás, el número anterior deja de servir.`
+    ? assigned
+      ? `Ingreso con teléfono: ${formatPhoneForDisplay(driver.phone) || driver.phone || '—'}. Si lo cambiás, el número anterior deja de servir.`
+      : `Ingreso con teléfono: ${formatPhoneForDisplay(driver.phone) || driver.phone || '—'}. Si lo cambiás, el anterior deja de servir. Si el número ya lo usa otro titular, se unen como socios y ven las flotas juntas.`
     : driver?.auth_email
       ? `Cuenta: ${driver.auth_email}`
       : 'Sin cuenta de acceso vinculada';

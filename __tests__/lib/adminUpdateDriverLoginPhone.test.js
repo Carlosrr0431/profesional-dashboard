@@ -25,12 +25,36 @@ describe('adminUpdateDriverLoginPhone', () => {
     };
   }
 
-  function mockConflictQuery(rows = []) {
+  /** Phone conflict: .select().neq().eq() → resolve (sin limit) */
+  function mockPhoneConflictQuery(rows = []) {
+    return {
+      select: jest.fn().mockReturnValue({
+        neq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ data: rows, error: null }),
+        }),
+      }),
+    };
+  }
+
+  /** Email conflict: .select().neq().eq().limit() */
+  function mockEmailConflictQuery(rows = []) {
     return {
       select: jest.fn().mockReturnValue({
         neq: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
             limit: jest.fn().mockResolvedValue({ data: rows, error: null }),
+          }),
+        }),
+      }),
+    };
+  }
+
+  function mockUpdate(updatedRow) {
+    return {
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({ data: updatedRow, error: null }),
           }),
         }),
       }),
@@ -70,16 +94,9 @@ describe('adminUpdateDriverLoginPhone', () => {
       from: jest.fn(() => {
         fromCall += 1;
         if (fromCall === 1) return mockDriverFetch(driver);
-        if (fromCall === 2 || fromCall === 3) return mockConflictQuery([]);
-        return {
-          update: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({ data: updatedRow, error: null }),
-              }),
-            }),
-          }),
-        };
+        if (fromCall === 2) return mockPhoneConflictQuery([]);
+        if (fromCall === 3) return mockEmailConflictQuery([]);
+        return mockUpdate(updatedRow);
       }),
       auth: {
         admin: {
@@ -132,16 +149,9 @@ describe('adminUpdateDriverLoginPhone', () => {
       from: jest.fn(() => {
         fromCall += 1;
         if (fromCall === 1) return mockDriverFetch(driver);
-        if (fromCall === 2 || fromCall === 3) return mockConflictQuery([]);
-        return {
-          update: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({ data: updatedRow, error: null }),
-              }),
-            }),
-          }),
-        };
+        if (fromCall === 2) return mockPhoneConflictQuery([]);
+        if (fromCall === 3) return mockEmailConflictQuery([]);
+        return mockUpdate(updatedRow);
       }),
       auth: {
         admin: {
@@ -159,12 +169,11 @@ describe('adminUpdateDriverLoginPhone', () => {
     expect(result.ok).toBe(true);
     expect(result.phone_normalized).toBe(newPhone);
     expect(result.auth_email).toBe(buildOwnerAuthEmail(newPhone, 49));
-    // owner.49@... no cambia al cambiar el teléfono
     expect(result.auth_email_changed).toBe(false);
     expect(mockUpdateUserById).not.toHaveBeenCalled();
   });
 
-  it('rechaza si el teléfono ya está usado por otro chofer', async () => {
+  it('rechaza si el teléfono ya está usado por otro chofer asignado', async () => {
     const driver = {
       id: 'drv-1',
       user_id: null,
@@ -182,7 +191,13 @@ describe('adminUpdateDriverLoginPhone', () => {
       from: jest.fn(() => {
         fromCall += 1;
         if (fromCall === 1) return mockDriverFetch(driver);
-        return mockConflictQuery([{ id: 'other', full_name: 'Otro' }]);
+        return mockPhoneConflictQuery([{
+          id: 'other',
+          full_name: 'Otro',
+          is_assigned_driver: true,
+          owner_id: 'owner-2',
+          driver_number: 2,
+        }]);
       }),
       auth: { admin: { updateUserById: mockUpdateUserById, listUsers: mockListUsers } },
     });
@@ -195,5 +210,64 @@ describe('adminUpdateDriverLoginPhone', () => {
     expect(result.ok).toBe(false);
     expect(result.status).toBe(409);
     expect(result.message).toMatch(/ya está en uso/i);
+  });
+
+  it('permite que un titular comparta teléfono con otro titular (socios)', async () => {
+    const oldPhone = normalizeDriverPhone('3874866003');
+    const sharedPhone = normalizeDriverPhone('3875638266');
+    const driver = {
+      id: 'own-1',
+      user_id: 'auth-2',
+      full_name: 'DIAZ MARCIO',
+      phone: '+5493874866003',
+      phone_normalized: oldPhone,
+      auth_email: buildOwnerAuthEmail(oldPhone, 49),
+      is_assigned_driver: false,
+      owner_id: null,
+      driver_number: 49,
+    };
+    const updatedRow = {
+      ...driver,
+      phone: '3875638266',
+      phone_normalized: sharedPhone,
+      auth_email: buildOwnerAuthEmail(sharedPhone, 49),
+    };
+
+    let fromCall = 0;
+    getSupabaseAdmin.mockReturnValue({
+      from: jest.fn(() => {
+        fromCall += 1;
+        if (fromCall === 1) return mockDriverFetch(driver);
+        if (fromCall === 2) {
+          return mockPhoneConflictQuery([{
+            id: 'own-2',
+            full_name: 'CRUZ CRISTIAN ALFREDO',
+            is_assigned_driver: false,
+            owner_id: null,
+            driver_number: 12,
+          }]);
+        }
+        if (fromCall === 3) return mockEmailConflictQuery([]);
+        return mockUpdate(updatedRow);
+      }),
+      auth: {
+        admin: {
+          updateUserById: mockUpdateUserById,
+          listUsers: mockListUsers,
+        },
+      },
+    });
+
+    const result = await adminUpdateDriverLoginPhone({
+      driverId: 'own-1',
+      phone: '3875638266',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.partnered).toBe(true);
+    expect(result.partners).toEqual([
+      expect.objectContaining({ id: 'own-2', full_name: 'CRUZ CRISTIAN ALFREDO' }),
+    ]);
+    expect(result.phone_normalized).toBe(sharedPhone);
   });
 });

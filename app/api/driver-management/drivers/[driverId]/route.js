@@ -88,7 +88,12 @@ export async function PATCH(request, { params }) {
     const hasProfileUpdates = Object.keys(driverUpdates).length > 0;
     if (!hasProfileUpdates) {
       if (phoneResult?.data) {
-        return NextResponse.json({ ok: true, data: phoneResult.data });
+        return NextResponse.json({
+          ok: true,
+          data: phoneResult.data,
+          partnered: Boolean(phoneResult.partnered),
+          partners: phoneResult.partners || [],
+        });
       }
       const { data: current, error: fetchError } = await supabase
         .from('drivers')
@@ -108,7 +113,12 @@ export async function PATCH(request, { params }) {
 
     if (error) throw error;
 
-    return NextResponse.json({ ok: true, data });
+    return NextResponse.json({
+      ok: true,
+      data,
+      partnered: Boolean(phoneResult?.partnered),
+      partners: phoneResult?.partners || [],
+    });
   } catch (err) {
     return NextResponse.json(
       {

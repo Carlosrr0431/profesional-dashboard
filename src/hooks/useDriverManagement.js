@@ -137,6 +137,11 @@ export function useDriverManagement() {
       };
     }
     await fetchDrivers();
+    return {
+      data: payload?.data || null,
+      partnered: Boolean(payload?.partnered),
+      partners: payload?.partners || [],
+    };
   }, [fetchDrivers]);
 
   const getDriverTrips = useCallback(async (driverId) => {

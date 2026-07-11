@@ -101,6 +101,44 @@ export function isFleetOwner(driver) {
   return (driver?.role === 'owner' || driver?.isFleetOwner === true) && !isAssignedDriver(driver);
 }
 
+/** Clave de teléfono canónica para agrupar titulares socios. */
+export function getDriverPhoneKey(driver) {
+  if (!driver) return '';
+  return normalizeDriverPhone(driver.phone_normalized || driver.phone) || '';
+}
+
+/**
+ * Titulares que comparten el mismo teléfono (socios).
+ * No incluye al propio owner.
+ */
+export function findOwnerPartners(drivers, owner) {
+  if (!owner || isAssignedDriver(owner)) return [];
+  const phoneKey = getDriverPhoneKey(owner);
+  if (!phoneKey) return [];
+  return (drivers || []).filter(
+    (d) =>
+      d?.id
+      && d.id !== owner.id
+      && !isAssignedDriver(d)
+      && getDriverPhoneKey(d) === phoneKey,
+  );
+}
+
+/**
+ * Clave de agrupación en lista: socios (mismo teléfono) + sus asignados juntos.
+ */
+export function getFleetListGroupKey(driver, ownerById = {}) {
+  if (isAssignedDriver(driver)) {
+    const owner = ownerById[driver.owner_id];
+    const phoneKey = getDriverPhoneKey(owner);
+    if (phoneKey) return `phone:${phoneKey}`;
+    return `owner:${driver.owner_id || driver.id}`;
+  }
+  const phoneKey = getDriverPhoneKey(driver);
+  if (phoneKey) return `phone:${phoneKey}`;
+  return `owner:${driver.id}`;
+}
+
 export function getAssignedDriverRegistrationStatus(driver) {
   if (!driver) return 'unknown';
   if (driver.user_id && driver.password_initialized !== false) return 'registered';

@@ -6,7 +6,7 @@ import CommissionPaymentsReport from './CommissionPaymentsReport';
 import { formatPrice, timeAgo } from '../lib/utils';
 import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
-import { isAssignedDriver } from '../lib/driverRoles';
+import { isAssignedDriver, findOwnerPartners, getFleetListGroupKey, getDriverPhoneKey, normalizeDriverPhone } from '../lib/driverRoles';
 import DriverAvatar from './DriverAvatar';
 
 export default function DriverManagement({ onBack }) {
@@ -22,6 +22,7 @@ export default function DriverManagement({ onBack }) {
   const [confirmDriver, setConfirmDriver] = useState(null);
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [mainView, setMainView] = useState('drivers');
+  const [pendingPartnerSave, setPendingPartnerSave] = useState(null);
 
   useEffect(() => {
     if (!detailDriver) return;
@@ -69,13 +70,13 @@ export default function DriverManagement({ onBack }) {
       return true;
     });
 
-    // Agrupar: titular primero, luego sus asignados
+    // Agrupar: socios (mismo teléfono) juntos; titular(es) primero, luego asignados
     return matches.sort((a, b) => {
-      const aRoot = isAssignedDriver(a) ? a.owner_id : a.id;
-      const bRoot = isAssignedDriver(b) ? b.owner_id : b.id;
-      if (aRoot !== bRoot) {
-        const aOwner = ownerById[aRoot] || a;
-        const bOwner = ownerById[bRoot] || b;
+      const aGroup = getFleetListGroupKey(a, ownerById);
+      const bGroup = getFleetListGroupKey(b, ownerById);
+      if (aGroup !== bGroup) {
+        const aOwner = isAssignedDriver(a) ? ownerById[a.owner_id] || a : a;
+        const bOwner = isAssignedDriver(b) ? ownerById[b.owner_id] || b : b;
         const aNum = Number(aOwner.driver_number);
         const bNum = Number(bOwner.driver_number);
         if (Number.isFinite(aNum) && Number.isFinite(bNum) && aNum !== bNum) {
@@ -86,11 +87,19 @@ export default function DriverManagement({ onBack }) {
       const aAssigned = isAssignedDriver(a) ? 1 : 0;
       const bAssigned = isAssignedDriver(b) ? 1 : 0;
       if (aAssigned !== bAssigned) return aAssigned - bAssigned;
+      const aNum = Number(a.driver_number);
+      const bNum = Number(b.driver_number);
+      if (!aAssigned && !bAssigned && Number.isFinite(aNum) && Number.isFinite(bNum) && aNum !== bNum) {
+        return aNum - bNum;
+      }
+      if (aAssigned && bAssigned && a.owner_id !== b.owner_id) {
+        return String(a.owner_id).localeCompare(String(b.owner_id));
+      }
       return String(a.full_name || '').localeCompare(String(b.full_name || ''), 'es');
     });
   }, [drivers, search, filter, ownerById]);
 
-  const handleSave = async (formData) => {
+  const applyDriverSave = async (formData) => {
     setSaving(true);
     setError('');
     try {
@@ -98,11 +107,14 @@ export default function DriverManagement({ onBack }) {
         const { email, password, ...profile } = formData;
         const updates = { ...profile };
         if (password) updates.password = password;
-        await updateDriver(editDriver.id, updates);
+        const result = await updateDriver(editDriver.id, updates);
         const phoneChanged = String(profile.phone || '').trim() !== String(editDriver.phone || '').trim();
         const passwordMsg = password ? ' Contraseña de ingreso actualizada.' : '';
+        const partners = result?.partners || [];
         const phoneMsg = phoneChanged
-          ? ' El ingreso a la app queda con el nuevo teléfono; el anterior ya no sirve.'
+          ? (partners.length
+            ? ` Teléfono unificado con ${partners.map((p) => p.full_name).join(', ')}: flotas de socios juntas.`
+            : ' El ingreso a la app queda con el nuevo teléfono; el anterior ya no sirve.')
           : '';
         toast.success(`Chofer "${profile.full_name || editDriver.full_name}" actualizado.${passwordMsg}${phoneMsg}`);
       } else {
@@ -111,6 +123,7 @@ export default function DriverManagement({ onBack }) {
       }
       setShowForm(false);
       setEditDriver(null);
+      setPendingPartnerSave(null);
     } catch (err) {
       const message = err.message || 'Error al guardar';
       setError(message);
@@ -118,6 +131,26 @@ export default function DriverManagement({ onBack }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = async (formData) => {
+    if (editDriver && !isAssignedDriver(editDriver)) {
+      const nextPhone = normalizeDriverPhone(formData.phone);
+      const prevPhone = getDriverPhoneKey(editDriver);
+      if (nextPhone && nextPhone !== prevPhone) {
+        const partners = drivers.filter(
+          (d) =>
+            d.id !== editDriver.id
+            && !isAssignedDriver(d)
+            && getDriverPhoneKey(d) === nextPhone,
+        );
+        if (partners.length) {
+          setPendingPartnerSave({ formData, partners });
+          return;
+        }
+      }
+    }
+    await applyDriverSave(formData);
   };
 
   const handleEdit = (driver) => {
@@ -286,11 +319,17 @@ export default function DriverManagement({ onBack }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((driver) => (
+                  {filtered.map((driver) => {
+                    const partners = !isAssignedDriver(driver)
+                      ? findOwnerPartners(drivers, driver)
+                      : [];
+                    return (
                     <DriverTableRow
                       key={driver.id}
                       driver={driver}
                       assignedCount={assignedCountByOwner[driver.id] || 0}
+                      partnerCount={partners.length}
+                      partnerNames={partners.map((p) => p.full_name).filter(Boolean)}
                       ownerName={
                         isAssignedDriver(driver)
                           ? (ownerById[driver.owner_id]?.full_name || null)
@@ -301,7 +340,8 @@ export default function DriverManagement({ onBack }) {
                       isSelected={detailDriver?.id === driver.id}
                       onToggleBlock={() => handleMarkCommissionPaid(driver)}
                     />
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -325,6 +365,7 @@ export default function DriverManagement({ onBack }) {
           deleteAssignedDriver={deleteAssignedDriver}
           toggleAssignedDriverStatus={toggleAssignedDriverStatus}
           assignedCount={assignedCountByOwner[detailDriver.id] || 0}
+          partnerOwners={findOwnerPartners(drivers, detailDriver)}
         />
       )}
 
@@ -337,12 +378,22 @@ export default function DriverManagement({ onBack }) {
               ? (ownerById[editDriver.owner_id]?.full_name || null)
               : null
           }
-          onClose={() => { setShowForm(false); setEditDriver(null); setError(''); }}
+          onClose={() => { setShowForm(false); setEditDriver(null); setError(''); setPendingPartnerSave(null); }}
           onSave={handleSave}
           saving={saving}
           error={error}
         />
       )}
+
+      {pendingPartnerSave ? (
+        <PartnerPhoneConfirmModal
+          partners={pendingPartnerSave.partners}
+          phone={pendingPartnerSave.formData.phone}
+          loading={saving}
+          onCancel={() => setPendingPartnerSave(null)}
+          onConfirm={() => applyDriverSave(pendingPartnerSave.formData)}
+        />
+      ) : null}
 
       {confirmDriver && (
         <ConfirmCommissionPaymentModal
@@ -458,6 +509,53 @@ function DriverManagementLoading({ onBack }) {
   );
 }
 
+function PartnerPhoneConfirmModal({ partners, phone, loading, onCancel, onConfirm }) {
+  const names = (partners || []).map((p) => p.full_name).filter(Boolean);
+
+  return (
+    <div className="fixed inset-0 z-[120] bg-navy-900/45 backdrop-blur-[1px] flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-light-50 rounded-2xl border border-light-300/50 shadow-2xl shadow-navy-900/25 overflow-hidden">
+        <div className="px-5 py-4 border-b border-light-300/40">
+          <h3 className="text-sm font-bold text-navy-900">Unir flota de socios</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            Ese teléfono ya lo usa otro titular. Al confirmar, quedan como socios y sus choferes asignados se ven juntos.
+          </p>
+        </div>
+
+        <div className="px-5 py-4 space-y-2">
+          <div className="flex items-center justify-between text-xs gap-3">
+            <span className="text-gray-500 shrink-0">Teléfono</span>
+            <span className="font-semibold text-navy-900 text-right truncate">{phone || '—'}</span>
+          </div>
+          <div className="flex items-start justify-between text-xs gap-3">
+            <span className="text-gray-500 shrink-0">Socio{names.length !== 1 ? 's' : ''}</span>
+            <span className="font-semibold text-navy-900 text-right">{names.join(', ') || '—'}</span>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-light-300/40 flex gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 py-2.5 text-xs font-medium text-gray-600 bg-light-200 border border-light-300/60 rounded-xl hover:bg-light-300/60 disabled:opacity-50 transition-all"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 py-2.5 text-xs font-semibold text-white bg-teal-600 rounded-xl hover:bg-teal-700 disabled:opacity-50 transition-all"
+          >
+            {loading ? 'Guardando…' : 'Confirmar unión'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ConfirmCommissionPaymentModal({ driver, loading, onCancel, onConfirm }) {
   const pending = parseFloat(driver?.pending_commission || 0);
 
@@ -504,6 +602,8 @@ function ConfirmCommissionPaymentModal({ driver, loading, onCancel, onConfirm })
 function DriverTableRow({
   driver,
   assignedCount = 0,
+  partnerCount = 0,
+  partnerNames = [],
   ownerName = null,
   onView,
   onEdit,
@@ -542,6 +642,14 @@ function DriverTableRow({
                   Asignado
                 </span>
               ) : null}
+              {!assigned && partnerCount > 0 ? (
+                <span
+                  className="text-[10px] font-bold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded-md"
+                  title={partnerNames.length ? `Socio de ${partnerNames.join(', ')}` : 'Socio'}
+                >
+                  Socio{partnerCount > 1 ? ` · ${partnerCount}` : ''}
+                </span>
+              ) : null}
               {!assigned && assignedCount > 0 ? (
                 <span className="text-[10px] font-bold text-online bg-online/10 px-1.5 py-0.5 rounded-md">
                   +{assignedCount} asignado{assignedCount !== 1 ? 's' : ''}
@@ -551,6 +659,7 @@ function DriverTableRow({
             <p className="text-[11px] text-gray-500">
               {driver.vehicle_type === 'moto' ? '🏍️' : '🚗'} {driver.vehicle_type || 'auto'}
               {assigned && ownerName ? ` · Titular: ${ownerName}` : ''}
+              {!assigned && partnerNames.length ? ` · Con ${partnerNames.join(', ')}` : ''}
             </p>
           </div>
         </div>
