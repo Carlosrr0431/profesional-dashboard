@@ -81,7 +81,9 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const WASENDER_API_KEY = process.env.WASENDER_API_KEY || '';
 const WASENDER_BASE_URL = process.env.WASENDER_BASE_URL || 'https://www.wasenderapi.com/api';
-const TRACKING_BASE_URL = process.env.TRACKING_BASE_URL || 'https://profesional-dashboard.vercel.app';
+const TRACKING_BASE_URL = process.env.TRACKING_BASE_URL
+  || process.env.NEXT_PUBLIC_APP_URL
+  || 'https://www.profesionalviajes.com.ar';
 const SUPABASE_PUBLIC_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   process.env.SUPABASE_URL ||

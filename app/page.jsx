@@ -6,7 +6,7 @@ const displayFont = Plus_Jakarta_Sans({
   weight: ['500', '600', '700', '800'],
 });
 
-const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://profesional-dashboard.vercel.app';
+const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.profesionalviajes.com.ar';
 
 export const metadata = {
   metadataBase: new URL(SITE_URL),
