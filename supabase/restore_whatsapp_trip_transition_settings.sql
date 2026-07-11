@@ -9,7 +9,7 @@ INSERT INTO public.settings (key, value, updated_at)
 VALUES
   (
     'whatsapp_trip_transition_url',
-    'https://profesional-dashboard.vercel.app/api/Agente_IA',
+    'https://www.profesionalviajes.com.ar/api/Agente_IA',
     NOW()
   ),
   (

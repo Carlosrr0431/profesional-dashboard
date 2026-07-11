@@ -11,7 +11,7 @@ function readDashboardUrl() {
     const fromEnv = String(process.env.EXPO_PUBLIC_DASHBOARD_URL || '').trim();
     if (fromEnv) return fromEnv.replace(/\/$/, '');
   }
-  return 'https://profesional-dashboard.vercel.app';
+  return 'https://www.profesionalviajes.com.ar';
 }
 
 function isCoordinateLikeAddress(text) {

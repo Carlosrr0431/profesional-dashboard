@@ -8,7 +8,7 @@ INSERT INTO public.settings (key, value, updated_at)
 VALUES
   (
     'dispatch_worker_url',
-    'https://profesional-dashboard.vercel.app/api/dispatch-worker',
+    'https://www.profesionalviajes.com.ar/api/dispatch-worker',
     NOW()
   ),
   (

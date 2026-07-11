@@ -1,7 +1,8 @@
 import { after } from 'next/server';
 
+const PRODUCTION_APP_URL = 'https://www.profesionalviajes.com.ar';
 const DEFAULT_DISPATCH_WORKER_URL =
-  'https://profesional-dashboard.vercel.app/api/dispatch-worker';
+  `${PRODUCTION_APP_URL}/api/dispatch-worker`;
 
 /** Debe cubrir dispatch-worker (maxDuration 60s) + margen de red. */
 const DISPATCH_WAKE_TIMEOUT_MS = Math.max(
@@ -10,11 +11,20 @@ const DISPATCH_WAKE_TIMEOUT_MS = Math.max(
 );
 
 function resolveDispatchWorkerUrl() {
-  const appUrl = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
-  if (appUrl) return `${appUrl}/api/dispatch-worker`;
+  const candidates = [
+    process.env.DISPATCH_WORKER_URL,
+    process.env.NEXT_PUBLIC_APP_URL
+      ? `${String(process.env.NEXT_PUBLIC_APP_URL).trim().replace(/\/+$/, '')}/api/dispatch-worker`
+      : '',
+    DEFAULT_DISPATCH_WORKER_URL,
+  ];
 
-  const explicit = String(process.env.DISPATCH_WORKER_URL || '').trim();
-  if (explicit) return explicit;
+  for (const raw of candidates) {
+    const value = String(raw || '').trim().replace(/\/+$/, '');
+    if (!value) continue;
+    if (/profesional-dashboard\.vercel\.app/i.test(value)) continue;
+    return value;
+  }
 
   return DEFAULT_DISPATCH_WORKER_URL;
 }

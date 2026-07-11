@@ -15,7 +15,7 @@ const PAYPERTIC_CLIENT_ID = process.env.PAYPERTIC_CLIENT_ID;
 const PAYPERTIC_CLIENT_SECRET = process.env.PAYPERTIC_CLIENT_SECRET;
 const PAYPERTIC_COLLECTOR_ID = process.env.PAYPERTIC_COLLECTOR_ID || null;
 const DASHBOARD_URL =
-  process.env.NEXT_PUBLIC_APP_URL || 'https://profesional-dashboard.vercel.app';
+  process.env.NEXT_PUBLIC_APP_URL || 'https://www.profesionalviajes.com.ar';
 
 const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||

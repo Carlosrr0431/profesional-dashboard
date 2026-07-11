@@ -77,7 +77,7 @@ SET value = 'YOUR_CRON_SECRET',
 WHERE key = 'dispatch_worker_secret';
 
 INSERT INTO public.settings (key, value, updated_at)
-VALUES ('dispatch_worker_url', 'https://profesional-dashboard.vercel.app/api/dispatch-worker', NOW())
+VALUES ('dispatch_worker_url', 'https://www.profesionalviajes.com.ar/api/dispatch-worker', NOW())
 ON CONFLICT (key) DO UPDATE
 SET value = EXCLUDED.value,
     updated_at = NOW();
