@@ -27,6 +27,7 @@ import {
 import { buildApproachOnlyTripInsertPayload } from '../../../src/lib/approachOnlyTripPayload';
 import {
   buildPoiAutocompleteQueries,
+  getKnownPoiPollSeeds,
   getKnownPoiSearchQueries,
   getPoiSpecificSearchTokens,
   isCategoryPoiSearch,
@@ -5797,6 +5798,7 @@ async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], origin
   let merged = [...(baseCandidates || [])];
   const streetHint = extractStreetHintAlongsidePoi(originalQuery, knownPoi);
   const categorySearch = isCategoryPoiSearch(knownPoi, streetHint, originalQuery);
+  const specificTokens = getPoiSpecificSearchTokens(originalQuery, knownPoi);
   const maxResults = GUEMES_POLL_OPTION_LIMIT;
   const maxQueries = categorySearch ? 5 : 3;
   const perQueryLimit = 5;
@@ -5812,7 +5814,13 @@ async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], origin
     queries.push(text);
   };
 
-  // Query limpia tipo Google Maps primero (sin ruido de "móvil", etc.).
+  // Seeds curados primero: garantizan labels útiles aunque Google mezcle basura.
+  const pollSeeds = getKnownPoiPollSeeds(knownPoi, originalQuery).slice(0, maxResults);
+  for (const seed of pollSeeds) {
+    addQuery(seed.geocodeQuery);
+  }
+
+  // Query limpia tipo Google Maps (sin ruido de "móvil", etc.).
   addQuery(`${knownPoi.label}, Salta, Argentina`);
   addQuery(knownPoi.geocodeQuery);
   if (streetHint) {
@@ -5825,6 +5833,32 @@ async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], origin
     for (const q of buildPoiAutocompleteQueries(originalQuery || knownPoi.label)) {
       addQuery(q);
     }
+  }
+
+  // Resolver seeds en paralelo con título/subtítulo fijos para el poll.
+  if (pollSeeds.length > 0) {
+    const seedHits = await Promise.all(
+      pollSeeds.map(async (seed) => {
+        const hits = await autocompleteAndGeocodeAddress(seed.geocodeQuery, 1).catch(() => []);
+        const hit = hits[0];
+        if (!hit || !Number.isFinite(Number(hit.lat)) || !Number.isFinite(Number(hit.lng))) {
+          return null;
+        }
+        return {
+          ...hit,
+          title: seed.title || hit.title || knownPoi.label,
+          subtitle: seed.subtitle || hit.subtitle || null,
+          formattedAddress: hit.formattedAddress || seed.geocodeQuery,
+          score: Math.max(Number(hit.score || 0), 0.97),
+          source: 'poi_seed',
+        };
+      })
+    );
+    merged = mergeDistinctAddressCandidates(
+      seedHits.filter(Boolean),
+      merged,
+      { maxResults: maxResults + 2 },
+    );
   }
 
   const selectedQueries = queries.slice(0, maxQueries);
@@ -5866,13 +5900,27 @@ async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], origin
   }
 
   const queryForScore = originalQuery || knownPoi.label;
-  merged = [...merged].sort((a, b) => {
+  const scorePoiRelevance = (candidate) => {
+    const blob = normalizeForMatch(
+      `${candidate?.title || ''} ${candidate?.subtitle || ''} ${candidate?.formattedAddress || ''}`
+    );
+    let boost = 0;
+    if (candidate?.source === 'poi_seed') boost += 0.35;
+    if (specificTokens.length) {
+      const matched = specificTokens.filter((token) => blob.includes(token)).length;
+      boost += matched / specificTokens.length;
+    }
     if (streetHint) {
       const hintNorm = normalizeForMatch(streetHint);
-      const aHit = normalizeForMatch(`${a.title || ''} ${a.subtitle || ''} ${a.formattedAddress || ''}`).includes(hintNorm) ? 1 : 0;
-      const bHit = normalizeForMatch(`${b.title || ''} ${b.subtitle || ''} ${b.formattedAddress || ''}`).includes(hintNorm) ? 1 : 0;
-      if (aHit !== bHit) return bHit - aHit;
+      if (hintNorm && blob.includes(hintNorm)) boost += 0.4;
     }
+    return boost;
+  };
+
+  merged = [...merged].sort((a, b) => {
+    const aRel = scorePoiRelevance(a);
+    const bRel = scorePoiRelevance(b);
+    if (aRel !== bRel) return bRel - aRel;
     const aNum = candidateHasStreetNumber(a) ? 1 : 0;
     const bNum = candidateHasStreetNumber(b) ? 1 : 0;
     if (aNum !== bNum) return bNum - aNum;
@@ -10714,9 +10762,12 @@ async function processClaimedConversation(batch) {
       .filter((candidate) => candidateMatchesKnownPoiQuery(candidate, knownPoiMatch, queryForMatch));
 
     // Como Google Maps: Autocomplete primero; geocode solo suma opciones distintas.
+    // Seeds curados (source=poi_seed) ganan prioridad sobre basura de Google.
     let mergedPoiPoll = mergeDistinctAddressCandidates(
-      googleRelevant,
-      enrichedRelevant,
+      enrichedRelevant.filter((c) => c?.source === 'poi_seed'),
+      mergeDistinctAddressCandidates(googleRelevant, enrichedRelevant, {
+        maxResults: GUEMES_POLL_OPTION_LIMIT + 2,
+      }),
       { maxResults: GUEMES_POLL_OPTION_LIMIT },
     );
     if (mergedPoiPoll.length < 2 && enrichedRelevant.length >= 1) {
@@ -10727,7 +10778,25 @@ async function processClaimedConversation(batch) {
       );
     }
 
+    const specificTokens = getPoiSpecificSearchTokens(queryForMatch, knownPoiMatch);
     mergedPoiPoll = [...mergedPoiPoll].sort((a, b) => {
+      const scoreBoost = (candidate) => {
+        const blob = normalizeForMatch(
+          `${candidate?.title || ''} ${candidate?.subtitle || ''} ${candidate?.formattedAddress || ''}`
+        );
+        let boost = candidate?.source === 'poi_seed' ? 0.35 : 0;
+        if (specificTokens.length) {
+          boost += specificTokens.filter((token) => blob.includes(token)).length / specificTokens.length;
+        }
+        if (poiStreetHint) {
+          const hintNorm = normalizeForMatch(poiStreetHint);
+          if (hintNorm && blob.includes(hintNorm)) boost += 0.4;
+        }
+        return boost;
+      };
+      const aRel = scoreBoost(a);
+      const bRel = scoreBoost(b);
+      if (aRel !== bRel) return bRel - aRel;
       const aNum = candidateHasStreetNumber(a) ? 1 : 0;
       const bNum = candidateHasStreetNumber(b) ? 1 : 0;
       if (aNum !== bNum) return bNum - aNum;

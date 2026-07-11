@@ -3,6 +3,7 @@ const {
   looksLikeSaltaKnownPoi,
   fixPoiTypoTokens,
   getKnownPoiSearchQueries,
+  getKnownPoiPollSeeds,
   buildPoiAutocompleteQueries,
   isCategoryPoiSearch,
   isSpecificNamedPoiQuery,
@@ -84,6 +85,11 @@ describe('saltaKnownPois', () => {
     expect(queries.some((q) => /paseo\s+del\s+cabildo/i.test(q))).toBe(true);
     expect(queries.some((q) => /alto\s+palermo/i.test(q))).toBe(false);
 
+    const seeds = getKnownPoiPollSeeds(poi, 'el shoping');
+    expect(seeds.length).toBeGreaterThanOrEqual(4);
+    expect(seeds.some((s) => /portal/i.test(s.title))).toBe(true);
+    expect(seeds.every((s) => s.title && s.geocodeQuery)).toBe(true);
+
     const autoQueries = buildPoiAutocompleteQueries('shoping');
     expect(autoQueries.length).toBeGreaterThanOrEqual(5);
   });
@@ -97,11 +103,21 @@ describe('saltaKnownPois', () => {
 
     const tokens = getPoiSpecificSearchTokens('hospital san bernado', poi);
     expect(tokens).toEqual(expect.arrayContaining(['bernardo']));
+    expect(tokens).not.toContain('san');
 
     const queries = getKnownPoiSearchQueries(poi, 'hospital san bernado');
     expect(queries.some((q) => /militar/i.test(q))).toBe(false);
     expect(queries.some((q) => /materno/i.test(q))).toBe(false);
     expect(queries.some((q) => /san\s+bernardo/i.test(q))).toBe(true);
+
+    const specificSeeds = getKnownPoiPollSeeds(poi, 'hospital san bernado');
+    expect(specificSeeds.length).toBeGreaterThanOrEqual(2);
+    expect(specificSeeds.every((s) => !s.categoryOnly)).toBe(true);
+    expect(specificSeeds.some((s) => /tobias/i.test(s.subtitle))).toBe(true);
+    expect(specificSeeds.some((s) => /boedo/i.test(s.subtitle))).toBe(true);
+
+    const categorySeeds = getKnownPoiPollSeeds(poi, 'el hospital');
+    expect(categorySeeds.some((s) => /materno|milagro|militar|papa/i.test(s.title))).toBe(true);
   });
 
   it('corrige bernado y resuelve hospital san bernardo', () => {

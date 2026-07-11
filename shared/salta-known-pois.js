@@ -20,11 +20,11 @@ function fixPoiTypoTokens(norm) {
     .replace(/\bterminak\b/g, 'terminal')
     .replace(/\btermnal\b/g, 'terminal')
     .replace(/\btermina+l\b/g, 'terminal')
-    .replace(/\bbernado\b/g, 'bernardo')
     .replace(/\bshoping\b/g, 'shopping')
     .replace(/\bshopingk\b/g, 'shopping')
     .replace(/\bshopp?ingk\b/g, 'shopping')
     .replace(/\bhospitak\b/g, 'hospital')
+    .replace(/\bbernado\b/g, 'bernardo')
     .replace(/\baeropuertok\b/g, 'aeropuerto')
     .replace(/\bestacionk\b/g, 'estacion')
     .replace(/\bestacion\b/g, 'estacion')
@@ -75,13 +75,60 @@ const SALTA_KNOWN_POIS = [
     categorySearch: true,
     geocodeQuery: 'Hospital San Bernardo, Salta, Argentina',
     alternateGeocodeQueries: [
-      'Hospital San Bernardo Salta',
+      'Hospital San Bernardo, Avenida José Tobias 69, Salta',
+      'Hospital San Bernardo, Dr. Mariano Boedo 167, Salta',
+      'Sanatorio San Bernardo Salta',
       'Hospital Señor del Milagro Salta',
       'Hospital Público Materno Infantil Salta',
       'Hospital Papa Francisco Salta',
       'Hospital Militar Salta',
-      'Sanatorio San Bernardo Salta',
       'hospital Salta Capital',
+    ],
+    /** Opciones estables para el poll (Google a veces mezcla Cerro / hospitales irrelevantes). */
+    pollSeeds: [
+      {
+        title: 'Hospital San Bernardo',
+        subtitle: 'Avenida José Tobias 69',
+        geocodeQuery: 'Hospital San Bernardo, Avenida José Tobias 69, Salta, Argentina',
+        matchTokens: ['bernardo'],
+      },
+      {
+        title: 'Hospital San Bernardo',
+        subtitle: 'Dr. Mariano Boedo 167',
+        geocodeQuery: 'Hospital San Bernardo, Dr. Mariano Boedo 167, Salta, Argentina',
+        matchTokens: ['bernardo'],
+      },
+      {
+        title: 'Sanatorio San Bernardo',
+        subtitle: 'Dr. Mariano Boedo 167',
+        geocodeQuery: 'Sanatorio San Bernardo, Dr. Mariano Boedo 167, Salta, Argentina',
+        matchTokens: ['bernardo'],
+        specificOnly: true,
+      },
+      {
+        title: 'Hospital Señor del Milagro',
+        subtitle: 'Salta',
+        geocodeQuery: 'Hospital Señor del Milagro, Salta, Argentina',
+        categoryOnly: true,
+      },
+      {
+        title: 'Hospital Público Materno Infantil',
+        subtitle: 'Salta',
+        geocodeQuery: 'Hospital Público Materno Infantil, Salta, Argentina',
+        categoryOnly: true,
+      },
+      {
+        title: 'Hospital Papa Francisco',
+        subtitle: 'Salta',
+        geocodeQuery: 'Hospital Papa Francisco, Salta, Argentina',
+        categoryOnly: true,
+      },
+      {
+        title: 'Hospital Militar',
+        subtitle: 'Salta',
+        geocodeQuery: 'Hospital Militar, Salta, Argentina',
+        categoryOnly: true,
+      },
     ],
     patterns: [
       /\bhospital\s+san\s+bernardo\b/,
@@ -505,6 +552,38 @@ const SALTA_KNOWN_POIS = [
       'centro comercial Salta Capital',
       'shopping mall Salta',
     ],
+    pollSeeds: [
+      {
+        title: 'Portal Salta',
+        subtitle: '20 de Febrero 1437',
+        geocodeQuery: 'Portal Salta Shopping, 20 de Febrero 1437, Salta, Argentina',
+      },
+      {
+        title: 'Alto NOA Shopping',
+        subtitle: 'Avenida del Bicentenario 702',
+        geocodeQuery: 'Alto NOA Shopping, Av. del Bicentenario 702, Salta, Argentina',
+      },
+      {
+        title: 'Paseo del Cabildo',
+        subtitle: 'Caseros 521',
+        geocodeQuery: 'Paseo del Cabildo, Caseros 521, Salta, Argentina',
+      },
+      {
+        title: 'Nuevo Centro Shopping',
+        subtitle: 'Salta',
+        geocodeQuery: 'Nuevo Centro Shopping, Salta, Argentina',
+      },
+      {
+        title: 'Paseo Libertad',
+        subtitle: 'Rotonda Limache',
+        geocodeQuery: 'Paseo Libertad, Salta, Argentina',
+      },
+      {
+        title: 'El Punto Shopping',
+        subtitle: 'Finca Yerba Buena, San Lorenzo',
+        geocodeQuery: 'El Punto Shopping, San Lorenzo, Salta, Argentina',
+      },
+    ],
     patterns: [
       /\b(el\s+)?shopping(?:\s+salta)?\b/,
       /\bshopping\s+salta\b/,
@@ -773,6 +852,7 @@ function resolveSaltaKnownPoi(value) {
         alternateGeocodeQueries: poi.alternateGeocodeQueries || [],
         categorySearch: Boolean(poi.categorySearch),
         patterns: poi.patterns || [],
+        pollSeeds: poi.pollSeeds || [],
       };
     }
   }
@@ -799,11 +879,17 @@ const GENERIC_POI_CATEGORY_TOKENS = new Set([
   'macro', 'feria', 'galeria', 'paseo', 'portal', 'hiper', 'supermercado', 'farmacia', 'museo',
 ]);
 
+/** Tokens demasiado genéricos para exigir match (ej. "san" en "san bernardo"). */
+const WEAK_POI_NAME_TOKENS = new Set([
+  'san', 'santa', 'santo', 'nuevo', 'nueva', 'alto', 'alta', 'punto', 'paseo', 'plaza', 'privado',
+]);
+
+/** Tokens del mensaje que identifican un POI con nombre propio (ej. "bernardo" en hospital). */
 function getPoiSpecificSearchTokens(originalQuery, knownPoi) {
   const text = fixPoiTypoTokens(normalizePoiText(originalQuery || ''));
   if (!text) return [];
 
-  return text
+  const tokens = text
     .split(/\s+/)
     .filter(
       (token) =>
@@ -811,6 +897,9 @@ function getPoiSpecificSearchTokens(originalQuery, knownPoi) {
         && !POI_QUERY_STOP_WORDS.has(token)
         && !GENERIC_POI_CATEGORY_TOKENS.has(token),
     );
+
+  const strong = tokens.filter((token) => !WEAK_POI_NAME_TOKENS.has(token));
+  return strong.length > 0 ? strong : tokens;
 }
 
 function isSpecificNamedPoiQuery(originalQuery, knownPoi) {
@@ -821,6 +910,27 @@ function queryTextMatchesPoiTokens(queryText, specificTokens) {
   if (!specificTokens?.length) return true;
   const norm = normalizePoiText(queryText);
   return specificTokens.every((token) => norm.includes(token));
+}
+
+/**
+ * Seeds curados para el poll de WhatsApp (título + calle legibles).
+ * Filtra specificOnly/categoryOnly según el mensaje del pasajero.
+ */
+function getKnownPoiPollSeeds(poi, originalQuery = '') {
+  const seeds = Array.isArray(poi?.pollSeeds) ? poi.pollSeeds : [];
+  if (!seeds.length) return [];
+
+  const specific = isSpecificNamedPoiQuery(originalQuery, poi);
+  const specificTokens = specific ? getPoiSpecificSearchTokens(originalQuery, poi) : [];
+
+  return seeds.filter((seed) => {
+    if (specific && seed.categoryOnly) return false;
+    if (!specific && seed.specificOnly) return false;
+    if (specific && specificTokens.length && Array.isArray(seed.matchTokens) && seed.matchTokens.length) {
+      return specificTokens.some((token) => seed.matchTokens.includes(token));
+    }
+    return true;
+  });
 }
 
 /**
@@ -876,16 +986,22 @@ function getKnownPoiSearchQueries(poi, originalQuery = '') {
   const specific = isSpecificNamedPoiQuery(originalQuery, poi);
   const specificTokens = specific ? getPoiSpecificSearchTokens(originalQuery, poi) : [];
 
-  for (const q of [poi.geocodeQuery, ...(poi.alternateGeocodeQueries || [])]) {
+  const add = (q) => {
     const trimmed = String(q || '').trim();
-    if (!trimmed) continue;
+    if (!trimmed) return;
     if (specific && specificTokens.length && trimmed !== poi.geocodeQuery) {
-      if (!queryTextMatchesPoiTokens(trimmed, specificTokens)) continue;
+      if (!queryTextMatchesPoiTokens(trimmed, specificTokens)) return;
     }
     const key = normalizePoiText(trimmed);
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
     out.push(trimmed);
+  };
+
+  add(poi.geocodeQuery);
+  for (const q of poi.alternateGeocodeQueries || []) add(q);
+  for (const seed of getKnownPoiPollSeeds(poi, originalQuery)) {
+    add(seed.geocodeQuery);
   }
   return out;
 }
@@ -912,7 +1028,7 @@ function buildPoiAutocompleteQueries(value) {
 
   const known = resolveSaltaKnownPoi(value);
   if (known) {
-    for (const q of getKnownPoiSearchQueries(known)) {
+    for (const q of getKnownPoiSearchQueries(known, value)) {
       add(q);
     }
   }
@@ -929,11 +1045,18 @@ function buildPoiAutocompleteQueries(value) {
     add('shopping mall Salta');
   }
   if (/\bhospital\b/.test(norm)) {
-    add('Hospital San Bernardo Salta');
-    add('Hospital Señor del Milagro Salta');
-    add('Hospital Materno Infantil Salta');
-    add('Hospital Papa Francisco Salta');
-    add('Hospital Militar Salta');
+    const hospitalSpecific = known && isSpecificNamedPoiQuery(value, known);
+    if (hospitalSpecific) {
+      add('Hospital San Bernardo José Tobias Salta');
+      add('Hospital San Bernardo Boedo Salta');
+      add('Sanatorio San Bernardo Salta');
+    } else {
+      add('Hospital San Bernardo Salta');
+      add('Hospital Señor del Milagro Salta');
+      add('Hospital Materno Infantil Salta');
+      add('Hospital Papa Francisco Salta');
+      add('Hospital Militar Salta');
+    }
   }
   if (/\bmacro\b/.test(norm) || /\bbanco\s+macro\b/.test(norm)) {
     add('Banco Macro Belgrano Salta');
@@ -985,15 +1108,52 @@ function buildPoiAutocompleteQueries(value) {
   return queries;
 }
 
+function mergeDistinctAddressCandidates(base = [], extra = [], { maxResults = 6 } = {}) {
+  const merged = [...(base || [])];
+  const seen = new Set();
+
+  for (const candidate of merged) {
+    const key = String(candidate?.formattedAddress || candidate?.address || '')
+      .toLowerCase()
+      .trim();
+    if (key) seen.add(key);
+  }
+
+  for (const candidate of extra || []) {
+    const key = String(candidate?.formattedAddress || candidate?.address || '')
+      .toLowerCase()
+      .trim();
+    if (!key || seen.has(key)) continue;
+
+    const tooClose = merged.some((prev) => {
+      const prevLat = Number(prev?.lat);
+      const prevLng = Number(prev?.lng);
+      const candLat = Number(candidate?.lat);
+      const candLng = Number(candidate?.lng);
+      if (![prevLat, prevLng, candLat, candLng].every(Number.isFinite)) return false;
+      return Math.abs(prevLat - candLat) < 0.001 && Math.abs(prevLng - candLng) < 0.001;
+    });
+    if (tooClose) continue;
+
+    seen.add(key);
+    merged.push(candidate);
+  }
+
+  merged.sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
+  return merged.slice(0, maxResults);
+}
+
 module.exports = {
   resolveSaltaKnownPoi,
   resolveKnownPoiBranch,
   looksLikeSaltaKnownPoi,
   getKnownPoiSearchQueries,
+  getKnownPoiPollSeeds,
   buildPoiAutocompleteQueries,
   isCategoryPoiSearch,
   isSpecificNamedPoiQuery,
   getPoiSpecificSearchTokens,
   normalizePoiText,
   fixPoiTypoTokens,
+  mergeDistinctAddressCandidates,
 };
