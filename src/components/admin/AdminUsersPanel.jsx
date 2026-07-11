@@ -17,7 +17,13 @@ function formatDate(value) {
   });
 }
 
-export default function AdminUsersPanel({ onBack, currentUserId }) {
+export default function AdminUsersPanel({
+  onBack,
+  currentUserId,
+  driverAppLatestVersionCode = 0,
+  passengerAppLatestVersionCode = 0,
+  onUpdateSetting,
+}) {
   const toast = useToast();
   const { getAccessToken } = useAdminAuth();
   const [users, setUsers] = useState([]);
@@ -144,6 +150,61 @@ export default function AdminUsersPanel({ onBack, currentUserId }) {
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto p-5 space-y-5">
+        <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-navy-900">Control de versiones</h3>
+          <p className="mt-1 text-xs text-gray-500">
+            Actualizaciones de apps (Google Play). Poné el{' '}
+            <span className="font-semibold text-gray-600">versionCode</span> del último AAB
+            publicado en Play Console. Si el usuario tiene uno menor, la app muestra el modal
+            para actualizar. No confundir con la versión visible (ej. 1.0.8).
+          </p>
+
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] text-gray-500 font-semibold block mb-1 uppercase tracking-wide">
+                Conductor (versionCode)
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={driverAppLatestVersionCode > 0 ? String(driverAppLatestVersionCode) : ''}
+                placeholder="ej. 10"
+                onChange={(e) => onUpdateSetting?.(
+                  'driver_app_latest_version_code',
+                  e.target.value.replace(/\D/g, '')
+                )}
+                className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-navy-900/30 focus:ring-4 focus:ring-navy-dim"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 font-semibold block mb-1 uppercase tracking-wide">
+                Pasajero (versionCode)
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={passengerAppLatestVersionCode > 0 ? String(passengerAppLatestVersionCode) : ''}
+                placeholder="ej. 9"
+                onChange={(e) => onUpdateSetting?.(
+                  'passenger_app_latest_version_code',
+                  e.target.value.replace(/\D/g, '')
+                )}
+                className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-navy-900/30 focus:ring-4 focus:ring-navy-dim"
+              />
+            </div>
+          </div>
+
+          <p className="mt-3 text-xs text-gray-500 leading-relaxed">
+            Referencia actual: Conductor 1.0.8 →{' '}
+            <span className="font-semibold text-navy-900">10</span>
+            {' · '}Pasajero 1.0.8 →{' '}
+            <span className="font-semibold text-navy-900">9</span>.
+            Cada vez que subas un AAB nuevo, incrementá este número.
+          </p>
+        </section>
+
         <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-navy-900">Crear usuario</h3>
           <p className="mt-1 text-xs text-gray-500">El usuario podrá ingresar con email y contraseña.</p>

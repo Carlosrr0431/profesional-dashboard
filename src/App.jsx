@@ -515,7 +515,13 @@ export default function App() {
           </div>
 
         ) : isSuperAdmin && currentView === VIEWS.adminUsers ? (
-          <AdminUsersPanel onBack={() => goTo(VIEWS.map)} currentUserId={user?.id} />
+          <AdminUsersPanel
+            onBack={() => goTo(VIEWS.map)}
+            currentUserId={user?.id}
+            driverAppLatestVersionCode={driverAppLatestVersionCode}
+            passengerAppLatestVersionCode={passengerAppLatestVersionCode}
+            onUpdateSetting={updateSetting}
+          />
 
         ) : (
           /* ── Vista mapa ──────────────────────────────────────────────── */
@@ -542,8 +548,6 @@ export default function App() {
                     passengerAppTariffPerKm={passengerAppTariffPerKm}
                     passengerAppTariffBase={passengerAppTariffBase}
                     passengerAppCommissionPercent={passengerAppCommissionPercent}
-                    driverAppLatestVersionCode={driverAppLatestVersionCode}
-                    passengerAppLatestVersionCode={passengerAppLatestVersionCode}
                     onUpdateSetting={updateSetting}
                     onClose={!isDesktopLayout ? () => setFleetDrawerOpen(false) : undefined}
                   />
