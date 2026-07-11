@@ -610,7 +610,7 @@ const SALTA_KNOWN_POIS = [
     id: 'macro',
     label: 'Banco Macro',
     geocodeQuery: 'Banco Macro, Salta, Argentina',
-    patterns: [/\bmacro\b/, /\bbanco\s+macro\b/],
+    patterns: [/\bbanco\s+macro\b/, /\bmacro\b/],
   },
 
   // ── Escuelas / Colegios ───────────────────────────────────────────────────

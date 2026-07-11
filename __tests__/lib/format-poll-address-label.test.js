@@ -32,6 +32,15 @@ describe('formatAddressForWhatsAppPoll', () => {
 });
 
 describe('formatPollOptionLabel (POIs)', () => {
+  it('no duplica Bartolomé si el texto ya dice Bartolomé Mitre', () => {
+    expect(
+      formatPollOptionLabel({
+        title: 'Banco Macro',
+        subtitle: 'Bartolomé Mitre 200, Salta',
+      })
+    ).toBe('Banco Macro · Bartolomé Mitre 200');
+  });
+
   it('combina nombre del POI con calle y altura del subtitle', () => {
     expect(
       formatPollOptionLabel({

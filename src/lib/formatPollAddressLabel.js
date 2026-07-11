@@ -11,13 +11,14 @@ const WHATSAPP_POLL_OPTION_MAX_LEN = 100;
 
 /** Apellido de prócer → nombre completo (solo visualización en poll). */
 const STREET_NAME_EXPANSIONS = [
-  [/\bmitre\b/gi, 'Bartolomé Mitre'],
-  [/\balberdi\b/gi, 'Juan Bautista Alberdi'],
-  [/\brivadavia\b/gi, 'Bernardino Rivadavia'],
-  [/\bpellegrini\b/gi, 'Carlos Pellegrini'],
-  [/\bpueyrred[oó]n\b/gi, 'Mariano Pueyrredón'],
-  [/\bsarmiento\b/gi, 'Domingo F. Sarmiento'],
-  [/\byrigoyen\b/gi, 'Hipólito Yrigoyen'],
+  // Evitar "Bartolomé Bartolomé Mitre" si el texto ya trae el nombre completo.
+  [/(?<![Bb]artolom[eé]\s)\bmitre\b/gi, 'Bartolomé Mitre'],
+  [/(?<![Jj]uan\s[Bb]autista\s)\balberdi\b/gi, 'Juan Bautista Alberdi'],
+  [/(?<![Bb]ernardino\s)\brivadavia\b/gi, 'Bernardino Rivadavia'],
+  [/(?<![Cc]arlos\s)\bpellegrini\b/gi, 'Carlos Pellegrini'],
+  [/(?<![Mm]ariano\s)\bpueyrred[oó]n\b/gi, 'Mariano Pueyrredón'],
+  [/(?<![Dd]omingo\sF\.?\s)\bsarmiento\b/gi, 'Domingo F. Sarmiento'],
+  [/(?<![Hh]ip[oó]lito\s)\byrigoyen\b/gi, 'Hipólito Yrigoyen'],
 ];
 
 /**
@@ -51,7 +52,14 @@ const LOCALITY_ONLY_RE =
 
 function applyStreetNameExpansions(text) {
   let result = String(text || '');
+  const fold = (value) => String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
   for (const [pattern, replacement] of STREET_NAME_EXPANSIONS) {
+    // Evitar "Bartolomé Bartolomé Mitre" si el nombre completo ya está.
+    if (fold(result).includes(fold(replacement))) continue;
     result = result.replace(pattern, replacement);
   }
   return result;

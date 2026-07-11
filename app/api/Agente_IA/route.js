@@ -3138,7 +3138,11 @@ function extractStreetHintAlongsidePoi(rawText, knownPoi) {
   let text = normalizeForMatch(rawText || '');
   if (!text || !knownPoi) return '';
 
-  for (const pattern of knownPoi.patterns || []) {
+  // Patrones más largos primero ("banco macro" antes que "macro") para no dejar residuos.
+  const patterns = [...(knownPoi.patterns || [])].sort(
+    (a, b) => String(b).length - String(a).length
+  );
+  for (const pattern of patterns) {
     try {
       text = text.replace(pattern, ' ');
     } catch (_) {
@@ -3146,16 +3150,30 @@ function extractStreetHintAlongsidePoi(rawText, knownPoi) {
     }
   }
 
+  // Quitar también tokens del label del POI (evita "Banco Macro Macro").
+  for (const token of normalizeForMatch(knownPoi.label || '').split(/\s+/)) {
+    if (!token || token.length < 3) continue;
+    text = text.replace(new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), ' ');
+  }
+
   text = text
-    .replace(/\b(banco|cajero|automatico|auto|mandas?|hola|me|un|una|por|favor|ubicacion|sucursal)\b/g, ' ')
+    .replace(/\b(banco|cajero|automatico|auto|mandas?|hola|me|un|una|por|favor|ubicacion|sucursal|plaza)\b/g, ' ')
     .replace(/\b(de|la|el|del|al|en|a|para|cerca|frente|sobre|altura|nro|numero)\b/g, ' ')
     .replace(/\b\d{1,5}[a-z]?\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
+  const labelTokenSet = new Set(
+    normalizeForMatch(knownPoi.label || '').split(/\s+/).filter(Boolean)
+  );
+
   const tokens = text
     .split(' ')
-    .filter((token) => token.length >= 4 && !GENERIC_ADDRESS_TOKENS.has(token));
+    .filter((token) => (
+      token.length >= 4
+      && !GENERIC_ADDRESS_TOKENS.has(token)
+      && !labelTokenSet.has(token)
+    ));
 
   if (tokens.length === 0) return '';
   return tokens
@@ -10550,12 +10568,18 @@ async function processClaimedConversation(batch) {
   );
 
   const saltaCapitalCandidates = filterSaltaCapitalCandidates(distinctCandidates);
+  const poiCandidatesWithCoords = distinctCandidates.filter(
+    (c) => Number.isFinite(Number(c?.lat)) && Number.isFinite(Number(c?.lng))
+  );
 
   // Poll: misma fuente que NewTripModal (Google Autocomplete sin pre-geocodificar).
   // Para POIs conocidos priorizar candidatos geocodificados (tienen calle/altura real).
   let addressPollCandidates = filterSaltaCapitalCandidates(googlePollCandidates);
-  if (knownPoiMatch && saltaCapitalCandidates.length >= 1) {
-    addressPollCandidates = saltaCapitalCandidates.map((candidate) => ({
+  const poiPollSource = saltaCapitalCandidates.length >= 1
+    ? saltaCapitalCandidates
+    : poiCandidatesWithCoords;
+  if (knownPoiMatch && poiPollSource.length >= 1) {
+    addressPollCandidates = poiPollSource.map((candidate) => ({
       ...candidate,
       title: candidate.title || knownPoiMatch.label || null,
       subtitle: candidate.subtitle || null,
@@ -10567,6 +10591,7 @@ async function processClaimedConversation(batch) {
       pickup: normalizedPickupForGeo,
       poiId: knownPoiMatch.id,
       optionCount: addressPollCandidates.length,
+      usedCapitalFilter: saltaCapitalCandidates.length >= 1,
     });
   } else if (addressPollCandidates.length < 2 && catalogStreetPollCandidates.length >= 2) {
     addressPollCandidates = catalogStreetPollCandidates;

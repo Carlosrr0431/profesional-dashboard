@@ -409,6 +409,52 @@ function getCatalogAddressVariants(address, maxResults = 4) {
   return variants;
 }
 
+function extractStreetHintAlongsidePoi(rawText, knownPoi) {
+  let text = normalizeForMatch(rawText || '');
+  if (!text || !knownPoi) return '';
+
+  const patterns = [...(knownPoi.patterns || [])].sort(
+    (a, b) => String(b).length - String(a).length
+  );
+  for (const pattern of patterns) {
+    try {
+      text = text.replace(pattern, ' ');
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  for (const token of normalizeForMatch(knownPoi.label || '').split(/\s+/)) {
+    if (!token || token.length < 3) continue;
+    text = text.replace(new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), ' ');
+  }
+
+  text = text
+    .replace(/\b(banco|cajero|automatico|auto|mandas?|hola|me|un|una|por|favor|ubicacion|sucursal|plaza)\b/g, ' ')
+    .replace(/\b(de|la|el|del|al|en|a|para|cerca|frente|sobre|altura|nro|numero)\b/g, ' ')
+    .replace(/\b\d{1,5}[a-z]?\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const labelTokenSet = new Set(
+    normalizeForMatch(knownPoi.label || '').split(/\s+/).filter(Boolean)
+  );
+
+  const tokens = text
+    .split(' ')
+    .filter((token) => (
+      token.length >= 4
+      && !GENERIC_ADDRESS_TOKENS.has(token)
+      && !labelTokenSet.has(token)
+    ));
+
+  if (tokens.length === 0) return '';
+  return tokens
+    .slice(0, 3)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(' ');
+}
+
 function normalizeAddressPhrase(value) {
   const input = sanitizeAddressInput(value || '');
   if (!input) return '';
@@ -421,6 +467,10 @@ function normalizeAddressPhrase(value) {
 
   const knownPoi = resolveSaltaKnownPoi(work);
   if (knownPoi?.geocodeQuery) {
+    const streetHint = extractStreetHintAlongsidePoi(work, knownPoi);
+    if (streetHint) {
+      return sanitizeAddressInput(`${knownPoi.label} ${streetHint}, Salta, Argentina`);
+    }
     return sanitizeAddressInput(knownPoi.geocodeQuery);
   }
 
