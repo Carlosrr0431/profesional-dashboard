@@ -57,3 +57,37 @@ describe('isVagueLocalityAddress / formatIntersectionLabelFromQuery', () => {
     );
   });
 });
+
+describe('approachOnlyTripPayload rejects vague pickup', () => {
+  const { buildApproachOnlyTripInsertPayload } = require('../../src/lib/approachOnlyTripPayload');
+
+  it('rechaza origin A4400 genérico', () => {
+    expect(() =>
+      buildApproachOnlyTripInsertPayload({
+        pickupLocation: {
+          formattedAddress: 'A4400 Salta, Salta Province, Argentina',
+          lat: -24.79,
+          lng: -65.4,
+        },
+        passengerName: 'Test',
+        passengerPhone: '5493870000000',
+        source: 'whatsapp',
+      }),
+    ).toThrow(/pickupLocation inválida/i);
+  });
+
+  it('acepta intersección precisa', () => {
+    const payload = buildApproachOnlyTripInsertPayload({
+      pickupLocation: {
+        formattedAddress: 'Alvarado y Santa Fe, Salta',
+        lat: -24.79,
+        lng: -65.4,
+      },
+      passengerName: 'Test',
+      passengerPhone: '5493870000000',
+      source: 'whatsapp',
+    });
+    expect(payload.origin_address).toBe('Alvarado y Santa Fe, Salta');
+    expect(payload.notes).toContain('Alvarado y Santa Fe, Salta');
+  });
+});

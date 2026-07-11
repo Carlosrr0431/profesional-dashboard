@@ -2435,6 +2435,20 @@ function ensurePrecisePickupLabel(formattedAddress, query) {
   return address;
 }
 
+function buildPreGeocodedPickup(geo, query) {
+  if (!geo || !Number.isFinite(Number(geo.lat)) || !Number.isFinite(Number(geo.lng))) {
+    return null;
+  }
+  return {
+    formattedAddress: ensurePrecisePickupLabel(
+      geo.formattedAddress || geo.address || '',
+      query,
+    ),
+    lat: Number(geo.lat),
+    lng: Number(geo.lng),
+  };
+}
+
 function looksLikePoiOrEstablishment(value) {
   if (looksLikeSaltaKnownPoi(value)) return true;
   const normalized = normalizeForMatch(value || '');
@@ -5442,13 +5456,14 @@ async function geocodeAddress(address) {
 
     const result = await geocodeAddressViaPlaces(safeAddress);
     const resultPayload = {
-      formattedAddress: result.formattedAddress,
+      formattedAddress: ensurePrecisePickupLabel(result.formattedAddress, safeAddress),
       lat: result.lat,
       lng: result.lng,
     };
     logWebhook('dashboard_geocode_ok', {
       query: safeAddress,
       formattedAddress: resultPayload.formattedAddress,
+      rawFormattedAddress: result.formattedAddress,
       lat: resultPayload.lat,
       lng: resultPayload.lng,
       geocodeSource: result.geocodeSource || 'google_place_details_essentials',
@@ -5479,7 +5494,10 @@ async function geocodePollCandidate(candidate, votedLabel = '') {
       });
       return {
         label: candidate?.label || candidate?.pollLabel || votedLabel || candidate?.title,
-        formattedAddress: details.formattedAddress || candidate?.formattedAddress,
+        formattedAddress: ensurePrecisePickupLabel(
+          details.formattedAddress || candidate?.formattedAddress,
+          votedLabel || candidate?.formattedAddress || candidate?.title,
+        ),
         lat: details.lat,
         lng: details.lng,
         placeId: details.placeId || placeId,
@@ -5542,7 +5560,10 @@ async function geocodePollCandidate(candidate, votedLabel = '') {
       }
       return {
         label: candidate?.label || votedLabel || query,
-        formattedAddress: geo.formattedAddress,
+        formattedAddress: ensurePrecisePickupLabel(
+          geo.formattedAddress,
+          votedLabel || candidate?.formattedAddress || query,
+        ),
         lat: geo.lat,
         lng: geo.lng,
       };
@@ -7751,14 +7772,26 @@ async function createTripFromConversation({ conversation, extracted }) {
   let pickupLocation;
   if (extracted._preGeocodedPickup?.lat && extracted._preGeocodedPickup?.lng) {
     const preQuery = normalizedPickupQuery || pickupQuery || '';
-    pickupLocation = {
-      formattedAddress: ensurePrecisePickupLabel(
-        extracted._preGeocodedPickup.formattedAddress,
-        preQuery,
-      ),
-      lat: extracted._preGeocodedPickup.lat,
-      lng: extracted._preGeocodedPickup.lng,
-    };
+    pickupLocation = buildPreGeocodedPickup(extracted._preGeocodedPickup, preQuery);
+    if (!pickupLocation || isVagueLocalityAddress(pickupLocation.formattedAddress)) {
+      logWebhook('trip_create_pickup_pre_geocoded_vague', {
+        conversationId: conversation?.id || null,
+        query: preQuery,
+        rawFormattedAddress: extracted._preGeocodedPickup.formattedAddress,
+      });
+      return {
+        ok: false,
+        reason: 'invalid_address',
+        reply:
+          'No pude ubicar con precisión el punto de retiro. Mandame *calle y número exacto* (por ejemplo "Mitre 1234") o compartime tu *ubicación actual* desde WhatsApp.',
+        context: {
+          passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
+          pickup_location: preQuery || null,
+          notes: extracted.notes || null,
+          awaiting_gps: true,
+        },
+      };
+    }
     logWebhook('trip_create_pickup_pre_geocoded', {
       formattedAddress: pickupLocation.formattedAddress,
       rawFormattedAddress: extracted._preGeocodedPickup.formattedAddress,
@@ -10749,14 +10782,10 @@ async function processClaimedConversation(batch) {
   ) {
     try {
       const directGeo = await geocodeAddress(normalizedPickupForGeo);
-      tripExtracted._preGeocodedPickup = {
-        formattedAddress: ensurePrecisePickupLabel(
-          directGeo.formattedAddress,
-          normalizedPickupForGeo,
-        ),
-        lat: directGeo.lat,
-        lng: directGeo.lng,
-      };
+      tripExtracted._preGeocodedPickup = buildPreGeocodedPickup(
+        directGeo,
+        normalizedPickupForGeo,
+      );
       logWebhook('conversation_pickup_direct_geocode_ok', {
         conversationId: batch?.id || null,
         pickup: normalizedPickupForGeo,
@@ -10933,11 +10962,10 @@ async function processClaimedConversation(batch) {
   ) {
     try {
       const directGeo = await geocodeAddress(normalizedPickupForGeo);
-      tripExtracted._preGeocodedPickup = {
-        formattedAddress: directGeo.formattedAddress,
-        lat: directGeo.lat,
-        lng: directGeo.lng,
-      };
+      tripExtracted._preGeocodedPickup = buildPreGeocodedPickup(
+        directGeo,
+        normalizedPickupForGeo,
+      );
       logWebhook('conversation_schedule_pre_geocode_ok', {
         conversationId: batch?.id || null,
         pickup: normalizedPickupForGeo,
@@ -10955,11 +10983,10 @@ async function processClaimedConversation(batch) {
   if (addressPollCandidates.length === 1 && !knownPoiMatch) {
     const onlyCandidate = addressPollCandidates[0];
     if (Number.isFinite(onlyCandidate?.lat) && Number.isFinite(onlyCandidate?.lng)) {
-    tripExtracted._preGeocodedPickup = {
-      formattedAddress: onlyCandidate.formattedAddress,
-      lat: onlyCandidate.lat,
-      lng: onlyCandidate.lng,
-    };
+    tripExtracted._preGeocodedPickup = buildPreGeocodedPickup(
+      onlyCandidate,
+      normalizedPickupForGeo,
+    );
     logWebhook('conversation_address_auto_resolved_salta_capital', {
       conversationId: batch?.id || null,
       formattedAddress: tripExtracted._preGeocodedPickup.formattedAddress,
@@ -10969,15 +10996,14 @@ async function processClaimedConversation(batch) {
       try {
         const geocoded = await geocodePollCandidate(onlyCandidate);
         if (geocoded?.lat && geocoded?.lng) {
-          tripExtracted._preGeocodedPickup = {
-            formattedAddress: geocoded.formattedAddress,
-            lat: geocoded.lat,
-            lng: geocoded.lng,
-          };
+          tripExtracted._preGeocodedPickup = buildPreGeocodedPickup(
+            geocoded,
+            normalizedPickupForGeo || onlyCandidate.formattedAddress,
+          );
           logWebhook('conversation_address_auto_resolved_via_place_id', {
             conversationId: batch?.id || null,
             placeId: onlyCandidate.placeId,
-            formattedAddress: geocoded.formattedAddress,
+            formattedAddress: tripExtracted._preGeocodedPickup.formattedAddress,
           });
         }
       } catch {

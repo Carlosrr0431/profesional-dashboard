@@ -13,6 +13,7 @@ import {
   notesContainWaypointsJson,
   normalizeWaypointList,
 } from '../../shared/trip-contract.js';
+import { isVagueLocalityAddress } from '../../shared/salta-address.js';
 
 function sanitizeExtraNotes(notes) {
   return String(notes || '')
@@ -36,6 +37,9 @@ function normalizeLocation(location) {
     location.formattedAddress || location.address || ''
   ).trim();
   if (!formattedAddress || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null;
+  }
+  if (isVagueLocalityAddress(formattedAddress)) {
     return null;
   }
   return { formattedAddress, lat, lng };
