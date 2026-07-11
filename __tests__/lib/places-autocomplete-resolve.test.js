@@ -34,3 +34,26 @@ describe('placesAutocompleteResolve', () => {
     expect(hits.some((h) => /el pilar|don bosco|salta/i.test(h.subtitle || ''))).toBe(true);
   });
 });
+
+describe('isVagueLocalityAddress / formatIntersectionLabelFromQuery', () => {
+  const {
+    isVagueLocalityAddress,
+    formatIntersectionLabelFromQuery,
+  } = require('../../shared/salta-address.js');
+
+  it('detecta CP/localidad genéricos de Google', () => {
+    expect(isVagueLocalityAddress('A4400 Salta, Salta Province, Argentina')).toBe(true);
+    expect(isVagueLocalityAddress('Salta, Argentina')).toBe(true);
+    expect(isVagueLocalityAddress('Alvarado y Santa Fe, Salta')).toBe(false);
+    expect(isVagueLocalityAddress('Mitre 200, A4400 Salta, Argentina')).toBe(false);
+  });
+
+  it('arma label legible de intersección desde el query', () => {
+    expect(formatIntersectionLabelFromQuery('alvarado esquina santa fe')).toBe(
+      'Alvarado y Santa Fe, Salta',
+    );
+    expect(formatIntersectionLabelFromQuery('Alvarado & Santa Fe, Salta')).toBe(
+      'Alvarado y Santa Fe, Salta',
+    );
+  });
+});

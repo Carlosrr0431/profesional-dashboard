@@ -26,6 +26,50 @@ function normalizeForMatch(value) {
     .trim();
 }
 
+/**
+ * True cuando Google/Place Details devolvió solo localidad/CP
+ * (ej. "A4400 Salta, Salta Province, Argentina") sin calle útil.
+ */
+function isVagueLocalityAddress(value) {
+  const norm = normalizeForMatch(value);
+  if (!norm) return true;
+  const withoutLocality = norm
+    .replace(/\b(a\d{4}[a-z]{0,3}|salta|capital|argentina|province|provincia)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return withoutLocality.length < 3;
+}
+
+/**
+ * Label legible para intersecciones cuando el geocode genérico pierde las calles.
+ * "alvarado esquina santa fe" → "Alvarado y Santa Fe, Salta"
+ */
+function formatIntersectionLabelFromQuery(query) {
+  let cleaned = sanitizeAddressInput(query || '');
+  if (!cleaned) return '';
+
+  cleaned = cleaned
+    .replace(/,?\s*salta(?:\s+capital)?(?:\s*,?\s*argentina)?\s*$/i, '')
+    .replace(/\s*&\s*/g, ' y ')
+    .replace(/\besquina(?:\s+con)?\b/gi, 'y')
+    .replace(/\s+x\s+/gi, ' y ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return '';
+
+  const titled = cleaned
+    .split(/\s+/)
+    .map((token) => {
+      if (/^(y|e|de|del|la|el|los|las)$/i.test(token)) return token.toLowerCase();
+      return token.charAt(0).toUpperCase() + token.slice(1);
+    })
+    .join(' ')
+    .replace(/\s+y\s+/gi, ' y ');
+
+  return /,\s*salta\b/i.test(titled) ? titled : `${titled}, Salta`;
+}
+
 function tokenizeAddress(value) {
   return normalizeForMatch(value)
     .split(' ')
@@ -804,5 +848,7 @@ module.exports = {
   parseStreetHouseFromQuery,
   pickPrimaryHouseNumber,
   parseStreetIntersection,
+  isVagueLocalityAddress,
+  formatIntersectionLabelFromQuery,
   ensureStreetCatalog,
 };

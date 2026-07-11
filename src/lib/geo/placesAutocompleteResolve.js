@@ -8,7 +8,11 @@ import {
   isGooglePlaceId,
   createSessionToken,
 } from '../../../shared/geo/googlePlaces.js';
-import { scoreCandidateAgainstQuery } from '../../../shared/salta-address.js';
+import {
+  scoreCandidateAgainstQuery,
+  isVagueLocalityAddress,
+  formatIntersectionLabelFromQuery,
+} from '../../../shared/salta-address.js';
 
 function firstAddressLine(value) {
   const text = String(value || '').trim();
@@ -37,15 +41,32 @@ function buildSuggestionLabel(hit) {
   });
 }
 
+function preferPreciseFormattedAddress({ detailsAddress, autocompleteLabel, query }) {
+  const details = String(detailsAddress || '').trim();
+  const auto = String(autocompleteLabel || '').trim();
+  const q = String(query || '').trim();
+
+  if (details && !isVagueLocalityAddress(details)) return details;
+  if (auto && !isVagueLocalityAddress(auto)) return auto;
+  if (q && /\s+y\s+|&|esquina/i.test(q)) {
+    return formatIntersectionLabelFromQuery(q);
+  }
+  return auto || details || q;
+}
+
 /**
  * Resuelve una sugerencia de autocomplete a coordenadas (caché Supabase + Place Details).
  */
-export async function resolvePlaceSuggestion(hit, sessionToken) {
+export async function resolvePlaceSuggestion(hit, sessionToken, options = {}) {
   const labelText = buildSuggestionLabel(hit);
 
   if (Number.isFinite(hit?.lat) && Number.isFinite(hit?.lng)) {
     return {
-      formattedAddress: labelText,
+      formattedAddress: preferPreciseFormattedAddress({
+        detailsAddress: labelText,
+        autocompleteLabel: labelText,
+        query: options.query,
+      }),
       lat: hit.lat,
       lng: hit.lng,
       placeId: hit.placeId || null,
@@ -70,13 +91,22 @@ export async function resolvePlaceSuggestion(hit, sessionToken) {
   });
 
   const resolvedTitle = result.title || hit.title || null;
-  const resolvedLine = firstAddressLine(
-    result.formattedAddress || hit.subtitle || hit.address || '',
-  );
-  const formattedAddress = buildSelectedAddressLabel({
+  const detailsLine = firstAddressLine(result.formattedAddress || '');
+  const autocompleteLine = firstAddressLine(hit.subtitle || hit.address || '');
+  const resolvedLine = isVagueLocalityAddress(detailsLine)
+    ? autocompleteLine
+    : detailsLine;
+
+  const builtLabel = buildSelectedAddressLabel({
     title: resolvedTitle,
-    line: resolvedLine,
-    fallback: result.formattedAddress || labelText,
+    line: isVagueLocalityAddress(resolvedLine) ? '' : resolvedLine,
+    fallback: labelText,
+  });
+
+  const formattedAddress = preferPreciseFormattedAddress({
+    detailsAddress: builtLabel || result.formattedAddress,
+    autocompleteLabel: labelText,
+    query: options.query,
   });
 
   return {
@@ -118,6 +148,7 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
       const place = await resolvePlaceSuggestion(
         { ...hit, sessionToken: effectiveToken },
         effectiveToken,
+        { query: text },
       );
       sessionUsed = true;
       if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
@@ -160,6 +191,7 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
       const place = await resolvePlaceSuggestion(
         { ...hit, sessionToken: effectiveToken },
         effectiveToken,
+        { query: text },
       );
       sessionUsed = true;
       if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
@@ -175,6 +207,8 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
         lat: place.lat,
         lng: place.lng,
         placeId: place.placeId || null,
+        title: place.title || hit?.title || null,
+        subtitle: place.subtitle || hit?.subtitle || null,
         geocodeSource: place.geocodeSource || null,
         score,
       });
@@ -189,8 +223,18 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
     throw new Error('No se encontró la dirección');
   }
 
+  const formattedAddress = preferPreciseFormattedAddress({
+    detailsAddress: best.formattedAddress,
+    autocompleteLabel: buildSuggestionLabel({
+      title: best.title,
+      subtitle: best.subtitle,
+      address: best.formattedAddress,
+    }),
+    query: text,
+  });
+
   return {
-    formattedAddress: best.formattedAddress,
+    formattedAddress,
     lat: best.lat,
     lng: best.lng,
     placeId: best.placeId || null,
@@ -231,4 +275,4 @@ export async function getAutocompletePollCandidates(query, maxResults = 5, optio
   });
 }
 
-export { isGoogleConfigured, createSessionToken };
+export { isGoogleConfigured, createSessionToken, isVagueLocalityAddress, formatIntersectionLabelFromQuery };

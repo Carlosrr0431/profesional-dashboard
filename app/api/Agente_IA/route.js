@@ -60,7 +60,11 @@ import {
   getAutocompletePollCandidates,
   isGoogleConfigured,
 } from '../../../src/lib/geo/placesAutocompleteResolve.js';
-import { scoreCandidateAgainstQuery } from '../../../shared/salta-address.js';
+import {
+  scoreCandidateAgainstQuery,
+  isVagueLocalityAddress,
+  formatIntersectionLabelFromQuery,
+} from '../../../shared/salta-address.js';
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 import {
   buildPendingToQueuedUpdate,
@@ -2396,6 +2400,39 @@ function isIntersectionAddress(value) {
   const parts = withConnectors.split(/\s+y\s+/);
   if (parts.length !== 2) return false;
   return getAddressContentTokens(parts[0]).length > 0 && getAddressContentTokens(parts[1]).length > 0;
+}
+
+/** Si Place Details devolvió solo CP/ciudad, usar el label de la intersección pedida. */
+function ensurePrecisePickupLabel(formattedAddress, query) {
+  const address = String(formattedAddress || '').trim();
+  const q = String(query || '').trim();
+  if (!q) return address;
+  if (!isVagueLocalityAddress(address) && !isIntersectionAddress(q)) return address;
+
+  if (isIntersectionAddress(q)) {
+    const resultLower = address.toLowerCase();
+    const parts = normalizeText(q)
+      .replace(/\s*(?:&+|esquina(?:\s+con)?|esq\.?|x)\s+/gi, ' y ')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .split(/\s+y\s+/);
+    if (parts.length === 2) {
+      const hasStreet1 = parts[0].split(/\s+/).some((w) => w.length > 3 && resultLower.includes(w));
+      const hasStreet2 = parts[1].split(/\s+/).some((w) => w.length > 3 && resultLower.includes(w));
+      if (hasStreet1 && hasStreet2 && !isVagueLocalityAddress(address)) return address;
+    }
+    return formatIntersectionLabelFromQuery(q);
+  }
+
+  if (isVagueLocalityAddress(address)) {
+    const cleaned = sanitizeAddressInput(q)
+      .replace(/,?\s*salta(?:\s+capital)?(?:\s*,?\s*argentina)?\s*$/i, '')
+      .trim();
+    return cleaned ? `${cleaned}, Salta` : address;
+  }
+
+  return address;
 }
 
 function looksLikePoiOrEstablishment(value) {
@@ -7713,12 +7750,19 @@ async function createTripFromConversation({ conversation, extracted }) {
 
   let pickupLocation;
   if (extracted._preGeocodedPickup?.lat && extracted._preGeocodedPickup?.lng) {
+    const preQuery = normalizedPickupQuery || pickupQuery || '';
     pickupLocation = {
-      formattedAddress: extracted._preGeocodedPickup.formattedAddress,
+      formattedAddress: ensurePrecisePickupLabel(
+        extracted._preGeocodedPickup.formattedAddress,
+        preQuery,
+      ),
       lat: extracted._preGeocodedPickup.lat,
       lng: extracted._preGeocodedPickup.lng,
     };
-    logWebhook('trip_create_pickup_pre_geocoded', { formattedAddress: pickupLocation.formattedAddress });
+    logWebhook('trip_create_pickup_pre_geocoded', {
+      formattedAddress: pickupLocation.formattedAddress,
+      rawFormattedAddress: extracted._preGeocodedPickup.formattedAddress,
+    });
   } else {
   // Arrancar normalización por IA en paralelo con el primer geocoding para no agregar latencia.
   const conversationText = extracted?._conversationText || '';
@@ -7726,6 +7770,13 @@ async function createTripFromConversation({ conversation, extracted }) {
 
   try {
     pickupLocation = await geocodeAddress(normalizedPickupQuery || pickupQuery);
+    pickupLocation = {
+      ...pickupLocation,
+      formattedAddress: ensurePrecisePickupLabel(
+        pickupLocation.formattedAddress,
+        normalizedPickupQuery || pickupQuery,
+      ),
+    };
 
     // Validar intersecciones: si el pasajero pidió "Calle1 y Calle2" pero el resultado
     // no contiene ninguna de las dos calles, la intersección no existe → pedir GPS.
@@ -10699,14 +10750,18 @@ async function processClaimedConversation(batch) {
     try {
       const directGeo = await geocodeAddress(normalizedPickupForGeo);
       tripExtracted._preGeocodedPickup = {
-        formattedAddress: directGeo.formattedAddress,
+        formattedAddress: ensurePrecisePickupLabel(
+          directGeo.formattedAddress,
+          normalizedPickupForGeo,
+        ),
         lat: directGeo.lat,
         lng: directGeo.lng,
       };
       logWebhook('conversation_pickup_direct_geocode_ok', {
         conversationId: batch?.id || null,
         pickup: normalizedPickupForGeo,
-        formattedAddress: directGeo.formattedAddress,
+        formattedAddress: tripExtracted._preGeocodedPickup.formattedAddress,
+        rawFormattedAddress: directGeo.formattedAddress,
         reason: pickupIsExactIntersection ? 'intersection' : 'street_number',
       });
     } catch (err) {
