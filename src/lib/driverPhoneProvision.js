@@ -230,6 +230,146 @@ export async function adminUpdateDriverPassword({ driverId, password }) {
   return { ok: true, auth_email: authEmail };
 }
 
+/**
+ * Actualiza el teléfono de login (owner o asignado):
+ * - phone + phone_normalized en drivers
+ * - auth_email si depende del número
+ * - email en Supabase Auth (invalida el anterior)
+ */
+export async function adminUpdateDriverLoginPhone({ driverId, phone }) {
+  const cleanedPhone = String(phone || '').trim();
+  const normalizedPhone = normalizeDriverPhone(cleanedPhone);
+
+  if (!driverId) {
+    return { ok: false, status: 400, message: 'Falta el identificador del chofer' };
+  }
+  if (!normalizedPhone || normalizedPhone.length < 8) {
+    return { ok: false, status: 400, message: 'Teléfono inválido' };
+  }
+
+  const admin = getSupabaseAdmin();
+
+  const { data: driver, error: driverError } = await admin
+    .from('drivers')
+    .select(
+      'id,user_id,auth_email,phone,phone_normalized,is_assigned_driver,owner_id,full_name,driver_number,role',
+    )
+    .eq('id', driverId)
+    .maybeSingle();
+
+  if (driverError) throw driverError;
+  if (!driver?.id) {
+    return { ok: false, status: 404, message: 'Chofer no encontrado' };
+  }
+
+  const previousNormalized = driver.phone_normalized || normalizeDriverPhone(driver.phone);
+  if (previousNormalized === normalizedPhone
+    && String(driver.phone || '').trim() === cleanedPhone
+    && driver.phone_normalized === normalizedPhone) {
+    return {
+      ok: true,
+      unchanged: true,
+      phone: cleanedPhone,
+      phone_normalized: normalizedPhone,
+      auth_email: driver.auth_email || null,
+    };
+  }
+
+  const isAssigned = Boolean(driver.is_assigned_driver && driver.owner_id);
+  const nextAuthEmail = isAssigned
+    ? buildAssignedDriverAuthEmail(normalizedPhone)
+    : buildOwnerAuthEmail(normalizedPhone, driver.driver_number);
+
+  // Evitar que otro chofer ya use ese teléfono / email sintético
+  const { data: phoneConflicts, error: phoneConflictError } = await admin
+    .from('drivers')
+    .select('id, full_name')
+    .neq('id', driverId)
+    .eq('phone_normalized', normalizedPhone)
+    .limit(1);
+
+  if (phoneConflictError) throw phoneConflictError;
+  if (phoneConflicts?.length) {
+    return {
+      ok: false,
+      status: 409,
+      message: `El teléfono ya está en uso por ${phoneConflicts[0].full_name || 'otro chofer'}`,
+    };
+  }
+
+  const { data: emailConflicts, error: emailConflictError } = await admin
+    .from('drivers')
+    .select('id, full_name')
+    .neq('id', driverId)
+    .eq('auth_email', nextAuthEmail)
+    .limit(1);
+
+  if (emailConflictError) throw emailConflictError;
+  if (emailConflicts?.length) {
+    return {
+      ok: false,
+      status: 409,
+      message: `Ese teléfono ya está vinculado a otra cuenta (${emailConflicts[0].full_name || 'otro chofer'})`,
+    };
+  }
+
+  let userId = driver.user_id || null;
+  const previousAuthEmail = driver.auth_email || null;
+  const authEmailChanged = Boolean(nextAuthEmail && nextAuthEmail !== previousAuthEmail);
+
+  if (authEmailChanged) {
+    const existingAuthUserId = await findAuthUserIdByEmail(admin, nextAuthEmail);
+    if (existingAuthUserId && existingAuthUserId !== userId) {
+      return {
+        ok: false,
+        status: 409,
+        message: 'Ya existe una cuenta de acceso con ese teléfono. Usá otro número.',
+      };
+    }
+
+    if (userId) {
+      const { error: authUpdateError } = await admin.auth.admin.updateUserById(userId, {
+        email: nextAuthEmail,
+        email_confirm: true,
+        user_metadata: {
+          full_name: driver.full_name,
+          ...(isAssigned
+            ? { assigned_driver: true }
+            : { fleet_owner: true, driver_number: driver.driver_number }),
+        },
+      });
+      if (authUpdateError) throw authUpdateError;
+    }
+  }
+
+  const driverPatch = {
+    phone: cleanedPhone,
+    phone_normalized: normalizedPhone,
+    auth_email: nextAuthEmail,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: updated, error: updateError } = await admin
+    .from('drivers')
+    .update(driverPatch)
+    .eq('id', driverId)
+    .select('*')
+    .single();
+
+  if (updateError) throw updateError;
+
+  return {
+    ok: true,
+    unchanged: false,
+    phone: cleanedPhone,
+    phone_normalized: normalizedPhone,
+    auth_email: nextAuthEmail,
+    previous_phone_normalized: previousNormalized || null,
+    auth_email_changed: authEmailChanged,
+    data: updated,
+  };
+}
+
 /** @deprecated Usar provisionDriverPhoneAuth */
 export async function provisionAssignedDriverAuth(params) {
   return provisionDriverPhoneAuth(params);

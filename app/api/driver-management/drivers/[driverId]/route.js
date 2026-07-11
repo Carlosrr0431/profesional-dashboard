@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { adminUpdateDriverPassword } from '../../../../../src/lib/driverPhoneProvision';
+import {
+  adminUpdateDriverPassword,
+  adminUpdateDriverLoginPhone,
+} from '../../../../../src/lib/driverPhoneProvision';
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -35,7 +38,17 @@ export async function PATCH(request, { params }) {
     }
 
     const password = typeof updates.password === 'string' ? updates.password.trim() : '';
-    const { password: _password, email: _email, ...driverUpdates } = updates;
+    const hasPhoneUpdate = Object.prototype.hasOwnProperty.call(updates, 'phone');
+    const phoneUpdate = hasPhoneUpdate ? updates.phone : undefined;
+    const {
+      password: _password,
+      email: _email,
+      phone: _phone,
+      phone_normalized: _phoneNormalized,
+      auth_email: _authEmail,
+      user_id: _userId,
+      ...driverUpdates
+    } = updates;
 
     const supabase = getSupabaseAdmin();
 
@@ -55,8 +68,28 @@ export async function PATCH(request, { params }) {
       }
     }
 
+    let phoneResult = null;
+    if (hasPhoneUpdate) {
+      phoneResult = await adminUpdateDriverLoginPhone({ driverId, phone: phoneUpdate });
+      if (!phoneResult.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: {
+              code: 'PHONE_UPDATE_FAILED',
+              message: phoneResult.message || 'No se pudo actualizar el teléfono',
+            },
+          },
+          { status: phoneResult.status || 400 },
+        );
+      }
+    }
+
     const hasProfileUpdates = Object.keys(driverUpdates).length > 0;
     if (!hasProfileUpdates) {
+      if (phoneResult?.data) {
+        return NextResponse.json({ ok: true, data: phoneResult.data });
+      }
       const { data: current, error: fetchError } = await supabase
         .from('drivers')
         .select('*')

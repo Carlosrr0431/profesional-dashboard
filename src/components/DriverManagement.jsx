@@ -99,8 +99,12 @@ export default function DriverManagement({ onBack }) {
         const updates = { ...profile };
         if (password) updates.password = password;
         await updateDriver(editDriver.id, updates);
+        const phoneChanged = String(profile.phone || '').trim() !== String(editDriver.phone || '').trim();
         const passwordMsg = password ? ' Contraseña de ingreso actualizada.' : '';
-        toast.success(`Chofer "${profile.full_name || editDriver.full_name}" actualizado.${passwordMsg}`);
+        const phoneMsg = phoneChanged
+          ? ' El ingreso a la app queda con el nuevo teléfono; el anterior ya no sirve.'
+          : '';
+        toast.success(`Chofer "${profile.full_name || editDriver.full_name}" actualizado.${passwordMsg}${phoneMsg}`);
       } else {
         await createDriver(formData);
         toast.success(`Chofer "${formData.full_name}" creado correctamente`);

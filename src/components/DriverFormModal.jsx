@@ -63,7 +63,7 @@ export default function DriverFormModal({ driver, onClose, onSave, saving, error
 
   const phoneLogin = isEdit && isPhoneLoginDriver(driver);
   const loginHint = phoneLogin
-    ? `Ingreso con teléfono: ${formatPhoneForDisplay(driver.phone) || driver.phone || '—'}`
+    ? `Ingreso con teléfono: ${formatPhoneForDisplay(driver.phone) || driver.phone || '—'}. Si lo cambiás, el número anterior deja de servir.`
     : driver?.auth_email
       ? `Cuenta: ${driver.auth_email}`
       : 'Sin cuenta de acceso vinculada';
