@@ -28,7 +28,9 @@ import { buildApproachOnlyTripInsertPayload } from '../../../src/lib/approachOnl
 import {
   buildPoiAutocompleteQueries,
   getKnownPoiSearchQueries,
+  getPoiSpecificSearchTokens,
   isCategoryPoiSearch,
+  isSpecificNamedPoiQuery,
   looksLikeSaltaKnownPoi,
   mergeDistinctAddressCandidates,
   resolveSaltaKnownPoi,
@@ -3203,8 +3205,17 @@ function candidateMatchesKnownPoiQuery(candidate, knownPoi, query = '') {
   const queryNorm = normalizeForMatch(query || knownPoi.label || '');
   if (!blob) return false;
 
+  const specificTokens = getPoiSpecificSearchTokens(query, knownPoi);
+  if (specificTokens.length >= 1) {
+    const matched = specificTokens.filter((token) => blob.includes(token)).length;
+    if (matched < specificTokens.length) return false;
+  }
+
   if (knownPoi.id === 'hospital' || /\bhospital\b/.test(queryNorm)) {
     if (/\bcerro\b|\btelef|\bteleferico\b/.test(blob)) return false;
+    if (specificTokens.length >= 1) {
+      return /\bhospital\b|\bsanatorio\b/.test(blob);
+    }
     return /\bhospital\b|\bsanatorio\b|\bclinica\b|\bmaterno\b/.test(blob);
   }
   if (knownPoi.id === 'shopping' || /\bshopping\b|\bcentro\s+comercial\b/.test(queryNorm)) {
@@ -5785,10 +5796,10 @@ async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], origin
 
   let merged = [...(baseCandidates || [])];
   const streetHint = extractStreetHintAlongsidePoi(originalQuery, knownPoi);
-  const categorySearch = isCategoryPoiSearch(knownPoi, streetHint);
-  const maxResults = categorySearch ? 10 : 8;
-  const maxQueries = categorySearch ? 8 : 5;
-  const perQueryLimit = categorySearch ? 5 : 5;
+  const categorySearch = isCategoryPoiSearch(knownPoi, streetHint, originalQuery);
+  const maxResults = GUEMES_POLL_OPTION_LIMIT;
+  const maxQueries = categorySearch ? 5 : 3;
+  const perQueryLimit = 5;
 
   const seenQueries = new Set();
   const queries = [];
@@ -5807,7 +5818,7 @@ async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], origin
   if (streetHint) {
     addQuery(`${knownPoi.label} ${streetHint}, Salta, Argentina`);
   }
-  for (const q of getKnownPoiSearchQueries(knownPoi)) {
+  for (const q of getKnownPoiSearchQueries(knownPoi, originalQuery)) {
     addQuery(q);
   }
   if (categorySearch) {
@@ -5823,19 +5834,18 @@ async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], origin
     )
   );
   for (const hits of autocompleteLists) {
-    merged = mergeDistinctAddressCandidates(merged, hits, { maxResults: maxResults + 4 });
+    merged = mergeDistinctAddressCandidates(merged, hits, { maxResults: maxResults + 2 });
   }
 
-  // Completar con geocode si faltan opciones con calle/altura (solo categoría genérica).
   const withStreet = merged.filter(candidateHasStreetNumber).length;
-  if (categorySearch && withStreet < 3) {
+  if (categorySearch && withStreet < 2) {
     const geocodeLists = await Promise.all(
-      selectedQueries.slice(0, 4).map((query) => getAddressCandidates(query, 3).catch(() => []))
+      selectedQueries.slice(0, 3).map((query) => getAddressCandidates(query, 3).catch(() => []))
     );
     for (const hits of geocodeLists) {
-      merged = mergeDistinctAddressCandidates(merged, hits, { maxResults: maxResults + 4 });
+      merged = mergeDistinctAddressCandidates(merged, hits, { maxResults: maxResults + 2 });
     }
-  } else if (!categorySearch && merged.length < 3) {
+  } else if (!categorySearch && merged.length < 2) {
     for (const query of selectedQueries) {
       if (merged.length >= maxResults) break;
       const geocodeHits = await getAddressCandidates(query, 3).catch(() => []);
@@ -5848,8 +5858,6 @@ async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], origin
   );
 
   if (merged.length > 0) {
-    // En categoría genérica conservar títulos de Google (Portal Salta, Alto NOA…).
-    // En POI puntual, rellenar el label canónico si falta.
     merged = merged.map((candidate) => ({
       ...candidate,
       title: candidate.title || (!categorySearch ? knownPoi.label : null) || null,
@@ -5857,6 +5865,7 @@ async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], origin
     }));
   }
 
+  const queryForScore = originalQuery || knownPoi.label;
   merged = [...merged].sort((a, b) => {
     if (streetHint) {
       const hintNorm = normalizeForMatch(streetHint);
@@ -5867,7 +5876,15 @@ async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], origin
     const aNum = candidateHasStreetNumber(a) ? 1 : 0;
     const bNum = candidateHasStreetNumber(b) ? 1 : 0;
     if (aNum !== bNum) return bNum - aNum;
-    return Number(b.score || 0) - Number(a.score || 0);
+    const aScore = Math.max(
+      Number(a.score || 0),
+      scoreCandidateAgainstQuery(`${a.title || ''} ${a.subtitle || ''}`, queryForScore),
+    );
+    const bScore = Math.max(
+      Number(b.score || 0),
+      scoreCandidateAgainstQuery(`${b.title || ''} ${b.subtitle || ''}`, queryForScore),
+    );
+    return bScore - aScore;
   });
 
   return merged.slice(0, maxResults);
@@ -10687,9 +10704,9 @@ async function processClaimedConversation(batch) {
       tripExtracted?._conversationText || nextContext.pickup_location || normalizedPickupForGeo || '',
       knownPoiMatch,
     );
-    const categorySearch = isCategoryPoiSearch(knownPoiMatch, poiStreetHint);
     const queryForMatch =
       tripExtracted?._conversationText || nextContext.pickup_location || normalizedPickupForGeo || knownPoiMatch.label;
+    const categorySearch = isCategoryPoiSearch(knownPoiMatch, poiStreetHint, queryForMatch);
 
     const googleRelevant = filterSaltaCapitalCandidates(googlePollCandidates)
       .filter((candidate) => candidateMatchesKnownPoiQuery(candidate, knownPoiMatch, queryForMatch));
@@ -10700,15 +10717,30 @@ async function processClaimedConversation(batch) {
     let mergedPoiPoll = mergeDistinctAddressCandidates(
       googleRelevant,
       enrichedRelevant,
-      { maxResults: CATEGORY_POI_POLL_OPTION_LIMIT + 2 },
+      { maxResults: GUEMES_POLL_OPTION_LIMIT },
     );
     if (mergedPoiPoll.length < 2 && enrichedRelevant.length >= 1) {
       mergedPoiPoll = mergeDistinctAddressCandidates(
         enrichedRelevant,
         googleRelevant,
-        { maxResults: CATEGORY_POI_POLL_OPTION_LIMIT + 2 },
+        { maxResults: GUEMES_POLL_OPTION_LIMIT },
       );
     }
+
+    mergedPoiPoll = [...mergedPoiPoll].sort((a, b) => {
+      const aNum = candidateHasStreetNumber(a) ? 1 : 0;
+      const bNum = candidateHasStreetNumber(b) ? 1 : 0;
+      if (aNum !== bNum) return bNum - aNum;
+      const aScore = Math.max(
+        Number(a.score || 0),
+        scoreCandidateAgainstQuery(`${a.title || ''} ${a.subtitle || ''}`, queryForMatch),
+      );
+      const bScore = Math.max(
+        Number(b.score || 0),
+        scoreCandidateAgainstQuery(`${b.title || ''} ${b.subtitle || ''}`, queryForMatch),
+      );
+      return bScore - aScore;
+    }).slice(0, GUEMES_POLL_OPTION_LIMIT);
 
     addressPollCandidates = mergedPoiPoll.map((candidate) => ({
       ...candidate,
@@ -10838,9 +10870,7 @@ async function processClaimedConversation(batch) {
           knownPoiMatch,
         )
       : '';
-    const pollOptionLimit = isCategoryPoiSearch(knownPoiMatch, poiStreetHintForPoll)
-      ? CATEGORY_POI_POLL_OPTION_LIMIT
-      : GUEMES_POLL_OPTION_LIMIT;
+    const pollOptionLimit = GUEMES_POLL_OPTION_LIMIT;
     const pollTopCandidates = orderedPollCandidates.slice(0, pollOptionLimit);
     const { pollOptions, pollCandidates: pollCandidatesForTrip } =
       buildAddressPollPayload(pollTopCandidates);

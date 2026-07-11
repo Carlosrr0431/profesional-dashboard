@@ -15,8 +15,8 @@ export const GUEMES_STREET_NAME_KEYS = [
 
 export const GUEMES_POLL_OPTION_LIMIT = 5;
 
-/** Poll de POIs genéricos (shopping, hospital…) sin calle/altura. WhatsApp admite hasta 12. */
-export const CATEGORY_POI_POLL_OPTION_LIMIT = 8;
+/** Poll de POIs genéricos (shopping, hospital…) sin calle/altura. */
+export const CATEGORY_POI_POLL_OPTION_LIMIT = 5;
 
 /**
  * True cuando el query es básicamente "Güemes" + altura (sin otro nombre de calle).

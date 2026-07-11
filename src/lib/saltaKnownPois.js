@@ -781,8 +781,47 @@ function resolveSaltaKnownPoi(value) {
 }
 
 /** POI genérico (shopping, hospital…) sin hint de calle → poll con varias opciones. */
-function isCategoryPoiSearch(poi, streetHint = '') {
-  return Boolean(poi?.categorySearch) && !String(streetHint || '').trim();
+function isCategoryPoiSearch(poi, streetHint = '', originalQuery = '') {
+  if (String(streetHint || '').trim()) return false;
+  if (!poi?.categorySearch) return false;
+  if (isSpecificNamedPoiQuery(originalQuery, poi)) return false;
+  return true;
+}
+
+const POI_QUERY_STOP_WORDS = new Set([
+  'hola', 'me', 'un', 'una', 'al', 'el', 'la', 'los', 'las', 'del', 'de', 'en', 'a', 'para',
+  'por', 'favor', 'mandas', 'mandame', 'mandar', 'movil', 'moviles', 'auto', 'autos', 'taxi',
+  'remis', 'chofer', 'pedido', 'viaje', 'salta', 'capital', 'argentina', 'centro', 'comercial',
+]);
+
+const GENERIC_POI_CATEGORY_TOKENS = new Set([
+  'hospital', 'sanatorio', 'clinica', 'shopping', 'shoping', 'terminal', 'plaza', 'banco',
+  'macro', 'feria', 'galeria', 'paseo', 'portal', 'hiper', 'supermercado', 'farmacia', 'museo',
+]);
+
+/** Tokens del mensaje que identifican un POI con nombre propio (ej. "san bernardo" en hospital). */
+function getPoiSpecificSearchTokens(originalQuery, knownPoi) {
+  const text = fixPoiTypoTokens(normalizePoiText(originalQuery || ''));
+  if (!text) return [];
+
+  return text
+    .split(/\s+/)
+    .filter(
+      (token) =>
+        token.length >= 3
+        && !POI_QUERY_STOP_WORDS.has(token)
+        && !GENERIC_POI_CATEGORY_TOKENS.has(token),
+    );
+}
+
+function isSpecificNamedPoiQuery(originalQuery, knownPoi) {
+  return getPoiSpecificSearchTokens(originalQuery, knownPoi).length >= 1;
+}
+
+function queryTextMatchesPoiTokens(queryText, specificTokens) {
+  if (!specificTokens?.length) return true;
+  const norm = normalizePoiText(queryText);
+  return specificTokens.every((token) => norm.includes(token));
 }
 
 /**
@@ -831,13 +870,19 @@ function looksLikeSaltaKnownPoi(value) {
   return POI_KEYWORD_RE.test(norm);
 }
 
-function getKnownPoiSearchQueries(poi) {
+function getKnownPoiSearchQueries(poi, originalQuery = '') {
   if (!poi) return [];
   const seen = new Set();
   const out = [];
+  const specific = isSpecificNamedPoiQuery(originalQuery, poi);
+  const specificTokens = specific ? getPoiSpecificSearchTokens(originalQuery, poi) : [];
+
   for (const q of [poi.geocodeQuery, ...(poi.alternateGeocodeQueries || [])]) {
     const trimmed = String(q || '').trim();
     if (!trimmed) continue;
+    if (specific && specificTokens.length && trimmed !== poi.geocodeQuery) {
+      if (!queryTextMatchesPoiTokens(trimmed, specificTokens)) continue;
+    }
     const key = normalizePoiText(trimmed);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -983,6 +1028,8 @@ module.exports = {
   getKnownPoiSearchQueries,
   buildPoiAutocompleteQueries,
   isCategoryPoiSearch,
+  isSpecificNamedPoiQuery,
+  getPoiSpecificSearchTokens,
   normalizePoiText,
   fixPoiTypoTokens,
   mergeDistinctAddressCandidates,

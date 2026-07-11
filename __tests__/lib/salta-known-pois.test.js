@@ -5,6 +5,8 @@ const {
   getKnownPoiSearchQueries,
   buildPoiAutocompleteQueries,
   isCategoryPoiSearch,
+  isSpecificNamedPoiQuery,
+  getPoiSpecificSearchTokens,
   mergeDistinctAddressCandidates,
 } = require('../../src/lib/saltaKnownPois');
 
@@ -84,6 +86,22 @@ describe('saltaKnownPois', () => {
 
     const autoQueries = buildPoiAutocompleteQueries('shoping');
     expect(autoQueries.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('hospital san bernardo es búsqueda específica, no categoría amplia', () => {
+    const poi = resolveSaltaKnownPoi('hospital san bernado');
+    expect(poi?.id).toBe('hospital');
+    expect(isSpecificNamedPoiQuery('hola me mandas movil al hospital san bernado', poi)).toBe(true);
+    expect(isCategoryPoiSearch(poi, '', 'hola me mandas movil al hospital san bernado')).toBe(false);
+    expect(isCategoryPoiSearch(poi, '', 'el hospital')).toBe(true);
+
+    const tokens = getPoiSpecificSearchTokens('hospital san bernado', poi);
+    expect(tokens).toEqual(expect.arrayContaining(['bernardo']));
+
+    const queries = getKnownPoiSearchQueries(poi, 'hospital san bernado');
+    expect(queries.some((q) => /militar/i.test(q))).toBe(false);
+    expect(queries.some((q) => /materno/i.test(q))).toBe(false);
+    expect(queries.some((q) => /san\s+bernardo/i.test(q))).toBe(true);
   });
 
   it('corrige bernado y resuelve hospital san bernardo', () => {
