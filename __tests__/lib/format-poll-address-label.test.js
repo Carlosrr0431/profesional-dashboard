@@ -1,5 +1,7 @@
 const {
   formatAddressForWhatsAppPoll,
+  formatPollOptionLabel,
+  extractStreetAddressForPoll,
   buildAddressPollPayload,
 } = require('../../src/lib/formatPollAddressLabel');
 
@@ -29,6 +31,54 @@ describe('formatAddressForWhatsAppPoll', () => {
   });
 });
 
+describe('formatPollOptionLabel (POIs)', () => {
+  it('combina nombre del POI con calle y altura del subtitle', () => {
+    expect(
+      formatPollOptionLabel({
+        title: 'Banco Macro',
+        subtitle: 'Belgrano 700, Salta',
+        formattedAddress: 'Banco Macro, Belgrano 700, Salta, Argentina',
+      })
+    ).toBe('Banco Macro · Belgrano 700');
+  });
+
+  it('extrae calle con altura aunque el formatted empiece con el POI', () => {
+    expect(
+      extractStreetAddressForPoll(
+        null,
+        'Banco Macro, Belgrano 700, A4400 Salta, Argentina',
+      )
+    ).toBe('Belgrano 700');
+  });
+
+  it('distingue sucursales con distinta calle', () => {
+    expect(
+      formatPollOptionLabel({
+        title: 'Banco Macro',
+        subtitle: 'España 500, Salta',
+      })
+    ).toBe('Banco Macro · España 500');
+  });
+
+  it('no duplica si el título ya es calle con altura', () => {
+    expect(
+      formatPollOptionLabel({
+        title: 'Belgrano 700',
+        subtitle: 'Belgrano 700, Salta',
+        formattedAddress: 'Belgrano 700, A4400 Salta, Argentina',
+      })
+    ).toBe('Belgrano 700');
+  });
+
+  it('usa formattedAddress cuando no hay title de POI', () => {
+    expect(
+      formatPollOptionLabel({
+        formattedAddress: 'Dr. A. Güemes 200, A4400 Salta, Argentina',
+      })
+    ).toBe('Dr. Adolfo Güemes 200');
+  });
+});
+
 describe('buildAddressPollPayload', () => {
   it('usa label legible pero conserva formattedAddress original', () => {
     const { pollOptions, pollCandidates } = buildAddressPollPayload([
@@ -42,5 +92,23 @@ describe('buildAddressPollPayload', () => {
     expect(pollOptions[0]).toBe('Dr. Adolfo Güemes 200');
     expect(pollCandidates[0].formattedAddress).toBe('Dr. A. Güemes 200, A4400 Salta, Argentina');
     expect(pollOptions[pollOptions.length - 1]).toBe('Ninguna de estas opciones');
+  });
+
+  it('muestra calle/altura en opciones de banco/POI', () => {
+    const { pollOptions } = buildAddressPollPayload([
+      {
+        title: 'Banco Macro',
+        subtitle: 'Belgrano 700, Salta',
+        formattedAddress: 'Banco Macro, Belgrano 700, Salta, Argentina',
+      },
+      {
+        title: 'Cajero Automático Banco Macro',
+        subtitle: 'Mitre 200, Salta',
+        formattedAddress: 'Cajero Automático Banco Macro, Mitre 200, Salta, Argentina',
+      },
+    ]);
+
+    expect(pollOptions[0]).toBe('Banco Macro · Belgrano 700');
+    expect(pollOptions[1]).toBe('Cajero Automático Banco Macro · Bartolomé Mitre 200');
   });
 });

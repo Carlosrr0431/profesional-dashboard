@@ -1,9 +1,13 @@
 /**
  * Etiquetas legibles para encuestas de dirección en WhatsApp.
  * Google suele devolver abreviaturas (ej. "Dr. A. Güemes"); el pasajero ve el nombre completo.
+ * Para POIs (banco, shopping, etc.) se muestra nombre + calle/altura.
  */
 
 export const NONE_OF_THESE_POLL_OPTION = 'Ninguna de estas opciones';
+
+/** Límite de WhatsApp para opciones de poll. */
+const WHATSAPP_POLL_OPTION_MAX_LEN = 100;
 
 /** Apellido de prócer → nombre completo (solo visualización en poll). */
 const STREET_NAME_EXPANSIONS = [
@@ -42,6 +46,9 @@ const GOOGLE_POLL_STREET_REPLACEMENTS = [
   [/Gral\.?\s+R\.?\s+Alvarado/gi, 'General R. Alvarado'],
 ];
 
+const LOCALITY_ONLY_RE =
+  /^(salta|capital|argentina|a4400|centro|macrocentro|barrio|bº|bo\.?)\b/i;
+
 function applyStreetNameExpansions(text) {
   let result = String(text || '');
   for (const [pattern, replacement] of STREET_NAME_EXPANSIONS) {
@@ -59,6 +66,114 @@ function formatStreetPartForPoll(streetPart) {
   }
   result = applyStreetNameExpansions(result);
   return result.replace(/\s+/g, ' ').trim();
+}
+
+function normalizeForCompare(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function truncatePollOption(text) {
+  const raw = String(text || '').trim();
+  if (raw.length <= WHATSAPP_POLL_OPTION_MAX_LEN) return raw;
+  return `${raw.slice(0, WHATSAPP_POLL_OPTION_MAX_LEN - 1).trim()}…`;
+}
+
+/**
+ * Extrae la línea de calle/altura desde subtitle o formattedAddress.
+ * Prioriza segmentos con número (ej. "Belgrano 700") y evita nombres de POI.
+ */
+export function extractStreetAddressForPoll(subtitle, formattedAddress) {
+  const sources = [subtitle, formattedAddress]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+
+  const ranked = [];
+
+  for (const source of sources) {
+    const parts = source
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    for (const part of parts) {
+      if (LOCALITY_ONLY_RE.test(part)) continue;
+      if (/argentina/i.test(part)) continue;
+      if (/^a?\d{4}$/i.test(part)) continue;
+
+      const hasNumber = /\b\d{1,5}[a-z]?\b/i.test(part);
+      const isPoiName = /\b(banco|cajero|shopping|hospital|macro|restaurant|restaurante|farmacia|supermercado|terminal|universidad|colegio|escuela)\b/i.test(part);
+      const startsWithRoadType = /^(av(?:da|\.)?|avenida|calle|pasaje|pje\.?|ruta|bulevar|bv\.?)\b/i.test(part);
+
+      if (hasNumber) {
+        ranked.push({ part, priority: 3 });
+        continue;
+      }
+      if (startsWithRoadType) {
+        ranked.push({ part, priority: 2 });
+        continue;
+      }
+      if (isPoiName) continue;
+      if (/^[a-záéíóúñü.\s'-]{3,}$/i.test(part)) {
+        ranked.push({ part, priority: 1 });
+      }
+    }
+  }
+
+  ranked.sort((a, b) => b.priority - a.priority);
+  return ranked[0] ? formatStreetPartForPoll(ranked[0].part) : '';
+}
+
+function titleAlreadyIncludesStreet(title, streetLine) {
+  const titleNorm = normalizeForCompare(title);
+  const streetNorm = normalizeForCompare(streetLine);
+  if (!titleNorm || !streetNorm) return false;
+  if (titleNorm === streetNorm) return true;
+  if (titleNorm.includes(streetNorm) || streetNorm.includes(titleNorm)) return true;
+
+  const streetTokens = streetNorm.split(' ').filter((t) => t.length >= 3 && !/^\d+$/.test(t));
+  const matched = streetTokens.filter((token) => titleNorm.includes(token));
+  return streetTokens.length > 0 && matched.length === streetTokens.length && /\d/.test(titleNorm);
+}
+
+/**
+ * Etiqueta de opción de poll: calle pura, o "POI · calle altura" para bancos/shoppings/etc.
+ */
+export function formatPollOptionLabel(candidate = {}) {
+  const title = String(candidate.pollLabel || candidate.title || '').trim();
+  const streetLine = extractStreetAddressForPoll(
+    candidate.subtitle,
+    candidate.formattedAddress,
+  );
+
+  if (title && streetLine && !titleAlreadyIncludesStreet(title, streetLine)) {
+    // Nombre de lugar sin altura → agregar calle/altura para distinguir sucursales
+    if (!/\b\d{1,5}\b/.test(title)) {
+      return truncatePollOption(`${formatStreetPartForPoll(title)} · ${streetLine}`);
+    }
+  }
+
+  if (title && /\b\d{1,5}\b/.test(title)) {
+    return truncatePollOption(formatStreetPartForPoll(title));
+  }
+
+  if (streetLine && !title) {
+    return truncatePollOption(streetLine);
+  }
+
+  if (title && streetLine) {
+    return truncatePollOption(`${formatStreetPartForPoll(title)} · ${streetLine}`);
+  }
+
+  const fromFormatted = formatAddressForWhatsAppPoll(candidate.formattedAddress);
+  if (fromFormatted) return truncatePollOption(fromFormatted);
+
+  return truncatePollOption(title);
 }
 
 /**
@@ -80,11 +195,8 @@ export function formatAddressForWhatsAppPoll(formattedAddress) {
  */
 export function toPollAddressCandidate(geoCandidate) {
   const formattedAddress = geoCandidate?.formattedAddress || '';
-  const customLabel = String(
-    geoCandidate?.pollLabel || geoCandidate?.title || '',
-  ).trim();
   return {
-    label: customLabel || formatAddressForWhatsAppPoll(formattedAddress),
+    label: formatPollOptionLabel(geoCandidate),
     formattedAddress,
     lat: geoCandidate?.lat,
     lng: geoCandidate?.lng,

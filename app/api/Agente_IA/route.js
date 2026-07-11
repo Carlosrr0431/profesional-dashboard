@@ -3134,6 +3134,36 @@ function extractAddressSnippetsFromText(text) {
   return [...snippets].slice(0, 6);
 }
 
+function extractStreetHintAlongsidePoi(rawText, knownPoi) {
+  let text = normalizeForMatch(rawText || '');
+  if (!text || !knownPoi) return '';
+
+  for (const pattern of knownPoi.patterns || []) {
+    try {
+      text = text.replace(pattern, ' ');
+    } catch (_) {
+      // ignore invalid patterns
+    }
+  }
+
+  text = text
+    .replace(/\b(banco|cajero|automatico|auto|mandas?|hola|me|un|una|por|favor|ubicacion|sucursal)\b/g, ' ')
+    .replace(/\b(de|la|el|del|al|en|a|para|cerca|frente|sobre|altura|nro|numero)\b/g, ' ')
+    .replace(/\b\d{1,5}[a-z]?\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const tokens = text
+    .split(' ')
+    .filter((token) => token.length >= 4 && !GENERIC_ADDRESS_TOKENS.has(token));
+
+  if (tokens.length === 0) return '';
+  return tokens
+    .slice(0, 3)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(' ');
+}
+
 function normalizeAddressPhrase(value) {
   const input = sanitizeAddressInput(value || '');
   if (!input) return '';
@@ -3152,6 +3182,11 @@ function normalizeAddressPhrase(value) {
 
   const knownPoi = resolveSaltaKnownPoi(work);
   if (knownPoi?.geocodeQuery) {
+    // Conservar hint de calle del pasajero: "banco macro de la belgrano" → "Banco Macro Belgrano"
+    const streetHint = extractStreetHintAlongsidePoi(work, knownPoi);
+    if (streetHint) {
+      return sanitizeAddressInput(`${knownPoi.label} ${streetHint}, Salta, Argentina`);
+    }
     return sanitizeAddressInput(knownPoi.geocodeQuery);
   }
 
@@ -5677,11 +5712,15 @@ async function getAddressCandidates(query, maxResults = 5) {
 }
 
 /** Varias búsquedas para POIs (terminal, shopping…) y encuesta con opciones legibles. */
-async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = []) {
+async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], originalQuery = '') {
   if (!knownPoi) return baseCandidates || [];
 
   let merged = [...(baseCandidates || [])];
-  const queries = getKnownPoiSearchQueries(knownPoi);
+  const streetHint = extractStreetHintAlongsidePoi(originalQuery, knownPoi);
+  const queries = [
+    ...(streetHint ? [`${knownPoi.label} ${streetHint}, Salta, Argentina`] : []),
+    ...getKnownPoiSearchQueries(knownPoi),
+  ];
 
   for (const query of queries) {
     if (merged.length >= 5) break;
@@ -5693,7 +5732,23 @@ async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = []) {
   }
 
   if (merged.length > 0 && knownPoi.label) {
-    merged[0] = { ...merged[0], pollLabel: knownPoi.label };
+    // Conservar el nombre del POI en title; la calle/altura se agrega en formatPollOptionLabel.
+    merged = merged.map((candidate, index) => ({
+      ...candidate,
+      title: candidate.title || (index === 0 ? knownPoi.label : candidate.title),
+      pollLabel: null,
+    }));
+  }
+
+  // Si el pasajero mencionó una calle (Belgrano), priorizar esa sucursal en el poll.
+  if (streetHint) {
+    const hintNorm = normalizeForMatch(streetHint);
+    merged = [...merged].sort((a, b) => {
+      const aHit = normalizeForMatch(`${a.title || ''} ${a.subtitle || ''} ${a.formattedAddress || ''}`).includes(hintNorm) ? 1 : 0;
+      const bHit = normalizeForMatch(`${b.title || ''} ${b.subtitle || ''} ${b.formattedAddress || ''}`).includes(hintNorm) ? 1 : 0;
+      if (aHit !== bHit) return bHit - aHit;
+      return Number(b.score || 0) - Number(a.score || 0);
+    });
   }
 
   return merged.slice(0, 5);
@@ -10470,12 +10525,17 @@ async function processClaimedConversation(batch) {
 
   let addressCandidates = addressCandidatesResult;
   if (knownPoiMatch) {
-    addressCandidates = await enrichCandidatesForKnownPoi(knownPoiMatch, addressCandidates);
+    addressCandidates = await enrichCandidatesForKnownPoi(
+      knownPoiMatch,
+      addressCandidates,
+      tripExtracted?._conversationText || nextContext.pickup_location || normalizedPickupForGeo || '',
+    );
     logWebhook('conversation_poi_candidates_enriched', {
       conversationId: batch?.id || null,
       poiId: knownPoiMatch.id,
       poiLabel: knownPoiMatch.label,
       candidateCount: addressCandidates.length,
+      pickupQuery: normalizedPickupForGeo,
     });
   }
 
@@ -10492,8 +10552,23 @@ async function processClaimedConversation(batch) {
   const saltaCapitalCandidates = filterSaltaCapitalCandidates(distinctCandidates);
 
   // Poll: misma fuente que NewTripModal (Google Autocomplete sin pre-geocodificar).
+  // Para POIs conocidos priorizar candidatos geocodificados (tienen calle/altura real).
   let addressPollCandidates = filterSaltaCapitalCandidates(googlePollCandidates);
-  if (addressPollCandidates.length < 2 && catalogStreetPollCandidates.length >= 2) {
+  if (knownPoiMatch && saltaCapitalCandidates.length >= 1) {
+    addressPollCandidates = saltaCapitalCandidates.map((candidate) => ({
+      ...candidate,
+      title: candidate.title || knownPoiMatch.label || null,
+      subtitle: candidate.subtitle || null,
+      pollLabel: null,
+      source: candidate.source || 'poi_geocode',
+    }));
+    logWebhook('conversation_poi_geocode_poll', {
+      conversationId: batch?.id || null,
+      pickup: normalizedPickupForGeo,
+      poiId: knownPoiMatch.id,
+      optionCount: addressPollCandidates.length,
+    });
+  } else if (addressPollCandidates.length < 2 && catalogStreetPollCandidates.length >= 2) {
     addressPollCandidates = catalogStreetPollCandidates;
     logWebhook('conversation_catalog_street_poll_fallback', {
       conversationId: batch?.id || null,

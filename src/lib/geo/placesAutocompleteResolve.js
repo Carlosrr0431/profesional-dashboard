@@ -219,7 +219,6 @@ export async function getAutocompletePollCandidates(query, maxResults = 5, optio
 
     return {
       formattedAddress,
-      pollLabel: title,
       title,
       subtitle,
       placeId: hit?.placeId || null,
