@@ -97,6 +97,31 @@ function formatMonthLabel(monthStr) {
   return d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
 }
 
+function Panel({ title, hint, children, className = '', action = null }) {
+  return (
+    <section className={`rounded-[20px] bg-white p-5 ${className}`}>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-[13px] font-semibold tracking-tight text-navy-900">{title}</h3>
+          {hint ? <p className="mt-0.5 text-[11px] text-gray-400">{hint}</p> : null}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Metric({ label, value, detail }) {
+  return (
+    <div className="min-w-0">
+      <p className="mb-1 text-[10px] uppercase tracking-[0.12em] text-gray-400">{label}</p>
+      <p className="text-[22px] font-semibold leading-none tracking-tight text-navy-900 tabular-nums">{value}</p>
+      {detail ? <p className="mt-1.5 text-[11px] text-gray-400">{detail}</p> : null}
+    </div>
+  );
+}
+
 function LocationViewToggle({ value, onChange, views }) {
   return (
     <div className="inline-flex rounded-full bg-gray-50 p-0.5 ring-1 ring-gray-100">
