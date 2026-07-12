@@ -101,14 +101,30 @@ export function useDrivers() {
               scheduleFetchAll();
               return prev;
             }
+            const prevDriver = prev[idx];
+            const nextLat = toNumber(loc.lat, prevDriver.lat);
+            const nextLng = toNumber(loc.lng, prevDriver.lng);
+            const nextUpdatedAt = loc.updated_at || loc.recorded_at || prevDriver.updatedAt;
+            // Evitar pisar una posición más fresca con un evento atrasado.
+            if (
+              nextUpdatedAt
+              && prevDriver.updatedAt
+              && new Date(nextUpdatedAt).getTime() < new Date(prevDriver.updatedAt).getTime()
+            ) {
+              return prev;
+            }
+            if (nextLat === prevDriver.lat && nextLng === prevDriver.lng
+              && nextUpdatedAt === prevDriver.updatedAt) {
+              return prev;
+            }
             const updated = [...prev];
             updated[idx] = {
-              ...updated[idx],
-              lat: toNumber(loc.lat, updated[idx].lat),
-              lng: toNumber(loc.lng, updated[idx].lng),
-              speed: toNumber(loc.speed, 0),
-              heading: toNumber(loc.heading, 0),
-              updatedAt: loc.updated_at,
+              ...prevDriver,
+              lat: nextLat,
+              lng: nextLng,
+              speed: toNumber(loc.speed ?? loc.speed_kmh, prevDriver.speed || 0),
+              heading: toNumber(loc.heading, prevDriver.heading || 0),
+              updatedAt: nextUpdatedAt,
             };
             return updated;
           });
@@ -136,24 +152,32 @@ export function useDrivers() {
               scheduleFetchAll();
               return prev;
             }
+            const prevDriver = prev[idx];
             const updated = [...prev];
-            const pendingCommission = Math.max(0, toNumber(row.pending_commission, updated[idx].pendingCommission));
+            const pendingCommission = Math.max(0, toNumber(row.pending_commission, prevDriver.pendingCommission));
+            const hasCoords = row.current_lat != null && row.current_lng != null;
             updated[idx] = {
-              ...updated[idx],
+              ...prevDriver,
+              // Fallback GPS: la app también escribe current_lat/lng en drivers.
+              ...(hasCoords ? {
+                lat: toNumber(row.current_lat, prevDriver.lat),
+                lng: toNumber(row.current_lng, prevDriver.lng),
+              } : null),
               isOnline: Boolean(row.is_available),
               isAvailable: Boolean(row.is_available),
-              fullName: row.full_name || updated[idx].fullName,
-              driverNumber: row.driver_number ?? updated[idx].driverNumber,
-              phone: row.phone || updated[idx].phone,
-              photoUrl: row.photo_url || updated[idx].photoUrl || '',
-              vehicleBrand: row.vehicle_brand || updated[idx].vehicleBrand,
-              vehicleModel: row.vehicle_model || updated[idx].vehicleModel,
-              vehiclePlate: row.vehicle_plate || updated[idx].vehiclePlate,
-              vehicleColor: row.vehicle_color || updated[idx].vehicleColor,
-              vehicleType: row.vehicle_type || updated[idx].vehicleType,
-              updatedAt: row.updated_at || updated[idx].updatedAt,
+              fullName: row.full_name || prevDriver.fullName,
+              driverNumber: row.driver_number ?? prevDriver.driverNumber,
+              phone: row.phone || prevDriver.phone,
+              photoUrl: row.photo_url || prevDriver.photoUrl || '',
+              vehicleBrand: row.vehicle_brand || prevDriver.vehicleBrand,
+              vehicleModel: row.vehicle_model || prevDriver.vehicleModel,
+              vehiclePlate: row.vehicle_plate || prevDriver.vehiclePlate,
+              vehicleColor: row.vehicle_color || prevDriver.vehicleColor,
+              vehicleType: row.vehicle_type || prevDriver.vehicleType,
+              // No pisar el timestamp de GPS con updated_at genérico del chofer.
+              updatedAt: prevDriver.updatedAt || row.updated_at,
               pendingCommission,
-              lastCommissionPaymentAt: row.last_commission_payment_at || updated[idx].lastCommissionPaymentAt,
+              lastCommissionPaymentAt: row.last_commission_payment_at || prevDriver.lastCommissionPaymentAt,
               commissionBalance: pendingCommission,
               commissionOverdue: pendingCommission > 0 && (
                 row.commission_debt_since_at

@@ -60,7 +60,16 @@ export async function GET() {
 
     const locationsMap = {};
     (locationsRes.data || []).forEach((loc) => {
-      if (loc?.driver_id) locationsMap[loc.driver_id] = loc;
+      if (!loc?.driver_id) return;
+      const prev = locationsMap[loc.driver_id];
+      if (!prev) {
+        locationsMap[loc.driver_id] = loc;
+        return;
+      }
+      // Si hay historial (varias filas), quedarse con la más reciente.
+      const prevTs = new Date(prev.updated_at || prev.recorded_at || 0).getTime();
+      const nextTs = new Date(loc.updated_at || loc.recorded_at || 0).getTime();
+      if (nextTs >= prevTs) locationsMap[loc.driver_id] = loc;
     });
 
     const activeTripsList = activeTripsRes.data || [];
@@ -90,10 +99,10 @@ export async function GET() {
         id: merged.id,
         lat: toNumber(loc?.lat ?? merged.current_lat, 0),
         lng: toNumber(loc?.lng ?? merged.current_lng, 0),
-        speed: toNumber(loc?.speed, 0),
+        speed: toNumber(loc?.speed ?? loc?.speed_kmh, 0),
         heading: toNumber(loc?.heading, 0),
         isOnline: Boolean(merged.is_available),
-        updatedAt: loc?.updated_at || merged.updated_at,
+        updatedAt: loc?.updated_at || loc?.recorded_at || merged.updated_at,
         fullName: merged.full_name || 'Sin nombre',
         driverNumber: merged.driver_number ?? null,
         phone: merged.phone || '',

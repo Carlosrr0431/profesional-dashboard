@@ -12,7 +12,8 @@ if (!supabaseUrl || !supabaseKey) {
 export const supabase = createBrowserClient(supabaseUrl, supabaseKey, {
   realtime: {
     params: {
-      eventsPerSecond: 10,
+      // Flota grande: 10 EPS descartaba updates de GPS en el mapa.
+      eventsPerSecond: 40,
     },
   },
 });

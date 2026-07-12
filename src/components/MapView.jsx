@@ -92,12 +92,19 @@ function buildPointGeoJSON(lat, lng) {
   };
 }
 
-const DriverMapPin = memo(function DriverMapPin({ driver, isSelected, isMultiSelected, onSelect }) {
+const DriverMapPin = memo(function DriverMapPin({
+  driver,
+  lat,
+  lng,
+  isSelected,
+  isMultiSelected,
+  onSelect,
+}) {
   const spec = buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected);
   return (
     <Marker
-      longitude={Number(driver.lng)}
-      latitude={Number(driver.lat)}
+      longitude={lng}
+      latitude={lat}
       anchor="bottom"
       onClick={(e) => {
         e.originalEvent.stopPropagation();
@@ -119,7 +126,19 @@ const DriverMapPin = memo(function DriverMapPin({ driver, isSelected, isMultiSel
       />
     </Marker>
   );
-});
+}, (prev, next) => (
+  prev.lat === next.lat
+  && prev.lng === next.lng
+  && prev.isSelected === next.isSelected
+  && prev.isMultiSelected === next.isMultiSelected
+  && prev.driver?.id === next.driver?.id
+  && prev.driver?.driverNumber === next.driver?.driverNumber
+  && prev.driver?.isOnline === next.driver?.isOnline
+  && prev.driver?.isAvailable === next.driver?.isAvailable
+  && (prev.driver?.activeTrip?.id || null) === (next.driver?.activeTrip?.id || null)
+  && (prev.driver?.activeTrip?.status || null) === (next.driver?.activeTrip?.status || null)
+  && prev.onSelect === next.onSelect
+));
 
 const MapView = memo(function MapView({
   mapRef,
@@ -254,12 +273,16 @@ const MapView = memo(function MapView({
         )}
 
         {drivers.map((driver) => {
-          if (!driver.lat || !driver.lng) return null;
+          const lat = Number(driver.lat);
+          const lng = Number(driver.lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
           const isMultiSelected = multiSelectMode && selectedSet.has(driver.id);
           return (
             <DriverMapPin
               key={driver.id}
               driver={driver}
+              lat={lat}
+              lng={lng}
               isSelected={!multiSelectMode && driver.id === resolvedSelectedId}
               isMultiSelected={isMultiSelected}
               onSelect={handleDriverSelect}
