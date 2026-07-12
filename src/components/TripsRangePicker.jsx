@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   buildCalendarGrid,
   getMonthNamesShort,
@@ -12,13 +13,15 @@ import {
 } from '../lib/commissionPaymentPeriods';
 
 const WEEKDAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+const POPOVER_WIDTH = 280;
 
 function cellToAnchor(cell) {
   return `${cell.year}-${String(cell.month).padStart(2, '0')}-${String(cell.day).padStart(2, '0')}`;
 }
 
 /**
- * Selector compacto de semana/mes para Viajes: popover anclado a la barra, sin modal fullscreen.
+ * Selector compacto de semana/mes para Viajes.
+ * El panel se renderiza en un portal (fixed) para no quedar tapado por overflow/z-index.
  */
 export default function TripsRangePicker({
   mode,
@@ -27,7 +30,9 @@ export default function TripsRangePicker({
   label,
 }) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef(null);
+  const [coords, setCoords] = useState(null);
+  const buttonRef = useRef(null);
+  const panelRef = useRef(null);
   const parts = parseAnchorString(anchorDate);
   const [viewYear, setViewYear] = useState(parts.year);
   const [viewMonth, setViewMonth] = useState(parts.month);
@@ -38,10 +43,36 @@ export default function TripsRangePicker({
     setViewMonth(next.month);
   }, [anchorDate]);
 
+  const updateCoords = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const left = Math.min(
+      Math.max(8, rect.right - POPOVER_WIDTH),
+      window.innerWidth - POPOVER_WIDTH - 8,
+    );
+    const top = Math.min(rect.bottom + 6, window.innerHeight - 8);
+    setCoords({ top, left });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    updateCoords();
+    const onResize = () => updateCoords();
+    window.addEventListener('resize', onResize);
+    window.addEventListener('scroll', onResize, true);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onResize, true);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return undefined;
     const onDoc = (event) => {
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
+      const t = event.target;
+      if (buttonRef.current?.contains(t)) return;
+      if (panelRef.current?.contains(t)) return;
+      setOpen(false);
     };
     const onKey = (event) => {
       if (event.key === 'Escape') setOpen(false);
@@ -95,9 +126,122 @@ export default function TripsRangePicker({
     setOpen(false);
   };
 
+  const panel = open && coords && typeof document !== 'undefined'
+    ? createPortal(
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-label={mode === 'week' ? 'Elegir semana' : 'Elegir mes'}
+        className="fixed z-[10000] w-[280px] rounded-xl border border-slate-200 bg-white p-3 shadow-2xl shadow-slate-900/20"
+        style={{ top: coords.top, left: coords.left }}
+      >
+        {mode === 'week' ? (
+          <>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => shiftViewMonth(-1)}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
+                aria-label="Mes anterior"
+              >
+                ‹
+              </button>
+              <span className="text-[12px] font-semibold capitalize text-navy-900">{viewMonthLabel}</span>
+              <button
+                type="button"
+                onClick={() => shiftViewMonth(1)}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
+                aria-label="Mes siguiente"
+              >
+                ›
+              </button>
+            </div>
+            <div className="mb-1 grid grid-cols-7 gap-0.5">
+              {WEEKDAY_LABELS.map((wd, i) => (
+                <div key={`${wd}-${i}`} className="py-0.5 text-center text-[9px] font-semibold text-slate-400">
+                  {wd}
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-0.5">
+              {calendarCells.map((cell, index) => {
+                if (!cell) return <div key={`e-${index}`} className="aspect-square" />;
+                const inWeek = isDayInWeek(cell.year, cell.month, cell.day, anchorDate);
+                const isToday = toAnchorString(new Date()) === cellToAnchor(cell);
+                return (
+                  <button
+                    key={cellToAnchor(cell)}
+                    type="button"
+                    onClick={() => pickDay(cell)}
+                    className={`aspect-square rounded-lg text-[11px] font-medium transition ${
+                      inWeek
+                        ? 'bg-navy-900 text-white shadow-sm'
+                        : isToday
+                          ? 'bg-slate-100 text-navy-900 ring-1 ring-navy-900/20'
+                          : 'text-navy-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    {cell.day}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-center text-[10px] text-slate-400">
+              Elegí un día para ver su semana (lun–dom)
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setViewYear((y) => y - 1)}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
+                aria-label="Año anterior"
+              >
+                ‹
+              </button>
+              <span className="text-[13px] font-bold text-navy-900">{viewYear}</span>
+              <button
+                type="button"
+                onClick={() => setViewYear((y) => y + 1)}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
+                aria-label="Año siguiente"
+              >
+                ›
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {monthNames.map((name, index) => {
+                const month = index + 1;
+                const selected = isMonthSelected(viewYear, month, anchorDate);
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => pickMonth(month)}
+                    className={`rounded-lg py-2 text-[11px] font-semibold transition ${
+                      selected
+                        ? 'bg-navy-900 text-white shadow-sm'
+                        : 'bg-slate-50 text-navy-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>,
+      document.body,
+    )
+    : null;
+
   return (
-    <div ref={rootRef} className="relative">
+    <>
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-navy-900 hover:bg-slate-50"
@@ -112,109 +256,7 @@ export default function TripsRangePicker({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
-
-      {open ? (
-        <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-[280px] rounded-xl border border-slate-200 bg-white p-3 shadow-xl shadow-slate-900/10">
-          {mode === 'week' ? (
-            <>
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => shiftViewMonth(-1)}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
-                  aria-label="Mes anterior"
-                >
-                  ‹
-                </button>
-                <span className="text-[12px] font-semibold capitalize text-navy-900">{viewMonthLabel}</span>
-                <button
-                  type="button"
-                  onClick={() => shiftViewMonth(1)}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
-                  aria-label="Mes siguiente"
-                >
-                  ›
-                </button>
-              </div>
-              <div className="mb-1 grid grid-cols-7 gap-0.5">
-                {WEEKDAY_LABELS.map((wd, i) => (
-                  <div key={`${wd}-${i}`} className="py-0.5 text-center text-[9px] font-semibold text-slate-400">
-                    {wd}
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-7 gap-0.5">
-                {calendarCells.map((cell, index) => {
-                  if (!cell) return <div key={`e-${index}`} className="aspect-square" />;
-                  const inWeek = isDayInWeek(cell.year, cell.month, cell.day, anchorDate);
-                  const isToday = toAnchorString(new Date()) === cellToAnchor(cell);
-                  return (
-                    <button
-                      key={cellToAnchor(cell)}
-                      type="button"
-                      onClick={() => pickDay(cell)}
-                      className={`aspect-square rounded-lg text-[11px] font-medium transition ${
-                        inWeek
-                          ? 'bg-navy-900 text-white shadow-sm'
-                          : isToday
-                            ? 'bg-slate-100 text-navy-900 ring-1 ring-navy-900/20'
-                            : 'text-navy-900 hover:bg-slate-50'
-                      }`}
-                    >
-                      {cell.day}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="mt-2 text-center text-[10px] text-slate-400">
-                Elegí un día para ver su semana (lun–dom)
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => setViewYear((y) => y - 1)}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
-                  aria-label="Año anterior"
-                >
-                  ‹
-                </button>
-                <span className="text-[13px] font-bold text-navy-900">{viewYear}</span>
-                <button
-                  type="button"
-                  onClick={() => setViewYear((y) => y + 1)}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
-                  aria-label="Año siguiente"
-                >
-                  ›
-                </button>
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {monthNames.map((name, index) => {
-                  const month = index + 1;
-                  const selected = isMonthSelected(viewYear, month, anchorDate);
-                  return (
-                    <button
-                      key={name}
-                      type="button"
-                      onClick={() => pickMonth(month)}
-                      className={`rounded-lg py-2 text-[11px] font-semibold transition ${
-                        selected
-                          ? 'bg-navy-900 text-white shadow-sm'
-                          : 'bg-slate-50 text-navy-900 hover:bg-slate-100'
-                      }`}
-                    >
-                      {name}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
-      ) : null}
-    </div>
+      {panel}
+    </>
   );
 }
