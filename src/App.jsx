@@ -27,7 +27,7 @@ import AdminUsersPanel from './components/admin/AdminUsersPanel';
 import DashboardBrand from './components/DashboardBrand';
 import DashboardLoadingScreen from './components/DashboardLoadingScreen';
 import { useTripStatistics } from './hooks/useTripStatistics';
-import { useLiveTrips } from './hooks/useLiveTrips';
+import { useLiveTrips, toLocalDateInputValue } from './hooks/useLiveTrips';
 import { isSuperAdminUser } from './lib/adminSuperUser';
 
 // ─── Vista activa ─────────────────────────────────────────────────────────────
@@ -51,9 +51,9 @@ export default function App() {
   const { drivers, loading } = useDrivers();
   const pendingPassengers = usePendingPassengers();
   const queueData = useQueuedPassengers();
-  const liveTripsData = useLiveTrips();
+  const [tripsDate, setTripsDate] = useState(() => toLocalDateInputValue());
+  const liveTripsData = useLiveTrips(tripsDate);
   const scheduledData = useScheduledTrips();
-  const [tripsTab, setTripsTab] = useState('cola');
   const {
     tariffPerKm, tariffBase, commissionPercent,
     passengerAppTariffPerKm, passengerAppTariffBase, passengerAppCommissionPercent,
@@ -197,9 +197,9 @@ export default function App() {
 
   const handleNewTripSuccess = useCallback(() => {
     setShowNewTripModal(false);
+    setTripsDate(toLocalDateInputValue());
     queueData.refetch?.();
     liveTripsData.refetch?.();
-    setTripsTab('cola');
     goTo(VIEWS.trips);
     toast.success('Viaje encolado correctamente');
   }, [queueData, liveTripsData, goTo, toast]);
@@ -226,7 +226,7 @@ export default function App() {
         onClick={() => {
           if (currentView === VIEWS.trips) goTo(VIEWS.map);
           else {
-            setTripsTab('cola');
+            setTripsDate(toLocalDateInputValue());
             goTo(VIEWS.trips);
           }
         }}
@@ -483,8 +483,8 @@ export default function App() {
             <ViajesPanel
               queueData={queueData}
               liveTripsData={liveTripsData}
-              activeTab={tripsTab}
-              onTabChange={setTripsTab}
+              selectedDate={tripsDate}
+              onSelectedDateChange={setTripsDate}
               onBack={() => goTo(VIEWS.map)}
             />
           </div>
@@ -663,7 +663,7 @@ export default function App() {
                   <button
                     className="pointer-events-auto flex max-w-[calc(100vw-6.5rem)] items-center gap-2 rounded-xl border border-accent/30 bg-white px-2.5 py-2 shadow-lg shadow-accent/10 transition-all hover:border-accent/50 hover:shadow-xl sm:max-w-none sm:px-3"
                     onClick={() => {
-                      setTripsTab('cola');
+                      setTripsDate(toLocalDateInputValue());
                       goTo(VIEWS.trips);
                     }}
                     title="Ver cola de espera"

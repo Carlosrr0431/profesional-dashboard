@@ -80,18 +80,27 @@ export function useQueuedPassengers() {
   useEffect(() => {
     fetchAll();
 
+    let debounceTimer = null;
+    const scheduleFetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        fetchAll();
+      }, 250);
+    };
+
     const channel = supabase
-      .channel('queue-monitor-v2')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, fetchAll)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_conversations' }, fetchAll)
+      .channel(`queue-monitor-v3-${Date.now()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, scheduleFetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_conversations' }, scheduleFetch)
       .subscribe();
 
     channelRef.current = channel;
 
-    const fallbackPoll = setInterval(fetchAll, 30000);
+    const fallbackPoll = setInterval(fetchAll, 45000);
 
     return () => {
       clearInterval(fallbackPoll);
+      if (debounceTimer) clearTimeout(debounceTimer);
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
       }
