@@ -102,6 +102,8 @@ export default function OnboardingScreen() {
       }
       const result = await sendPassengerOtp(canonical);
       if (!result.ok) {
+        // Evitar martillar el endpoint si Wasender rechaza el número.
+        setResendSeconds(RESEND_COOLDOWN_SEC);
         Toast.show({ type: 'error', text1: result.message });
         return;
       }

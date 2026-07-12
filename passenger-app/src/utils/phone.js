@@ -34,6 +34,7 @@ export function extractLocalArMobileDigits(phone) {
   local = local.slice(0, 10);
   if (!/^\d{10}$/.test(local)) return '';
   if (local.startsWith('54')) return '';
+  if (local.startsWith('9') || local.startsWith('59')) return '';
   return local;
 }
 

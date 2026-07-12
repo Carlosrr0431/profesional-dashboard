@@ -2,8 +2,8 @@
   "expo": {
     "name": "Profesional Pasajero",
     "slug": "pasajero-app",
-    "version": "1.0.6",
-    "runtimeVersion": "1.0.6",
+    "version": "1.0.14",
+    "runtimeVersion": "1.0.14",
     "platforms": ["ios", "android"],
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -16,7 +16,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.profesionalapp.pasajeros",
-      "buildNumber": "2",
+      "buildNumber": "4",
       "googleServicesFile": "./GoogleService-Info.plist",
       "supportsTablet": false,
       "infoPlist": {
@@ -30,7 +30,7 @@
     "android": {
       "softwareKeyboardLayoutMode": "resize",
       "package": "com.remises.passengerapp",
-      "versionCode": 7,
+      "versionCode": 15,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

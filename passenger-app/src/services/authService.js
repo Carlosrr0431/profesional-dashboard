@@ -1,6 +1,8 @@
 const DASHBOARD_URL =
   process.env.EXPO_PUBLIC_DASHBOARD_URL || 'https://profesional-dashboard.vercel.app';
 
+const CLIENT_HEADER = 'passenger-app/1.0.12';
+
 async function parseJsonResponse(response) {
   const data = await response.json().catch(() => ({}));
   return { data, ok: response.ok, status: response.status };
@@ -10,7 +12,10 @@ export async function sendPassengerOtp(phone) {
   try {
     const response = await fetch(`${DASHBOARD_URL}/api/auth/passenger/send-otp`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Profesional-Client': CLIENT_HEADER,
+      },
       body: JSON.stringify({ phone }),
     });
 
