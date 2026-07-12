@@ -62,6 +62,12 @@ export async function sendWhatsAppOtp(phone, code) {
     `Tu código de verificación de *Profesional Pasajero* es: *${code}*\n\n`
     + 'Válido por 10 minutos. No lo compartas con nadie.';
 
+  console.info('[passenger-otp]', JSON.stringify({
+    stage: 'send_attempt',
+    toMasked: maskPhone(phone),
+    jidSuffix: to.slice(-20),
+  }));
+
   const response = await fetch(`${WASENDER_BASE_URL}/send-message`, {
     method: 'POST',
     headers: {
@@ -80,6 +86,12 @@ export async function sendWhatsAppOtp(phone, code) {
   }
 
   if (!response.ok) {
+    console.info('[passenger-otp]', JSON.stringify({
+      stage: 'send_failed',
+      toMasked: maskPhone(phone),
+      httpStatus: response.status,
+      body: rawBody.slice(0, 160) || 'no_body',
+    }));
     return {
       ok: false,
       reason: `whatsapp_send_error:http_${response.status}:${rawBody.slice(0, 120) || 'no_body'}`,
@@ -89,8 +101,19 @@ export async function sendWhatsAppOtp(phone, code) {
   const apiError = payload?.error || payload?.errors
     || (payload?.success === false ? payload?.message : null);
   if (apiError) {
+    console.info('[passenger-otp]', JSON.stringify({
+      stage: 'send_api_error',
+      toMasked: maskPhone(phone),
+      error: String(apiError).slice(0, 160),
+    }));
     return { ok: false, reason: `whatsapp_send_error:${String(apiError).slice(0, 120)}` };
   }
+
+  console.info('[passenger-otp]', JSON.stringify({
+    stage: 'send_ok',
+    toMasked: maskPhone(phone),
+    msgId: payload?.data?.msgId ? String(payload.data.msgId) : null,
+  }));
 
   return { ok: true, to, msgId: payload?.data?.msgId ? String(payload.data.msgId) : null };
 }
@@ -135,7 +158,8 @@ export async function assertCanSendOtp(supabase, phone) {
 
 export async function createAndSendOtp(rawPhone) {
   const phone = normalizePassengerPhoneForDb(rawPhone);
-  if (!phone || phone.length < 11) {
+  // Canónico: exactamente 54 + 10 dígitos locales (12 en total).
+  if (!phone || phone.length !== 12 || !phone.startsWith('54')) {
     return { ok: false, status: 400, message: 'Ingresá un número de teléfono válido.' };
   }
 
@@ -194,7 +218,7 @@ export async function verifyOtpAndCreateSession(rawPhone, rawCode) {
   const phone = normalizePassengerPhoneForDb(rawPhone);
   const code = String(rawCode || '').replace(/\D/g, '').padStart(4, '0').slice(-4);
 
-  if (!phone || phone.length < 11) {
+  if (!phone || phone.length !== 12 || !phone.startsWith('54')) {
     return { ok: false, status: 400, message: 'Teléfono inválido.' };
   }
   if (!/^\d{4}$/.test(code)) {
