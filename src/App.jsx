@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useDrivers } from './hooks/useDrivers';
 import { useSettings } from './hooks/useSettings';
 import { usePendingPassengers } from './hooks/usePendingPassengers';
@@ -76,7 +76,6 @@ function viewFromPath(pathname) {
 export default function App() {
   const toast = useToast();
   const router = useRouter();
-  const pathname = usePathname();
   const { signOut, user } = useAdminAuth();
   const isSuperAdmin = isSuperAdminUser(user);
   const { drivers, loading } = useDrivers();
@@ -98,7 +97,11 @@ export default function App() {
   const [tripModalDriver, setTripModalDriver] = useState(null);
   const [showNewTripModal, setShowNewTripModal] = useState(false);
   const [showAiAgentModal, setShowAiAgentModal] = useState(false);
-  const [currentView,     setCurrentView]     = useState(() => viewFromPath(pathname));
+  const [currentView,     setCurrentView]     = useState(() => (
+    typeof window !== 'undefined'
+      ? viewFromPath(window.location.pathname)
+      : VIEWS.map
+  ));
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [multiSelectedIds,setMultiSelectedIds]= useState(new Set());
   const [showBroadcast,   setShowBroadcast]   = useState(false);
@@ -208,24 +211,31 @@ export default function App() {
     }
     setCurrentView(target);
     const nextPath = pathForView(target);
-    if (pathname !== nextPath) {
-      router.push(nextPath);
+    if (typeof window !== 'undefined' && window.location.pathname !== nextPath) {
+      // Actualiza la URL sin navegación de Next (evita remount + loading).
+      window.history.pushState({ dashboardView: target }, '', nextPath);
     }
-  }, [isSuperAdmin, pathname, router]);
+  }, [isSuperAdmin]);
 
   useEffect(() => {
-    let next = viewFromPath(pathname);
-    if (
-      !isSuperAdmin
-      && (next === VIEWS.adminUsers || next === VIEWS.emulatorGps)
-    ) {
-      next = VIEWS.map;
-      if (pathname !== DASHBOARD_BASE) {
-        router.replace(DASHBOARD_BASE);
+    const syncFromUrl = () => {
+      let next = viewFromPath(window.location.pathname);
+      if (
+        !isSuperAdmin
+        && (next === VIEWS.adminUsers || next === VIEWS.emulatorGps)
+      ) {
+        next = VIEWS.map;
+        if (window.location.pathname !== DASHBOARD_BASE) {
+          window.history.replaceState({ dashboardView: next }, '', DASHBOARD_BASE);
+        }
       }
-    }
-    setCurrentView(next);
-  }, [pathname, isSuperAdmin, router]);
+      setCurrentView(next);
+    };
+
+    syncFromUrl();
+    window.addEventListener('popstate', syncFromUrl);
+    return () => window.removeEventListener('popstate', syncFromUrl);
+  }, [isSuperAdmin]);
 
   useEffect(() => {
     if (panelDriverId) setFleetDrawerOpen(false);
