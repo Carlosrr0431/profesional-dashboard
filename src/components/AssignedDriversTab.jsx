@@ -138,26 +138,35 @@ export default function AssignedDriversTab({
   const [busyId, setBusyId] = useState(null);
   const channelRef = useRef(null);
   const refetchTimerRef = useRef(null);
+  const partnerOwnersRef = useRef(partnerOwners);
+  const fetchAssignedRef = useRef(fetchAssignedDrivers);
+  const toastRef = useRef(toast);
 
-  const partnerIds = useMemo(
-    () => (partnerOwners || []).map((p) => p.id).filter(Boolean),
+  partnerOwnersRef.current = partnerOwners;
+  fetchAssignedRef.current = fetchAssignedDrivers;
+  toastRef.current = toast;
+
+  const partnerIdsKey = useMemo(
+    () => (partnerOwners || []).map((p) => p.id).filter(Boolean).slice().sort().join(','),
     [partnerOwners],
   );
-  const watchedOwnerIds = useMemo(
-    () => [ownerDriver.id, ...partnerIds],
-    [ownerDriver.id, partnerIds],
-  );
+  const watchedOwnerIds = useMemo(() => {
+    const ids = [ownerDriver.id];
+    if (partnerIdsKey) ids.push(...partnerIdsKey.split(','));
+    return ids;
+  }, [ownerDriver.id, partnerIdsKey]);
 
   const loadAssigned = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     try {
-      const ownRows = await fetchAssignedDrivers(ownerDriver.id);
+      const ownRows = await fetchAssignedRef.current(ownerDriver.id);
       setAssigned(ownRows);
 
-      if (partnerOwners.length) {
+      const partners = partnerOwnersRef.current || [];
+      if (partners.length) {
         const fleets = await Promise.all(
-          partnerOwners.map(async (partner) => {
-            const rows = await fetchAssignedDrivers(partner.id);
+          partners.map(async (partner) => {
+            const rows = await fetchAssignedRef.current(partner.id);
             return { partner, rows };
           }),
         );
@@ -166,17 +175,29 @@ export default function AssignedDriversTab({
         setPartnerFleets([]);
       }
     } catch (err) {
-      toast.error(err?.message || 'No se pudieron cargar los choferes asignados');
+      toastRef.current.error(err?.message || 'No se pudieron cargar los choferes asignados');
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [ownerDriver.id, partnerOwners, fetchAssignedDrivers, toast]);
+  }, [ownerDriver.id, partnerIdsKey]);
 
   useEffect(() => {
     loadAssigned();
   }, [loadAssigned]);
 
   useEffect(() => {
+    const meaningfulKeys = [
+      'owner_id',
+      'is_available',
+      'registration_status',
+      'full_name',
+      'phone',
+      'role',
+      'driver_role',
+      'photo_url',
+      'total_trips',
+    ];
+
     const scheduleReload = () => {
       if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
       refetchTimerRef.current = setTimeout(() => {
@@ -194,9 +215,14 @@ export default function AssignedDriversTab({
         (payload) => {
           const row = payload.new || payload.old;
           if (!row) return;
-          if (ownerIdSet.has(row.id) || ownerIdSet.has(row.owner_id)) {
-            scheduleReload();
+          if (!ownerIdSet.has(row.id) && !ownerIdSet.has(row.owner_id)) return;
+
+          if (payload.eventType === 'UPDATE' && payload.old && payload.new) {
+            const changed = meaningfulKeys.some((key) => payload.old[key] !== payload.new[key]);
+            if (!changed) return;
           }
+
+          scheduleReload();
         },
       )
       .subscribe();

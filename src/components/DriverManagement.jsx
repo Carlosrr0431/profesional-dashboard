@@ -27,8 +27,14 @@ export default function DriverManagement({ onBack }) {
   useEffect(() => {
     if (!detailDriver) return;
     const updated = drivers.find((d) => d.id === detailDriver.id);
-    if (updated) setDetailDriver(updated);
-  }, [drivers, detailDriver?.id]);
+    if (!updated || updated === detailDriver) return;
+    setDetailDriver(updated);
+  }, [drivers, detailDriver]);
+
+  const detailPartnerOwners = useMemo(
+    () => (detailDriver ? findOwnerPartners(drivers, detailDriver) : []),
+    [drivers, detailDriver],
+  );
 
   const ownerById = useMemo(() => {
     const map = {};
@@ -358,7 +364,7 @@ export default function DriverManagement({ onBack }) {
           deleteAssignedDriver={deleteAssignedDriver}
           toggleAssignedDriverStatus={toggleAssignedDriverStatus}
           assignedCount={assignedCountByOwner[detailDriver.id] || 0}
-          partnerOwners={findOwnerPartners(drivers, detailDriver)}
+          partnerOwners={detailPartnerOwners}
         />
       )}
 
