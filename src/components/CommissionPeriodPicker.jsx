@@ -9,7 +9,7 @@ import {
   toAnchorString,
 } from '../lib/commissionPaymentPeriods';
 
-const MODE_OPTIONS = [
+const DEFAULT_MODE_OPTIONS = [
   { key: 'week', label: 'Semana' },
   { key: 'month', label: 'Mes' },
   { key: 'all', label: 'Todo' },
@@ -24,7 +24,10 @@ export default function CommissionPeriodPicker({
   onAnchorChange,
   compact = false,
   useModal = false,
+  showModeToggle = true,
+  modes = null,
 }) {
+  const modeOptions = modes || DEFAULT_MODE_OPTIONS;
   const anchorParts = parseAnchorString(anchorDate);
   const [viewYear, setViewYear] = useState(anchorParts.year);
   const [viewMonth, setViewMonth] = useState(anchorParts.month);
@@ -80,22 +83,24 @@ export default function CommissionPeriodPicker({
   return (
     <div className={`${compact ? 'space-y-2' : 'space-y-3'}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1 bg-light-300/60 rounded-xl p-1">
-          {MODE_OPTIONS.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              onClick={() => handleModeChange(option.key)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
-                mode === option.key
-                  ? 'bg-accent text-white shadow-md shadow-accent/20'
-                  : 'text-gray-400 hover:text-navy-900'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        {showModeToggle ? (
+          <div className="flex gap-1 bg-light-300/60 rounded-xl p-1">
+            {modeOptions.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => handleModeChange(option.key)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                  mode === option.key
+                    ? 'bg-accent text-white shadow-md shadow-accent/20'
+                    : 'text-gray-400 hover:text-navy-900'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         {mode !== 'all' ? (
           <>

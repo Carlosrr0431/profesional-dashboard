@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import {
+  resolveTripsViewRange,
+  toAnchorString,
+} from '../lib/commissionPaymentPeriods';
 
 const ACTIVE_STATUSES = new Set(['pending', 'accepted', 'going_to_pickup', 'in_progress']);
 
@@ -26,9 +30,17 @@ function isSameLocalDay(dateStr, dayStr) {
   return toLocalDateInputValue(new Date(dateStr)) === dayStr;
 }
 
-function mapTrip(trip, selectedDate) {
-  const inSelectedDay = trip.in_selected_day === true
-    || isSameLocalDay(trip.created_at, selectedDate);
+function isInRange(isoDate, startIso, endIso) {
+  const ms = new Date(isoDate).getTime();
+  const startMs = new Date(startIso).getTime();
+  const endMs = new Date(endIso).getTime();
+  return Number.isFinite(ms) && ms >= startMs && ms < endMs;
+}
+
+function mapTrip(trip, range) {
+  const inSelectedRange = trip.in_selected_range === true
+    || trip.in_selected_day === true
+    || (range?.start && range?.end && isInRange(trip.created_at, range.start, range.end));
 
   return {
     id: trip.id,
@@ -49,25 +61,24 @@ function mapTrip(trip, selectedDate) {
     commissionAmount: trip.commission_amount != null ? Number(trip.commission_amount) : null,
     notes: trip.notes || null,
     driver: trip.driver || null,
-    isSelectedDay: inSelectedDay,
+    isSelectedDay: inSelectedRange,
     isToday: isSameLocalDay(trip.created_at, toLocalDateInputValue()),
     isActive: ACTIVE_STATUSES.has(trip.status),
     isQueued: trip.status === 'queued' && trip.dispatch_status !== 'hold',
   };
 }
 
-async function fetchTripsDay(date) {
-  let response = await fetch(`/api/trips-day?date=${encodeURIComponent(date)}`, {
-    cache: 'no-store',
+async function fetchTripsRange(mode, date) {
+  const params = new URLSearchParams({
+    mode: mode || 'day',
+    date: date || toLocalDateInputValue(),
   });
+  let response = await fetch(`/api/trips-day?${params}`, { cache: 'no-store' });
   let contentType = response.headers.get('content-type') || '';
 
-  // Durante HMR, Next puede devolver HTML mientras compila la ruta.
   if (!contentType.includes('application/json')) {
     await new Promise((resolve) => setTimeout(resolve, 400));
-    response = await fetch(`/api/trips-day?date=${encodeURIComponent(date)}`, {
-      cache: 'no-store',
-    });
+    response = await fetch(`/api/trips-day?${params}`, { cache: 'no-store' });
     contentType = response.headers.get('content-type') || '';
   }
 
@@ -86,23 +97,34 @@ async function fetchTripsDay(date) {
   return {
     trips: Array.isArray(payload?.data?.trips) ? payload.data.trips : [],
     date: payload?.data?.date || date,
+    mode: payload?.data?.mode || mode,
+    label: payload?.data?.label || '',
+    start: payload?.data?.start,
+    end: payload?.data?.end,
   };
 }
 
-export function useLiveTrips(selectedDate = toLocalDateInputValue()) {
+export function useLiveTrips(
+  selectedDate = toLocalDateInputValue(),
+  selectedMode = 'day',
+) {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [error, setError] = useState(null);
+  const [rangeMeta, setRangeMeta] = useState(() => resolveTripsViewRange(selectedMode, selectedDate));
   const channelRef = useRef(null);
   const refetchTimerRef = useRef(null);
   const selectedDateRef = useRef(selectedDate);
+  const selectedModeRef = useRef(selectedMode);
   selectedDateRef.current = selectedDate;
+  selectedModeRef.current = selectedMode;
 
   const fetchAll = useCallback(async () => {
     const date = selectedDateRef.current;
+    const mode = selectedModeRef.current || 'day';
     try {
-      const result = await fetchTripsDay(date);
+      const result = await fetchTripsRange(mode, date);
       if (result.skipped) return;
 
       if (result.error) {
@@ -111,8 +133,16 @@ export function useLiveTrips(selectedDate = toLocalDateInputValue()) {
         return;
       }
 
+      const range = {
+        start: result.start,
+        end: result.end,
+        mode: result.mode,
+        date: result.date,
+        label: result.label,
+      };
       setError(null);
-      setTrips((result.trips || []).map((t) => mapTrip(t, date)));
+      setRangeMeta(range);
+      setTrips((result.trips || []).map((t) => mapTrip(t, range)));
       setLastUpdated(new Date());
     } catch (err) {
       console.error('[useLiveTrips] Error:', formatFetchError(err));
@@ -131,8 +161,9 @@ export function useLiveTrips(selectedDate = toLocalDateInputValue()) {
 
   useEffect(() => {
     setLoading(true);
+    setRangeMeta(resolveTripsViewRange(selectedMode, selectedDate));
     fetchAll();
-  }, [fetchAll, selectedDate]);
+  }, [fetchAll, selectedDate, selectedMode]);
 
   useEffect(() => {
     const channel = supabase
@@ -157,14 +188,14 @@ export function useLiveTrips(selectedDate = toLocalDateInputValue()) {
   );
 
   const stats = useMemo(() => {
-    const ofDay = trips.filter((t) => t.isSelectedDay);
+    const ofRange = trips.filter((t) => t.isSelectedDay);
     return {
-      total: ofDay.length,
+      total: ofRange.length,
       active: trips.filter((t) => t.isActive).length,
       queued: trips.filter((t) => t.isQueued).length,
-      completedDay: ofDay.filter((t) => t.status === 'completed').length,
-      cancelledDay: ofDay.filter((t) => t.status === 'cancelled').length,
-      dispatchedDay: ofDay.filter((t) => t.status !== 'queued').length,
+      completedDay: ofRange.filter((t) => t.status === 'completed').length,
+      cancelledDay: ofRange.filter((t) => t.status === 'cancelled').length,
+      dispatchedDay: ofRange.filter((t) => t.status !== 'queued').length,
     };
   }, [trips]);
 
@@ -177,5 +208,10 @@ export function useLiveTrips(selectedDate = toLocalDateInputValue()) {
     error,
     refetch: fetchAll,
     selectedDate,
+    selectedMode,
+    rangeLabel: rangeMeta?.label || '',
+    rangeMeta,
   };
 }
+
+export { toAnchorString, resolveTripsViewRange };

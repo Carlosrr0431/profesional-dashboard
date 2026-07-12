@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useToast } from '../context/ToastContext';
 import { toLocalDateInputValue } from '../hooks/useLiveTrips';
+import {
+  resolveTripsViewRange,
+  shiftTripsAnchor,
+  toAnchorString,
+} from '../lib/commissionPaymentPeriods';
+import CommissionPeriodPicker from './CommissionPeriodPicker';
 
 const STATUS_FILTERS = [
   { id: 'all', label: 'Todos' },
@@ -10,6 +16,12 @@ const STATUS_FILTERS = [
   { id: 'queued', label: 'En cola' },
   { id: 'completed', label: 'Completados' },
   { id: 'cancelled', label: 'Cancelados' },
+];
+
+const RANGE_MODES = [
+  { key: 'day', label: 'Día' },
+  { key: 'week', label: 'Semana' },
+  { key: 'month', label: 'Mes' },
 ];
 
 function formatWait(minutes) {
@@ -233,6 +245,8 @@ export default function ViajesPanel({
   onBack,
   selectedDate,
   onSelectedDateChange,
+  selectedMode = 'day',
+  onSelectedModeChange,
 }) {
   const toast = useToast();
   const [statusFilter, setStatusFilter] = useState('all');
@@ -247,8 +261,19 @@ export default function ViajesPanel({
   const loading = Boolean(queueData?.loading || liveTripsData?.loading);
   const lastUpdated = liveTripsData?.lastUpdated || queueData?.lastUpdated;
   const loadError = liveTripsData?.error || null;
+  const mode = selectedMode === 'week' || selectedMode === 'month' ? selectedMode : 'day';
   const dateValue = selectedDate || toLocalDateInputValue();
-  const isToday = dateValue === toLocalDateInputValue();
+  const todayValue = toLocalDateInputValue();
+  const rangeInfo = useMemo(
+    () => resolveTripsViewRange(mode, dateValue),
+    [mode, dateValue],
+  );
+  const todayRange = useMemo(
+    () => resolveTripsViewRange(mode, todayValue),
+    [mode, todayValue],
+  );
+  const rangeLabel = liveTripsData?.rangeLabel || rangeInfo.label;
+  const isCurrentRange = rangeInfo.start === todayRange.start && rangeInfo.end === todayRange.end;
 
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 30000);
@@ -295,17 +320,43 @@ export default function ViajesPanel({
     }
   };
 
-  const shiftDay = (delta) => {
-    const [y, m, d] = dateValue.split('-').map(Number);
-    const next = new Date(y, m - 1, d + delta);
-    onSelectedDateChange?.(toLocalDateInputValue(next));
+  const shiftRange = (delta) => {
+    onSelectedDateChange?.(shiftTripsAnchor(mode, dateValue, delta));
   };
+
+  const goToToday = () => {
+    onSelectedDateChange?.(toAnchorString(new Date()));
+  };
+
+  const handleModeChange = (nextMode) => {
+    onSelectedModeChange?.(nextMode);
+    if (nextMode === 'month') {
+      const parts = dateValue.split('-');
+      onSelectedDateChange?.(`${parts[0]}-${parts[1]}-01`);
+    }
+  };
+
+  const canGoNext = (() => {
+    const next = shiftTripsAnchor(mode, dateValue, 1);
+    const nextRange = resolveTripsViewRange(mode, next);
+    return new Date(nextRange.start).getTime() < new Date(todayRange.end).getTime();
+  })();
 
   const queueCount = loading ? '—' : queueStats.inQueue ?? 0;
   const activeCount = loading ? '—' : tripStats.active ?? 0;
   const dispatchedCount = loading ? '—' : tripStats.dispatchedDay ?? 0;
   const completedCount = loading ? '—' : tripStats.completedDay ?? 0;
   const cancelledCount = loading ? '—' : tripStats.cancelledDay ?? 0;
+
+  const sectionTitle = mode === 'day' && isCurrentRange
+    ? 'Viajes y despachos de hoy'
+    : `Viajes · ${rangeLabel}`;
+
+  const rangeCountLabel = mode === 'day'
+    ? 'del día'
+    : mode === 'week'
+      ? 'de la semana'
+      : 'del mes';
 
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)]">
@@ -368,44 +419,100 @@ export default function ViajesPanel({
 
           <div className="ml-auto flex flex-wrap items-center gap-1.5">
             <div className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5">
-              <button
-                type="button"
-                onClick={() => shiftDay(-1)}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50"
-                title="Día anterior"
-              >
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-              <input
-                type="date"
-                value={dateValue}
-                max={toLocalDateInputValue()}
-                onChange={(e) => onSelectedDateChange?.(e.target.value || toLocalDateInputValue())}
-                className="h-7 rounded-md border-0 bg-transparent px-0.5 text-[11px] font-semibold text-navy-900 outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => shiftDay(1)}
-                disabled={isToday}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-40"
-                title="Día siguiente"
-              >
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-              {!isToday ? (
+              {RANGE_MODES.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => handleModeChange(item.key)}
+                  className={`rounded-md px-2 py-1 text-[10px] font-semibold transition ${
+                    mode === item.key
+                      ? 'bg-navy-900 text-white'
+                      : 'text-slate-500 hover:bg-slate-50 hover:text-navy-900'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {mode === 'day' ? (
+              <div className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5">
                 <button
                   type="button"
-                  onClick={() => onSelectedDateChange?.(toLocalDateInputValue())}
-                  className="mr-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-navy-800 hover:bg-slate-50"
+                  onClick={() => shiftRange(-1)}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50"
+                  title="Día anterior"
                 >
-                  Hoy
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
                 </button>
-              ) : null}
-            </div>
+                <input
+                  type="date"
+                  value={dateValue}
+                  max={todayValue}
+                  onChange={(e) => onSelectedDateChange?.(e.target.value || todayValue)}
+                  className="h-7 rounded-md border-0 bg-transparent px-0.5 text-[11px] font-semibold text-navy-900 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => shiftRange(1)}
+                  disabled={!canGoNext}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                  title="Día siguiente"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+                {!isCurrentRange ? (
+                  <button
+                    type="button"
+                    onClick={goToToday}
+                    className="mr-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-navy-800 hover:bg-slate-50"
+                  >
+                    Hoy
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => shiftRange(-1)}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                  title={mode === 'week' ? 'Semana anterior' : 'Mes anterior'}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <div className="min-w-0 [&_.space-y-2]:!space-y-0 [&_.space-y-3]:!space-y-0">
+                  <CommissionPeriodPicker
+                    mode={mode}
+                    onModeChange={handleModeChange}
+                    anchorDate={dateValue}
+                    onAnchorChange={(next) => onSelectedDateChange?.(next)}
+                    compact
+                    useModal
+                    showModeToggle={false}
+                    modes={RANGE_MODES.filter((m) => m.key !== 'day')}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => shiftRange(1)}
+                  disabled={!canGoNext}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                  title={mode === 'week' ? 'Semana siguiente' : 'Mes siguiente'}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={handleRefresh}
@@ -434,7 +541,7 @@ export default function ViajesPanel({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-base font-bold text-navy-900">
-                {isToday ? 'Viajes y despachos de hoy' : `Viajes del ${dateValue.split('-').reverse().join('/')}`}
+                {sectionTitle}
               </h2>
               <p className="mt-0.5 text-[11px] text-slate-500">
                 Se actualizan solos con Supabase Realtime
@@ -533,7 +640,7 @@ export default function ViajesPanel({
             <section>
               {statusFilter === 'all' ? (
                 <p className="mb-2.5 text-[11px] font-medium text-slate-500">
-                  {filteredTrips.length} viaje{filteredTrips.length === 1 ? '' : 's'} del día
+                  {filteredTrips.length} viaje{filteredTrips.length === 1 ? '' : 's'} {rangeCountLabel}
                 </p>
               ) : null}
 

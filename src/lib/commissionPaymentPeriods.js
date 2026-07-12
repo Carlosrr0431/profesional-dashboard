@@ -143,6 +143,89 @@ export function getCommissionPeriodBounds(period, referenceDate = new Date()) {
   return resolveCommissionPeriod(period, toAnchorString(referenceDate));
 }
 
+/**
+ * Rango exclusivo [start, end) para el panel de Viajes (día / semana / mes) en hora Argentina.
+ * @param {'day'|'week'|'month'} mode
+ * @param {string} dateStr YYYY-MM-DD (ancla)
+ */
+export function resolveTripsViewRange(mode = 'day', dateStr) {
+  const parts = parseAnchorString(dateStr || toAnchorString());
+  const date = `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+  const anchor = saltaDateAtMidnight(parts.year, parts.month, parts.day);
+
+  if (mode === 'week') {
+    const monday = computeWeekMonday(anchor);
+    const sunday = new Date(monday.getTime() + 6 * 86400000);
+    const end = new Date(monday.getTime() + 7 * 86400000);
+    return {
+      mode: 'week',
+      date,
+      start: monday.toISOString(),
+      end: end.toISOString(),
+      label: `Semana ${formatWeekLabel(monday, sunday)}`,
+    };
+  }
+
+  if (mode === 'month') {
+    const start = saltaDateAtMidnight(parts.year, parts.month, 1);
+    const nextMonth = parts.month === 12 ? 1 : parts.month + 1;
+    const nextYear = parts.month === 12 ? parts.year + 1 : parts.year;
+    const end = saltaDateAtMidnight(nextYear, nextMonth, 1);
+    return {
+      mode: 'month',
+      date: `${parts.year}-${String(parts.month).padStart(2, '0')}-01`,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      label: formatMonthLabel(parts.year, parts.month),
+    };
+  }
+
+  const start = saltaDateAtMidnight(parts.year, parts.month, parts.day);
+  const end = new Date(start.getTime() + 86400000);
+  const dayLabel = new Intl.DateTimeFormat('es-AR', {
+    timeZone: SALTA_TZ,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(start);
+
+  return {
+    mode: 'day',
+    date,
+    start: start.toISOString(),
+    end: end.toISOString(),
+    label: dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1),
+  };
+}
+
+export function shiftTripsAnchor(mode, dateStr, delta) {
+  const parts = parseAnchorString(dateStr || toAnchorString());
+  const base = saltaDateAtMidnight(parts.year, parts.month, parts.day);
+
+  if (mode === 'week') {
+    const next = new Date(base.getTime() + delta * 7 * 86400000);
+    return toAnchorString(next);
+  }
+
+  if (mode === 'month') {
+    let month = parts.month + delta;
+    let year = parts.year;
+    while (month < 1) {
+      month += 12;
+      year -= 1;
+    }
+    while (month > 12) {
+      month -= 12;
+      year += 1;
+    }
+    return `${year}-${String(month).padStart(2, '0')}-01`;
+  }
+
+  const next = new Date(base.getTime() + delta * 86400000);
+  return toAnchorString(next);
+}
+
 export function filterPaymentsByRange(payments, startIso, endIso) {
   const startMs = startIso ? new Date(startIso).getTime() : 0;
   const endMs = endIso ? new Date(endIso).getTime() : Infinity;

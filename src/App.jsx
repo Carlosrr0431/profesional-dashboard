@@ -82,7 +82,8 @@ export default function App() {
   const pendingPassengers = usePendingPassengers();
   const queueData = useQueuedPassengers();
   const [tripsDate, setTripsDate] = useState(() => toLocalDateInputValue());
-  const liveTripsData = useLiveTrips(tripsDate);
+  const [tripsMode, setTripsMode] = useState('day');
+  const liveTripsData = useLiveTrips(tripsDate, tripsMode);
   const scheduledData = useScheduledTrips();
   const {
     tariffPerKm, tariffBase, commissionPercent,
@@ -535,6 +536,8 @@ export default function App() {
               liveTripsData={liveTripsData}
               selectedDate={tripsDate}
               onSelectedDateChange={setTripsDate}
+              selectedMode={tripsMode}
+              onSelectedModeChange={setTripsMode}
               onBack={() => goTo(VIEWS.map)}
             />
           </div>
