@@ -37,15 +37,19 @@ export function extractLocalArMobileDigits(value) {
 
   let local = '';
 
-  if (digits.startsWith('549') && digits.length >= 13) {
-    local = digits.slice(3);
-  } else if (digits.startsWith('54') && digits.length >= 12) {
+  if (digits.startsWith('549')) {
+    // 549 + 10 locales = 13 dígitos. Menos = internacional incompleto (no tragar el 9).
+    if (digits.length < 13) return '';
+    local = digits.slice(3, 13);
+  } else if (digits.startsWith('54')) {
+    // 54 + 10 locales = 12, o 54 + 9 + 10 = 13.
+    if (digits.length < 12) return '';
     let rest = digits.slice(2);
-    // 54 + 9 + 10 locales (aunque no haya quedado pegado como "549...")
     if (rest.startsWith('9') && rest.length >= 11) {
       rest = rest.slice(1);
     }
-    local = rest;
+    local = rest.slice(0, 10);
+    if (local.length < 10) return '';
   } else if (digits.startsWith('9') && digits.length === 11) {
     local = digits.slice(1);
   } else if (digits.length === 10) {
@@ -61,6 +65,10 @@ export function extractLocalArMobileDigits(value) {
 
   local = local.slice(0, 10);
   if (!/^\d{10}$/.test(local)) return '';
+
+  // Pegar "54…" truncado a 10 dígitos no es un móvil local válido.
+  if (local.startsWith('54')) return '';
+
   return local;
 }
 

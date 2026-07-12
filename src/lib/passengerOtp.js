@@ -92,6 +92,8 @@ export async function sendWhatsAppOtp(phone, code) {
   }
 
   if (!response.ok) {
+    const bodyLower = rawBody.toLowerCase();
+    const jidMissing = bodyLower.includes('does not exist') || bodyLower.includes('jid');
     console.info('[passenger-otp]', JSON.stringify({
       stage: 'send_failed',
       ...logBase,
@@ -101,6 +103,7 @@ export async function sendWhatsAppOtp(phone, code) {
     return {
       ok: false,
       reason: `whatsapp_send_error:http_${response.status}:${rawBody.slice(0, 120) || 'no_body'}`,
+      jidMissing,
     };
   }
 
@@ -193,7 +196,9 @@ export async function createAndSendOtp(rawPhone) {
     return {
       ok: false,
       status: 502,
-      message: 'No pudimos enviar el código por WhatsApp. Verificá el número e intentá de nuevo.',
+      message: waResult.jidMissing
+        ? 'Ese número no tiene WhatsApp o está mal escrito. Usá los 10 dígitos locales (ej. 387…), sin 0 ni 54.'
+        : 'No pudimos enviar el código por WhatsApp. Verificá el número e intentá de nuevo.',
       reason: waResult.reason,
     };
   }

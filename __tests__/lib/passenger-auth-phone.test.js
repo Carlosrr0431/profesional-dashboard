@@ -43,6 +43,12 @@ describe('passengerAuthPhone', () => {
     expect(normalizePassengerPhoneForDb('387863')).toBe('');
     expect(normalizePassengerPhoneForDb('')).toBe('');
     expect(toWhatsAppJid('123')).toBeNull();
+    // Internacional incompleto / 54 pegado como si fuera local
+    expect(normalizePassengerPhoneForDb('5493878630')).toBe('');
+    expect(normalizePhoneForWhatsApp('5493878630')).toBe('');
+    expect(toWhatsAppJid('5493878630')).toBeNull();
+    expect(normalizePassengerPhoneForDb('549387863017')).toBe('');
+    expect(normalizePassengerPhoneForDb('54387863017')).toBe('');
   });
 
   it('limpia formato viejo con 15 tras el área', () => {
