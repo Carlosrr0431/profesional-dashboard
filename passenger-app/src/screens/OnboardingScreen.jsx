@@ -18,7 +18,7 @@ import * as Haptics from 'expo-haptics';
 import Toast from 'react-native-toast-message';
 import { colors } from '../theme/colors';
 import { useAuthStore } from '../stores/authStore';
-import { normalizePassengerPhone } from '../utils/phone';
+import { normalizePassengerPhone, extractLocalArMobileDigits } from '../utils/phone';
 import { sendPassengerOtp, verifyPassengerOtp } from '../services/authService';
 import OtpInput from '../components/ui/OtpInput';
 import { LoginBrandHeader } from '../components/auth/LoginBrandHeader';
@@ -61,8 +61,22 @@ export default function OnboardingScreen() {
   }, []);
 
   const phoneDigits = phone.replace(/\D/g, '');
-  const canSendCode = phoneDigits.length === 10;
+  const canSendCode = normalizePassengerPhone(phone).length === 12;
   const canVerify = code.length === 4;
+
+  const handlePhoneChange = useCallback((text) => {
+    const digits = String(text || '').replace(/\D/g, '');
+    const local = extractLocalArMobileDigits(digits);
+    if (local) {
+      setPhone(local);
+      return;
+    }
+    // Pegado incompleto tipo 5493878630: no guardarlo como si fuera un móvil local.
+    if (digits.startsWith('54') || (digits.startsWith('9') && digits.length > 11)) {
+      return;
+    }
+    setPhone(digits.slice(0, 10));
+  }, []);
 
   useEffect(() => {
     if (resendSeconds <= 0) return undefined;
@@ -77,13 +91,22 @@ export default function OnboardingScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsLoading(true);
     try {
-      const result = await sendPassengerOtp(phone);
+      const canonical = normalizePassengerPhone(phone);
+      if (!canonical) {
+        Toast.show({
+          type: 'error',
+          text1: 'Número inválido',
+          text2: 'Usá 10 dígitos con área (ej. 387…), sin 0 ni 54.',
+        });
+        return;
+      }
+      const result = await sendPassengerOtp(canonical);
       if (!result.ok) {
         Toast.show({ type: 'error', text1: result.message });
         return;
       }
 
-      setNormalizedPhone(result.phone || normalizePassengerPhone(phone));
+      setNormalizedPhone(result.phone || canonical);
       setCode('');
       setResendSeconds(RESEND_COOLDOWN_SEC);
       phoneInputRef.current?.blur();
@@ -238,7 +261,7 @@ export default function OnboardingScreen() {
                   <TextInput
                     ref={phoneInputRef}
                     value={formatPhoneDisplay(phone)}
-                    onChangeText={(t) => setPhone(t.replace(/\D/g, '').slice(0, 10))}
+                    onChangeText={handlePhoneChange}
                     placeholder="387 400 1234"
                     placeholderTextColor={colors.textLight}
                     keyboardType="number-pad"
@@ -263,7 +286,7 @@ export default function OnboardingScreen() {
                     <Ionicons name="logo-whatsapp" size={22} color={colors.success} />
                   )}
                 </Pressable>
-                <Text style={styles.phoneHint}>Sin el 15 · código de área incluido</Text>
+                <Text style={styles.phoneHint}>10 dígitos con área · sin 0 ni +54</Text>
 
                 <Pressable
                   onPress={handleSendCode}
