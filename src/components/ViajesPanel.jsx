@@ -8,7 +8,7 @@ import {
   shiftTripsAnchor,
   toAnchorString,
 } from '../lib/commissionPaymentPeriods';
-import CommissionPeriodPicker from './CommissionPeriodPicker';
+import TripsRangePicker from './TripsRangePicker';
 
 const STATUS_FILTERS = [
   { id: 'all', label: 'Todos' },
@@ -476,40 +476,43 @@ export default function ViajesPanel({
                 ) : null}
               </div>
             ) : (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5">
                 <button
                   type="button"
                   onClick={() => shiftRange(-1)}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50"
                   title={mode === 'week' ? 'Semana anterior' : 'Mes anterior'}
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                   </svg>
                 </button>
-                <div className="min-w-0 [&_.space-y-2]:!space-y-0 [&_.space-y-3]:!space-y-0">
-                  <CommissionPeriodPicker
-                    mode={mode}
-                    onModeChange={handleModeChange}
-                    anchorDate={dateValue}
-                    onAnchorChange={(next) => onSelectedDateChange?.(next)}
-                    compact
-                    useModal
-                    showModeToggle={false}
-                    modes={RANGE_MODES.filter((m) => m.key !== 'day')}
-                  />
-                </div>
+                <TripsRangePicker
+                  mode={mode}
+                  anchorDate={dateValue}
+                  onAnchorChange={(next) => onSelectedDateChange?.(next)}
+                  label={rangeLabel}
+                />
                 <button
                   type="button"
                   onClick={() => shiftRange(1)}
                   disabled={!canGoNext}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-40"
                   title={mode === 'week' ? 'Semana siguiente' : 'Mes siguiente'}
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </button>
+                {!isCurrentRange ? (
+                  <button
+                    type="button"
+                    onClick={goToToday}
+                    className="mr-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-navy-800 hover:bg-slate-50"
+                  >
+                    Hoy
+                  </button>
+                ) : null}
               </div>
             )}
 
