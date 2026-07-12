@@ -38,6 +38,12 @@ function formatAxisNumber(value, { money = false } = {}) {
   return String(Math.round(n));
 }
 
+function tooltipLeft(parentRect, barRect, width = 140) {
+  if (!parentRect || !barRect) return 8;
+  const center = barRect.left - parentRect.left + barRect.width / 2;
+  return Math.min(parentRect.width - width - 4, Math.max(4, center - width / 2));
+}
+
 function ChartTooltip({ title, rows, style }) {
   return (
     <div
@@ -124,7 +130,7 @@ export function AreaTrendChart({
 
         <div
           ref={wrapRef}
-          className="relative min-w-0 flex-1 cursor-crosshair"
+          className="relative min-w-0 flex-1"
           onMouseMove={onMove}
           onMouseLeave={() => setHover(null)}
         >
@@ -206,6 +212,7 @@ export function AreaTrendChart({
 
 export function StackedDailyChart({ data }) {
   const [hover, setHover] = useState(null);
+  const barsRef = useRef(null);
   const barMaxH = 140;
 
   if (!data?.length) return <EmptyChart message="Sin actividad diaria" />;
@@ -226,7 +233,7 @@ export function StackedDailyChart({ data }) {
             </span>
           ))}
         </div>
-        <div className="relative flex h-[180px] min-w-0 flex-1 items-end gap-1">
+        <div ref={barsRef} className="relative flex h-[180px] min-w-0 flex-1 items-end gap-1">
           {sample.map((item) => {
             const completed = Number(item.completed) || 0;
             const cancelled = Number(item.cancelled) || 0;
@@ -234,12 +241,21 @@ export function StackedDailyChart({ data }) {
             const stackH = total > 0 ? Math.max(6, Math.round((total / max) * barMaxH)) : 0;
             const cancelledH = total > 0 ? Math.max(cancelled > 0 ? 3 : 0, Math.round((cancelled / total) * stackH)) : 0;
             const completedH = Math.max(0, stackH - cancelledH);
-            const active = hover?.date === item.date;
+            const active = hover?.item?.date === item.date;
             return (
               <div
                 key={item.date}
                 className="relative flex min-w-0 flex-1 flex-col items-center gap-1"
-                onMouseEnter={() => setHover(item)}
+                onMouseEnter={(event) => {
+                  setHover({
+                    item,
+                    left: tooltipLeft(
+                      barsRef.current?.getBoundingClientRect(),
+                      event.currentTarget.getBoundingClientRect(),
+                      150,
+                    ),
+                  });
+                }}
                 onMouseLeave={() => setHover(null)}
               >
                 <div className="flex h-[140px] w-full items-end justify-center">
@@ -265,13 +281,13 @@ export function StackedDailyChart({ data }) {
           })}
           {hover ? (
             <ChartTooltip
-              title={formatDayShort(hover.date)}
+              title={formatDayShort(hover.item.date)}
               rows={[
-                { label: 'Completados', value: hover.completed || 0, color: '#22C55E' },
-                { label: 'Cancelados', value: hover.cancelled || 0, color: '#FB7185' },
-                { label: 'Total', value: (hover.completed || 0) + (hover.cancelled || 0) },
+                { label: 'Completados', value: hover.item.completed || 0, color: '#22C55E' },
+                { label: 'Cancelados', value: hover.item.cancelled || 0, color: '#FB7185' },
+                { label: 'Total', value: (hover.item.completed || 0) + (hover.item.cancelled || 0) },
               ]}
-              style={{ top: 4, left: '50%', transform: 'translateX(-50%)' }}
+              style={{ top: 4, left: hover.left }}
             />
           ) : null}
         </div>
@@ -282,6 +298,7 @@ export function StackedDailyChart({ data }) {
 
 export function ColumnChart({ data, labelKey = 'label', color = 'bg-navy-900/85', valueLabel = 'Cantidad' }) {
   const [hover, setHover] = useState(null);
+  const barsRef = useRef(null);
 
   if (!data?.length) return <EmptyChart />;
 
@@ -299,7 +316,7 @@ export function ColumnChart({ data, labelKey = 'label', color = 'bg-navy-900/85'
             </span>
           ))}
         </div>
-        <div className="relative flex h-[180px] min-w-0 flex-1 items-end gap-[3px]">
+        <div ref={barsRef} className="relative flex h-[180px] min-w-0 flex-1 items-end gap-[3px]">
           {data.map((item, index) => {
             const height = Math.max(4, Math.round((item.count / max) * 100));
             const key = item.key ?? item.hour ?? item.label ?? index;
@@ -308,7 +325,16 @@ export function ColumnChart({ data, labelKey = 'label', color = 'bg-navy-900/85'
               <div
                 key={key}
                 className="relative flex min-w-0 flex-1 flex-col items-center gap-1.5"
-                onMouseEnter={() => setHover({ key, item })}
+                onMouseEnter={(event) => {
+                  setHover({
+                    key,
+                    item,
+                    left: tooltipLeft(
+                      barsRef.current?.getBoundingClientRect(),
+                      event.currentTarget.getBoundingClientRect(),
+                    ),
+                  });
+                }}
                 onMouseLeave={() => setHover(null)}
               >
                 <div className="flex h-[140px] w-full items-end justify-center">
@@ -325,7 +351,7 @@ export function ColumnChart({ data, labelKey = 'label', color = 'bg-navy-900/85'
             <ChartTooltip
               title={String(hover.item[labelKey] ?? '')}
               rows={[{ label: valueLabel, value: hover.item.count, color: barColor }]}
-              style={{ top: 4, left: '50%', transform: 'translateX(-50%)' }}
+              style={{ top: 4, left: hover.left }}
             />
           ) : null}
         </div>
