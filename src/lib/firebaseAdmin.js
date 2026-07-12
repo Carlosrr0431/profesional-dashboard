@@ -109,6 +109,23 @@ export function normalizeFcmDataPayload(rawData = {}) {
   return data;
 }
 
+/**
+ * Tag Android para colapsar notificaciones duplicadas del mismo evento
+ * (mismo type + tripId / messageId) en una sola entrada en la bandeja.
+ */
+export function buildAndroidNotificationTag(rawData = {}) {
+  const data = rawData && typeof rawData === 'object' ? rawData : {};
+  const type = String(data.type || '').trim();
+  const tripId = String(data.tripId || data.trip_id || data.trip?.id || '').trim();
+  const messageId = String(data.messageId || data.message_id || '').trim();
+
+  if (type && tripId) return `${type}:${tripId}`.slice(0, 64);
+  if (type && messageId) return `${type}:${messageId}`.slice(0, 64);
+  if (tripId) return `trip:${tripId}`.slice(0, 64);
+  if (messageId) return `message:${messageId}`.slice(0, 64);
+  return undefined;
+}
+
 export function isFirebaseCredentialError(value) {
   const normalized = String(value || '').toLowerCase();
   return (

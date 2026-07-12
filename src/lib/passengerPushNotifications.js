@@ -2,6 +2,7 @@ import {
   getFirebaseMessagingClient,
   isLegacyExpoPushToken,
   isLikelyFcmToken,
+  buildAndroidNotificationTag,
   normalizeFcmDataPayload,
   normalizeFirebaseSendError,
 } from './firebaseAdmin';
@@ -214,6 +215,7 @@ export async function sendPassengerPushNotification(pushToken, { title, body, da
   }
 
   try {
+    const collapseTag = buildAndroidNotificationTag(data);
     const messageId = await getFirebaseMessagingClient().send({
       token,
       notification: { title: safeTitle, body: safeBody },
@@ -226,6 +228,7 @@ export async function sendPassengerPushNotification(pushToken, { title, body, da
           // drawable/notification_icon = fondo blanco + logo azul.
           // Sin `color`: un tint SRC_IN aplastaría el PNG a color.
           icon: 'notification_icon',
+          ...(collapseTag ? { tag: collapseTag } : {}),
         },
       },
     });

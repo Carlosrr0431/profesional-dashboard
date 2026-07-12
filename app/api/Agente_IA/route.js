@@ -8,6 +8,7 @@ import {
   isFirebaseCredentialError,
   isLegacyExpoPushToken,
   isLikelyFcmToken,
+  buildAndroidNotificationTag,
   normalizeFcmDataPayload,
   normalizeFirebaseSendError,
 } from '../../../src/lib/firebaseAdmin';
@@ -7053,6 +7054,7 @@ async function sendPushNotification(pushToken, payload) {
   });
 
   try {
+    const collapseTag = buildAndroidNotificationTag(payload?.data);
     const messageId = await getFirebaseMessagingClient().send({
       token,
       notification: {
@@ -7065,6 +7067,7 @@ async function sendPushNotification(pushToken, payload) {
         notification: {
           channelId: 'trips',
           sound: 'default',
+          ...(collapseTag ? { tag: collapseTag } : {}),
         },
       },
     });

@@ -4,6 +4,7 @@ import {
   getFirebaseMessagingClient,
   isLegacyExpoPushToken,
   isLikelyFcmToken,
+  buildAndroidNotificationTag,
   normalizeFcmDataPayload,
   normalizeFirebaseSendError,
 } from '../../../../src/lib/firebaseAdmin';
@@ -106,6 +107,7 @@ export async function POST(req) {
   }
 
   try {
+    const collapseTag = buildAndroidNotificationTag(payload?.data);
     const messageId = await getFirebaseMessagingClient().send({
       token,
       notification: { title, body },
@@ -115,6 +117,7 @@ export async function POST(req) {
         notification: {
           channelId: 'trips',
           sound: 'default',
+          ...(collapseTag ? { tag: collapseTag } : {}),
         },
       },
     });
