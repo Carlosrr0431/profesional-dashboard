@@ -276,7 +276,7 @@ export default function ViajesPanel({
     });
   }, [trips, statusFilter, search, tick]);
 
-  const showQueueSection = statusFilter === 'all' || statusFilter === 'queued';
+  const showQueueSection = statusFilter === 'queued';
   const showTripsSection = statusFilter !== 'queued';
 
   const handleRefresh = async () => {
@@ -327,7 +327,7 @@ export default function ViajesPanel({
           {/* Stats minimalistas */}
           <div className="flex flex-wrap items-center gap-0.5">
             <MiniStat
-              label="Cola"
+              label="En cola"
               value={queueCount}
               tone="rose"
               active={statusFilter === 'queued'}
@@ -341,21 +341,21 @@ export default function ViajesPanel({
               onClick={() => setStatusFilter('active')}
             />
             <MiniStat
-              label="Desp."
+              label="Despachados"
               value={dispatchedCount}
               tone="emerald"
               onClick={() => setStatusFilter('all')}
               active={false}
             />
             <MiniStat
-              label="OK"
+              label="Completados"
               value={completedCount}
               tone="emerald"
               active={statusFilter === 'completed'}
               onClick={() => setStatusFilter('completed')}
             />
             <MiniStat
-              label="Canc."
+              label="Cancelados"
               value={cancelledCount}
               tone="amber"
               active={statusFilter === 'cancelled'}
@@ -494,20 +494,9 @@ export default function ViajesPanel({
           {/* Cola activa — subsección del filtro */}
           {showQueueSection ? (
             <section className="rounded-2xl border border-slate-200/70 bg-white/90 p-3.5 shadow-sm shadow-slate-900/5">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-[13px] font-bold text-navy-900">Cola activa</h3>
-                  <p className="text-[10px] text-slate-500">Orden FIFO · el #1 se despacha primero</p>
-                </div>
-                {statusFilter === 'all' && queuedList.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('queued')}
-                    className="text-[11px] font-semibold text-navy-700 hover:underline"
-                  >
-                    Ver solo cola
-                  </button>
-                ) : null}
+              <div className="mb-3">
+                <h3 className="text-[13px] font-bold text-navy-900">Cola activa</h3>
+                <p className="text-[10px] text-slate-500">Orden FIFO · el #1 se despacha primero</p>
               </div>
 
               {loading && queuedList.length === 0 ? (
