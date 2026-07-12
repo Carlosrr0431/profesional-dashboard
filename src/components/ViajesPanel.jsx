@@ -418,13 +418,13 @@ export default function ViajesPanel({
           </div>
 
           <div className="ml-auto flex flex-wrap items-center gap-1.5">
-            <div className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5">
+            <div className="flex h-9 items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5">
               {RANGE_MODES.map((item) => (
                 <button
                   key={item.key}
                   type="button"
                   onClick={() => handleModeChange(item.key)}
-                  className={`rounded-md px-2 py-1 text-[10px] font-semibold transition ${
+                  className={`inline-flex h-8 items-center rounded-md px-2.5 text-[11px] font-semibold transition ${
                     mode === item.key
                       ? 'bg-navy-900 text-white'
                       : 'text-slate-500 hover:bg-slate-50 hover:text-navy-900'
@@ -436,11 +436,11 @@ export default function ViajesPanel({
             </div>
 
             {mode === 'day' ? (
-              <div className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5">
+              <div className="flex h-9 items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5">
                 <button
                   type="button"
                   onClick={() => shiftRange(-1)}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50"
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50"
                   title="Día anterior"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -452,13 +452,13 @@ export default function ViajesPanel({
                   value={dateValue}
                   max={todayValue}
                   onChange={(e) => onSelectedDateChange?.(e.target.value || todayValue)}
-                  className="h-7 rounded-md border-0 bg-transparent px-0.5 text-[11px] font-semibold text-navy-900 outline-none"
+                  className="h-8 rounded-md border-0 bg-transparent px-1 text-[11px] font-semibold text-navy-900 outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => shiftRange(1)}
                   disabled={!canGoNext}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-40"
                   title="Día siguiente"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -469,18 +469,18 @@ export default function ViajesPanel({
                   <button
                     type="button"
                     onClick={goToToday}
-                    className="mr-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-navy-800 hover:bg-slate-50"
+                    className="mr-0.5 inline-flex h-8 items-center rounded-md px-2 text-[11px] font-semibold text-navy-800 hover:bg-slate-50"
                   >
                     Hoy
                   </button>
                 ) : null}
               </div>
             ) : (
-              <div className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5">
+              <div className="flex h-9 items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5">
                 <button
                   type="button"
                   onClick={() => shiftRange(-1)}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50"
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50"
                   title={mode === 'week' ? 'Semana anterior' : 'Mes anterior'}
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -497,7 +497,7 @@ export default function ViajesPanel({
                   type="button"
                   onClick={() => shiftRange(1)}
                   disabled={!canGoNext}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-40"
                   title={mode === 'week' ? 'Semana siguiente' : 'Mes siguiente'}
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -508,7 +508,7 @@ export default function ViajesPanel({
                   <button
                     type="button"
                     onClick={goToToday}
-                    className="mr-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-navy-800 hover:bg-slate-50"
+                    className="mr-0.5 inline-flex h-8 items-center rounded-md px-2 text-[11px] font-semibold text-navy-800 hover:bg-slate-50"
                   >
                     Hoy
                   </button>
@@ -520,9 +520,9 @@ export default function ViajesPanel({
               type="button"
               onClick={handleRefresh}
               disabled={refreshing}
-              className="inline-flex h-7 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-navy-800 transition hover:bg-slate-50 disabled:opacity-50"
+              className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-semibold text-navy-800 transition hover:bg-slate-50 disabled:opacity-50"
             >
-              <svg className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               Actualizar

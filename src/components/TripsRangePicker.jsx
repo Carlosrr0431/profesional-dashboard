@@ -244,7 +244,7 @@ export default function TripsRangePicker({
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-navy-900 hover:bg-slate-50"
+        className="inline-flex h-8 max-w-[240px] items-center gap-1.5 rounded-md px-2.5 text-[11px] font-semibold text-navy-900 hover:bg-slate-50"
         aria-expanded={open}
         aria-haspopup="dialog"
       >
