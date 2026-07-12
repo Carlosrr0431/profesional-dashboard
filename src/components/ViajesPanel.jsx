@@ -241,6 +241,7 @@ export default function ViajesPanel({
   const tripStats = liveTripsData?.stats || {};
   const loading = Boolean(queueData?.loading || liveTripsData?.loading);
   const lastUpdated = liveTripsData?.lastUpdated || queueData?.lastUpdated;
+  const loadError = liveTripsData?.error || null;
   const dateValue = selectedDate || toLocalDateInputValue();
   const isToday = dateValue === toLocalDateInputValue();
 
@@ -414,6 +415,12 @@ export default function ViajesPanel({
               tone="amber"
             />
           </section>
+
+          {loadError ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              No se pudieron cargar los viajes: {loadError}
+            </div>
+          ) : null}
 
           {/* Cola */}
           <section className="rounded-3xl border border-slate-200/80 bg-white/80 p-4 shadow-sm shadow-slate-900/5 lg:p-5">

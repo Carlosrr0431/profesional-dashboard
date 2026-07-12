@@ -2,12 +2,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 
 const ACTIVE_STATUSES = new Set(['pending', 'accepted', 'going_to_pickup', 'in_progress']);
-const LIVE_STATUSES = ['queued', 'pending', 'accepted', 'going_to_pickup', 'in_progress'];
-
-const TRIP_SELECT =
-  'id, passenger_name, passenger_phone, origin_address, destination_address, ' +
-  'status, created_at, accepted_at, started_at, completed_at, notes, driver_id, ' +
-  'cancel_reason, price, distance_km, duration_minutes, commission_amount, dispatch_status';
 
 function formatFetchError(err) {
   if (err instanceof Error && err.message) return err.message;
@@ -19,7 +13,7 @@ function formatFetchError(err) {
   }
 }
 
-/** Fecha local YYYY-MM-DD */
+/** Fecha local YYYY-MM-DD (navegador). */
 export function toLocalDateInputValue(date = new Date()) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -27,23 +21,15 @@ export function toLocalDateInputValue(date = new Date()) {
   return `${y}-${m}-${d}`;
 }
 
-function dayBoundsIso(dateStr) {
-  const [y, m, d] = String(dateStr || '').split('-').map(Number);
-  if (!y || !m || !d) {
-    const fallback = toLocalDateInputValue();
-    return dayBoundsIso(fallback);
-  }
-  const start = new Date(y, m - 1, d, 0, 0, 0, 0);
-  const end = new Date(y, m - 1, d + 1, 0, 0, 0, 0);
-  return { start: start.toISOString(), end: end.toISOString(), startMs: start.getTime(), endMs: end.getTime() };
-}
-
 function isSameLocalDay(dateStr, dayStr) {
   if (!dateStr || !dayStr) return false;
   return toLocalDateInputValue(new Date(dateStr)) === dayStr;
 }
 
-function mapTrip(trip, driversMap, selectedDate) {
+function mapTrip(trip, selectedDate) {
+  const inSelectedDay = trip.in_selected_day === true
+    || isSameLocalDay(trip.created_at, selectedDate);
+
   return {
     id: trip.id,
     passengerName: trip.passenger_name || 'Pasajero',
@@ -62,32 +48,52 @@ function mapTrip(trip, driversMap, selectedDate) {
     durationMinutes: trip.duration_minutes != null ? Number(trip.duration_minutes) : null,
     commissionAmount: trip.commission_amount != null ? Number(trip.commission_amount) : null,
     notes: trip.notes || null,
-    driver: trip.driver_id ? driversMap[trip.driver_id] || null : null,
-    isSelectedDay: isSameLocalDay(trip.created_at, selectedDate),
+    driver: trip.driver || null,
+    isSelectedDay: inSelectedDay,
     isToday: isSameLocalDay(trip.created_at, toLocalDateInputValue()),
     isActive: ACTIVE_STATUSES.has(trip.status),
     isQueued: trip.status === 'queued' && trip.dispatch_status !== 'hold',
   };
 }
 
-async function loadDriversMap(driverIds) {
-  if (!driverIds.length) return {};
-  const { data, error } = await supabase
-    .from('drivers')
-    .select('id, full_name, vehicle_plate, vehicle_brand, vehicle_model, vehicle_color')
-    .in('id', driverIds);
-  if (error) throw error;
-  const map = {};
-  (data || []).forEach((d) => {
-    map[d.id] = d;
+async function fetchTripsDay(date) {
+  let response = await fetch(`/api/trips-day?date=${encodeURIComponent(date)}`, {
+    cache: 'no-store',
   });
-  return map;
+  let contentType = response.headers.get('content-type') || '';
+
+  // Durante HMR, Next puede devolver HTML mientras compila la ruta.
+  if (!contentType.includes('application/json')) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    response = await fetch(`/api/trips-day?date=${encodeURIComponent(date)}`, {
+      cache: 'no-store',
+    });
+    contentType = response.headers.get('content-type') || '';
+  }
+
+  if (!contentType.includes('application/json')) {
+    return { skipped: true };
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.ok === false) {
+    return {
+      error: payload?.error?.message || `HTTP ${response.status}`,
+      status: response.status,
+    };
+  }
+
+  return {
+    trips: Array.isArray(payload?.data?.trips) ? payload.data.trips : [],
+    date: payload?.data?.date || date,
+  };
 }
 
 export function useLiveTrips(selectedDate = toLocalDateInputValue()) {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [error, setError] = useState(null);
   const channelRef = useRef(null);
   const refetchTimerRef = useRef(null);
   const selectedDateRef = useRef(selectedDate);
@@ -95,46 +101,22 @@ export function useLiveTrips(selectedDate = toLocalDateInputValue()) {
 
   const fetchAll = useCallback(async () => {
     const date = selectedDateRef.current;
-    const { start, end } = dayBoundsIso(date);
-
     try {
-      const [dayResult, liveResult] = await Promise.all([
-        supabase
-          .from('trips')
-          .select(TRIP_SELECT)
-          .neq('status', 'scheduled')
-          .gte('created_at', start)
-          .lt('created_at', end)
-          .order('created_at', { ascending: false })
-          .limit(200),
-        supabase
-          .from('trips')
-          .select(TRIP_SELECT)
-          .in('status', LIVE_STATUSES)
-          .order('created_at', { ascending: false })
-          .limit(100),
-      ]);
+      const result = await fetchTripsDay(date);
+      if (result.skipped) return;
 
-      if (dayResult.error) throw dayResult.error;
-      if (liveResult.error) throw liveResult.error;
+      if (result.error) {
+        console.error('[useLiveTrips] Error:', result.error);
+        setError(result.error);
+        return;
+      }
 
-      const byId = new Map();
-      [...(dayResult.data || []), ...(liveResult.data || [])].forEach((trip) => {
-        if (trip.status === 'queued' && trip.dispatch_status === 'hold') return;
-        byId.set(trip.id, trip);
-      });
-
-      const merged = [...byId.values()].sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-      );
-
-      const driverIds = [...new Set(merged.map((t) => t.driver_id).filter(Boolean))];
-      const driversMap = await loadDriversMap(driverIds);
-
-      setTrips(merged.map((t) => mapTrip(t, driversMap, date)));
+      setError(null);
+      setTrips((result.trips || []).map((t) => mapTrip(t, date)));
       setLastUpdated(new Date());
     } catch (err) {
       console.error('[useLiveTrips] Error:', formatFetchError(err));
+      setError(formatFetchError(err));
     } finally {
       setLoading(false);
     }
@@ -192,6 +174,7 @@ export function useLiveTrips(selectedDate = toLocalDateInputValue()) {
     stats,
     loading,
     lastUpdated,
+    error,
     refetch: fetchAll,
     selectedDate,
   };
