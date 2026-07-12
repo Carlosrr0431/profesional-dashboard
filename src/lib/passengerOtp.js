@@ -197,12 +197,18 @@ export async function createAndSendOtp(rawPhone) {
 
   const waResult = await sendWhatsAppOtp(phone, code);
   if (!waResult.ok) {
-    await supabase.from('passenger_otp_codes').delete().eq('phone', phone).eq('code', code);
+    // No borrar la fila: si se borra, el cooldown de 60s no aplica y el usuario
+    // puede spamear Wasender con el mismo número inválido (ráfaga de 502).
+    await supabase
+      .from('passenger_otp_codes')
+      .update({ expires_at: new Date().toISOString() })
+      .eq('phone', phone)
+      .eq('code', code);
     return {
       ok: false,
-      status: 502,
+      status: waResult.jidMissing ? 422 : 502,
       message: waResult.jidMissing
-        ? 'Ese número no tiene WhatsApp o está mal escrito. Usá los 10 dígitos locales (ej. 387…), sin 0 ni 54.'
+        ? 'Ese número no tiene WhatsApp o está mal escrito. Usá los 10 dígitos locales (ej. 387…), sin 0, 9 ni 54.'
         : 'No pudimos enviar el código por WhatsApp. Verificá el número e intentá de nuevo.',
       reason: waResult.reason,
     };

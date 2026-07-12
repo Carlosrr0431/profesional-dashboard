@@ -68,6 +68,9 @@ export function extractLocalArMobileDigits(value) {
 
   // Pegar "54…" truncado a 10 dígitos no es un móvil local válido.
   if (local.startsWith('54')) return '';
+  // El "9" de móvil AR solo va en E.164 (549…), nunca como primer dígito local.
+  // "59…" suele ser basura tipo 5+9+número truncado (ej. 5938786301 → JID inexistente).
+  if (local.startsWith('9') || local.startsWith('59')) return '';
 
   return local;
 }

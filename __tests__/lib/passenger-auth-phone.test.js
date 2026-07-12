@@ -49,6 +49,11 @@ describe('passengerAuthPhone', () => {
     expect(toWhatsAppJid('5493878630')).toBeNull();
     expect(normalizePassengerPhoneForDb('549387863017')).toBe('');
     expect(normalizePassengerPhoneForDb('54387863017')).toBe('');
+    // 9/59 metidos como si fueran dígitos locales (JID basura tipo 5495938786301)
+    expect(normalizePassengerPhoneForDb('5938786301')).toBe('');
+    expect(normalizePhoneForWhatsApp('5938786301')).toBe('');
+    expect(toWhatsAppJid('5938786301')).toBeNull();
+    expect(normalizePassengerPhoneForDb('9387863017')).toBe('');
   });
 
   it('limpia formato viejo con 15 tras el área', () => {
