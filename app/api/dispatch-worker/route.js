@@ -63,10 +63,9 @@ const DISPATCH_NOTIFY_FAIL_RETRY_SECONDS = Math.max(
   DISPATCH_RETRY_SECONDS,
   Math.round(Number(process.env.DISPATCH_WORKER_NOTIFY_FAIL_RETRY_SECONDS || 45) || 45)
 );
-// Alineado con Agente_IA (60s) y driver-app TRIP_ACCEPT_TIMEOUT.
-// 15s era demasiado corto: el worker reencolaba antes de que el chofer tocara Aceptar.
-const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 60 * 1000;
-const MIN_PENDING_ACCEPT_TIMEOUT_MS = 20 * 1000;
+// Alineado con Agente_IA y driver-app TRIP_ACCEPT_TIMEOUT (15s).
+const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 15 * 1000;
+const MIN_PENDING_ACCEPT_TIMEOUT_MS = 10 * 1000;
 const MAX_PENDING_ACCEPT_TIMEOUT_MS = 5 * 60 * 1000;
 const configuredPendingAcceptTimeoutMs = Number(
   process.env.WHATSAPP_PENDING_ACCEPT_TIMEOUT_MS || DEFAULT_PENDING_ACCEPT_TIMEOUT_MS
