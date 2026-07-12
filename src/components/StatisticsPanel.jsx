@@ -6,6 +6,15 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { SALTA_CENTER, DEFAULT_ZOOM } from '../lib/constants';
 import { MAP_STYLE_URL, DEFAULT_MAP_VIEW, mapLibreOptions } from '../lib/mapLibre';
 import { formatPrice, formatKm, formatDuration } from '../lib/utils';
+import {
+  AreaTrendChart,
+  ColumnChart,
+  DonutChart,
+  EmptyChart,
+  HorizontalBars,
+  StackedDailyChart,
+} from './statistics/StatisticsCharts';
+
 
 const HEATMAP_LAYER = {
   id: 'trip-heatmap',
@@ -77,15 +86,8 @@ const SOURCE_LABELS = {
   otro: 'Otro',
 };
 
-const CHART_COLORS = ['#E11D48', '#0F172A', '#22C55E', '#F59E0B', '#6366F1', '#94A3B8', '#06B6D4', '#EC4899'];
-
 function formatHour(hour) {
   return `${String(hour).padStart(2, '0')}:00`;
-}
-
-function formatDayShort(dateStr) {
-  const d = new Date(`${dateStr}T12:00:00`);
-  return d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
 }
 
 function formatMonthLabel(monthStr) {
@@ -93,245 +95,6 @@ function formatMonthLabel(monthStr) {
   const [y, m] = monthStr.split('-').map(Number);
   const d = new Date(y, m - 1, 1);
   return d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-}
-
-function EmptyChart({ message = 'Sin datos' }) {
-  return (
-    <div className="flex h-[180px] items-center justify-center">
-      <p className="text-[13px] text-gray-300">{message}</p>
-    </div>
-  );
-}
-
-function Panel({ title, hint, children, className = '', action = null }) {
-  return (
-    <section className={`rounded-[20px] bg-white p-5 ${className}`}>
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-[13px] font-semibold tracking-tight text-navy-900">{title}</h3>
-          {hint ? <p className="mt-0.5 text-[11px] text-gray-400">{hint}</p> : null}
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Metric({ label, value, detail }) {
-  return (
-    <div className="min-w-0">
-      <p className="mb-1 text-[10px] uppercase tracking-[0.12em] text-gray-400">{label}</p>
-      <p className="text-[22px] font-semibold leading-none tracking-tight text-navy-900 tabular-nums">{value}</p>
-      {detail ? <p className="mt-1.5 text-[11px] text-gray-400">{detail}</p> : null}
-    </div>
-  );
-}
-
-function AreaTrendChart({ data, valueKey = 'count', color = '#E11D48' }) {
-  if (!data?.length) return <EmptyChart message="Sin viajes en el período" />;
-
-  const max = Math.max(...data.map((d) => Number(d[valueKey]) || 0), 1);
-  const pad = 8;
-  const w = 100;
-  const h = 100;
-  const innerW = w - pad * 2;
-  const innerH = h - pad * 2;
-
-  const coords = data.map((item, index) => {
-    const x = pad + (index / Math.max(data.length - 1, 1)) * innerW;
-    const y = pad + innerH - ((Number(item[valueKey]) || 0) / max) * innerH;
-    return { x, y, ...item };
-  });
-
-  const line = coords.map((p) => `${p.x},${p.y}`).join(' ');
-  const area = `${coords[0].x},${pad + innerH} ${line} ${coords[coords.length - 1].x},${pad + innerH}`;
-  const gradId = `areaFill-${valueKey}`;
-
-  return (
-    <div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="h-[180px] w-full" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.18" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[0.25, 0.5, 0.75].map((ratio) => (
-          <line
-            key={ratio}
-            x1={pad}
-            x2={w - pad}
-            y1={pad + innerH * (1 - ratio)}
-            y2={pad + innerH * (1 - ratio)}
-            stroke="#F1F5F9"
-            strokeWidth="0.4"
-          />
-        ))}
-        <polygon points={area} fill={`url(#${gradId})`} />
-        <polyline
-          points={line}
-          fill="none"
-          stroke={color}
-          strokeWidth="1.2"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      </svg>
-      <div className="mt-2 flex justify-between px-0.5">
-        {data.length <= 8
-          ? data.map((item) => (
-            <span key={item.date} className="text-[10px] text-gray-400">{formatDayShort(item.date)}</span>
-          ))
-          : [data[0], data[Math.floor(data.length / 2)], data[data.length - 1]].filter(Boolean).map((item) => (
-            <span key={item.date} className="text-[10px] text-gray-400">{formatDayShort(item.date)}</span>
-          ))}
-      </div>
-    </div>
-  );
-}
-
-function StackedDailyChart({ data }) {
-  if (!data?.length) return <EmptyChart message="Sin actividad diaria" />;
-
-  const max = Math.max(...data.map((d) => (d.completed || 0) + (d.cancelled || 0)), 1);
-  const sample = data.length > 14
-    ? data.filter((_, i) => i % Math.ceil(data.length / 14) === 0 || i === data.length - 1)
-    : data;
-
-  return (
-    <div className="h-[180px] flex items-end gap-1">
-      {sample.map((item) => {
-        const completedH = Math.round(((item.completed || 0) / max) * 100);
-        const cancelledH = Math.round(((item.cancelled || 0) / max) * 100);
-        return (
-          <div key={item.date} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            <span className="text-[8px] tabular-nums text-gray-400">
-              {(item.completed || 0) + (item.cancelled || 0)}
-            </span>
-            <div className="flex h-[120px] w-full items-end justify-center">
-              <div className="flex w-full max-w-[16px] flex-col justify-end overflow-hidden rounded-t-md">
-                <div className="w-full bg-rose-400" style={{ height: `${Math.max(cancelledH > 0 ? 4 : 0, cancelledH)}%` }} />
-                <div className="w-full bg-emerald-500" style={{ height: `${Math.max(completedH > 0 ? 4 : 0, completedH)}%` }} />
-              </div>
-            </div>
-            <span className="w-full truncate text-center text-[8px] text-gray-400">
-              {formatDayShort(item.date)}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function ColumnChart({ data, labelKey = 'label', color = 'bg-navy-900/85' }) {
-  if (!data?.length) return <EmptyChart />;
-
-  const max = Math.max(...data.map((d) => d.count), 1);
-
-  return (
-    <div className="flex h-[180px] items-end gap-[3px]">
-      {data.map((item, index) => {
-        const height = Math.max(6, Math.round((item.count / max) * 100));
-        return (
-          <div key={item.key ?? item.hour ?? item.label ?? index} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
-            <span className="text-[9px] tabular-nums text-gray-400">{item.count}</span>
-            <div className="flex h-[120px] w-full items-end justify-center">
-              <div
-                className={`w-full max-w-[14px] rounded-t-md transition-all duration-500 ${color}`}
-                style={{ height: `${height}%` }}
-              />
-            </div>
-            <span className="w-full truncate text-center text-[9px] text-gray-400">{item[labelKey]}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function DonutChart({ items, size = 128 }) {
-  if (!items?.length) return <EmptyChart />;
-
-  const total = items.reduce((sum, item) => sum + item.count, 0) || 1;
-  const radius = 16;
-  const circumference = 2 * Math.PI * radius;
-  let offset = 0;
-
-  return (
-    <div className="flex items-center gap-6">
-      <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
-        <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
-          <circle cx="18" cy="18" r={radius} fill="none" stroke="#F1F5F9" strokeWidth="4" />
-          {items.map((item, index) => {
-            const length = (item.count / total) * circumference;
-            const dash = `${length} ${circumference - length}`;
-            const circle = (
-              <circle
-                key={item.key}
-                cx="18"
-                cy="18"
-                r={radius}
-                fill="none"
-                stroke={CHART_COLORS[index % CHART_COLORS.length]}
-                strokeWidth="4"
-                strokeDasharray={dash}
-                strokeDashoffset={-offset}
-                strokeLinecap="round"
-              />
-            );
-            offset += length;
-            return circle;
-          })}
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-lg font-semibold tabular-nums text-navy-900">{total}</span>
-          <span className="text-[9px] uppercase tracking-wider text-gray-400">total</span>
-        </div>
-      </div>
-      <div className="min-w-0 flex-1 space-y-2">
-        {items.map((item, index) => (
-          <div key={item.key} className="flex min-w-0 items-center gap-2">
-            <span
-              className="h-2 w-2 flex-shrink-0 rounded-full"
-              style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
-            />
-            <span className="flex-1 truncate text-[11px] text-gray-500">{item.label}</span>
-            <span className="text-[11px] font-medium tabular-nums text-navy-900">{item.count}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function HorizontalBars({ items, maxBars = 8, valueFormatter = null }) {
-  if (!items?.length) return <EmptyChart />;
-
-  const slice = items.slice(0, maxBars);
-  const max = Math.max(...slice.map((d) => d.count), 1);
-
-  return (
-    <div className="space-y-3">
-      {slice.map((item, index) => (
-        <div key={item.key ?? item.label ?? index}>
-          <div className="mb-1.5 flex items-center justify-between gap-3">
-            <span className="truncate text-[11px] text-gray-600">{item.label}</span>
-            <span className="text-[11px] font-medium tabular-nums text-navy-900">
-              {valueFormatter ? valueFormatter(item) : item.count}
-            </span>
-          </div>
-          <div className="h-1 overflow-hidden rounded-full bg-gray-100">
-            <div
-              className="h-full rounded-full bg-navy-900/80 transition-all duration-500"
-              style={{ width: `${Math.max(4, (item.count / max) * 100)}%` }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function LocationViewToggle({ value, onChange, views }) {
@@ -661,11 +424,11 @@ export default function StatisticsPanel({
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel title="Tendencia diaria" hint="Cantidad de viajes por día (hora Argentina)">
-            <AreaTrendChart data={dailyChartData} valueKey="count" color="#E11D48" />
+            <AreaTrendChart data={dailyChartData} valueKey="count" color="#E11D48" valueLabel="Viajes" />
           </Panel>
 
           <Panel title="Facturación diaria" hint="Solo viajes completados con precio">
-            <AreaTrendChart data={dailyChartData} valueKey="revenue" color="#0F172A" />
+            <AreaTrendChart data={dailyChartData} valueKey="revenue" color="#0F172A" money valueLabel="Facturación" />
           </Panel>
         </div>
 
@@ -685,7 +448,7 @@ export default function StatisticsPanel({
 
           <Panel title="Demanda por hora" hint="Distribución horaria (Argentina)">
             {hourlyChartData.some((d) => d.count > 0) ? (
-              <ColumnChart data={hourlyChartData} labelKey="label" />
+              <ColumnChart data={hourlyChartData} labelKey="label" valueLabel="Viajes" />
             ) : (
               <EmptyChart message="Sin actividad horaria" />
             )}
@@ -695,7 +458,7 @@ export default function StatisticsPanel({
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           <Panel title="Por día de la semana" hint="Qué días piden más">
             {weekdayChartData.some((d) => d.count > 0) ? (
-              <ColumnChart data={weekdayChartData} labelKey="label" color="bg-sky-600/85" />
+              <ColumnChart data={weekdayChartData} labelKey="label" color="bg-sky-600/85" valueLabel="Viajes" />
             ) : (
               <EmptyChart />
             )}
