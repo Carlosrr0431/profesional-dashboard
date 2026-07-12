@@ -38,9 +38,9 @@ export function extractLocalArMobileDigits(value) {
   let local = '';
 
   if (digits.startsWith('549')) {
-    // 549 + 10 locales = 13 dígitos. Menos = internacional incompleto (no tragar el 9).
+    // 549 + 10 locales = 13. Menos = internacional incompleto (no tragar el 9).
     if (digits.length < 13) return '';
-    local = digits.slice(3, 13);
+    local = digits.slice(3);
   } else if (digits.startsWith('54')) {
     // 54 + 10 locales = 12, o 54 + 9 + 10 = 13.
     if (digits.length < 12) return '';
@@ -48,8 +48,7 @@ export function extractLocalArMobileDigits(value) {
     if (rest.startsWith('9') && rest.length >= 11) {
       rest = rest.slice(1);
     }
-    local = rest.slice(0, 10);
-    if (local.length < 10) return '';
+    local = rest;
   } else if (digits.startsWith('9') && digits.length === 11) {
     local = digits.slice(1);
   } else if (digits.length === 10) {
@@ -58,7 +57,8 @@ export function extractLocalArMobileDigits(value) {
     return '';
   }
 
-  // Formato viejo con "15" tras el área (ej. 38715xxxxxx → 387xxxxxx)
+  // Formato viejo con "15" tras el área (ej. 38715xxxxxx → 387xxxxxx).
+  // Aplicar antes de truncar a 10 para no cortar dígitos útiles.
   if (/^\d{3}15\d{6,}$/.test(local)) {
     local = `${local.slice(0, 3)}${local.slice(5)}`;
   }
