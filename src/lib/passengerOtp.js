@@ -62,10 +62,16 @@ export async function sendWhatsAppOtp(phone, code) {
     `Tu código de verificación de *Profesional Pasajero* es: *${code}*\n\n`
     + 'Válido por 10 minutos. No lo compartas con nadie.';
 
+  const local = String(phone || '').replace(/\D/g, '').slice(-10);
+  const logBase = {
+    toMasked: maskPhone(phone),
+    localLast6: local.length >= 6 ? local.slice(-6) : local,
+    jidLast5: to.replace(/@s\.whatsapp\.net$/, '').slice(-5),
+  };
+
   console.info('[passenger-otp]', JSON.stringify({
     stage: 'send_attempt',
-    toMasked: maskPhone(phone),
-    jidSuffix: to.slice(-20),
+    ...logBase,
   }));
 
   const response = await fetch(`${WASENDER_BASE_URL}/send-message`, {
@@ -88,7 +94,7 @@ export async function sendWhatsAppOtp(phone, code) {
   if (!response.ok) {
     console.info('[passenger-otp]', JSON.stringify({
       stage: 'send_failed',
-      toMasked: maskPhone(phone),
+      ...logBase,
       httpStatus: response.status,
       body: rawBody.slice(0, 160) || 'no_body',
     }));
@@ -103,7 +109,7 @@ export async function sendWhatsAppOtp(phone, code) {
   if (apiError) {
     console.info('[passenger-otp]', JSON.stringify({
       stage: 'send_api_error',
-      toMasked: maskPhone(phone),
+      ...logBase,
       error: String(apiError).slice(0, 160),
     }));
     return { ok: false, reason: `whatsapp_send_error:${String(apiError).slice(0, 120)}` };
@@ -111,7 +117,7 @@ export async function sendWhatsAppOtp(phone, code) {
 
   console.info('[passenger-otp]', JSON.stringify({
     stage: 'send_ok',
-    toMasked: maskPhone(phone),
+    ...logBase,
     msgId: payload?.data?.msgId ? String(payload.data.msgId) : null,
   }));
 
