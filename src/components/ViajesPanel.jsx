@@ -361,7 +361,7 @@ export default function ViajesPanel({
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)]">
       {/* Toolbar compacta */}
-      <header className="shrink-0 border-b border-slate-200/80 bg-white/95 px-3 py-2 backdrop-blur-md lg:px-5">
+      <header className="relative z-30 shrink-0 border-b border-slate-200/80 bg-white/95 px-3 py-2 backdrop-blur-md lg:px-5">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <button
             type="button"
