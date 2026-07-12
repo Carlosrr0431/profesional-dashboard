@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveDriverIsOnline } from '../lib/driverPresence';
 
 const POLL_INTERVAL_MS = 2000;
 const REALTIME_REFETCH_DEBOUNCE_MS = 300;
@@ -125,7 +126,14 @@ export function useDrivers() {
               speed: toNumber(loc.speed ?? loc.speed_kmh, prevDriver.speed || 0),
               heading: toNumber(loc.heading, prevDriver.heading || 0),
               updatedAt: nextUpdatedAt,
+              isOnline: resolveDriverIsOnline({
+                isAvailable: prevDriver.isOnline || prevDriver.isAvailable,
+                lat: nextLat,
+                lng: nextLng,
+                updatedAt: nextUpdatedAt,
+              }),
             };
+            updated[idx].isAvailable = updated[idx].isOnline;
             return updated;
           });
         }
@@ -156,15 +164,21 @@ export function useDrivers() {
             const updated = [...prev];
             const pendingCommission = Math.max(0, toNumber(row.pending_commission, prevDriver.pendingCommission));
             const hasCoords = row.current_lat != null && row.current_lng != null;
+            const nextLat = hasCoords ? toNumber(row.current_lat, prevDriver.lat) : prevDriver.lat;
+            const nextLng = hasCoords ? toNumber(row.current_lng, prevDriver.lng) : prevDriver.lng;
+            const nextUpdatedAt = prevDriver.updatedAt || row.updated_at;
+            const flaggedAvailable = Boolean(row.is_available);
+            const isOnline = resolveDriverIsOnline({
+              isAvailable: flaggedAvailable,
+              lat: nextLat,
+              lng: nextLng,
+              updatedAt: nextUpdatedAt,
+            });
             updated[idx] = {
               ...prevDriver,
-              // Fallback GPS: la app también escribe current_lat/lng en drivers.
-              ...(hasCoords ? {
-                lat: toNumber(row.current_lat, prevDriver.lat),
-                lng: toNumber(row.current_lng, prevDriver.lng),
-              } : null),
-              isOnline: Boolean(row.is_available),
-              isAvailable: Boolean(row.is_available),
+              ...(hasCoords ? { lat: nextLat, lng: nextLng } : null),
+              isOnline,
+              isAvailable: isOnline,
               fullName: row.full_name || prevDriver.fullName,
               driverNumber: row.driver_number ?? prevDriver.driverNumber,
               phone: row.phone || prevDriver.phone,
@@ -175,7 +189,7 @@ export function useDrivers() {
               vehicleColor: row.vehicle_color || prevDriver.vehicleColor,
               vehicleType: row.vehicle_type || prevDriver.vehicleType,
               // No pisar el timestamp de GPS con updated_at genérico del chofer.
-              updatedAt: prevDriver.updatedAt || row.updated_at,
+              updatedAt: nextUpdatedAt,
               pendingCommission,
               lastCommissionPaymentAt: row.last_commission_payment_at || prevDriver.lastCommissionPaymentAt,
               commissionBalance: pendingCommission,

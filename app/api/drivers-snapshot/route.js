@@ -6,6 +6,11 @@ import {
 } from '../../../src/lib/fleetDriverEnrichment';
 import { resolveDisplayActiveTrip } from '../../../src/lib/fleetDispatch';
 import { isFleetOwner } from '../../../src/lib/driverRoles';
+import {
+  hasValidDriverCoords,
+  isDriverPresenceFresh,
+  resolveDriverIsOnline,
+} from '../../../src/lib/driverPresence';
 
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 
@@ -45,6 +50,7 @@ function resolveCommissionOverdue(pendingCommission, commissionDebtSinceAt) {
 export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
+    const nowMs = Date.now();
 
     const [driversRes, locationsRes, activeTripsRes, vtRes] = await Promise.all([
       supabase.from('drivers').select('*'),
@@ -86,6 +92,7 @@ export async function GET() {
     });
 
     const ownersById = buildFleetOwnersById(driversRes.data);
+    const staleAvailableIds = [];
 
     const mapped = (driversRes.data || []).map((driver) => {
       const owner = driver.owner_id ? ownersById[driver.owner_id] : null;
@@ -94,15 +101,33 @@ export async function GET() {
       const activeTrip = resolveDisplayActiveTrip(merged.id, activeTripsMap);
       const pendingCommission = Math.max(0, toNumber(merged.pending_commission, 0));
       const assigned = Boolean(merged.is_assigned_driver && merged.owner_id);
+      const lat = toNumber(loc?.lat ?? merged.current_lat, 0);
+      const lng = toNumber(loc?.lng ?? merged.current_lng, 0);
+      const updatedAt = loc?.updated_at || loc?.recorded_at || merged.updated_at;
+      const flaggedAvailable = Boolean(merged.is_available);
+      const isOnline = resolveDriverIsOnline({
+        isAvailable: flaggedAvailable,
+        lat,
+        lng,
+        updatedAt,
+      }, nowMs);
+
+      if (
+        flaggedAvailable
+        && !isOnline
+        && (!hasValidDriverCoords(lat, lng) || !isDriverPresenceFresh(updatedAt, nowMs))
+      ) {
+        staleAvailableIds.push(merged.id);
+      }
 
       return {
         id: merged.id,
-        lat: toNumber(loc?.lat ?? merged.current_lat, 0),
-        lng: toNumber(loc?.lng ?? merged.current_lng, 0),
+        lat,
+        lng,
         speed: toNumber(loc?.speed ?? loc?.speed_kmh, 0),
         heading: toNumber(loc?.heading, 0),
-        isOnline: Boolean(merged.is_available),
-        updatedAt: loc?.updated_at || loc?.recorded_at || merged.updated_at,
+        isOnline,
+        updatedAt,
         fullName: merged.full_name || 'Sin nombre',
         driverNumber: merged.driver_number ?? null,
         phone: merged.phone || '',
@@ -113,7 +138,7 @@ export async function GET() {
         vehiclePlate: merged.vehicle_plate || '',
         vehicleColor: merged.vehicle_color || '',
         vehicleType: merged.vehicle_type || vehicleTypeMap[merged.id] || 'auto',
-        isAvailable: Boolean(merged.is_available),
+        isAvailable: isOnline,
         rating: toNumber(merged.rating, 5),
         totalTrips: toNumber(merged.total_trips, 0),
         activeTrip,
@@ -131,6 +156,19 @@ export async function GET() {
         ownerPhone: assigned ? (owner?.phone || '') : null,
       };
     });
+
+    // Autosanar flags atascados (Disponible sin presencia real).
+    if (staleAvailableIds.length > 0) {
+      void supabase
+        .from('drivers')
+        .update({ is_available: false, updated_at: new Date().toISOString() })
+        .in('id', staleAvailableIds)
+        .then(({ error }) => {
+          if (error) {
+            console.warn('[drivers-snapshot] stale is_available cleanup:', error.message);
+          }
+        });
+    }
 
     return NextResponse.json({ ok: true, data: mapped });
   } catch (err) {

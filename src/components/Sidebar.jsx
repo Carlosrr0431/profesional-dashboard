@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { timeAgo, formatSpeed, getTripStatus } from '../lib/utils';
 import { matchesDriverSearch } from '../lib/driverRoles';
+import { resolveDriverIsOnline } from '../lib/driverPresence';
 import DriverAvatar from './DriverAvatar';
 
 export default function Sidebar({
@@ -90,17 +91,23 @@ export default function Sidebar({
     () =>
       drivers.map((driver) => {
         const live = availability[driver.id];
-        const isOnline = live ? live.isAvailable : Boolean(driver.isAvailable);
-        // Preferir timestamp de GPS (driver.updatedAt desde driver_locations).
-        // No pisarlo con drivers.updated_at del perfil, que puede quedar viejo días.
+        const flaggedAvailable = live ? live.isAvailable : Boolean(driver.isAvailable);
+        // No pisar el timestamp de GPS con drivers.updated_at (puede quedar viejo días).
         const gpsTs = driver.updatedAt ? new Date(driver.updatedAt).getTime() : 0;
         const availTs = live?.updatedAt ? new Date(live.updatedAt).getTime() : 0;
         const updatedAt = gpsTs >= availTs
           ? (driver.updatedAt || live?.updatedAt)
           : (live?.updatedAt || driver.updatedAt);
+        const isOnline = resolveDriverIsOnline({
+          isAvailable: flaggedAvailable,
+          lat: driver.lat,
+          lng: driver.lng,
+          updatedAt,
+        });
         return {
           ...driver,
           isOnline,
+          isAvailable: isOnline,
           updatedAt,
         };
       }),
