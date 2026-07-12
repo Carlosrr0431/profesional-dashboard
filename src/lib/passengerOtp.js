@@ -62,11 +62,11 @@ export async function sendWhatsAppOtp(phone, code) {
     `Tu código de verificación de *Profesional Pasajero* es: *${code}*\n\n`
     + 'Válido por 10 minutos. No lo compartas con nadie.';
 
-  const local = String(phone || '').replace(/\D/g, '').slice(-10);
+  const phoneDigits = String(phone || '').replace(/\D/g, '');
   const logBase = {
+    phone: phoneDigits,
+    jid: to,
     toMasked: maskPhone(phone),
-    localLast6: local.length >= 6 ? local.slice(-6) : local,
-    jidLast5: to.replace(/@s\.whatsapp\.net$/, '').slice(-5),
   };
 
   console.info('[passenger-otp]', JSON.stringify({
