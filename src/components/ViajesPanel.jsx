@@ -50,10 +50,13 @@ function timeAgo(dateStr) {
   return h < 24 ? `hace ${h}h` : `hace ${Math.floor(h / 24)}d`;
 }
 
-function maskPhone(phone) {
+function formatPhone(phone) {
   const p = String(phone || '').replace(/\D/g, '');
-  if (p.length < 6) return p || '—';
-  return `+${p.slice(0, 2)} ··· ${p.slice(-4)}`;
+  if (!p) return '—';
+  if (p.startsWith('54') && p.length >= 12) {
+    return `+${p.slice(0, 2)} ${p.slice(2)}`;
+  }
+  return p.startsWith('+') ? String(phone) : `+${p}`;
 }
 
 function formatPrice(value) {
@@ -154,7 +157,7 @@ function QueueCard({ item, isFirst }) {
               {formatWait(item.waitMinutes)}
             </span>
           </div>
-          <p className="mt-0.5 text-[11px] text-slate-500">{maskPhone(item.phone)}</p>
+          <p className="mt-0.5 text-[11px] text-slate-500">{formatPhone(item.phone)}</p>
           <p className="mt-1.5 text-[12px] font-medium leading-snug text-navy-800">{item.pickupAddress}</p>
           <p className="mt-1 text-[10px] text-slate-400">En cola desde {formatDateTime(item.queuedAt)}</p>
         </div>
@@ -177,7 +180,7 @@ function TripCard({ trip }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h4 className="truncate text-sm font-semibold text-navy-900">{trip.passengerName}</h4>
-            <span className="text-[11px] text-slate-500">{maskPhone(trip.passengerPhone)}</span>
+            <span className="text-[11px] text-slate-500">{formatPhone(trip.passengerPhone)}</span>
           </div>
           <p className="mt-0.5 text-[11px] text-slate-400">
             {formatDateTime(trip.createdAt)} · {timeAgo(trip.createdAt)}
