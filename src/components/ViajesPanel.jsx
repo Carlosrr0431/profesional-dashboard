@@ -88,25 +88,18 @@ function tripStatusInfo(status) {
 
 function LiveDot() {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1">
-      <span className="relative flex h-2 w-2">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/80 bg-emerald-50/80 px-2 py-0.5">
+      <span className="relative flex h-1.5 w-1.5">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
       </span>
-      <span className="text-[11px] font-semibold text-emerald-700">En vivo</span>
+      <span className="text-[10px] font-semibold text-emerald-700">En vivo</span>
     </span>
   );
 }
 
-function StatCard({ label, value, sub, tone = 'slate' }) {
+function MiniStat({ label, value, tone = 'slate', onClick, active }) {
   const tones = {
-    rose: 'border-rose-200/80 from-rose-50/90',
-    amber: 'border-amber-200/80 from-amber-50/90',
-    sky: 'border-sky-200/80 from-sky-50/90',
-    emerald: 'border-emerald-200/80 from-emerald-50/90',
-    slate: 'border-slate-200/80 from-slate-50/90',
-  };
-  const values = {
     rose: 'text-rose-700',
     amber: 'text-amber-700',
     sky: 'text-sky-700',
@@ -115,11 +108,20 @@ function StatCard({ label, value, sub, tone = 'slate' }) {
   };
 
   return (
-    <div className={`min-w-[140px] flex-1 rounded-2xl border bg-gradient-to-br ${tones[tone]} to-white px-4 py-3 shadow-sm shadow-slate-900/5`}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className={`mt-1 text-2xl font-bold tabular-nums ${values[tone]}`}>{value}</p>
-      {sub ? <p className="mt-0.5 text-[11px] text-slate-500">{sub}</p> : null}
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-baseline gap-1.5 rounded-lg px-2 py-1 transition ${
+        active ? 'bg-navy-900 text-white' : 'hover:bg-slate-100'
+      }`}
+    >
+      <span className={`text-[10px] font-medium uppercase tracking-wide ${active ? 'text-white/70' : 'text-slate-400'}`}>
+        {label}
+      </span>
+      <span className={`text-sm font-bold tabular-nums ${active ? 'text-white' : tones[tone]}`}>
+        {value}
+      </span>
+    </button>
   );
 }
 
@@ -127,13 +129,13 @@ function QueueCard({ item, isFirst }) {
   const urgent = item.waitMinutes >= 10;
   return (
     <article
-      className={`relative overflow-hidden rounded-2xl border bg-white p-4 shadow-sm shadow-slate-900/5 ${
+      className={`relative overflow-hidden rounded-xl border bg-white px-3.5 py-3 shadow-sm shadow-slate-900/5 ${
         isFirst ? 'border-rose-200 ring-1 ring-rose-100' : urgent ? 'border-amber-200' : 'border-slate-200/80'
       }`}
     >
       <div className={`absolute inset-y-0 left-0 w-1 ${isFirst ? 'bg-rose-500' : urgent ? 'bg-amber-400' : 'bg-slate-300'}`} />
       <div className="flex items-start gap-3 pl-1">
-        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-bold ${
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ${
           isFirst ? 'bg-rose-500 text-white' : 'bg-slate-100 text-navy-800'
         }`}>
           #{item.position}
@@ -142,19 +144,19 @@ function QueueCard({ item, isFirst }) {
           <div className="flex flex-wrap items-center gap-2">
             <h4 className="truncate text-sm font-semibold text-navy-900">{item.passengerName}</h4>
             {isFirst ? (
-              <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-600">
+              <span className="rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-600">
                 Próximo
               </span>
             ) : null}
-            <span className={`ml-auto rounded-full border px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
+            <span className={`ml-auto rounded-full border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
               urgent ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-600'
             }`}>
               {formatWait(item.waitMinutes)}
             </span>
           </div>
           <p className="mt-0.5 text-[11px] text-slate-500">{maskPhone(item.phone)}</p>
-          <p className="mt-2 text-[12px] font-medium leading-snug text-navy-800">{item.pickupAddress}</p>
-          <p className="mt-1.5 text-[10px] text-slate-400">En cola desde {formatDateTime(item.queuedAt)}</p>
+          <p className="mt-1.5 text-[12px] font-medium leading-snug text-navy-800">{item.pickupAddress}</p>
+          <p className="mt-1 text-[10px] text-slate-400">En cola desde {formatDateTime(item.queuedAt)}</p>
         </div>
       </div>
     </article>
@@ -169,7 +171,7 @@ function TripCard({ trip }) {
   const priceLabel = formatPrice(trip.price);
 
   return (
-    <article className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-900/5 transition hover:border-slate-300">
+    <article className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white px-3.5 py-3 shadow-sm shadow-slate-900/5 transition hover:border-slate-300">
       <div className={`absolute inset-y-0 left-0 w-1 ${bar}`} />
       <div className="flex items-start justify-between gap-3 pl-1">
         <div className="min-w-0">
@@ -186,7 +188,7 @@ function TripCard({ trip }) {
         </span>
       </div>
 
-      <div className="mt-3 space-y-1.5 pl-1">
+      <div className="mt-2.5 space-y-1 pl-1">
         <p className="text-[12px] font-medium leading-snug text-navy-800">{trip.pickupAddress}</p>
         {trip.driverOrigin && trip.driverOrigin !== trip.pickupAddress ? (
           <p className="text-[11px] text-slate-500">Origen chofer: {trip.driverOrigin}</p>
@@ -194,7 +196,7 @@ function TripCard({ trip }) {
       </div>
 
       {driverName ? (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 pl-1">
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5 pl-1">
           <span className="text-[12px] font-medium text-navy-800">{driverName}</span>
           {driverPlate ? (
             <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
@@ -204,10 +206,10 @@ function TripCard({ trip }) {
           {driverVehicle ? <span className="text-[10px] text-slate-400">{driverVehicle}</span> : null}
         </div>
       ) : trip.status === 'queued' || trip.status === 'pending' ? (
-        <p className="mt-3 pl-1 text-[11px] font-medium text-amber-600">Sin chofer asignado</p>
+        <p className="mt-2.5 pl-1 text-[11px] font-medium text-amber-600">Sin chofer asignado</p>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 pl-1 text-[10px] text-slate-400">
+      <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1 pl-1 text-[10px] text-slate-400">
         {trip.acceptedAt ? <span>Aceptado {formatTime(trip.acceptedAt)}</span> : null}
         {trip.startedAt ? <span>En curso {formatTime(trip.startedAt)}</span> : null}
         {trip.completedAt ? <span>Fin {formatTime(trip.completedAt)}</span> : null}
@@ -255,10 +257,9 @@ export default function ViajesPanel({
     const q = search.trim().toLowerCase();
     return trips.filter((trip) => {
       if (statusFilter === 'active' && !trip.isActive) return false;
-      if (statusFilter === 'queued' && !trip.isQueued && trip.status !== 'queued') return false;
+      if (statusFilter === 'queued') return false;
       if (statusFilter === 'completed' && trip.status !== 'completed') return false;
       if (statusFilter === 'cancelled' && trip.status !== 'cancelled') return false;
-      // En "Todos" del día: priorizar viajes del día + activos/cola
       if (statusFilter === 'all' && !trip.isSelectedDay && !trip.isActive && !trip.isQueued) return false;
       if (!q) return true;
       const haystack = [
@@ -274,6 +275,9 @@ export default function ViajesPanel({
       return haystack.includes(q);
     });
   }, [trips, statusFilter, search, tick]);
+
+  const showQueueSection = statusFilter === 'all' || statusFilter === 'queued';
+  const showTripsSection = statusFilter !== 'queued';
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -294,234 +298,271 @@ export default function ViajesPanel({
     onSelectedDateChange?.(toLocalDateInputValue(next));
   };
 
+  const queueCount = loading ? '—' : queueStats.inQueue ?? 0;
+  const activeCount = loading ? '—' : tripStats.active ?? 0;
+  const dispatchedCount = loading ? '—' : tripStats.dispatchedDay ?? 0;
+  const completedCount = loading ? '—' : tripStats.completedDay ?? 0;
+  const cancelledCount = loading ? '—' : tripStats.cancelledDay ?? 0;
+
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)]">
-      {/* Header */}
-      <header className="flex shrink-0 flex-col gap-3 border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between lg:px-6 lg:py-4">
-        <div className="flex min-w-0 items-center gap-3">
+      {/* Toolbar compacta */}
+      <header className="shrink-0 border-b border-slate-200/80 bg-white/95 px-3 py-2 backdrop-blur-md lg:px-5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <button
             type="button"
             onClick={onBack}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-navy-800"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-navy-800"
             title="Volver al mapa"
           >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-navy-900 text-white shadow-md shadow-navy-900/20">
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10m16 0V8a1 1 0 00-1-1h-3.5M6 8h2" />
-            </svg>
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-base font-bold text-navy-900">Viajes</h2>
-            <p className="hidden text-[11px] text-slate-500 sm:block">
-              Cola, despachos y monitoreo en un solo panel
-            </p>
-          </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
           <LiveDot />
-          <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1">
-            <button
-              type="button"
-              onClick={() => shiftDay(-1)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
-              title="Día anterior"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <input
-              type="date"
-              value={dateValue}
-              max={toLocalDateInputValue()}
-              onChange={(e) => onSelectedDateChange?.(e.target.value || toLocalDateInputValue())}
-              className="h-8 rounded-lg border-0 bg-transparent px-1 text-[12px] font-semibold text-navy-900 outline-none"
+
+          <div className="hidden h-4 w-px bg-slate-200 sm:block" />
+
+          {/* Stats minimalistas */}
+          <div className="flex flex-wrap items-center gap-0.5">
+            <MiniStat
+              label="Cola"
+              value={queueCount}
+              tone="rose"
+              active={statusFilter === 'queued'}
+              onClick={() => setStatusFilter('queued')}
             />
-            <button
-              type="button"
-              onClick={() => shiftDay(1)}
-              disabled={isToday}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50 disabled:opacity-40"
-              title="Día siguiente"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            {!isToday ? (
+            <MiniStat
+              label="Activos"
+              value={activeCount}
+              tone="sky"
+              active={statusFilter === 'active'}
+              onClick={() => setStatusFilter('active')}
+            />
+            <MiniStat
+              label="Desp."
+              value={dispatchedCount}
+              tone="emerald"
+              onClick={() => setStatusFilter('all')}
+              active={false}
+            />
+            <MiniStat
+              label="OK"
+              value={completedCount}
+              tone="emerald"
+              active={statusFilter === 'completed'}
+              onClick={() => setStatusFilter('completed')}
+            />
+            <MiniStat
+              label="Canc."
+              value={cancelledCount}
+              tone="amber"
+              active={statusFilter === 'cancelled'}
+              onClick={() => setStatusFilter('cancelled')}
+            />
+          </div>
+
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <div className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5">
               <button
                 type="button"
-                onClick={() => onSelectedDateChange?.(toLocalDateInputValue())}
-                className="mr-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-navy-800 hover:bg-slate-50"
+                onClick={() => shiftDay(-1)}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50"
+                title="Día anterior"
               >
-                Hoy
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
               </button>
-            ) : null}
+              <input
+                type="date"
+                value={dateValue}
+                max={toLocalDateInputValue()}
+                onChange={(e) => onSelectedDateChange?.(e.target.value || toLocalDateInputValue())}
+                className="h-7 rounded-md border-0 bg-transparent px-0.5 text-[11px] font-semibold text-navy-900 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => shiftDay(1)}
+                disabled={isToday}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                title="Día siguiente"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+              {!isToday ? (
+                <button
+                  type="button"
+                  onClick={() => onSelectedDateChange?.(toLocalDateInputValue())}
+                  className="mr-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-navy-800 hover:bg-slate-50"
+                >
+                  Hoy
+                </button>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="inline-flex h-7 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-navy-800 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              <svg className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Actualizar
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-navy-800 transition hover:bg-slate-50 disabled:opacity-50"
-          >
-            <svg className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Actualizar
-          </button>
         </div>
       </header>
 
+      {/* Contenido principal con scroll */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-4 lg:px-6 lg:py-5">
-          {/* Stats */}
-          <section className="flex gap-3 overflow-x-auto pb-1 scrollbar-none">
-            <StatCard
-              label="En cola"
-              value={loading ? '—' : queueStats.inQueue ?? 0}
-              sub={queueStats.inQueue ? 'esperando despacho' : 'cola vacía'}
-              tone="rose"
-            />
-            <StatCard
-              label="Activos"
-              value={loading ? '—' : tripStats.active ?? 0}
-              sub="en curso ahora"
-              tone="sky"
-            />
-            <StatCard
-              label="Despachados"
-              value={loading ? '—' : tripStats.dispatchedDay ?? 0}
-              sub={isToday ? 'hoy' : 'del día'}
-              tone="emerald"
-            />
-            <StatCard
-              label="Completados"
-              value={loading ? '—' : tripStats.completedDay ?? 0}
-              sub={isToday ? 'hoy' : 'del día'}
-              tone="emerald"
-            />
-            <StatCard
-              label="Cancelados"
-              value={loading ? '—' : tripStats.cancelledDay ?? 0}
-              sub={isToday ? 'hoy' : 'del día'}
-              tone="amber"
-            />
-          </section>
-
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-3 py-4 lg:px-5 lg:py-5">
           {loadError ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               No se pudieron cargar los viajes: {loadError}
             </div>
           ) : null}
 
-          {/* Cola */}
-          <section className="rounded-3xl border border-slate-200/80 bg-white/80 p-4 shadow-sm shadow-slate-900/5 lg:p-5">
-            <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-bold text-navy-900">Cola activa</h3>
-                <p className="text-[11px] text-slate-500">Orden FIFO · el #1 se despacha primero</p>
-              </div>
-              <p className="text-[11px] text-slate-400">
+          {/* Cabecera de sección + filtros */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-base font-bold text-navy-900">
+                {isToday ? 'Viajes y despachos de hoy' : `Viajes del ${dateValue.split('-').reverse().join('/')}`}
+              </h2>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                Se actualizan solos con Supabase Realtime
                 {lastUpdated
-                  ? `Actualizado ${lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
-                  : '—'}
+                  ? ` · ${lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+                  : ''}
               </p>
             </div>
 
-            {loading && queuedList.length === 0 ? (
-              <div className="flex justify-center py-10">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-navy-900 border-t-transparent" />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-0.5 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 scrollbar-none">
+                {STATUS_FILTERS.map((item) => {
+                  const active = statusFilter === item.id;
+                  const count = item.id === 'queued'
+                    ? queueStats.inQueue
+                    : item.id === 'active'
+                      ? tripStats.active
+                      : item.id === 'completed'
+                        ? tripStats.completedDay
+                        : item.id === 'cancelled'
+                          ? tripStats.cancelledDay
+                          : null;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setStatusFilter(item.id)}
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                        active
+                          ? 'bg-navy-900 text-white shadow-sm'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-navy-900'
+                      }`}
+                    >
+                      {item.label}
+                      {count != null && Number(count) > 0 ? (
+                        <span className={`rounded-full px-1.5 text-[9px] tabular-nums ${
+                          active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {count}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
               </div>
-            ) : queuedList.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 py-10 text-center">
-                <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
-                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <p className="text-sm font-semibold text-navy-900">Cola vacía</p>
-                <p className="mt-1 text-xs text-slate-500">No hay pasajeros esperando chofer</p>
-              </div>
-            ) : (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {queuedList.map((item, index) => (
-                  <QueueCard key={item.id} item={item} isFirst={index === 0} />
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* Despachos / viajes del día */}
-          <section className="rounded-3xl border border-slate-200/80 bg-white/80 p-4 shadow-sm shadow-slate-900/5 lg:p-5">
-            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-navy-900">
-                  {isToday ? 'Viajes y despachos de hoy' : `Viajes del ${dateValue.split('-').reverse().join('/')}`}
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  Se actualizan solos con Supabase Realtime
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="flex items-center gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-1 scrollbar-none">
-                  {STATUS_FILTERS.map((item) => {
-                    const active = statusFilter === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setStatusFilter(item.id)}
-                        className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition ${
-                          active
-                            ? 'bg-navy-900 text-white shadow-sm'
-                            : 'text-slate-600 hover:bg-white hover:text-navy-900'
-                        }`}
-                      >
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="relative w-full sm:w-64">
-                  <svg className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Buscar pasajero, chofer o patente…"
-                    className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-[12px] text-navy-900 outline-none placeholder:text-slate-400 focus:border-navy-700/30 focus:ring-4 focus:ring-navy-900/5"
-                  />
-                </div>
+              <div className="relative w-full sm:w-56">
+                <svg className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar pasajero, chofer…"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-[12px] text-navy-900 outline-none placeholder:text-slate-400 focus:border-navy-700/30 focus:ring-4 focus:ring-navy-900/5"
+                />
               </div>
             </div>
+          </div>
 
-            {loading && filteredTrips.length === 0 ? (
-              <div className="flex justify-center py-16">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-navy-900 border-t-transparent" />
+          {/* Cola activa — subsección del filtro */}
+          {showQueueSection ? (
+            <section className="rounded-2xl border border-slate-200/70 bg-white/90 p-3.5 shadow-sm shadow-slate-900/5">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-[13px] font-bold text-navy-900">Cola activa</h3>
+                  <p className="text-[10px] text-slate-500">Orden FIFO · el #1 se despacha primero</p>
+                </div>
+                {statusFilter === 'all' && queuedList.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('queued')}
+                    className="text-[11px] font-semibold text-navy-700 hover:underline"
+                  >
+                    Ver solo cola
+                  </button>
+                ) : null}
               </div>
-            ) : filteredTrips.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 py-14 text-center">
-                <p className="text-sm font-semibold text-navy-900">Sin viajes para este filtro</p>
-                <p className="mt-1 text-xs text-slate-500">Probá otro día o cambiá el estado</p>
-              </div>
-            ) : (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {filteredTrips.map((trip) => (
-                  <TripCard key={trip.id} trip={trip} />
-                ))}
-              </div>
-            )}
-          </section>
+
+              {loading && queuedList.length === 0 ? (
+                <div className="flex justify-center py-8">
+                  <div className="h-7 w-7 animate-spin rounded-full border-2 border-navy-900 border-t-transparent" />
+                </div>
+              ) : queuedList.length === 0 ? (
+                <div className="flex items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-5">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-[13px] font-semibold text-navy-900">Cola vacía</p>
+                    <p className="text-[11px] text-slate-500">No hay pasajeros esperando chofer</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                  {queuedList.map((item, index) => (
+                    <QueueCard key={item.id} item={item} isFirst={index === 0} />
+                  ))}
+                </div>
+              )}
+            </section>
+          ) : null}
+
+          {/* Lista de viajes */}
+          {showTripsSection ? (
+            <section>
+              {statusFilter === 'all' ? (
+                <p className="mb-2.5 text-[11px] font-medium text-slate-500">
+                  {filteredTrips.length} viaje{filteredTrips.length === 1 ? '' : 's'} del día
+                </p>
+              ) : null}
+
+              {loading && filteredTrips.length === 0 ? (
+                <div className="flex justify-center py-16">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-navy-900 border-t-transparent" />
+                </div>
+              ) : filteredTrips.length === 0 ? (
+                <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/70 py-14 text-center">
+                  <p className="text-sm font-semibold text-navy-900">Sin viajes para este filtro</p>
+                  <p className="mt-1 text-xs text-slate-500">Probá otro día o cambiá el estado</p>
+                </div>
+              ) : (
+                <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                  {filteredTrips.map((trip) => (
+                    <TripCard key={trip.id} trip={trip} />
+                  ))}
+                </div>
+              )}
+            </section>
+          ) : null}
         </div>
       </div>
     </div>
