@@ -206,6 +206,7 @@ export function AreaTrendChart({
 
 export function StackedDailyChart({ data }) {
   const [hover, setHover] = useState(null);
+  const barMaxH = 140;
 
   if (!data?.length) return <EmptyChart message="Sin actividad diaria" />;
 
@@ -227,8 +228,12 @@ export function StackedDailyChart({ data }) {
         </div>
         <div className="relative flex h-[180px] min-w-0 flex-1 items-end gap-1">
           {sample.map((item) => {
-            const completedH = Math.round(((item.completed || 0) / max) * 100);
-            const cancelledH = Math.round(((item.cancelled || 0) / max) * 100);
+            const completed = Number(item.completed) || 0;
+            const cancelled = Number(item.cancelled) || 0;
+            const total = completed + cancelled;
+            const stackH = total > 0 ? Math.max(6, Math.round((total / max) * barMaxH)) : 0;
+            const cancelledH = total > 0 ? Math.max(cancelled > 0 ? 3 : 0, Math.round((cancelled / total) * stackH)) : 0;
+            const completedH = Math.max(0, stackH - cancelledH);
             const active = hover?.date === item.date;
             return (
               <div
@@ -238,9 +243,18 @@ export function StackedDailyChart({ data }) {
                 onMouseLeave={() => setHover(null)}
               >
                 <div className="flex h-[140px] w-full items-end justify-center">
-                  <div className={`flex w-full max-w-[16px] flex-col justify-end overflow-hidden rounded-t-md transition ${active ? 'opacity-100 ring-2 ring-navy-900/10' : 'opacity-90'}`}>
-                    <div className="w-full bg-rose-400" style={{ height: `${Math.max(cancelledH > 0 ? 3 : 0, cancelledH)}%` }} />
-                    <div className="w-full bg-emerald-500" style={{ height: `${Math.max(completedH > 0 ? 3 : 0, completedH)}%` }} />
+                  <div
+                    className={`flex w-full max-w-[16px] flex-col justify-end overflow-hidden rounded-t-md transition ${
+                      active ? 'opacity-100 ring-2 ring-navy-900/10' : 'opacity-90'
+                    }`}
+                    style={{ height: stackH }}
+                  >
+                    {cancelledH > 0 ? (
+                      <div className="w-full flex-shrink-0 bg-rose-400" style={{ height: cancelledH }} />
+                    ) : null}
+                    {completedH > 0 ? (
+                      <div className="w-full flex-shrink-0 bg-emerald-500" style={{ height: completedH }} />
+                    ) : null}
                   </div>
                 </div>
                 <span className="w-full truncate text-center text-[8px] text-gray-400">
