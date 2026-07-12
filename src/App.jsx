@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useDrivers } from './hooks/useDrivers';
 import { useSettings } from './hooks/useSettings';
 import { usePendingPassengers } from './hooks/usePendingPassengers';
@@ -43,9 +43,40 @@ const VIEWS = {
   adminUsers: 'adminUsers',
 };
 
+const DASHBOARD_BASE = '/admin/dashboard';
+
+const VIEW_SLUG = {
+  [VIEWS.map]: '',
+  [VIEWS.trips]: 'viajes',
+  [VIEWS.scheduled]: 'programados',
+  [VIEWS.management]: 'choferes',
+  [VIEWS.statistics]: 'estadistica',
+  [VIEWS.zones]: 'zonas',
+  [VIEWS.emulatorGps]: 'sim-gps',
+  [VIEWS.adminUsers]: 'usuarios',
+  [VIEWS.geocodeErrors]: 'geocode',
+};
+
+const SLUG_VIEW = Object.fromEntries(
+  Object.entries(VIEW_SLUG).map(([view, slug]) => [slug, view]),
+);
+
+function pathForView(view) {
+  const slug = VIEW_SLUG[view] ?? '';
+  return slug ? `${DASHBOARD_BASE}/${slug}` : DASHBOARD_BASE;
+}
+
+function viewFromPath(pathname) {
+  if (!pathname || !pathname.startsWith(DASHBOARD_BASE)) return VIEWS.map;
+  const rest = pathname.slice(DASHBOARD_BASE.length).replace(/^\//, '');
+  const slug = rest.split('/').filter(Boolean)[0] || '';
+  return SLUG_VIEW[slug] || VIEWS.map;
+}
+
 export default function App() {
   const toast = useToast();
   const router = useRouter();
+  const pathname = usePathname();
   const { signOut, user } = useAdminAuth();
   const isSuperAdmin = isSuperAdminUser(user);
   const { drivers, loading } = useDrivers();
@@ -67,7 +98,7 @@ export default function App() {
   const [tripModalDriver, setTripModalDriver] = useState(null);
   const [showNewTripModal, setShowNewTripModal] = useState(false);
   const [showAiAgentModal, setShowAiAgentModal] = useState(false);
-  const [currentView,     setCurrentView]     = useState(VIEWS.map);
+  const [currentView,     setCurrentView]     = useState(() => viewFromPath(pathname));
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [multiSelectedIds,setMultiSelectedIds]= useState(new Set());
   const [showBroadcast,   setShowBroadcast]   = useState(false);
@@ -164,28 +195,37 @@ export default function App() {
   }, [router, signOut, toast]);
 
   const goTo = useCallback((view) => {
+    let target = view;
     if (
       !isSuperAdmin
-      && (view === VIEWS.adminUsers || view === VIEWS.emulatorGps)
+      && (target === VIEWS.adminUsers || target === VIEWS.emulatorGps)
     ) {
-      setCurrentView(VIEWS.map);
-      return;
+      target = VIEWS.map;
     }
-    setCurrentView(view);
-    if (view !== VIEWS.map) {
+    if (target !== VIEWS.map) {
       setPanelDriverId(null);
       setSelectedId(null);
     }
-  }, [isSuperAdmin]);
+    setCurrentView(target);
+    const nextPath = pathForView(target);
+    if (pathname !== nextPath) {
+      router.push(nextPath);
+    }
+  }, [isSuperAdmin, pathname, router]);
 
   useEffect(() => {
+    let next = viewFromPath(pathname);
     if (
       !isSuperAdmin
-      && (currentView === VIEWS.adminUsers || currentView === VIEWS.emulatorGps)
+      && (next === VIEWS.adminUsers || next === VIEWS.emulatorGps)
     ) {
-      setCurrentView(VIEWS.map);
+      next = VIEWS.map;
+      if (pathname !== DASHBOARD_BASE) {
+        router.replace(DASHBOARD_BASE);
+      }
     }
-  }, [isSuperAdmin, currentView]);
+    setCurrentView(next);
+  }, [pathname, isSuperAdmin, router]);
 
   useEffect(() => {
     if (panelDriverId) setFleetDrawerOpen(false);

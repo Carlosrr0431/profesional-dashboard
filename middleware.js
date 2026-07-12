@@ -33,6 +33,7 @@ export async function middleware(request) {
 
 export const config = {
   matcher: [
+    '/admin/dashboard',
     '/admin/dashboard/:path*',
     '/admin/login',
     '/api/admin/:path*',
