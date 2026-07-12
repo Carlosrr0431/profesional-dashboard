@@ -19,18 +19,12 @@ const HEATMAP_LAYER = {
       'interpolate',
       ['linear'],
       ['heatmap-density'],
-      0,
-      'rgba(191, 219, 254, 0)',
-      0.15,
-      'rgba(191, 219, 254, 0.65)',
-      0.35,
-      'rgba(134, 239, 172, 0.85)',
-      0.55,
-      'rgba(253, 230, 138, 0.9)',
-      0.75,
-      'rgba(252, 165, 165, 0.95)',
-      1,
-      'rgba(239, 68, 68, 1)',
+      0, 'rgba(191, 219, 254, 0)',
+      0.15, 'rgba(191, 219, 254, 0.65)',
+      0.35, 'rgba(134, 239, 172, 0.85)',
+      0.55, 'rgba(253, 230, 138, 0.9)',
+      0.75, 'rgba(252, 165, 165, 0.95)',
+      1, 'rgba(239, 68, 68, 1)',
     ],
   },
 };
@@ -52,10 +46,10 @@ function buildHeatmapGeoJSON(points) {
   return { type: 'FeatureCollection', features };
 }
 
-const PERIOD_OPTIONS = [
-  { key: '7d', label: '7d' },
-  { key: '30d', label: '30d' },
-  { key: '90d', label: '90d' },
+const QUICK_PERIODS = [
+  { key: '7d', label: '7 días' },
+  { key: '30d', label: '30 días' },
+  { key: '90d', label: '90 días' },
   { key: 'all', label: 'Todo' },
 ];
 
@@ -69,7 +63,7 @@ const STATUS_LABELS = {
   pending: 'Pendiente',
   queued: 'En cola',
   scheduled: 'Programado',
-  accepted: 'Aceptado',
+  accepted: 'Asignado',
   going_to_pickup: 'En camino',
   in_progress: 'En curso',
   completed: 'Completado',
@@ -77,6 +71,7 @@ const STATUS_LABELS = {
 };
 
 const SOURCE_LABELS = {
+  passenger_app: 'App pasajeros',
   whatsapp: 'WhatsApp',
   dashboard: 'Dashboard',
   otro: 'Otro',
@@ -93,20 +88,30 @@ function formatDayShort(dateStr) {
   return d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
 }
 
+function formatMonthLabel(monthStr) {
+  if (!monthStr) return '';
+  const [y, m] = monthStr.split('-').map(Number);
+  const d = new Date(y, m - 1, 1);
+  return d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+}
+
 function EmptyChart({ message = 'Sin datos' }) {
   return (
-    <div className="h-[180px] flex items-center justify-center">
+    <div className="flex h-[180px] items-center justify-center">
       <p className="text-[13px] text-gray-300">{message}</p>
     </div>
   );
 }
 
-function Panel({ title, hint, children, className = '' }) {
+function Panel({ title, hint, children, className = '', action = null }) {
   return (
-    <section className={`bg-white rounded-[20px] p-5 ${className}`}>
-      <div className="mb-4">
-        <h3 className="text-[13px] font-semibold text-navy-900 tracking-tight">{title}</h3>
-        {hint && <p className="text-[11px] text-gray-400 mt-0.5">{hint}</p>}
+    <section className={`rounded-[20px] bg-white p-5 ${className}`}>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-[13px] font-semibold tracking-tight text-navy-900">{title}</h3>
+          {hint ? <p className="mt-0.5 text-[11px] text-gray-400">{hint}</p> : null}
+        </div>
+        {action}
       </div>
       {children}
     </section>
@@ -116,17 +121,17 @@ function Panel({ title, hint, children, className = '' }) {
 function Metric({ label, value, detail }) {
   return (
     <div className="min-w-0">
-      <p className="text-[10px] uppercase tracking-[0.12em] text-gray-400 mb-1">{label}</p>
-      <p className="text-[22px] font-semibold text-navy-900 tabular-nums leading-none tracking-tight">{value}</p>
-      {detail && <p className="text-[11px] text-gray-400 mt-1.5">{detail}</p>}
+      <p className="mb-1 text-[10px] uppercase tracking-[0.12em] text-gray-400">{label}</p>
+      <p className="text-[22px] font-semibold leading-none tracking-tight text-navy-900 tabular-nums">{value}</p>
+      {detail ? <p className="mt-1.5 text-[11px] text-gray-400">{detail}</p> : null}
     </div>
   );
 }
 
-function AreaTrendChart({ data }) {
+function AreaTrendChart({ data, valueKey = 'count', color = '#E11D48' }) {
   if (!data?.length) return <EmptyChart message="Sin viajes en el período" />;
 
-  const max = Math.max(...data.map((d) => d.count), 1);
+  const max = Math.max(...data.map((d) => Number(d[valueKey]) || 0), 1);
   const pad = 8;
   const w = 100;
   const h = 100;
@@ -135,20 +140,21 @@ function AreaTrendChart({ data }) {
 
   const coords = data.map((item, index) => {
     const x = pad + (index / Math.max(data.length - 1, 1)) * innerW;
-    const y = pad + innerH - (item.count / max) * innerH;
+    const y = pad + innerH - ((Number(item[valueKey]) || 0) / max) * innerH;
     return { x, y, ...item };
   });
 
   const line = coords.map((p) => `${p.x},${p.y}`).join(' ');
   const area = `${coords[0].x},${pad + innerH} ${line} ${coords[coords.length - 1].x},${pad + innerH}`;
+  const gradId = `areaFill-${valueKey}`;
 
   return (
     <div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-[180px]" preserveAspectRatio="none">
+      <svg viewBox={`0 0 ${w} ${h}`} className="h-[180px] w-full" preserveAspectRatio="none">
         <defs>
-          <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#E11D48" stopOpacity="0.18" />
-            <stop offset="100%" stopColor="#E11D48" stopOpacity="0" />
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.18" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
           </linearGradient>
         </defs>
         {[0.25, 0.5, 0.75].map((ratio) => (
@@ -162,25 +168,22 @@ function AreaTrendChart({ data }) {
             strokeWidth="0.4"
           />
         ))}
-        <polygon points={area} fill="url(#areaFill)" />
+        <polygon points={area} fill={`url(#${gradId})`} />
         <polyline
           points={line}
           fill="none"
-          stroke="#E11D48"
+          stroke={color}
           strokeWidth="1.2"
           strokeLinejoin="round"
           strokeLinecap="round"
         />
-        {coords.map((point) => (
-          <circle key={point.date} cx={point.x} cy={point.y} r="1.2" fill="#E11D48" />
-        ))}
       </svg>
-      <div className="flex justify-between mt-2 px-0.5">
-        {data.length <= 6
+      <div className="mt-2 flex justify-between px-0.5">
+        {data.length <= 8
           ? data.map((item) => (
             <span key={item.date} className="text-[10px] text-gray-400">{formatDayShort(item.date)}</span>
           ))
-          : [data[0], data[Math.floor(data.length / 2)], data[data.length - 1]].map((item) => (
+          : [data[0], data[Math.floor(data.length / 2)], data[data.length - 1]].filter(Boolean).map((item) => (
             <span key={item.date} className="text-[10px] text-gray-400">{formatDayShort(item.date)}</span>
           ))}
       </div>
@@ -188,25 +191,59 @@ function AreaTrendChart({ data }) {
   );
 }
 
-function ColumnChart({ data, labelKey = 'label' }) {
+function StackedDailyChart({ data }) {
+  if (!data?.length) return <EmptyChart message="Sin actividad diaria" />;
+
+  const max = Math.max(...data.map((d) => (d.completed || 0) + (d.cancelled || 0)), 1);
+  const sample = data.length > 14
+    ? data.filter((_, i) => i % Math.ceil(data.length / 14) === 0 || i === data.length - 1)
+    : data;
+
+  return (
+    <div className="h-[180px] flex items-end gap-1">
+      {sample.map((item) => {
+        const completedH = Math.round(((item.completed || 0) / max) * 100);
+        const cancelledH = Math.round(((item.cancelled || 0) / max) * 100);
+        return (
+          <div key={item.date} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+            <span className="text-[8px] tabular-nums text-gray-400">
+              {(item.completed || 0) + (item.cancelled || 0)}
+            </span>
+            <div className="flex h-[120px] w-full items-end justify-center">
+              <div className="flex w-full max-w-[16px] flex-col justify-end overflow-hidden rounded-t-md">
+                <div className="w-full bg-rose-400" style={{ height: `${Math.max(cancelledH > 0 ? 4 : 0, cancelledH)}%` }} />
+                <div className="w-full bg-emerald-500" style={{ height: `${Math.max(completedH > 0 ? 4 : 0, completedH)}%` }} />
+              </div>
+            </div>
+            <span className="w-full truncate text-center text-[8px] text-gray-400">
+              {formatDayShort(item.date)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ColumnChart({ data, labelKey = 'label', color = 'bg-navy-900/85' }) {
   if (!data?.length) return <EmptyChart />;
 
   const max = Math.max(...data.map((d) => d.count), 1);
 
   return (
-    <div className="h-[180px] flex items-end gap-[3px]">
+    <div className="flex h-[180px] items-end gap-[3px]">
       {data.map((item, index) => {
         const height = Math.max(6, Math.round((item.count / max) * 100));
         return (
-          <div key={item.key ?? item.hour ?? item.label ?? index} className="flex-1 min-w-0 flex flex-col items-center gap-1.5">
-            <span className="text-[9px] text-gray-400 tabular-nums">{item.count}</span>
-            <div className="w-full flex items-end justify-center" style={{ height: '120px' }}>
+          <div key={item.key ?? item.hour ?? item.label ?? index} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
+            <span className="text-[9px] tabular-nums text-gray-400">{item.count}</span>
+            <div className="flex h-[120px] w-full items-end justify-center">
               <div
-                className="w-full max-w-[14px] rounded-t-md bg-navy-900/85 transition-all duration-500"
+                className={`w-full max-w-[14px] rounded-t-md transition-all duration-500 ${color}`}
                 style={{ height: `${height}%` }}
               />
             </div>
-            <span className="text-[9px] text-gray-400 truncate w-full text-center">{item[labelKey]}</span>
+            <span className="w-full truncate text-center text-[9px] text-gray-400">{item[labelKey]}</span>
           </div>
         );
       })}
@@ -225,7 +262,7 @@ function DonutChart({ items, size = 128 }) {
   return (
     <div className="flex items-center gap-6">
       <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
-        <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+        <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
           <circle cx="18" cy="18" r={radius} fill="none" stroke="#F1F5F9" strokeWidth="4" />
           {items.map((item, index) => {
             const length = (item.count / total) * circumference;
@@ -249,19 +286,19 @@ function DonutChart({ items, size = 128 }) {
           })}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-lg font-semibold text-navy-900 tabular-nums">{total}</span>
-          <span className="text-[9px] text-gray-400 uppercase tracking-wider">total</span>
+          <span className="text-lg font-semibold tabular-nums text-navy-900">{total}</span>
+          <span className="text-[9px] uppercase tracking-wider text-gray-400">total</span>
         </div>
       </div>
-      <div className="flex-1 space-y-2 min-w-0">
+      <div className="min-w-0 flex-1 space-y-2">
         {items.map((item, index) => (
-          <div key={item.key} className="flex items-center gap-2 min-w-0">
+          <div key={item.key} className="flex min-w-0 items-center gap-2">
             <span
-              className="w-2 h-2 rounded-full flex-shrink-0"
+              className="h-2 w-2 flex-shrink-0 rounded-full"
               style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
             />
-            <span className="text-[11px] text-gray-500 truncate flex-1">{item.label}</span>
-            <span className="text-[11px] font-medium text-navy-900 tabular-nums">{item.count}</span>
+            <span className="flex-1 truncate text-[11px] text-gray-500">{item.label}</span>
+            <span className="text-[11px] font-medium tabular-nums text-navy-900">{item.count}</span>
           </div>
         ))}
       </div>
@@ -269,7 +306,7 @@ function DonutChart({ items, size = 128 }) {
   );
 }
 
-function HorizontalBars({ items, maxBars = 8 }) {
+function HorizontalBars({ items, maxBars = 8, valueFormatter = null }) {
   if (!items?.length) return <EmptyChart />;
 
   const slice = items.slice(0, maxBars);
@@ -279,11 +316,13 @@ function HorizontalBars({ items, maxBars = 8 }) {
     <div className="space-y-3">
       {slice.map((item, index) => (
         <div key={item.key ?? item.label ?? index}>
-          <div className="flex items-center justify-between gap-3 mb-1.5">
-            <span className="text-[11px] text-gray-600 truncate">{item.label}</span>
-            <span className="text-[11px] font-medium text-navy-900 tabular-nums">{item.count}</span>
+          <div className="mb-1.5 flex items-center justify-between gap-3">
+            <span className="truncate text-[11px] text-gray-600">{item.label}</span>
+            <span className="text-[11px] font-medium tabular-nums text-navy-900">
+              {valueFormatter ? valueFormatter(item) : item.count}
+            </span>
           </div>
-          <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+          <div className="h-1 overflow-hidden rounded-full bg-gray-100">
             <div
               className="h-full rounded-full bg-navy-900/80 transition-all duration-500"
               style={{ width: `${Math.max(4, (item.count / max) * 100)}%` }}
@@ -306,7 +345,7 @@ function LocationViewToggle({ value, onChange, views }) {
             key={option.key}
             type="button"
             onClick={() => onChange(option.key)}
-            className={`px-3 py-1.5 rounded-full text-[11px] font-medium transition-all ${
+            className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition-all ${
               value === option.key
                 ? 'bg-white text-navy-900 shadow-sm ring-1 ring-gray-100'
                 : 'text-gray-400 hover:text-navy-900'
@@ -356,7 +395,7 @@ function TripHeatmap({ points }) {
   }, [heatmapGeoJSON, hasPoints]);
 
   return (
-    <div className="relative h-[320px] w-full rounded-2xl overflow-hidden">
+    <div className="relative h-[320px] w-full overflow-hidden rounded-2xl">
       <Map
         ref={mapRef}
         {...viewState}
@@ -386,12 +425,18 @@ export default function StatisticsPanel({
   loading,
   error,
   period,
+  date,
+  month,
   changePeriod,
+  changeDate,
+  changeMonth,
   lastUpdated,
   refetch,
   drivers = [],
 }) {
   const [locationView, setLocationView] = useState('combined');
+  const isDay = period === 'day';
+  const isMonth = period === 'month';
 
   const fleetStats = useMemo(() => {
     const total = drivers.length;
@@ -411,6 +456,14 @@ export default function StatisticsPanel({
   }, [stats]);
 
   const dailyChartData = useMemo(() => stats?.dailyTrend || [], [stats]);
+
+  const weekdayChartData = useMemo(() => (
+    (stats?.weekdayDistribution || []).map((item) => ({
+      key: item.day,
+      label: item.label,
+      count: item.count,
+    }))
+  ), [stats]);
 
   const sourceItems = useMemo(() => {
     if (!stats?.bySource) return [];
@@ -433,6 +486,18 @@ export default function StatisticsPanel({
     }));
   }, [stats]);
 
+  const topDriverItems = useMemo(() => (
+    (stats?.topDrivers || []).map((driver) => ({
+      key: driver.id,
+      label: driver.plate ? `${driver.name} · ${driver.plate}` : driver.name,
+      count: driver.completed,
+      trips: driver.trips,
+      revenue: driver.revenue,
+    }))
+  ), [stats]);
+
+  const cancelReasonItems = useMemo(() => stats?.cancelReasons || [], [stats]);
+
   const locationViews = stats?.locationViews || null;
 
   const activeLocationView = useMemo(() => {
@@ -447,32 +512,44 @@ export default function StatisticsPanel({
   }, [locationViews, locationView, stats]);
 
   const topZoneItems = useMemo(() => (
-    (activeLocationView.topZones || []).map((zone, index) => ({
+    (activeLocationView.topZones || []).map((zone) => ({
       key: zone.key,
       label: zone.sampleAddress,
       count: zone.count,
-      rank: index + 1,
     }))
   ), [activeLocationView.topZones]);
 
+  const rangeTitle = useMemo(() => {
+    if (isDay && date) {
+      return new Date(`${date}T12:00:00`).toLocaleDateString('es-AR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      });
+    }
+    if (isMonth && month) return formatMonthLabel(month);
+    return stats?.label || 'Período seleccionado';
+  }, [isDay, isMonth, date, month, stats]);
+
   if (loading && !stats) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#FAFBFC]">
-        <div className="w-8 h-8 border-2 border-gray-200 border-t-navy-900 rounded-full animate-spin" />
+      <div className="flex h-full items-center justify-center bg-[#FAFBFC]">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-200 border-t-navy-900" />
       </div>
     );
   }
 
   if (error && !stats) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#FAFBFC] p-6">
+      <div className="flex h-full items-center justify-center bg-[#FAFBFC] p-6">
         <div className="text-center">
-          <p className="text-sm font-medium text-navy-900 mb-1">Error al cargar</p>
-          <p className="text-[13px] text-gray-400 mb-4">{error}</p>
+          <p className="mb-1 text-sm font-medium text-navy-900">Error al cargar</p>
+          <p className="mb-4 text-[13px] text-gray-400">{error}</p>
           <button
             type="button"
             onClick={refetch}
-            className="px-4 py-2 rounded-full bg-navy-900 text-white text-[13px] font-medium"
+            className="rounded-full bg-navy-900 px-4 py-2 text-[13px] font-medium text-white"
           >
             Reintentar
           </button>
@@ -484,28 +561,28 @@ export default function StatisticsPanel({
   const summary = stats?.summary || {};
 
   return (
-    <div className="h-full overflow-y-auto overflow-x-hidden bg-[#FAFBFC]">
-      <div className="max-w-6xl mx-auto px-5 py-6 pb-16 space-y-6">
+    <div className={`h-full overflow-x-hidden overflow-y-auto bg-[#FAFBFC] ${loading ? 'opacity-90' : ''}`}>
+      <div className="mx-auto max-w-6xl space-y-5 px-5 py-6 pb-16">
 
-        {/* Header minimalista */}
-        <header className="flex flex-wrap items-end justify-between gap-4">
+        <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h1 className="text-[28px] font-semibold text-navy-900 tracking-tight">Estadística</h1>
-            <p className="text-[13px] text-gray-400 mt-1">
+            <h1 className="text-[28px] font-semibold tracking-tight text-navy-900">Estadística</h1>
+            <p className="mt-1 text-[13px] capitalize text-gray-400">
+              {rangeTitle}
               {lastUpdated
-                ? `Actualizado ${lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`
-                : 'Métricas operativas'}
+                ? ` · actualizado ${lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`
+                : ''}
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-full bg-white p-0.5 shadow-sm ring-1 ring-gray-100">
-              {PERIOD_OPTIONS.map((option) => (
+              {QUICK_PERIODS.map((option) => (
                 <button
                   key={option.key}
                   type="button"
-                  onClick={() => changePeriod(option.key)}
-                  className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all ${
+                  onClick={() => changePeriod?.(option.key)}
+                  className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition-all ${
                     period === option.key
                       ? 'bg-navy-900 text-white'
                       : 'text-gray-400 hover:text-navy-900'
@@ -515,42 +592,98 @@ export default function StatisticsPanel({
                 </button>
               ))}
             </div>
+
+            <label className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium shadow-sm ring-1 transition ${
+              isDay ? 'bg-navy-900 text-white ring-navy-900' : 'bg-white text-gray-500 ring-gray-100'
+            }`}>
+              Día
+              <input
+                type="date"
+                value={date || ''}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => changeDate?.(e.target.value)}
+                className={`border-0 bg-transparent text-[12px] outline-none ${
+                  isDay ? 'text-white [color-scheme:dark]' : 'text-navy-900'
+                }`}
+              />
+            </label>
+
+            <label className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium shadow-sm ring-1 transition ${
+              isMonth ? 'bg-navy-900 text-white ring-navy-900' : 'bg-white text-gray-500 ring-gray-100'
+            }`}>
+              Mes
+              <input
+                type="month"
+                value={month || ''}
+                max={new Date().toISOString().slice(0, 7)}
+                onChange={(e) => changeMonth?.(e.target.value)}
+                className={`border-0 bg-transparent text-[12px] outline-none ${
+                  isMonth ? 'text-white [color-scheme:dark]' : 'text-navy-900'
+                }`}
+              />
+            </label>
+
             <button
               type="button"
               onClick={refetch}
-              className="w-8 h-8 rounded-full bg-white ring-1 ring-gray-100 text-gray-400 hover:text-navy-900 transition-colors flex items-center justify-center"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-gray-400 ring-1 ring-gray-100 transition-colors hover:text-navy-900"
               title="Actualizar"
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             </button>
           </div>
         </header>
 
-        {/* KPIs en fila única */}
-        <div className="bg-white rounded-[20px] px-5 py-5">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-6 lg:gap-4 lg:divide-x lg:divide-gray-100">
-            <Metric label="Viajes" value={summary.total ?? 0} detail={`${summary.completionRate ?? 0}% completados`} />
-            <Metric label="Completados" value={summary.completed ?? 0} detail={`${summary.cancelled ?? 0} cancelados`} />
-            <Metric label="Activos" value={summary.active ?? 0} detail="En curso ahora" />
-            <Metric label="Facturación" value={formatPrice(summary.totalRevenue)} detail={`Prom. ${formatPrice(summary.avgPrice)}`} />
-            <Metric label="Comisiones" value={formatPrice(summary.totalCommission)} detail={formatKm(summary.avgDistanceKm)} />
-            <Metric
-              label="Flota"
-              value={fleetStats.total}
-              detail={`${fleetStats.online} libres · ${fleetStats.inTrip} viaje`}
-            />
+        {error ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="rounded-[20px] bg-white px-5 py-5">
+          <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-6 lg:gap-4 lg:divide-x lg:divide-gray-100">
+            <div className="lg:pl-0"><Metric label="Viajes" value={summary.total ?? 0} detail={`${summary.avgTripsPerDay ?? 0}/día prom.`} /></div>
+            <div className="lg:pl-4"><Metric label="Completados" value={summary.completed ?? 0} detail={`${summary.completionRate ?? 0}% del total`} /></div>
+            <div className="lg:pl-4"><Metric label="Cancelados" value={summary.cancelled ?? 0} detail={`${summary.cancelRate ?? 0}% del total`} /></div>
+            <div className="lg:pl-4"><Metric label="Facturación" value={formatPrice(summary.completedRevenue ?? summary.totalRevenue)} detail={`Ticket ${formatPrice(summary.avgCompletedPrice || summary.avgPrice)}`} /></div>
+            <div className="lg:pl-4"><Metric label="Comisiones" value={formatPrice(summary.totalCommission)} detail={formatKm(summary.avgDistanceKm)} /></div>
+            <div className="lg:pl-4">
+              <Metric
+                label="Flota"
+                value={fleetStats.total}
+                detail={`${fleetStats.online} libres · ${fleetStats.inTrip} viaje`}
+              />
+            </div>
           </div>
         </div>
 
-        {/* Gráficas principales */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Panel title="Tendencia diaria" hint="Viajes por día en el período">
-            <AreaTrendChart data={dailyChartData} />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Panel title="Tendencia diaria" hint="Cantidad de viajes por día (hora Argentina)">
+            <AreaTrendChart data={dailyChartData} valueKey="count" color="#E11D48" />
           </Panel>
 
-          <Panel title="Demanda por hora" hint="Distribución horaria de pedidos">
+          <Panel title="Facturación diaria" hint="Solo viajes completados con precio">
+            <AreaTrendChart data={dailyChartData} valueKey="revenue" color="#0F172A" />
+          </Panel>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Panel
+            title="Completados vs cancelados"
+            hint="Comparación diaria"
+            action={(
+              <div className="flex items-center gap-3 text-[10px] text-gray-400">
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Completados</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-400" /> Cancelados</span>
+              </div>
+            )}
+          >
+            <StackedDailyChart data={dailyChartData} />
+          </Panel>
+
+          <Panel title="Demanda por hora" hint="Distribución horaria (Argentina)">
             {hourlyChartData.some((d) => d.count > 0) ? (
               <ColumnChart data={hourlyChartData} labelKey="label" />
             ) : (
@@ -559,8 +692,25 @@ export default function StatisticsPanel({
           </Panel>
         </div>
 
-        {/* Mapa + zonas */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <Panel title="Por día de la semana" hint="Qué días piden más">
+            {weekdayChartData.some((d) => d.count > 0) ? (
+              <ColumnChart data={weekdayChartData} labelKey="label" color="bg-sky-600/85" />
+            ) : (
+              <EmptyChart />
+            )}
+          </Panel>
+
+          <Panel title="Por canal" hint="Origen real del pedido">
+            <DonutChart items={sourceItems} />
+          </Panel>
+
+          <Panel title="Por estado" hint="Composición del período">
+            <DonutChart items={statusItems} />
+          </Panel>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
           <Panel
             title="Mapa de calor"
             hint={
@@ -572,38 +722,20 @@ export default function StatisticsPanel({
             }
             className="lg:col-span-3"
           >
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <LocationViewToggle
                 value={locationView}
                 onChange={setLocationView}
                 views={locationViews}
               />
-              <span className="text-[11px] text-gray-400 tabular-nums">
+              <span className="text-[11px] tabular-nums text-gray-400">
                 {activeLocationView.tripsWithPoint ?? activeLocationView.pointCount} viajes con ubicación
               </span>
             </div>
             <TripHeatmap points={activeLocationView.heatmapPoints || []} />
-            <div className="flex items-center gap-3 mt-3">
-              <span className="text-[10px] text-gray-300">Baja</span>
-              <div className="flex-1 h-1 rounded-full bg-gradient-to-r from-blue-200 via-amber-200 to-red-500" />
-              <span className="text-[10px] text-gray-300">Alta</span>
-              <span className="text-[10px] text-gray-400 tabular-nums">
-                {activeLocationView.pointCount} pts
-              </span>
-            </div>
           </Panel>
 
-          <Panel
-            title="Top zonas"
-            hint={
-              locationView === 'pickup'
-                ? 'Mayor demanda de retiro'
-                : locationView === 'destination'
-                  ? 'Destinos más frecuentes'
-                  : 'Retiros y destinos'
-            }
-            className="lg:col-span-2"
-          >
+          <Panel title="Top zonas" hint="Mayor demanda geográfica" className="lg:col-span-2">
             {topZoneItems.length === 0 ? (
               <EmptyChart message="Sin ubicaciones" />
             ) : (
@@ -612,31 +744,40 @@ export default function StatisticsPanel({
           </Panel>
         </div>
 
-        {/* Distribuciones */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Panel title="Por estado" hint="Composición del período">
-            <DonutChart items={statusItems} />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Panel title="Top choferes" hint="Por viajes completados en el período">
+            {topDriverItems.length === 0 ? (
+              <EmptyChart message="Sin choferes con viajes" />
+            ) : (
+              <HorizontalBars
+                items={topDriverItems}
+                valueFormatter={(item) => `${item.count} ok · ${formatPrice(item.revenue)}`}
+              />
+            )}
           </Panel>
 
-          <Panel title="Por canal" hint="WhatsApp vs dashboard">
-            <DonutChart items={sourceItems} />
+          <Panel title="Motivos de cancelación" hint="Agrupados del período">
+            {cancelReasonItems.length === 0 ? (
+              <EmptyChart message="Sin cancelaciones" />
+            ) : (
+              <HorizontalBars items={cancelReasonItems} />
+            )}
           </Panel>
         </div>
 
-        {/* Detalle operativo */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <Panel title="Rendimiento">
             <div className="space-y-4">
-              <div className="flex justify-between items-baseline">
+              <div className="flex items-baseline justify-between">
                 <span className="text-[12px] text-gray-500">Tasa de completado</span>
-                <span className="text-[18px] font-semibold text-navy-900 tabular-nums">{summary.completionRate ?? 0}%</span>
+                <span className="text-[18px] font-semibold tabular-nums text-navy-900">{summary.completionRate ?? 0}%</span>
               </div>
               <div className="h-1 rounded-full bg-gray-100">
                 <div className="h-full rounded-full bg-emerald-500" style={{ width: `${summary.completionRate ?? 0}%` }} />
               </div>
-              <div className="flex justify-between items-baseline pt-2">
+              <div className="flex items-baseline justify-between pt-2">
                 <span className="text-[12px] text-gray-500">Tasa de cancelación</span>
-                <span className="text-[18px] font-semibold text-navy-900 tabular-nums">{summary.cancelRate ?? 0}%</span>
+                <span className="text-[18px] font-semibold tabular-nums text-navy-900">{summary.cancelRate ?? 0}%</span>
               </div>
               <div className="h-1 rounded-full bg-gray-100">
                 <div className="h-full rounded-full bg-red-400" style={{ width: `${summary.cancelRate ?? 0}%` }} />
@@ -647,17 +788,20 @@ export default function StatisticsPanel({
           <Panel title="Promedios">
             <div className="space-y-5 pt-1">
               <div>
-                <p className="text-[11px] text-gray-400 mb-1">Distancia</p>
+                <p className="mb-1 text-[11px] text-gray-400">Distancia</p>
                 <p className="text-xl font-semibold text-navy-900">{formatKm(summary.avgDistanceKm)}</p>
               </div>
               <div>
-                <p className="text-[11px] text-gray-400 mb-1">Duración</p>
+                <p className="mb-1 text-[11px] text-gray-400">Duración</p>
                 <p className="text-xl font-semibold text-navy-900">{formatDuration(summary.avgDurationMin)}</p>
               </div>
               <div>
-                <p className="text-[11px] text-gray-400 mb-1">Hora pico</p>
+                <p className="mb-1 text-[11px] text-gray-400">Hora pico</p>
                 <p className="text-xl font-semibold text-navy-900">
                   {summary.peakHour != null ? formatHour(summary.peakHour) : '—'}
+                  {summary.peakHourCount ? (
+                    <span className="ml-2 text-sm font-normal text-gray-400">({summary.peakHourCount})</span>
+                  ) : null}
                 </p>
               </div>
             </div>
@@ -672,10 +816,16 @@ export default function StatisticsPanel({
               ].map((item) => (
                 <div key={item.label} className="text-center">
                   <p className={`text-2xl font-semibold tabular-nums ${item.color}`}>{item.value}</p>
-                  <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-wide">{item.label}</p>
+                  <p className="mt-1 text-[10px] uppercase tracking-wide text-gray-400">{item.label}</p>
                 </div>
               ))}
             </div>
+            {summary.peakWeekdayLabel ? (
+              <p className="mt-5 text-center text-[11px] text-gray-400">
+                Día más fuerte: <span className="font-semibold text-navy-800">{summary.peakWeekdayLabel}</span>
+                {' '}({summary.peakWeekdayCount})
+              </p>
+            ) : null}
           </Panel>
         </div>
       </div>
