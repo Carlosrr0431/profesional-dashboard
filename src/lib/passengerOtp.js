@@ -66,7 +66,6 @@ export async function sendWhatsAppOtp(phone, code) {
   const logBase = {
     phone: phoneDigits,
     jid: to,
-    toMasked: maskPhone(phone),
   };
 
   console.info('[passenger-otp]', JSON.stringify({
@@ -98,11 +97,11 @@ export async function sendWhatsAppOtp(phone, code) {
       stage: 'send_failed',
       ...logBase,
       httpStatus: response.status,
-      body: rawBody.slice(0, 160) || 'no_body',
+      body: rawBody || 'no_body',
     }));
     return {
       ok: false,
-      reason: `whatsapp_send_error:http_${response.status}:${rawBody.slice(0, 120) || 'no_body'}`,
+      reason: `whatsapp_send_error:http_${response.status}:${rawBody || 'no_body'}`,
       jidMissing,
     };
   }
@@ -113,9 +112,9 @@ export async function sendWhatsAppOtp(phone, code) {
     console.info('[passenger-otp]', JSON.stringify({
       stage: 'send_api_error',
       ...logBase,
-      error: String(apiError).slice(0, 160),
+      error: String(apiError),
     }));
-    return { ok: false, reason: `whatsapp_send_error:${String(apiError).slice(0, 120)}` };
+    return { ok: false, reason: `whatsapp_send_error:${String(apiError)}` };
   }
 
   console.info('[passenger-otp]', JSON.stringify({
@@ -167,6 +166,12 @@ export async function assertCanSendOtp(supabase, phone) {
 
 export async function createAndSendOtp(rawPhone) {
   const phone = normalizePassengerPhoneForDb(rawPhone);
+  console.info('[passenger-otp]', JSON.stringify({
+    stage: 'normalize',
+    rawPhone: String(rawPhone || ''),
+    phone: phone || null,
+    jid: phone ? toWhatsAppJid(phone) : null,
+  }));
   // Canónico: exactamente 54 + 10 dígitos locales (12 en total).
   if (!phone || phone.length !== 12 || !phone.startsWith('54')) {
     return { ok: false, status: 400, message: 'Ingresá un número de teléfono válido.' };
