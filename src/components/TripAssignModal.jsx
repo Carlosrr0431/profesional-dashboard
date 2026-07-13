@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { sendPushNotification, formatPrice, formatKm } from '../lib/utils';
 import { formatError } from '../lib/errorFormat';
-import { buildDashboardAssignNotes } from '../lib/tripRequeue';
 import { useToast } from '../context/ToastContext';
 import AddressAutocomplete from './AddressAutocomplete';
 
@@ -295,36 +294,38 @@ export default function TripAssignModal({
       const hasDriverCoords =
         Number.isFinite(driverLat) && Number.isFinite(driverLng) && !(driverLat === 0 && driverLng === 0);
 
-      const tripNotes = buildDashboardAssignNotes({
-        userNotes: notes.trim(),
-        dropoffAddress: finalDestAddress || 'A confirmar',
-        dropoffLat: finalDestLat,
-        dropoffLng: finalDestLng,
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      const assignRes = await fetch('/api/trips/assign', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          driver_id: driver.id,
+          passenger_name: passengerName.trim() || 'Pasajero',
+          passenger_phone: passengerPhone.trim() || null,
+          destination_address: finalOriginAddress,
+          destination_lat: finalOriginLat,
+          destination_lng: finalOriginLng,
+          origin_lat: hasDriverCoords ? driverLat : null,
+          origin_lng: hasDriverCoords ? driverLng : null,
+          dropoff_address: finalDestAddress || 'A confirmar',
+          dropoff_lat: finalDestLat,
+          dropoff_lng: finalDestLng,
+          notes: notes.trim(),
+          price: autoPrice || null,
+          commission_amount: autoCommission || null,
+          distance_km: routeInfo?.distanceKm || null,
+          duration_minutes: routeInfo?.durationMinutes || null,
+        }),
       });
-
-      const tripData = {
-        driver_id: driver.id,
-        passenger_name: passengerName.trim() || 'Pasajero',
-        passenger_phone: passengerPhone.trim() || null,
-        destination_address: finalOriginAddress,
-        destination_lat: finalOriginLat,
-        destination_lng: finalOriginLng,
-        origin_address: hasDriverCoords ? `${driverLat.toFixed(5)}, ${driverLng.toFixed(5)}` : null,
-        origin_lat: hasDriverCoords ? driverLat : null,
-        origin_lng: hasDriverCoords ? driverLng : null,
-        status: 'pending',
-        dispatch_status: 'waiting_acceptance',
-        assigned_at: new Date().toISOString(),
-        price: autoPrice || null,
-        commission_amount: autoCommission || null,
-        distance_km: routeInfo?.distanceKm || null,
-        duration_minutes: routeInfo?.durationMinutes || null,
-        notes: tripNotes,
-        wa_context: { dispatch_excluded_driver_ids: [] },
-      };
-
-      const { data, error: insertError } = await supabase.from('trips').insert(tripData).select().single();
-      if (insertError) throw insertError;
+      const assignJson = await assignRes.json().catch(() => ({}));
+      if (!assignRes.ok || !assignJson?.ok || !assignJson?.trip) {
+        throw new Error(assignJson?.message || 'Error al crear el viaje');
+      }
+      const data = assignJson.trip;
 
       try {
         const { data: driverData } = await supabase
@@ -334,7 +335,7 @@ export default function TripAssignModal({
           const distText = data.distance_km ? ` · ${formatKm(data.distance_km)}` : '';
           await sendPushNotification(driverData.push_token, {
             title: 'Nuevo viaje asignado',
-            body: `${tripData.passenger_name} → ${finalOriginAddress}${distText}${priceText}`,
+            body: `${data.passenger_name || 'Pasajero'} → ${finalOriginAddress}${distText}${priceText}`,
             data: { type: 'new_trip', tripId: data.id, trip: data },
             driverId: driver.id,
           });
