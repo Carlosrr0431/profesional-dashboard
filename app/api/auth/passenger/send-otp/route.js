@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAndSendOtp } from '../../../../../src/lib/passengerOtp';
+import { assertPassengerClient } from '../../../../../src/lib/passengerClientGate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,22 +36,37 @@ export async function POST(req) {
     const phone = String(payload?.phone || '').trim();
     const ip = getClientIp(req);
     const userAgent = String(req.headers.get('user-agent') || '').slice(0, 180);
-    const client = String(req.headers.get('x-profesional-client') || '').slice(0, 80);
+    const clientGate = assertPassengerClient(req);
+    const client = clientGate.client || null;
 
     console.info('[passenger-otp]', JSON.stringify({
       stage: 'request',
       rawPhone: phone,
       ip,
-      client: client || null,
+      client,
       userAgent: userAgent || null,
     }));
+
+    if (!clientGate.ok) {
+      console.info('[passenger-otp]', JSON.stringify({
+        stage: 'rejected_client',
+        ip,
+        client,
+        userAgent: userAgent || null,
+        rawPhone: phone,
+      }));
+      return NextResponse.json(
+        { ok: false, message: 'Cliente no autorizado. Actualizá la app.' },
+        { status: 403 }
+      );
+    }
 
     const ipGate = assertIpAllowed(ip);
     if (!ipGate.ok) {
       console.info('[passenger-otp]', JSON.stringify({
         stage: 'rate_limited_ip',
         ip,
-        client: client || null,
+        client,
       }));
       return NextResponse.json(
         { ok: false, message: 'Demasiados intentos desde esta red. Esperá un minuto.' },
