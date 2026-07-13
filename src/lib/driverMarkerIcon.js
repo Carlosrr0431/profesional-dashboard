@@ -1,3 +1,5 @@
+import { resolveDriverIsOnline } from './driverPresence';
+
 // Pin de ubicación — borde sólido (sin sombra) para que no se vea borroso
 const PIN_BODY =
   'M24 2C14.06 2 6 10.06 6 20C6 32.5 24 58 24 58C24 58 42 32.5 42 20C42 10.06 33.94 2 24 2Z';
@@ -17,7 +19,8 @@ function getMarkerStyle(isMultiSelected, driver) {
   if (driver.activeTrip) {
     return { fill: '#EF4444', text: '#B91C1C', opacity: 1 };
   }
-  if (driver.isOnline) {
+  // Misma regla que el sidebar: no confiar solo en isOnline cacheado.
+  if (resolveDriverIsOnline(driver)) {
     return {
       fill: '#16A34A',
       text: '#15803D',
