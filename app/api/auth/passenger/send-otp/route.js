@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createAndSendOtp } from '../../../../../src/lib/passengerOtp';
-import { assertPassengerClient } from '../../../../../src/lib/passengerClientGate';
+import {
+  isLikelyAutomatedScannerIp,
+  resolvePassengerClient,
+} from '../../../../../src/lib/passengerClientGate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,6 +12,7 @@ export const dynamic = 'force-dynamic';
 const ipHits = new Map();
 const IP_WINDOW_MS = 60 * 1000;
 const IP_MAX_HITS = 8;
+const IP_MAX_HITS_ANON = 3;
 
 function getClientIp(req) {
   const forwarded = req.headers.get('x-forwarded-for') || '';
@@ -16,7 +20,7 @@ function getClientIp(req) {
   return req.headers.get('x-real-ip') || 'unknown';
 }
 
-function assertIpAllowed(ip) {
+function assertIpAllowed(ip, maxHits) {
   const now = Date.now();
   const entry = ipHits.get(ip);
   if (!entry || now - entry.windowStart > IP_WINDOW_MS) {
@@ -24,7 +28,7 @@ function assertIpAllowed(ip) {
     return { ok: true };
   }
   entry.count += 1;
-  if (entry.count > IP_MAX_HITS) {
+  if (entry.count > maxHits) {
     return { ok: false };
   }
   return { ok: true };
@@ -36,7 +40,7 @@ export async function POST(req) {
     const phone = String(payload?.phone || '').trim();
     const ip = getClientIp(req);
     const userAgent = String(req.headers.get('user-agent') || '').slice(0, 180);
-    const clientGate = assertPassengerClient(req);
+    const clientGate = resolvePassengerClient(req, payload);
     const client = clientGate.client || null;
 
     console.info('[passenger-otp]', JSON.stringify({
@@ -44,24 +48,27 @@ export async function POST(req) {
       rawPhone: phone,
       ip,
       client,
+      clientSource: clientGate.source,
       userAgent: userAgent || null,
     }));
 
-    if (!clientGate.ok) {
+    // Builds viejas de Play no mandan header: no bloquear usuarios reales.
+    // Sí cortar scanners de Google sin cliente identificado.
+    if (!clientGate.ok && isLikelyAutomatedScannerIp(ip)) {
       console.info('[passenger-otp]', JSON.stringify({
-        stage: 'rejected_client',
+        stage: 'rejected_scanner',
         ip,
         client,
         userAgent: userAgent || null,
         rawPhone: phone,
       }));
       return NextResponse.json(
-        { ok: false, message: 'Cliente no autorizado. Actualizá la app.' },
+        { ok: false, message: 'Cliente no autorizado.' },
         { status: 403 }
       );
     }
 
-    const ipGate = assertIpAllowed(ip);
+    const ipGate = assertIpAllowed(ip, clientGate.ok ? IP_MAX_HITS : IP_MAX_HITS_ANON);
     if (!ipGate.ok) {
       console.info('[passenger-otp]', JSON.stringify({
         stage: 'rate_limited_ip',

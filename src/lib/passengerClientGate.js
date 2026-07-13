@@ -1,6 +1,6 @@
 /**
  * Gate mínimo para endpoints públicos de passenger-app.
- * Exige X-Profesional-Client con prefijo passenger-app/ (corta bots/crawlers).
+ * Acepta X-Profesional-Client o body.client con prefijo passenger-app/.
  */
 
 export const PASSENGER_CLIENT_HEADER = 'x-profesional-client';
@@ -14,20 +14,38 @@ export function isAllowedPassengerClient(client) {
   const value = String(client || '').trim();
   if (!value) return false;
   if (!value.startsWith(PASSENGER_CLIENT_PREFIX)) return false;
-  // passenger-app/1.0.12 — versión no vacía
   return value.length > PASSENGER_CLIENT_PREFIX.length;
 }
 
+/** IPs de Google vistas abusando send-otp (Play pre-launch / crawlers). */
+export function isLikelyAutomatedScannerIp(ip) {
+  const value = String(ip || '');
+  if (!value || value === 'unknown') return false;
+  return (
+    value.startsWith('66.102.') // Google (logs OTP)
+    || value.startsWith('66.249.') // Googlebot
+    || value.startsWith('64.233.')
+    || value.startsWith('72.14.')
+    || value.startsWith('74.125.')
+  );
+}
+
 /**
- * @returns {{ ok: true, client: string } | { ok: false, client: string|null, response: Response }}
+ * @param {Request} req
+ * @param {{ client?: string } | null} [payload]
  */
-export function assertPassengerClient(req) {
-  const client = readPassengerClientHeader(req);
-  if (isAllowedPassengerClient(client)) {
-    return { ok: true, client };
+export function resolvePassengerClient(req, payload = null) {
+  const fromHeader = readPassengerClientHeader(req);
+  if (isAllowedPassengerClient(fromHeader)) {
+    return { ok: true, client: fromHeader, source: 'header' };
+  }
+  const fromBody = String(payload?.client || '').trim().slice(0, 80);
+  if (isAllowedPassengerClient(fromBody)) {
+    return { ok: true, client: fromBody, source: 'body' };
   }
   return {
     ok: false,
-    client: client || null,
+    client: fromHeader || fromBody || null,
+    source: null,
   };
 }
