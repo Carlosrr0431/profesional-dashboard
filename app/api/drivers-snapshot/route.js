@@ -7,8 +7,6 @@ import {
 import { resolveDisplayActiveTrip } from '../../../src/lib/fleetDispatch';
 import { isFleetOwner } from '../../../src/lib/driverRoles';
 import {
-  hasValidDriverCoords,
-  isDriverPresenceFresh,
   resolveDriverIsOnline,
 } from '../../../src/lib/driverPresence';
 
@@ -92,7 +90,6 @@ export async function GET() {
     });
 
     const ownersById = buildFleetOwnersById(driversRes.data);
-    const staleAvailableIds = [];
 
     const mapped = (driversRes.data || []).map((driver) => {
       const owner = driver.owner_id ? ownersById[driver.owner_id] : null;
@@ -105,20 +102,14 @@ export async function GET() {
       const lng = toNumber(loc?.lng ?? merged.current_lng, 0);
       const updatedAt = loc?.updated_at || loc?.recorded_at || merged.updated_at;
       const flaggedAvailable = Boolean(merged.is_available);
+      const gpsSimulationActive = Boolean(merged.gps_simulation_active);
       const isOnline = resolveDriverIsOnline({
         isAvailable: flaggedAvailable,
         lat,
         lng,
         updatedAt,
+        gpsSimulationActive,
       }, nowMs);
-
-      if (
-        flaggedAvailable
-        && !isOnline
-        && (!hasValidDriverCoords(lat, lng) || !isDriverPresenceFresh(updatedAt, nowMs))
-      ) {
-        staleAvailableIds.push(merged.id);
-      }
 
       return {
         id: merged.id,
@@ -138,7 +129,8 @@ export async function GET() {
         vehiclePlate: merged.vehicle_plate || '',
         vehicleColor: merged.vehicle_color || '',
         vehicleType: merged.vehicle_type || vehicleTypeMap[merged.id] || 'auto',
-        isAvailable: isOnline,
+        isAvailable: flaggedAvailable,
+        gpsSimulationActive,
         rating: toNumber(merged.rating, 5),
         totalTrips: toNumber(merged.total_trips, 0),
         activeTrip,
@@ -156,19 +148,6 @@ export async function GET() {
         ownerPhone: assigned ? (owner?.phone || '') : null,
       };
     });
-
-    // Autosanar flags atascados (Disponible sin presencia real).
-    if (staleAvailableIds.length > 0) {
-      void supabase
-        .from('drivers')
-        .update({ is_available: false, updated_at: new Date().toISOString() })
-        .in('id', staleAvailableIds)
-        .then(({ error }) => {
-          if (error) {
-            console.warn('[drivers-snapshot] stale is_available cleanup:', error.message);
-          }
-        });
-    }
 
     return NextResponse.json({ ok: true, data: mapped });
   } catch (err) {

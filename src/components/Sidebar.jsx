@@ -103,11 +103,11 @@ export default function Sidebar({
           lat: driver.lat,
           lng: driver.lng,
           updatedAt,
+          gpsSimulationActive: driver.gpsSimulationActive,
         });
         return {
           ...driver,
           isOnline,
-          isAvailable: isOnline,
           updatedAt,
         };
       }),

@@ -127,13 +127,13 @@ export function useDrivers() {
               heading: toNumber(loc.heading, prevDriver.heading || 0),
               updatedAt: nextUpdatedAt,
               isOnline: resolveDriverIsOnline({
-                isAvailable: prevDriver.isOnline || prevDriver.isAvailable,
+                isAvailable: prevDriver.isAvailable || prevDriver.isOnline,
                 lat: nextLat,
                 lng: nextLng,
                 updatedAt: nextUpdatedAt,
+                gpsSimulationActive: prevDriver.gpsSimulationActive,
               }),
             };
-            updated[idx].isAvailable = updated[idx].isOnline;
             return updated;
           });
         }
@@ -168,17 +168,22 @@ export function useDrivers() {
             const nextLng = hasCoords ? toNumber(row.current_lng, prevDriver.lng) : prevDriver.lng;
             const nextUpdatedAt = prevDriver.updatedAt || row.updated_at;
             const flaggedAvailable = Boolean(row.is_available);
+            const gpsSimulationActive = row.gps_simulation_active != null
+              ? Boolean(row.gps_simulation_active)
+              : prevDriver.gpsSimulationActive;
             const isOnline = resolveDriverIsOnline({
               isAvailable: flaggedAvailable,
               lat: nextLat,
               lng: nextLng,
               updatedAt: nextUpdatedAt,
+              gpsSimulationActive,
             });
             updated[idx] = {
               ...prevDriver,
               ...(hasCoords ? { lat: nextLat, lng: nextLng } : null),
               isOnline,
-              isAvailable: isOnline,
+              isAvailable: flaggedAvailable,
+              gpsSimulationActive,
               fullName: row.full_name || prevDriver.fullName,
               driverNumber: row.driver_number ?? prevDriver.driverNumber,
               phone: row.phone || prevDriver.phone,
