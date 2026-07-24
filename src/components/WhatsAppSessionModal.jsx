@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
 const STATUS_LABELS = {
@@ -7,9 +7,9 @@ const STATUS_LABELS = {
   disconnected: 'Desconectada',
   logged_out: 'Sesión cerrada',
   expired: 'Expirada',
-  need_scan: 'Esperando escaneo QR',
+  need_scan: 'Escaneá el código QR',
   need_passkey: 'Esperando Passkey',
-  unknown: 'Desconocido',
+  unknown: 'Verificando…',
 };
 
 function statusTone(status) {
@@ -32,12 +32,33 @@ async function authHeaders() {
   };
 }
 
-export default function WhatsAppSessionModal({ open, onClose }) {
+/**
+ * Modal de sesión WhatsApp.
+ * - required=true: bloquea el dashboard hasta reconectar (sin cerrar).
+ * - Detecta conexión al instante vía Realtime + polling rápido.
+ */
+export default function WhatsAppSessionModal({
+  open,
+  onClose,
+  onConnected,
+  onStatusChange,
+  required = false,
+}) {
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
   const [error, setError] = useState('');
   const [snapshot, setSnapshot] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [justConnected, setJustConnected] = useState(false);
+  const autoConnectRef = useRef(false);
+  const connectedNotifiedRef = useRef(false);
+
+  const applySnapshot = useCallback((data) => {
+    if (!data || data.ok === false) return;
+    setSnapshot(data);
+    const status = String(data.status || 'unknown');
+    onStatusChange?.(status);
+  }, [onStatusChange]);
 
   const load = useCallback(async () => {
     try {
@@ -52,41 +73,17 @@ export default function WhatsAppSessionModal({ open, onClose }) {
       if (!res.ok || data?.ok === false) {
         throw new Error(data?.error || 'No se pudo consultar el estado de WhatsApp');
       }
-      setSnapshot(data);
+      applySnapshot(data);
+      return data;
     } catch (err) {
       setError(err?.message || 'Error al cargar la sesión');
+      return null;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applySnapshot]);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    setLoading(true);
-    load();
-
-    const poll = setInterval(load, 5000);
-    const channel = supabase
-      .channel('wasender_session_settings')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'settings' },
-        (payload) => {
-          const key = payload?.new?.key || payload?.old?.key;
-          if (String(key || '').startsWith('wasender_session_')) {
-            load();
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      clearInterval(poll);
-      supabase.removeChannel(channel);
-    };
-  }, [open, load]);
-
-  const runAction = async (body) => {
+  const runAction = useCallback(async (body) => {
     setActing(true);
     setError('');
     try {
@@ -100,13 +97,91 @@ export default function WhatsAppSessionModal({ open, onClose }) {
       if (!res.ok || data?.ok === false) {
         throw new Error(data?.error || 'No se pudo completar la acción');
       }
-      setSnapshot(data);
+      applySnapshot(data);
+      return data;
     } catch (err) {
       setError(err?.message || 'Error al vincular');
+      return null;
     } finally {
       setActing(false);
     }
-  };
+  }, [applySnapshot]);
+
+  // Abrir: carga inicial + Realtime + polling rápido hasta conectar.
+  useEffect(() => {
+    if (!open) {
+      autoConnectRef.current = false;
+      connectedNotifiedRef.current = false;
+      setJustConnected(false);
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+      return undefined;
+    }
+
+    setLoading(true);
+    load();
+
+    const poll = setInterval(() => {
+      load();
+    }, 1200);
+
+    const channel = supabase
+      .channel(`wasender_session_modal_${Date.now()}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'settings' },
+        (payload) => {
+          const key = payload?.new?.key || payload?.old?.key;
+          if (!String(key || '').startsWith('wasender_session_')) return;
+
+          if (String(key) === 'wasender_session_status') {
+            const value = String(payload?.new?.value || '').toLowerCase();
+            if (value) {
+              onStatusChange?.(value);
+              setSnapshot((prev) => ({ ...(prev || {}), status: value, connected: value === 'connected' }));
+            }
+          }
+          load();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(poll);
+      supabase.removeChannel(channel);
+    };
+  }, [open, load, onStatusChange]);
+
+  // Auto-generar QR al abrir si hace falta reconectar.
+  useEffect(() => {
+    if (!open || loading || !snapshot) return;
+    if (autoConnectRef.current) return;
+    if (snapshot.connected || snapshot.status === 'connected') return;
+    if (snapshot.config && !snapshot.config.hasPersonalAccessToken) return;
+
+    const needsQr = !snapshot.qr
+      || ['logged_out', 'disconnected', 'expired', 'unknown', 'need_scan'].includes(snapshot.status);
+
+    if (!needsQr && snapshot.status !== 'connecting') return;
+
+    autoConnectRef.current = true;
+    runAction({ action: 'connect', linkMethod: 'qr', force: true });
+  }, [open, loading, snapshot, runAction]);
+
+  // Detectar conexión al instante → feedback breve; el padre desbloquea el dashboard.
+  useEffect(() => {
+    if (!open) return;
+    const status = snapshot?.status;
+    if (status !== 'connected') return;
+    if (connectedNotifiedRef.current) return;
+
+    connectedNotifiedRef.current = true;
+    setJustConnected(true);
+    onStatusChange?.('connected');
+    onConnected?.();
+  }, [open, snapshot?.status, onConnected, onStatusChange]);
 
   const handleCopyPasskey = async () => {
     const token = snapshot?.passkey?.token;
@@ -123,50 +198,84 @@ export default function WhatsAppSessionModal({ open, onClose }) {
   if (!open) return null;
 
   const status = snapshot?.status || 'unknown';
-  const tone = statusTone(status);
+  const tone = justConnected ? 'ok' : statusTone(status);
   const toneClasses = {
     ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     warn: 'bg-amber-50 text-amber-800 border-amber-200',
     bad: 'bg-rose-50 text-rose-700 border-rose-200',
   };
-  const canShowQr = Boolean(snapshot?.qr) || status === 'need_scan' || status === 'logged_out' || status === 'disconnected' || status === 'expired';
+  const canShowQr = Boolean(snapshot?.qr)
+    || status === 'need_scan'
+    || status === 'logged_out'
+    || status === 'disconnected'
+    || status === 'expired';
   const showPasskey = status === 'need_passkey' || Boolean(snapshot?.passkey?.token);
   const missingPat = snapshot?.config && !snapshot.config.hasPersonalAccessToken;
+  const waitingScan = status === 'need_scan' || status === 'connecting' || Boolean(snapshot?.qr);
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+      onClick={required ? undefined : () => onClose?.()}
+      role="presentation"
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="wa-session-title"
-        className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/20"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-black/40"
       >
-        <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
-          <div>
-            <h2 id="wa-session-title" className="text-[17px] font-bold text-navy-900">
-              Sesión WhatsApp
-            </h2>
-            <p className="mt-0.5 text-[12.5px] text-slate-500">
-              Wasender · {snapshot?.config?.phone || '+5493873088777'}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
-            aria-label="Cerrar"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        <div className="relative border-b border-slate-100 px-5 py-4 text-center">
+          <div className="mx-auto mb-2 flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 4v-4z" />
             </svg>
-          </button>
+          </div>
+          <h2 id="wa-session-title" className="text-[18px] font-bold text-navy-900">
+            {required ? 'Reconectá WhatsApp' : 'Sesión WhatsApp'}
+          </h2>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-slate-500">
+            {required
+              ? 'Para usar el dashboard tenés que vincular WhatsApp otra vez. Escaneá el QR con el celular de la empresa.'
+              : `Wasender · ${snapshot?.config?.phone || '+5493873088777'}`}
+          </p>
+          {required ? (
+            <p className="mt-1 text-[11.5px] font-semibold text-rose-600">
+              No podés operar el panel hasta completar la conexión.
+            </p>
+          ) : null}
+          {!required ? (
+            <button
+              type="button"
+              onClick={() => onClose?.()}
+              className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+              aria-label="Cerrar"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          ) : null}
         </div>
 
-        <div className="space-y-4 px-5 py-4">
+        <div className="relative space-y-4 px-5 py-4">
           {loading && !snapshot ? (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-navy-900" />
               Consultando estado…
+            </div>
+          ) : justConnected || status === 'connected' ? (
+            <div className={`rounded-xl border px-4 py-6 text-center ${toneClasses.ok}`}>
+              <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
+                <svg className="h-7 w-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p className="text-[16px] font-bold">WhatsApp conectado</p>
+              <p className="mt-1 text-[12.5px] opacity-80">
+                Ya podés usar el dashboard.
+              </p>
             </div>
           ) : (
             <>
@@ -178,31 +287,25 @@ export default function WhatsAppSessionModal({ open, onClose }) {
                       {STATUS_LABELS[status] || status}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={load}
-                    disabled={acting}
-                    className="rounded-lg border border-current/20 bg-white/50 px-2.5 py-1.5 text-[11px] font-semibold hover:bg-white/80 disabled:opacity-50"
-                  >
-                    Actualizar
-                  </button>
+                  {waitingScan ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-semibold">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+                      Detectando…
+                    </span>
+                  ) : null}
                 </div>
-                {snapshot?.updatedAt ? (
-                  <p className="mt-1 text-[11px] opacity-70">
-                    Última actualización: {new Date(snapshot.updatedAt).toLocaleString('es-AR')}
-                  </p>
-                ) : null}
+                <p className="mt-1 text-[11px] opacity-70">
+                  {snapshot?.config?.phone || '+5493873088777'}
+                </p>
               </div>
 
               {missingPat ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12.5px] text-amber-900">
-                  Para generar el QR necesitás configurar en el servidor
+                  Falta configurar
                   {' '}
                   <code className="rounded bg-white/80 px-1">WASENDER_PERSONAL_ACCESS_TOKEN</code>
                   {' '}
-                  y, opcionalmente,
-                  {' '}
-                  <code className="rounded bg-white/80 px-1">WASENDER_SESSION_ID</code>.
+                  en el servidor.
                 </div>
               ) : null}
 
@@ -218,18 +321,7 @@ export default function WhatsAppSessionModal({ open, onClose }) {
                 </div>
               ) : null}
 
-              {status === 'connected' ? (
-                <p className="text-[13px] leading-relaxed text-slate-600">
-                  La sesión está activa. El agente de WhatsApp puede enviar y recibir mensajes.
-                </p>
-              ) : (
-                <p className="text-[13px] leading-relaxed text-slate-600">
-                  La sesión está cerrada o desconectada. Generá un QR, escanealo con WhatsApp
-                  (Dispositivos vinculados) y esperá a que el estado pase a Conectada.
-                </p>
-              )}
-
-              {(canShowQr || snapshot?.canReconnect) && status !== 'connected' ? (
+              {(canShowQr || snapshot?.canReconnect) ? (
                 <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
                   {snapshot?.qr ? (
                     <div className="flex flex-col items-center gap-3">
@@ -238,8 +330,11 @@ export default function WhatsAppSessionModal({ open, onClose }) {
                         alt="Código QR de WhatsApp"
                         className="h-[220px] w-[220px] rounded-xl border border-white bg-white p-2 shadow-sm"
                       />
-                      <p className="text-center text-[12px] text-slate-500">
-                        Escaneá este QR desde WhatsApp → Dispositivos vinculados
+                      <p className="text-center text-[12.5px] font-medium text-slate-600">
+                        WhatsApp → Dispositivos vinculados → Vincular dispositivo
+                      </p>
+                      <p className="text-center text-[11.5px] text-slate-500">
+                        Al escanear, el panel se desbloquea solo.
                       </p>
                       <button
                         type="button"
@@ -251,14 +346,10 @@ export default function WhatsAppSessionModal({ open, onClose }) {
                       </button>
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center gap-3 py-2">
-                      <div className="flex h-28 w-28 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white text-slate-400" style={{ width: 112, height: 112 }}>
-                        <svg className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01" />
-                        </svg>
-                      </div>
+                    <div className="flex flex-col items-center gap-3 py-4">
+                      <span className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-navy-900" />
                       <p className="text-center text-[12.5px] text-slate-500">
-                        Todavía no hay un QR disponible. Tocá el botón para generarlo.
+                        Generando código QR…
                       </p>
                     </div>
                   )}
@@ -271,7 +362,7 @@ export default function WhatsAppSessionModal({ open, onClose }) {
                     Passkey
                   </p>
                   <p className="mt-1 text-[12.5px] text-indigo-900/80">
-                    Pegá este token en la extensión Device Link Helper de Chrome para completar la vinculación.
+                    Pegá este token en la extensión Device Link Helper de Chrome.
                   </p>
                   {snapshot?.passkey?.token ? (
                     <div className="mt-3 rounded-lg border border-indigo-200 bg-white px-3 py-2 font-mono text-[12px] break-all text-slate-800">
@@ -306,24 +397,23 @@ export default function WhatsAppSessionModal({ open, onClose }) {
           )}
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-4 sm:flex-row sm:justify-end">
-          {status !== 'connected' ? (
-            <>
-              <button
-                type="button"
-                disabled={acting || missingPat}
-                onClick={() => runAction({ action: 'connect', linkMethod: 'qr', force: true })}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-navy-900 px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-navy-900/90 disabled:opacity-50"
-              >
-                {acting ? (
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                ) : (
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m0 14v1m8-8h1M3 12h1m15.364 6.364l.707.707M5.636 5.636l.707.707m12.728 0l.707-.707M5.636 18.364l.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                  </svg>
-                )}
-                Generar QR / Vincular
-              </button>
+        {!justConnected && status !== 'connected' ? (
+          <div className="flex flex-col gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-4 sm:flex-row sm:justify-center">
+            <button
+              type="button"
+              disabled={acting || missingPat}
+              onClick={() => {
+                autoConnectRef.current = true;
+                runAction({ action: 'connect', linkMethod: 'qr', force: true });
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-navy-900 px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-navy-900/90 disabled:opacity-50"
+            >
+              {acting ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              ) : null}
+              {snapshot?.qr ? 'Regenerar QR' : 'Generar QR'}
+            </button>
+            {!required ? (
               <button
                 type="button"
                 disabled={acting || missingPat}
@@ -332,17 +422,9 @@ export default function WhatsAppSessionModal({ open, onClose }) {
               >
                 Vincular con Passkey
               </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex items-center justify-center rounded-xl bg-navy-900 px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-navy-900/90"
-            >
-              Listo
-            </button>
-          )}
-        </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

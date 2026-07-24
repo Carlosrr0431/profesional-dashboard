@@ -102,6 +102,8 @@ export default function App() {
   const [showAiAgentModal, setShowAiAgentModal] = useState(false);
   const [showWhatsAppSessionModal, setShowWhatsAppSessionModal] = useState(false);
   const [whatsappSessionStatus, setWhatsappSessionStatus] = useState('unknown');
+  const [whatsappSessionChecked, setWhatsappSessionChecked] = useState(false);
+  const [whatsappJustConnected, setWhatsappJustConnected] = useState(false);
   const [currentView,     setCurrentView]     = useState(() => (
     typeof window !== 'undefined'
       ? viewFromPath(window.location.pathname)
@@ -117,6 +119,8 @@ export default function App() {
   const [isDesktopLayout,   setIsDesktopLayout] = useState(false);
 
   const mapRef = useRef(null);
+  const whatsappConnected = whatsappSessionStatus === 'connected';
+  const whatsappGateRequired = whatsappSessionChecked && !whatsappConnected && !whatsappJustConnected;
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 1024px)');
@@ -126,7 +130,7 @@ export default function App() {
     return () => media.removeEventListener('change', syncLayout);
   }, []);
 
-  // Estado de sesión Wasender (badge en header + panel de revinculación).
+  // Estado de sesión Wasender: si no está conectada, bloquea el dashboard.
   useEffect(() => {
     let cancelled = false;
 
@@ -139,16 +143,21 @@ export default function App() {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         const payload = await res.json().catch(() => ({}));
-        if (!cancelled && res.ok && payload?.status) {
+        if (cancelled) return;
+        if (res.ok && payload?.status) {
           setWhatsappSessionStatus(String(payload.status));
+        } else if (res.ok) {
+          setWhatsappSessionStatus('unknown');
         }
+        setWhatsappSessionChecked(true);
       } catch {
-        /* silencioso: el badge no debe romper el dashboard */
+        if (!cancelled) setWhatsappSessionChecked(true);
       }
     };
 
     refreshSessionStatus();
-    const poll = setInterval(refreshSessionStatus, 30000);
+    // Polling más frecuente mientras esté desconectado para liberar el gate al instante.
+    const poll = setInterval(refreshSessionStatus, whatsappGateRequired ? 2000 : 30000);
     const channel = supabase
       .channel('wasender_session_badge')
       .on(
@@ -158,8 +167,12 @@ export default function App() {
           const key = payload?.new?.key || payload?.old?.key;
           if (String(key || '') === 'wasender_session_status') {
             const value = payload?.new?.value;
-            if (value) setWhatsappSessionStatus(String(value));
-            else refreshSessionStatus();
+            if (value) {
+              setWhatsappSessionStatus(String(value));
+              setWhatsappSessionChecked(true);
+            } else {
+              refreshSessionStatus();
+            }
           }
         }
       )
@@ -170,7 +183,7 @@ export default function App() {
       clearInterval(poll);
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [whatsappGateRequired]);
 
   // ── Selección múltiple ─────────────────────────────────────────────────────
   const toggleMultiSelect = useCallback((driverId) => {
@@ -871,22 +884,25 @@ export default function App() {
       ) : null}
 
       <WhatsAppSessionModal
-        open={showWhatsAppSessionModal}
-        onClose={() => {
+        open={whatsappGateRequired || showWhatsAppSessionModal || whatsappJustConnected}
+        required={whatsappGateRequired}
+        onStatusChange={(status) => {
+          if (status) {
+            setWhatsappSessionStatus(String(status));
+            setWhatsappSessionChecked(true);
+          }
+        }}
+        onConnected={() => {
+          setWhatsappSessionStatus('connected');
+          setWhatsappSessionChecked(true);
+          setWhatsappJustConnected(true);
           setShowWhatsAppSessionModal(false);
-          // refrescar badge al cerrar
-          (async () => {
-            try {
-              const { data: sessionData } = await supabase.auth.getSession();
-              const token = sessionData?.session?.access_token;
-              const res = await fetch('/api/whatsapp/session', {
-                cache: 'no-store',
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
-              });
-              const payload = await res.json().catch(() => ({}));
-              if (res.ok && payload?.status) setWhatsappSessionStatus(String(payload.status));
-            } catch { /* ignore */ }
-          })();
+          window.setTimeout(() => setWhatsappJustConnected(false), 1000);
+        }}
+        onClose={() => {
+          if (whatsappGateRequired) return;
+          setShowWhatsAppSessionModal(false);
+          setWhatsappJustConnected(false);
         }}
       />
 
