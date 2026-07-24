@@ -113,10 +113,6 @@ export default function WhatsAppSessionModal({
       autoConnectRef.current = false;
       connectedNotifiedRef.current = false;
       setJustConnected(false);
-      if (closeTimerRef.current) {
-        clearTimeout(closeTimerRef.current);
-        closeTimerRef.current = null;
-      }
       return undefined;
     }
 
