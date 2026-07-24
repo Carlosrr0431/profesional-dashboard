@@ -50,9 +50,24 @@ export async function POST(request) {
       : 'qr';
 
     if (action === 'refresh-qr') {
+      // Preferir connect forzado: el endpoint /qrcode a veces devuelve un QR ya vencido.
+      const connected = await connectWasenderSession({ linkMethod: 'qr' });
+      if (connected.ok && connected.qr) {
+        const snapshot = await getWasenderSessionSnapshot({ refreshLive: true });
+        return NextResponse.json({
+          ok: true,
+          ...snapshot,
+          qr: connected.qr,
+          status: connected.status || snapshot.status,
+        });
+      }
+
       const result = await fetchWasenderQrCode();
       if (!result.ok) {
-        return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
+        return NextResponse.json(
+          { ok: false, error: connected.error || result.error },
+          { status: 400 }
+        );
       }
       const snapshot = await getWasenderSessionSnapshot({ refreshLive: true });
       return NextResponse.json({ ok: true, ...snapshot, qr: result.qr });
