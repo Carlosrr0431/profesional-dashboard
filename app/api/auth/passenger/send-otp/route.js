@@ -101,7 +101,13 @@ export async function POST(req) {
       phone: result.phone,
       maskedPhone: result.maskedPhone,
       expiresInSeconds: result.expiresInSeconds,
-      message: 'Te enviamos un código por WhatsApp.',
+      bypass: Boolean(result.bypass),
+      sessionToken: result.sessionToken || null,
+      sessionExpiresAt: result.sessionExpiresAt || null,
+      name: result.name || null,
+      message: result.bypass
+        ? 'Acceso de prueba habilitado (sin OTP).'
+        : 'Te enviamos un código por WhatsApp.',
     });
   } catch (error) {
     console.error('[passenger/send-otp]', error);

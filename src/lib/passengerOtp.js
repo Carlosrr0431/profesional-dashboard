@@ -16,6 +16,13 @@ const OTP_MAX_PER_HOUR = 5;
 const OTP_MAX_ATTEMPTS = 5;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** Solo para pruebas Metro/APK mientras WhatsApp esté desconectado. Otros números: OTP normal. */
+const OTP_BYPASS_LOCAL = '3878630173';
+
+export function isPassengerOtpBypassPhone(rawPhone) {
+  return extractLocalArMobileDigits(rawPhone) === OTP_BYPASS_LOCAL;
+}
+
 function isMissingOtpTableError(error) {
   const code = String(error?.code || '');
   const message = String(error?.message || '');
@@ -178,6 +185,22 @@ export async function createAndSendOtp(rawPhone) {
     return { ok: false, status: 400, message: 'Ingresá un número de teléfono válido.' };
   }
 
+  // Bypass de prueba: crea sesión al instante sin enviar WhatsApp (solo 3878630173).
+  if (isPassengerOtpBypassPhone(phone)) {
+    const bypass = await createBypassPassengerSession(phone);
+    if (!bypass.ok) return bypass;
+    return {
+      ok: true,
+      bypass: true,
+      phone: bypass.phone,
+      maskedPhone: maskPhone(bypass.phone),
+      sessionToken: bypass.sessionToken,
+      sessionExpiresAt: bypass.sessionExpiresAt,
+      name: bypass.name,
+      expiresInSeconds: Math.floor(OTP_TTL_MS / 1000),
+    };
+  }
+
   const supabase = getSupabaseAdmin();
   const canSend = await assertCanSendOtp(supabase, phone);
   if (!canSend.ok) return canSend;
@@ -237,6 +260,50 @@ async function resolvePassengerName(supabase, phone) {
   return name.length >= 2 ? name : 'Pasajero';
 }
 
+async function createPassengerSession(supabase, phone) {
+  const sessionToken = randomUUID();
+  const sessionExpiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+
+  // Upsert por phone: un registro activo por pasajero.
+  // Si ya existe una sesión (mismo phone), la renueva sin borrar el push_token.
+  const { error: sessionError } = await supabase
+    .from('passenger_auth_sessions')
+    .upsert(
+      { phone, token: sessionToken, expires_at: sessionExpiresAt, updated_at: new Date().toISOString() },
+      { onConflict: 'phone', ignoreDuplicates: false }
+    );
+
+  if (sessionError) {
+    if (isMissingOtpTableError(sessionError)) return missingOtpTableResponse();
+    throw sessionError;
+  }
+
+  const name = await resolvePassengerName(supabase, phone);
+  return {
+    ok: true,
+    phone,
+    sessionToken,
+    sessionExpiresAt,
+    name,
+  };
+}
+
+/** Login de prueba sin WhatsApp/OTP — solo 3878630173. */
+export async function createBypassPassengerSession(rawPhone) {
+  const phone = normalizePassengerPhoneForDb(rawPhone);
+  if (!phone || !isPassengerOtpBypassPhone(phone)) {
+    return { ok: false, status: 403, message: 'Bypass no permitido para este número.' };
+  }
+
+  console.info('[passenger-otp]', JSON.stringify({
+    stage: 'bypass_login',
+    phone,
+  }));
+
+  const supabase = getSupabaseAdmin();
+  return createPassengerSession(supabase, phone);
+}
+
 export async function verifyOtpAndCreateSession(rawPhone, rawCode) {
   const phone = normalizePassengerPhoneForDb(rawPhone);
   const code = String(rawCode || '').replace(/\D/g, '').padStart(4, '0').slice(-4);
@@ -288,32 +355,7 @@ export async function verifyOtpAndCreateSession(rawPhone, rawCode) {
     .update({ verified_at: verifiedAt })
     .eq('id', otpRow.id);
 
-  const sessionToken = randomUUID();
-  const sessionExpiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
-
-  // Upsert por phone: un registro activo por pasajero.
-  // Si ya existe una sesión (mismo phone), la renueva sin borrar el push_token.
-  const { error: sessionError } = await supabase
-    .from('passenger_auth_sessions')
-    .upsert(
-      { phone, token: sessionToken, expires_at: sessionExpiresAt, updated_at: new Date().toISOString() },
-      { onConflict: 'phone', ignoreDuplicates: false }
-    );
-
-  if (sessionError) {
-    if (isMissingOtpTableError(sessionError)) return missingOtpTableResponse();
-    throw sessionError;
-  }
-
-  const name = await resolvePassengerName(supabase, phone);
-
-  return {
-    ok: true,
-    phone,
-    sessionToken,
-    sessionExpiresAt,
-    name,
-  };
+  return createPassengerSession(supabase, phone);
 }
 
 export async function validatePassengerSession(rawPhone, sessionToken) {
