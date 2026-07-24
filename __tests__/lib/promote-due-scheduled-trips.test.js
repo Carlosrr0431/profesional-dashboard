@@ -3,6 +3,7 @@ const {
   resolveScheduledDisplayFromTrip,
   formatArScheduleDisplay,
   buildScheduledDispatchWhatsAppMessage,
+  shouldNotifyScheduledTripViaWhatsApp,
   promoteDueScheduledTrips,
   DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS,
 } = require('../../src/lib/promoteDueScheduledTrips');
@@ -123,5 +124,62 @@ describe('promoteDueScheduledTrips', () => {
 
   it('formatArScheduleDisplay convierte UTC a hora Argentina', () => {
     expect(formatArScheduleDisplay(new Date('2026-05-25T14:42:00.000Z'))).toBe('lunes 25/05 a las 11:42');
+  });
+
+  it('shouldNotifyScheduledTripViaWhatsApp es false para passenger_app', () => {
+    expect(shouldNotifyScheduledTripViaWhatsApp({
+      notes: '[PASSENGER_APP]\n[SCHEDULED_SOURCE] passenger_app\n[SCHEDULED_FOR] x',
+    })).toBe(false);
+    expect(shouldNotifyScheduledTripViaWhatsApp({
+      notes: '[SCHEDULED_FOR] x\n[SCHEDULED_DISPLAY] hoy',
+    })).toBe(true);
+  });
+
+  it('no envía WhatsApp al promover reserva de passenger-app', async () => {
+    const scheduledFor = new Date('2026-05-25T13:50:00.000Z');
+    const nowMs = scheduledFor.getTime() - 2 * 60 * 1000;
+
+    const update = jest.fn(() => ({
+      eq: jest.fn(function secondEq() {
+        return {
+          eq: jest.fn(() => ({
+            select: jest.fn(async () => ({ data: [{ id: 'trip-app' }], error: null })),
+          })),
+        };
+      }),
+    }));
+
+    const supabase = {
+      from: jest.fn((table) => {
+        if (table !== 'trips') return {};
+        return {
+          select: jest.fn(() => ({
+            eq: jest.fn(async () => ({
+              data: [
+                {
+                  id: 'trip-app',
+                  passenger_phone: '5493878630173',
+                  notes: `[PASSENGER_APP]\n[SCHEDULED_SOURCE] passenger_app\n[SCHEDULED_FOR] ${scheduledFor.toISOString()}`,
+                  scheduled_for: scheduledFor.toISOString(),
+                },
+              ],
+              error: null,
+            })),
+          })),
+          update,
+        };
+      }),
+    };
+
+    const sendPassengerWhatsApp = jest.fn(async () => ({ ok: true }));
+    const result = await promoteDueScheduledTrips({
+      supabase,
+      sendPassengerWhatsApp,
+      dispatchAheadMs: DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS,
+      nowMs,
+    });
+
+    expect(result.promoted).toBe(1);
+    expect(sendPassengerWhatsApp).not.toHaveBeenCalled();
   });
 });

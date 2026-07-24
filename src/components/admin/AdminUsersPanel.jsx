@@ -197,10 +197,10 @@ export default function AdminUsersPanel({
           </div>
 
           <p className="mt-3 text-xs text-gray-500 leading-relaxed">
-            Referencia actual: Conductor 1.0.13 →{' '}
-            <span className="font-semibold text-navy-900">15</span>
-            {' · '}Pasajero 1.0.14 →{' '}
-            <span className="font-semibold text-navy-900">15</span>.
+            Referencia actual: Conductor 1.0.15 →{' '}
+            <span className="font-semibold text-navy-900">17</span>
+            {' · '}Pasajero 1.0.15 →{' '}
+            <span className="font-semibold text-navy-900">16</span>.
             Cada vez que subas un AAB nuevo, incrementá este número.
           </p>
         </section>

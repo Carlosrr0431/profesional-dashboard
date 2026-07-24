@@ -156,6 +156,15 @@ function ScheduledTripCard({ trip, onCancel }) {
           {trip.displayText && (
             <p className="text-[11px] text-gray-400 mt-1.5 italic">"{trip.displayText}"</p>
           )}
+          <p className="mt-1.5">
+            <span className={`inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+              trip.scheduledSource === 'passenger_app'
+                ? 'bg-sky-50 text-sky-700 border-sky-200'
+                : 'bg-violet-50 text-violet-700 border-violet-200'
+            }`}>
+              {trip.scheduledSource === 'passenger_app' ? 'App pasajeros' : 'WhatsApp'}
+            </span>
+          </p>
 
           {/* ID + timestamp */}
           <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-light-200/70">
@@ -222,7 +231,7 @@ function EmptyScheduled() {
       </div>
       <p className="text-sm font-semibold text-navy-800">Sin viajes programados</p>
       <p className="text-xs text-gray-400 mt-1.5 max-w-[200px]">
-        Los viajes agendados por WhatsApp aparecerán acá automáticamente
+        Los viajes agendados por WhatsApp o la app de pasajeros aparecerán acá automáticamente
       </p>
     </div>
   );
@@ -303,7 +312,7 @@ export default function ScheduledTripsPanel({
           <div className="min-w-0">
             <h2 className="text-navy-900 font-bold text-base leading-tight">Viajes programados</h2>
             <p className="hidden text-[11px] text-gray-400 sm:block">
-              Reservas por WhatsApp · Suscripto en tiempo real ·{' '}
+              Reservas por WhatsApp y app · Suscripto en tiempo real ·{' '}
               {lastUpdated
                 ? `Actualizado ${lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
                 : 'Cargando...'}
@@ -501,7 +510,7 @@ export default function ScheduledTripsPanel({
           {/* Nota informativa */}
           <div className="mt-3 p-3 bg-violet-50 border border-violet-100 rounded-xl flex-shrink-0">
             <p className="text-[10px] text-violet-600 font-medium leading-relaxed">
-              🚕 Los viajes programados pasan a cola automáticamente 5 minutos antes de la hora reservada (cron dispatch-worker). El pasajero recibe un aviso por WhatsApp.
+              🚕 Los viajes programados pasan a cola automáticamente 5 minutos antes de la hora reservada (cron dispatch-worker). Las reservas por WhatsApp reciben aviso; las de la app no.
             </p>
           </div>
         </div>

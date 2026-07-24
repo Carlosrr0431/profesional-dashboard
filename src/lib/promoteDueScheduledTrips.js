@@ -55,6 +55,14 @@ export function resolveScheduledDisplayFromTrip(trip, scheduledFor) {
   return '—';
 }
 
+/** Reservas de passenger-app no deben notificar por WhatsApp al promover. */
+export function shouldNotifyScheduledTripViaWhatsApp(trip) {
+  const notes = String(trip?.notes || '');
+  if (notes.includes('[PASSENGER_APP]')) return false;
+  if (/\[SCHEDULED_SOURCE\]\s*passenger_app/i.test(notes)) return false;
+  return true;
+}
+
 function summarizeDbError(error) {
   if (!error) return null;
   return {
@@ -144,7 +152,8 @@ export async function promoteDueScheduledTrips({
       continue;
     }
 
-    if (sendPassengerWhatsApp && trip.passenger_phone) {
+    const notifyViaWhatsApp = shouldNotifyScheduledTripViaWhatsApp(trip);
+    if (notifyViaWhatsApp && sendPassengerWhatsApp && trip.passenger_phone) {
       const notifyResult = await sendPassengerWhatsApp(
         trip.passenger_phone,
         buildScheduledDispatchWhatsAppMessage(displayText)
@@ -155,12 +164,15 @@ export async function promoteDueScheduledTrips({
           reason: notifyResult?.reason || 'notify_failed',
         });
       }
+    } else if (!notifyViaWhatsApp) {
+      log('scheduled_trip_notify_skipped_passenger_app', { tripId: trip.id });
     }
 
     log('scheduled_trip_promoted_to_queue', {
       tripId: trip.id,
       scheduledFor: scheduledFor.toISOString(),
       displayText,
+      source: notifyViaWhatsApp ? 'whatsapp' : 'passenger_app',
     });
     promoted += 1;
   }

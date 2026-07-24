@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomInt, randomUUID } from 'crypto';
 import {
+  extractLocalArMobileDigits,
   maskPhone,
   normalizePassengerPhoneForDb,
   toWhatsAppJid,
@@ -319,28 +320,58 @@ export async function validatePassengerSession(rawPhone, sessionToken) {
   const phone = normalizePassengerPhoneForDb(rawPhone);
   const token = String(sessionToken || '').trim();
 
-  if (!phone || !token) {
+  if (!token) {
     return { ok: false, status: 400, message: 'Sesión inválida.' };
   }
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from('passenger_auth_sessions')
-    .select('id, phone, expires_at')
-    .eq('phone', phone)
-    .eq('token', token)
-    .gt('expires_at', new Date().toISOString())
-    .maybeSingle();
 
-  if (error) {
-    if (isMissingOtpTableError(error)) return missingOtpTableResponse();
-    throw error;
+  // Preferir match canónico phone+token; si falla, resolver por token y comparar locales.
+  let data = null;
+  if (phone) {
+    const byPhone = await supabase
+      .from('passenger_auth_sessions')
+      .select('id, phone, expires_at')
+      .eq('phone', phone)
+      .eq('token', token)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+
+    if (byPhone.error) {
+      if (isMissingOtpTableError(byPhone.error)) return missingOtpTableResponse();
+      throw byPhone.error;
+    }
+    data = byPhone.data;
   }
+
+  if (!data) {
+    const byToken = await supabase
+      .from('passenger_auth_sessions')
+      .select('id, phone, expires_at')
+      .eq('token', token)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+
+    if (byToken.error) {
+      if (isMissingOtpTableError(byToken.error)) return missingOtpTableResponse();
+      throw byToken.error;
+    }
+    data = byToken.data;
+
+    if (data && phone) {
+      const sessionLocal = extractLocalArMobileDigits(data.phone);
+      const requestLocal = extractLocalArMobileDigits(phone);
+      if (!sessionLocal || !requestLocal || sessionLocal !== requestLocal) {
+        return { ok: false, status: 401, message: 'Tu sesión expiró. Ingresá de nuevo.' };
+      }
+    }
+  }
+
   if (!data) {
     return { ok: false, status: 401, message: 'Tu sesión expiró. Ingresá de nuevo.' };
   }
 
-  const name = await resolvePassengerName(supabase, phone);
+  const name = await resolvePassengerName(supabase, data.phone);
   return {
     ok: true,
     phone: data.phone,

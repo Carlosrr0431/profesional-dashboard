@@ -11587,6 +11587,43 @@ async function processWebhookBody(body, requestMeta = {}) {
       return { status: 200, body: { success: true, ignored: true, reason: 'webhook_test' } };
     }
 
+    // Sesión Wasender: estado / QR / passkey (para re-vincular desde el dashboard).
+    if (event === 'session.status' || event === 'qrcode.updated' || event === 'passkey.updated') {
+      try {
+        const { handleWasenderSessionWebhook } = await import('../../../src/lib/wasenderSession');
+        const handled = await handleWasenderSessionWebhook(event, payloadBody?.data || {});
+        logWebhook('wasender_session_event', {
+          event,
+          handled: Boolean(handled?.handled),
+          status: handled?.status || null,
+          stage: handled?.stage || null,
+        });
+        return {
+          status: 200,
+          body: {
+            success: true,
+            event,
+            handled: Boolean(handled?.handled),
+            status: handled?.status || null,
+          },
+        };
+      } catch (sessionErr) {
+        logWebhook('wasender_session_event_fail', {
+          event,
+          error: sessionErr?.message || String(sessionErr),
+        });
+        return {
+          status: 200,
+          body: {
+            success: true,
+            event,
+            handled: false,
+            error: sessionErr?.message || 'session_webhook_error',
+          },
+        };
+      }
+    }
+
     if (UPSERT_ONLY && event === 'messages.received') {
       logWebhook('ignored', { reason: 'received_ignored_upsert_only' });
       return { status: 200, body: { success: true, ignored: true, reason: 'received_ignored_upsert_only' } };

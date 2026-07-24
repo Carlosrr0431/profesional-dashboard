@@ -119,6 +119,31 @@ function isPassengerAppTrip(trip) {
   return String(trip?.notes || '').includes('[PASSENGER_APP]');
 }
 
+/**
+ * Origen del viaje programado: 'passenger_app' | 'whatsapp' | null.
+ * WhatsApp no marca [PASSENGER_APP]; la app marca [SCHEDULED_SOURCE] passenger_app.
+ */
+function getScheduledTripSource(trip) {
+  const notes = String(trip?.notes || '');
+  const sourceMatch = notes.match(/\[SCHEDULED_SOURCE\]\s*([a-z_]+)/i);
+  if (sourceMatch?.[1]) return sourceMatch[1].toLowerCase();
+
+  const isScheduled = String(trip?.status || '') === 'scheduled'
+    || Boolean(trip?.scheduled_for)
+    || notes.includes('[SCHEDULED_FOR]');
+  if (!isScheduled) return null;
+
+  return isPassengerAppTrip(trip) ? 'passenger_app' : 'whatsapp';
+}
+
+function isPassengerAppScheduledTrip(trip) {
+  return getScheduledTripSource(trip) === 'passenger_app';
+}
+
+function isWhatsAppScheduledTrip(trip) {
+  return getScheduledTripSource(trip) === 'whatsapp';
+}
+
 function isCoordLikeAddress(address) {
   return /^-?\d+\.?\d*\s*,\s*-?\d+\.?\d*$/.test(String(address || '').trim());
 }
@@ -556,6 +581,9 @@ module.exports = {
   getMissingRequiredFields,
   isApproachOnlyTrip,
   isPassengerAppTrip,
+  getScheduledTripSource,
+  isPassengerAppScheduledTrip,
+  isWhatsAppScheduledTrip,
   isCoordLikeAddress,
   hasReadablePickupInOrigin,
   shouldPreservePickupOriginOnAssign,

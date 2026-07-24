@@ -112,13 +112,43 @@ describe('approachOnlyTripPayload', () => {
     expect(notes).not.toContain('[FINAL_DEST_JSON:');
   });
 
-  it('notes WhatsApp con catastral opcional', () => {
-    const notes = buildApproachOnlyTripNotes({
-      source: 'whatsapp',
+  it('payload passenger_app programado: status scheduled + markers de fuente', () => {
+    const scheduledFor = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const payload = buildApproachOnlyTripInsertPayload({
+      pickupLocation: pickup,
       finalDestinationLocation: finalDest,
-      additionalLines: ['[CATASTRAL] Mz 14 Lt 6'],
+      passengerName: 'Carlos',
+      passengerPhone: '543878630173',
+      fare: { price: 5000, commission_amount: 1000, distance_km: 3, duration_minutes: 10 },
+      source: 'passenger_app',
+      scheduledFor,
+      scheduledDisplay: 'lunes 20/07 a las 15:30',
     });
-    expect(notes).toContain('[CATASTRAL]');
-    expect(notes).toContain('[FINAL_DEST_JSON:');
+
+    expect(payload.status).toBe('scheduled');
+    expect(payload.dispatch_status).toBe('idle');
+    expect(payload.scheduled_for).toBe(scheduledFor.toISOString());
+    expect(payload.notes).toContain('[PASSENGER_APP]');
+    expect(payload.notes).toContain('[SCHEDULED_FOR]');
+    expect(payload.notes).toContain('[SCHEDULED_DISPLAY] lunes 20/07 a las 15:30');
+    expect(payload.notes).toContain('[SCHEDULED_SOURCE] passenger_app');
+  });
+
+  it('payload WhatsApp programado: sin SCHEDULED_SOURCE passenger_app', () => {
+    const scheduledFor = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const payload = buildApproachOnlyTripInsertPayload({
+      pickupLocation: pickup,
+      finalDestinationLocation: finalDest,
+      passengerName: 'Ana',
+      passengerPhone: '543878630173',
+      source: 'whatsapp',
+      scheduledFor,
+      scheduledDisplay: 'mañana a las 10:00',
+    });
+
+    expect(payload.status).toBe('scheduled');
+    expect(payload.notes).toContain('[SCHEDULED_FOR]');
+    expect(payload.notes).not.toContain('[PASSENGER_APP]');
+    expect(payload.notes).not.toContain('[SCHEDULED_SOURCE] passenger_app');
   });
 });

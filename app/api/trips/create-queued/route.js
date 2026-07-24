@@ -60,7 +60,7 @@ export async function POST(req) {
 
     if (!pickupAddress) {
       return NextResponse.json(
-        { ok: false, reason: 'missing_pickup_address', message: 'Ingresá la dirección de recogida.' },
+        { ok: false, reason: 'missing_pickup_address', message: 'Ingresá la dirección de origen.' },
         { status: 400 }
       );
     }
@@ -115,9 +115,16 @@ export async function POST(req) {
     const supabase = getSupabaseAdmin();
 
     // Cancela viajes previos (queued/pending) del mismo pasajero para evitar duplicados.
-    // Solo aplica cuando viene de la passenger-app (source = passenger_app).
+    // Solo aplica a viajes inmediatos de la passenger-app (no a reservas programadas).
     const passengerPhone = normalizePhone(payload?.passengerPhone);
-    if (passengerPhone && payload?.source === 'passenger_app') {
+    const scheduledForRaw = payload?.scheduledFor || payload?.scheduled_for || null;
+    const scheduledForDate = scheduledForRaw ? new Date(scheduledForRaw) : null;
+    const isScheduled = scheduledForDate instanceof Date
+      && Number.isFinite(scheduledForDate.getTime())
+      && scheduledForDate.getTime() > Date.now() + 60_000;
+    const scheduledDisplay = sanitizeText(payload?.scheduledDisplay || payload?.scheduled_display, 120) || null;
+
+    if (passengerPhone && payload?.source === 'passenger_app' && !isScheduled) {
       const localDigits = passengerPhone.startsWith('549')
         ? passengerPhone.slice(3)
         : passengerPhone.startsWith('54')
@@ -158,6 +165,8 @@ export async function POST(req) {
       source: payload?.source,
       payload,
       waypoints: resolvedWaypoints || [],
+      scheduledFor: isScheduled ? scheduledForDate : null,
+      scheduledDisplay: isScheduled ? scheduledDisplay : null,
     });
 
     if (
@@ -169,7 +178,7 @@ export async function POST(req) {
         {
           ok: false,
           reason: 'missing_pickup_coords',
-          message: 'No se pudo guardar la dirección de recogida. Intentá de nuevo.',
+          message: 'No se pudo guardar la dirección de origen. Intentá de nuevo.',
         },
         { status: 500 }
       );
@@ -183,7 +192,10 @@ export async function POST(req) {
 
     if (error) throw error;
 
-    triggerDispatchWorker({ reason: 'dashboard_trip_created', tripId: trip.id });
+    // Viajes programados se despachan luego vía cron (promoteDueScheduledTrips).
+    if (!isScheduled) {
+      triggerDispatchWorker({ reason: 'dashboard_trip_created', tripId: trip.id });
+    }
 
     return NextResponse.json({ ok: true, trip });
   } catch (err) {

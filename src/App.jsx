@@ -14,7 +14,9 @@ import DriverPanel from './components/DriverPanel';
 import TripAssignModal from './components/TripAssignModal';
 import NewTripModal from './components/NewTripModal';
 import AiAgentConfirmModal from './components/AiAgentConfirmModal';
+import WhatsAppSessionModal from './components/WhatsAppSessionModal';
 import DriverManagement from './components/DriverManagement';
+import { supabase } from './lib/supabase';
 import ZoneManagement from './components/ZoneManagement';
 import BroadcastVoiceChat from './components/BroadcastVoiceChat';
 import VoiceChat from './components/VoiceChat';
@@ -98,6 +100,8 @@ export default function App() {
   const [tripModalDriver, setTripModalDriver] = useState(null);
   const [showNewTripModal, setShowNewTripModal] = useState(false);
   const [showAiAgentModal, setShowAiAgentModal] = useState(false);
+  const [showWhatsAppSessionModal, setShowWhatsAppSessionModal] = useState(false);
+  const [whatsappSessionStatus, setWhatsappSessionStatus] = useState('unknown');
   const [currentView,     setCurrentView]     = useState(() => (
     typeof window !== 'undefined'
       ? viewFromPath(window.location.pathname)
@@ -120,6 +124,52 @@ export default function App() {
     syncLayout();
     media.addEventListener('change', syncLayout);
     return () => media.removeEventListener('change', syncLayout);
+  }, []);
+
+  // Estado de sesión Wasender (badge en header + panel de revinculación).
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshSessionStatus = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        const res = await fetch('/api/whatsapp/session', {
+          cache: 'no-store',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && payload?.status) {
+          setWhatsappSessionStatus(String(payload.status));
+        }
+      } catch {
+        /* silencioso: el badge no debe romper el dashboard */
+      }
+    };
+
+    refreshSessionStatus();
+    const poll = setInterval(refreshSessionStatus, 30000);
+    const channel = supabase
+      .channel('wasender_session_badge')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'settings' },
+        (payload) => {
+          const key = payload?.new?.key || payload?.old?.key;
+          if (String(key || '') === 'wasender_session_status') {
+            const value = payload?.new?.value;
+            if (value) setWhatsappSessionStatus(String(value));
+            else refreshSessionStatus();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   // ── Selección múltiple ─────────────────────────────────────────────────────
@@ -439,6 +489,40 @@ export default function App() {
               )}
             </span>
             <span className="hidden sm:inline">Agente IA</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowWhatsAppSessionModal(true)}
+            className={`flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] font-semibold transition-all lg:px-3 ${
+              whatsappSessionStatus === 'connected'
+                ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                : whatsappSessionStatus === 'need_scan' || whatsappSessionStatus === 'need_passkey' || whatsappSessionStatus === 'connecting'
+                  ? 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                  : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+            }`}
+            title={
+              whatsappSessionStatus === 'connected'
+                ? 'Sesión WhatsApp conectada'
+                : 'Sesión WhatsApp desconectada — tocá para vincular con QR'
+            }
+          >
+            <span className="relative flex h-1.5 w-1.5">
+              {whatsappSessionStatus === 'connected' ? (
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              ) : whatsappSessionStatus === 'need_scan' || whatsappSessionStatus === 'need_passkey' || whatsappSessionStatus === 'connecting' ? (
+                <>
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-60" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
+                </>
+              ) : (
+                <>
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-500 opacity-60" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-rose-500" />
+                </>
+              )}
+            </span>
+            <span className="hidden sm:inline">WhatsApp</span>
           </button>
 
           <div className="hidden h-5 w-px bg-gray-200 md:block" />
@@ -785,6 +869,26 @@ export default function App() {
           }}
         />
       ) : null}
+
+      <WhatsAppSessionModal
+        open={showWhatsAppSessionModal}
+        onClose={() => {
+          setShowWhatsAppSessionModal(false);
+          // refrescar badge al cerrar
+          (async () => {
+            try {
+              const { data: sessionData } = await supabase.auth.getSession();
+              const token = sessionData?.session?.access_token;
+              const res = await fetch('/api/whatsapp/session', {
+                cache: 'no-store',
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+              });
+              const payload = await res.json().catch(() => ({}));
+              if (res.ok && payload?.status) setWhatsappSessionStatus(String(payload.status));
+            } catch { /* ignore */ }
+          })();
+        }}
+      />
 
       {/* ── Broadcast de audio ─────────────────────────────────────────────── */}
       {showBroadcast && multiSelectedDrivers.length > 0 && (

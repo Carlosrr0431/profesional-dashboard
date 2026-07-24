@@ -195,6 +195,25 @@ async function clearStalePassengerPushToken(supabase, passengerPhone, reason) {
   return { cleared: true };
 }
 
+/**
+ * Busca el token FCM del pasajero y envía la push.
+ * Limpia tokens obsoletos cuando FCM lo indica.
+ */
+export async function sendPassengerPushByPhone(supabase, passengerPhone, options = {}) {
+  if (!supabase) return { ok: false, reason: 'missing_supabase' };
+  const phone = normalizePassengerPhoneForDb(passengerPhone) || String(passengerPhone || '').trim();
+  if (!phone) return { ok: false, reason: 'missing_passenger_phone' };
+
+  const pushToken = await lookupPassengerPushToken(supabase, phone);
+  if (!pushToken) return { ok: false, reason: 'no_push_token' };
+
+  const result = await sendPassengerPushNotification(pushToken, options);
+  if (!result.ok && STALE_TOKEN_REASONS.has(result.reason)) {
+    await clearStalePassengerPushToken(supabase, phone, result.reason);
+  }
+  return result;
+}
+
 export async function sendPassengerPushNotification(pushToken, { title, body, data = {}, channelId = 'viajes' } = {}) {
   const token = String(pushToken || '').trim();
   if (!token) {
@@ -225,9 +244,10 @@ export async function sendPassengerPushNotification(pushToken, { title, body, da
         notification: {
           channelId: String(channelId || 'viajes'),
           sound: 'default',
-          // drawable/notification_icon = fondo blanco + logo azul.
-          // Sin `color`: un tint SRC_IN aplastaría el PNG a color.
+          // Silueta monocroma (@drawable/notification_icon) + tint azul de marca.
+          // Igual que driver-app: un PNG a color con fondo opaco sale como cuadrado negro.
           icon: 'notification_icon',
+          color: '#282e69',
           ...(collapseTag ? { tag: collapseTag } : {}),
         },
       },

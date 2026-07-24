@@ -123,6 +123,8 @@ export function buildApproachOnlyTripInsertPayload({
   finalDestJsonPrebuilt = null,
   additionalLines = [],
   waypoints = [],
+  scheduledFor = null,
+  scheduledDisplay = null,
 }) {
   const pickup = normalizeLocation(pickupLocation);
   if (!pickup) {
@@ -137,6 +139,21 @@ export function buildApproachOnlyTripInsertPayload({
   if (isPassengerApp && !finalDest) {
     throw new Error('finalDestinationLocation requerida para passenger_app');
   }
+
+  const scheduledDate = scheduledFor instanceof Date
+    ? scheduledFor
+    : (scheduledFor ? new Date(scheduledFor) : null);
+  const isScheduled = scheduledDate instanceof Date
+    && Number.isFinite(scheduledDate.getTime())
+    && scheduledDate.getTime() > Date.now() + 60_000;
+
+  const scheduleLines = isScheduled
+    ? [
+        `[SCHEDULED_FOR] ${scheduledDate.toISOString()}`,
+        `[SCHEDULED_DISPLAY] ${String(scheduledDisplay || '').trim() || scheduledDate.toISOString()}`,
+        isPassengerApp ? '[SCHEDULED_SOURCE] passenger_app' : null,
+      ].filter(Boolean)
+    : [];
 
   const locationFields = isPassengerApp
     ? {
@@ -156,13 +173,13 @@ export function buildApproachOnlyTripInsertPayload({
         destination_lng: finalDest?.lng ?? null,
       };
 
-  return {
+  const payload = {
     driver_id: null,
     passenger_name: passengerName || 'Pasajero',
     passenger_phone: passengerPhone || null,
     ...locationFields,
-    status: 'queued',
-    dispatch_status: 'queued',
+    status: isScheduled ? 'scheduled' : 'queued',
+    dispatch_status: isScheduled ? 'idle' : 'queued',
     assigned_at: null,
     accepted_at: null,
     price: fare?.price ?? null,
@@ -176,10 +193,16 @@ export function buildApproachOnlyTripInsertPayload({
       finalDestJsonPrebuilt,
       destinationHint,
       extraNotes,
-      additionalLines,
+      additionalLines: [...scheduleLines, ...additionalLines.filter(Boolean)],
       waypoints: normalizeWaypointList(waypoints),
     }),
   };
+
+  if (isScheduled) {
+    payload.scheduled_for = scheduledDate.toISOString();
+  }
+
+  return payload;
 }
 
 /** Combina tarifa calculada en servidor con estimación enviada por la app. */

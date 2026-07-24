@@ -255,6 +255,8 @@ export function buildPassengerQueuedTripPayload({
   source,
   payload,
   waypoints = [],
+  scheduledFor = null,
+  scheduledDisplay = null,
 }) {
   return buildApproachOnlyTripInsertPayload({
     pickupLocation,
@@ -266,6 +268,8 @@ export function buildPassengerQueuedTripPayload({
     destinationHint,
     extraNotes: sanitizeText(notes) || null,
     waypoints,
+    scheduledFor,
+    scheduledDisplay,
   });
 }
 

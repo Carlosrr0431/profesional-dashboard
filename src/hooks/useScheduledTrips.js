@@ -27,6 +27,14 @@ function parsePassengerPhone(notes) {
   return m ? m[1].trim() : null;
 }
 
+function parseScheduledSource(trip) {
+  const notes = String(trip?.notes || '');
+  const sourceMatch = notes.match(/\[SCHEDULED_SOURCE\]\s*([a-z_]+)/i);
+  if (sourceMatch?.[1]) return sourceMatch[1].toLowerCase();
+  if (notes.includes('[PASSENGER_APP]')) return 'passenger_app';
+  return 'whatsapp';
+}
+
 function msUntil(date) {
   return date ? date.getTime() - Date.now() : null;
 }
@@ -139,6 +147,7 @@ export function useScheduledTrips() {
           countdown: formatCountdown(ms),
           urgency: urgency(ms),
           arFormatted,
+          scheduledSource: parseScheduledSource(t),
           _tick: tick,
         };
       })
