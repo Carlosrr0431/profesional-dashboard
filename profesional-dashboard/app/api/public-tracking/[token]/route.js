@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  resolveTripFinalDestCoords,
+  resolveTripPickupCoords,
+} from '../../../../shared/trip-contract.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +18,19 @@ function getSupabaseAdmin() {
   return createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+}
+
+function toPublicPoint(point) {
+  if (!point) return null;
+  if (point.lat == null || point.lng == null || point.lat === '' || point.lng === '') return null;
+  const lat = Number(point.lat);
+  const lng = Number(point.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return {
+    lat,
+    lng,
+    address: point.address || null,
+  };
 }
 
 function isUuid(value) {
@@ -87,6 +104,8 @@ export async function GET(_request, { params }) {
         trip,
         driver,
         lastTrack: lastTrack || null,
+        pickup: toPublicPoint(resolveTripPickupCoords(trip)),
+        dropoff: toPublicPoint(resolveTripFinalDestCoords(trip)),
       },
     });
   } catch (err) {

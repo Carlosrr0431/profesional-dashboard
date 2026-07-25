@@ -17,6 +17,9 @@ import {
   formatDistanceKm,
   getProximityMessage,
   lerpPos,
+  resolveTrackingPickup,
+  resolveTrackingDropoff,
+  resolveTrackingRouteTarget,
 } from './trackingUtils';
 
 /* ── CSS global ──────────────────────────────────────────────────────────── */
@@ -169,6 +172,8 @@ export default function TrackingView({ token }) {
   const [driver, setDriver] = useState(null);
   const [driverPos, setDriverPos] = useState(null);
   const [driverHeading, setDriverHeading] = useState(null);
+  const [pickupPoint, setPickupPoint] = useState(null);
+  const [dropoffPoint, setDropoffPoint] = useState(null);
   const [routeCoords, setRouteCoords] = useState([]);
   const [routeMetrics, setRouteMetrics] = useState(null);
   const [pageState, setPageState] = useState('loading');
@@ -182,6 +187,7 @@ export default function TrackingView({ token }) {
   const lastRouteOrigin = useRef(null);
   const lastRouteFetchAt = useRef(0);
   const headingRef = useRef(null);
+  const lastProgressIdxRef = useRef(0);
 
   /* ── Snapshot ──────────────────────────────────────────────────────────── */
   const fetchSnapshot = useCallback(async (t) => {
@@ -206,9 +212,12 @@ export default function TrackingView({ token }) {
   }, []);
 
   const applySnapshot = useCallback((data) => {
-    setTrip(data?.trip || null);
+    const nextTrip = data?.trip || null;
+    setTrip(nextTrip);
     setDriver(data?.driver || null);
     setDriverPos(extractPos(data));
+    setPickupPoint(resolveTrackingPickup(nextTrip, data?.pickup));
+    setDropoffPoint(resolveTrackingDropoff(nextTrip, data?.dropoff));
     const h = Number.parseFloat(data?.lastTrack?.heading);
     if (Number.isFinite(h)) { headingRef.current = h; setDriverHeading(h); }
     setLastUpdated(new Date());
@@ -263,7 +272,14 @@ export default function TrackingView({ token }) {
     channels.push(supabase
       .channel(`pub-trk-trip-${trip.id}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'trips', filter: `id=eq.${trip.id}` }, (p) => {
-        if (p?.new) { setTrip((prev) => ({ ...(prev || {}), ...p.new })); touch(); }
+        if (!p?.new) return;
+        setTrip((prev) => {
+          const next = { ...(prev || {}), ...p.new };
+          setPickupPoint(resolveTrackingPickup(next, null));
+          setDropoffPoint(resolveTrackingDropoff(next, null));
+          return next;
+        });
+        touch();
       }).subscribe());
 
     channels.push(supabase
@@ -310,12 +326,18 @@ export default function TrackingView({ token }) {
   const isLive          = isPickupStage || trip?.status === 'in_progress';
   const goingToDestination = trip?.status === 'in_progress' || trip?.status === 'completed';
 
-  const targetPoint = useMemo(() => {
-    if (!trip) return null;
-    const lat = parseFloat(goingToDestination ? trip.destination_lat : trip.origin_lat);
-    const lng = parseFloat(goingToDestination ? trip.destination_lng : trip.origin_lng);
-    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
-  }, [trip, goingToDestination]);
+  const pickup = useMemo(
+    () => resolveTrackingPickup(trip, pickupPoint),
+    [trip, pickupPoint],
+  );
+  const dropoff = useMemo(
+    () => resolveTrackingDropoff(trip, dropoffPoint),
+    [trip, dropoffPoint],
+  );
+  const targetPoint = useMemo(
+    () => resolveTrackingRouteTarget(trip, pickup, dropoff),
+    [trip, pickup, dropoff],
+  );
 
   const displayPos = useAnimatedPosition(driverPos);
 
@@ -324,10 +346,37 @@ export default function TrackingView({ token }) {
     return snapToRoute(displayPos, routeCoords);
   }, [displayPos, routeCoords]);
 
+  // Al cambiar la ruta completa, reiniciar el avance de la polilínea.
+  useEffect(() => {
+    lastProgressIdxRef.current = 0;
+  }, [routeCoords]);
+
   const remainingPath = useMemo(() => {
     if (!snappedPos || routeCoords.length < 2) return routeCoords;
     const split = splitRouteAtPoint(snappedPos, routeCoords);
-    return split.remaining ?? [];
+    const remaining = split.remaining ?? [];
+    if (remaining.length < 2) return remaining;
+
+    // Índice del segmento donde está el chofer (avance monotónico).
+    let segIdx = 0;
+    for (let i = 0; i < routeCoords.length - 1; i += 1) {
+      const a = routeCoords[i];
+      const b = routeCoords[i + 1];
+      const ab = haversineMeters(a, b) || 1;
+      const ap = haversineMeters(a, remaining[0]);
+      const pb = haversineMeters(remaining[0], b);
+      if (ap + pb <= ab + 8) {
+        segIdx = i;
+        break;
+      }
+      segIdx = i;
+    }
+    lastProgressIdxRef.current = Math.max(lastProgressIdxRef.current, segIdx);
+    const idx = lastProgressIdxRef.current;
+    return [remaining[0], ...routeCoords.slice(idx + 1)].filter((point, i, arr) => {
+      if (i === 0) return true;
+      return haversineMeters(arr[i - 1], point) > 1.5;
+    });
   }, [snappedPos, routeCoords]);
 
   const routeGeoJSON = useMemo(() => {
@@ -354,18 +403,46 @@ export default function TrackingView({ token }) {
         : routeHeading ?? 0
   );
 
-  /* ── Actualizar cámara cuando llegan coordenadas ───────────────────────── */
+  /* ── Actualizar cámara cuando llegan coordenadas / ruta ────────────────── */
   useEffect(() => {
-    const pos = snappedPos || driverPos || targetPoint;
-    if (!pos || !trip) return;
+    const map = mapRef.current?.getMap?.() || mapRef.current;
+    const path = remainingPath.length >= 2 ? remainingPath : routeCoords;
+    if (!trip) return;
 
-    if (!boundsSet.current) {
+    if (!boundsSet.current && path.length >= 2) {
       boundsSet.current = true;
-      setViewState((v) => ({ ...v, latitude: pos.lat, longitude: pos.lng, zoom: 15 }));
-    } else if (isLive && snappedPos) {
+      let minLat = Infinity;
+      let maxLat = -Infinity;
+      let minLng = Infinity;
+      let maxLng = -Infinity;
+      const points = [...path];
+      if (snappedPos || driverPos) points.push(snappedPos || driverPos);
+      if (targetPoint) points.push(targetPoint);
+      for (const p of points) {
+        if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) continue;
+        minLat = Math.min(minLat, p.lat);
+        maxLat = Math.max(maxLat, p.lat);
+        minLng = Math.min(minLng, p.lng);
+        maxLng = Math.max(maxLng, p.lng);
+      }
+      if (Number.isFinite(minLat) && map?.fitBounds) {
+        map.fitBounds(
+          [[minLng, minLat], [maxLng, maxLat]],
+          { padding: 72, duration: 700, maxZoom: 16 },
+        );
+        return;
+      }
+      const center = snappedPos || driverPos || targetPoint;
+      if (center) {
+        setViewState((v) => ({ ...v, latitude: center.lat, longitude: center.lng, zoom: 15 }));
+      }
+      return;
+    }
+
+    if (isLive && snappedPos) {
       setViewState((v) => ({ ...v, latitude: snappedPos.lat, longitude: snappedPos.lng }));
     }
-  }, [snappedPos?.lat, snappedPos?.lng, driverPos, targetPoint, trip, isLive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [remainingPath, routeCoords, snappedPos?.lat, snappedPos?.lng, driverPos, targetPoint, trip, isLive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Ruta: refetch cuando el conductor se mueve ────────────────────────── */
   useEffect(() => {
@@ -423,8 +500,8 @@ export default function TrackingView({ token }) {
   /* ── Render ────────────────────────────────────────────────────────────── */
   const st = STATUS[trip?.status] ?? STATUS.going_to_pickup;
   const vehicleTxt = [driver?.vehicle_color, driver?.vehicle_brand, driver?.vehicle_model, driver?.vehicle_plate].filter(Boolean).join(' · ');
-  const showPickup = isPickupStage && !!targetPoint;
-  const showDest = !!trip?.destination_lat && Number.isFinite(parseFloat(trip.destination_lat));
+  const showPickup = Boolean(pickup);
+  const showDest = Boolean(dropoff) && (goingToDestination || !isPickupStage);
   const proximityMsg = getProximityMessage(distanceToTarget, trip?.status);
   const distanceLabel = formatDistanceKm(distanceToTarget);
   const arrivedAtPickup = isPickupStage && Number.isFinite(distanceToTarget) && distanceToTarget <= 50;
@@ -453,18 +530,18 @@ export default function TrackingView({ token }) {
             </Source>
           )}
 
-          {/* Marcador retiro */}
-          {showPickup && targetPoint && (
-            <Marker latitude={targetPoint.lat} longitude={targetPoint.lng} anchor="center">
+          {/* Marcador retiro (origen) */}
+          {showPickup && pickup && (
+            <Marker latitude={pickup.lat} longitude={pickup.lng} anchor="center">
               <PickupPin />
             </Marker>
           )}
 
           {/* Marcador destino */}
-          {showDest && !isPickupStage && (
+          {showDest && dropoff && (
             <Marker
-              latitude={parseFloat(trip.destination_lat)}
-              longitude={parseFloat(trip.destination_lng)}
+              latitude={dropoff.lat}
+              longitude={dropoff.lng}
               anchor="bottom"
             >
               <DestPin />
@@ -547,11 +624,11 @@ export default function TrackingView({ token }) {
           <div style={S.addrs}>
             <div>
               <p style={S.addrLbl}>Punto de retiro</p>
-              <p style={S.addrTxt}>{trip?.origin_address || 'Pendiente'}</p>
+              <p style={S.addrTxt}>{pickup?.address || trip?.origin_address || 'Pendiente'}</p>
             </div>
             <div>
               <p style={S.addrLbl}>Destino</p>
-              <p style={S.addrTxt}>{trip?.destination_address || 'Por definir'}</p>
+              <p style={S.addrTxt}>{dropoff?.address || trip?.destination_address || 'Por definir'}</p>
             </div>
           </div>
         </div>
