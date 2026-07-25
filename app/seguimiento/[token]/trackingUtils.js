@@ -64,6 +64,53 @@ export function getBearing(from, to) {
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
+function toFinitePoint(lat, lng, address = null) {
+  if (lat == null || lng == null || lat === '' || lng === '') return null;
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return null;
+  return { lat: parsedLat, lng: parsedLng, address: address || null };
+}
+
+/**
+ * Resuelve el punto de retiro para el mapa público.
+ * Preferencia: payload enriquecido → origin_* → destination_* (legacy WhatsApp).
+ */
+export function resolveTrackingPickup(trip, pickupFromApi = null) {
+  const fromApi = toFinitePoint(pickupFromApi?.lat, pickupFromApi?.lng, pickupFromApi?.address);
+  if (fromApi) return fromApi;
+
+  const fromOrigin = toFinitePoint(trip?.origin_lat, trip?.origin_lng, trip?.origin_address);
+  if (fromOrigin) return fromOrigin;
+
+  return toFinitePoint(trip?.destination_lat, trip?.destination_lng, trip?.destination_address);
+}
+
+/** Destino final del pasajero (si existe). */
+export function resolveTrackingDropoff(trip, dropoffFromApi = null) {
+  const fromApi = toFinitePoint(dropoffFromApi?.lat, dropoffFromApi?.lng, dropoffFromApi?.address);
+  if (fromApi) return fromApi;
+
+  const pickup = resolveTrackingPickup(trip, null);
+  const dest = toFinitePoint(trip?.destination_lat, trip?.destination_lng, trip?.destination_address);
+  if (!dest) return null;
+  if (
+    pickup
+    && Math.abs(pickup.lat - dest.lat) < 0.00005
+    && Math.abs(pickup.lng - dest.lng) < 0.00005
+  ) {
+    return null;
+  }
+  return dest;
+}
+
+/** Objetivo actual de la ruta según etapa del viaje. */
+export function resolveTrackingRouteTarget(trip, pickup, dropoff) {
+  const goingToDestination = trip?.status === 'in_progress' || trip?.status === 'completed';
+  if (goingToDestination) return dropoff || null;
+  return pickup || null;
+}
+
 function snapToSegment(point, a, b) {
   const dx = b.lng - a.lng;
   const dy = b.lat - a.lat;

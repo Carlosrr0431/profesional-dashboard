@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getDirectionsResponse } from '../../../../../src/lib/geo/index.js';
+import {
+  resolveTripFinalDestCoords,
+  resolveTripPickupCoords,
+} from '../../../../../shared/trip-contract.js';
 
 export const dynamic = 'force-dynamic';
+
+const TRIP_ROUTE_FIELDS =
+  'id, status, notes, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng';
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -21,10 +28,35 @@ function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
 }
 
+function resolveRouteTarget(trip) {
+  const goingToDestination = trip?.status === 'in_progress' || trip?.status === 'completed';
+  if (goingToDestination) {
+    const dropoff = resolveTripFinalDestCoords(trip);
+    if (dropoff && Number.isFinite(Number(dropoff.lat)) && Number.isFinite(Number(dropoff.lng))) {
+      return {
+        lat: Number(dropoff.lat),
+        lng: Number(dropoff.lng),
+        stage: 'destination',
+      };
+    }
+    return null;
+  }
+
+  const pickup = resolveTripPickupCoords(trip);
+  if (pickup && Number.isFinite(Number(pickup.lat)) && Number.isFinite(Number(pickup.lng))) {
+    return {
+      lat: Number(pickup.lat),
+      lng: Number(pickup.lng),
+      stage: 'pickup',
+    };
+  }
+  return null;
+}
+
 async function resolveTrip(supabase, token) {
   const { data: tripByToken, error: tripByTokenError } = await supabase
     .from('trips')
-    .select('id, status, origin_lat, origin_lng, destination_lat, destination_lng')
+    .select(TRIP_ROUTE_FIELDS)
     .eq('tracking_token', token)
     .maybeSingle();
 
@@ -35,7 +67,7 @@ async function resolveTrip(supabase, token) {
 
   const { data: tripById, error: tripByIdError } = await supabase
     .from('trips')
-    .select('id, status, origin_lat, origin_lng, destination_lat, destination_lng')
+    .select(TRIP_ROUTE_FIELDS)
     .eq('id', token)
     .maybeSingle();
 
@@ -74,11 +106,8 @@ export async function GET(request, { params }) {
       );
     }
 
-    const goingToDestination = trip.status === 'in_progress' || trip.status === 'completed';
-    const destLat = Number.parseFloat(goingToDestination ? trip.destination_lat : trip.origin_lat);
-    const destLng = Number.parseFloat(goingToDestination ? trip.destination_lng : trip.origin_lng);
-
-    if (!Number.isFinite(destLat) || !Number.isFinite(destLng)) {
+    const target = resolveRouteTarget(trip);
+    if (!target) {
       return NextResponse.json(
         { ok: false, error: { code: 'BAD_REQUEST', message: 'Trip destination coordinates missing' } },
         { status: 400 }
@@ -87,7 +116,7 @@ export async function GET(request, { params }) {
 
     const route = await getDirectionsResponse(
       { lat: originLat, lng: originLng },
-      { lat: destLat, lng: destLng },
+      { lat: target.lat, lng: target.lng },
     );
 
     const durationSeconds = route.durationValue;
@@ -101,8 +130,8 @@ export async function GET(request, { params }) {
         durationSeconds,
         distanceMeters,
         distanceKm: distanceMeters != null ? Math.round((distanceMeters / 1000) * 10) / 10 : null,
-        destination: { lat: destLat, lng: destLng },
-        stage: goingToDestination ? 'destination' : 'pickup',
+        destination: { lat: target.lat, lng: target.lng },
+        stage: target.stage,
       },
     });
   } catch (err) {
