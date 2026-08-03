@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { requireAdminUser } from '../../../../src/lib/adminAuthServer';
 import { getSupabaseAdmin } from '../../../../src/lib/supabaseAdmin';
 import { buildDashboardAssignNotes } from '../../../../src/lib/tripRequeue';
+import {
+  isDriverEligibleForDispatch,
+  resolveDispatchBlockReason,
+} from '../../../../shared/driver-billing.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -95,6 +99,26 @@ export async function POST(request) {
 
   try {
     const supabase = getSupabaseAdmin();
+
+    const { data: driverRow, error: driverError } = await supabase
+      .from('drivers')
+      .select('id, billing_mode, commission_blocked, pending_commission, commission_debt_since_at')
+      .eq('id', driverId)
+      .maybeSingle();
+
+    if (driverError) throw driverError;
+    if (!driverRow) {
+      return NextResponse.json({ ok: false, message: 'Chofer no encontrado.' }, { status: 404 });
+    }
+
+    if (!isDriverEligibleForDispatch(driverRow)) {
+      const reason = resolveDispatchBlockReason(driverRow);
+      const message = reason === 'manual'
+        ? 'Este chofer tiene bloqueo manual y no puede recibir viajes.'
+        : 'Este chofer tiene comisión vencida y no puede recibir viajes.';
+      return NextResponse.json({ ok: false, message, code: 'DRIVER_DISPATCH_BLOCKED' }, { status: 409 });
+    }
+
     const { data, error } = await supabase.from('trips').insert(tripData).select().single();
     if (error) {
       console.error('[trips/assign]', error);

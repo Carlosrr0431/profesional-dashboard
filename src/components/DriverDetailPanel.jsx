@@ -7,6 +7,15 @@ import { useToast } from '../context/ToastContext';
 import { isFleetRoot, isAssignedDriver } from '../lib/driverRoles';
 import AssignedDriversTab from './AssignedDriversTab';
 import DriverAvatar from './DriverAvatar';
+import {
+  BILLING_MODE_COMMISSION,
+  BILLING_MODE_WEEKLY,
+  BILLING_MODE_LABELS,
+  normalizeBillingMode,
+  isWeeklyBillingMode,
+  resolveCommissionOverdue,
+  isDriverDispatchBlocked,
+} from '../lib/driverBilling';
 
 export default function DriverDetailPanel({
   driver,
@@ -16,6 +25,8 @@ export default function DriverDetailPanel({
   getDriverCommissionPayments,
   recordCommissionPayment,
   toggleCommissionBlock,
+  setManualDispatchBlock,
+  setBillingMode,
   fetchAssignedDrivers,
   createAssignedDriver,
   deleteAssignedDriver,
@@ -35,6 +46,8 @@ export default function DriverDetailPanel({
   const [showPayForm, setShowPayForm] = useState(false);
   const [blocking, setBlocking] = useState(false);
   const [showSettleConfirm, setShowSettleConfirm] = useState(false);
+  const [savingBilling, setSavingBilling] = useState(false);
+  const [togglingDispatchBlock, setTogglingDispatchBlock] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -67,18 +80,11 @@ export default function DriverDetailPanel({
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todayTrips = completed.filter((t) => new Date(t.completed_at) >= todayStart);
   const todayEarnings = todayTrips.reduce((s, t) => s + (parseFloat(t.price) || 0), 0);
-  const todayCommission = todayTrips.reduce((s, t) => s + (parseFloat(t.commission_amount) || 0), 0);
 
-  // Overdue check
-  const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-  const oldestUnpaid = completed
-    .filter((t) => parseFloat(t.commission_amount) > 0)
-    .filter((t) => {
-      const lastPay = payments.length > 0 ? new Date(payments[0].created_at) : null;
-      return !lastPay || new Date(t.completed_at) > lastPay;
-    })
-    .sort((a, b) => new Date(a.completed_at) - new Date(b.completed_at))[0];
-  const isOverdue = commissionBalance > 0 && oldestUnpaid && new Date(oldestUnpaid.completed_at) < threeDaysAgo;
+  // Overdue: usa commission_debt_since_at del chofer (misma regla que dispatch)
+  const isOverdue = resolveCommissionOverdue(driver);
+  const weeklyBilling = isWeeklyBillingMode(driver?.billing_mode);
+  const dispatchBlocked = isDriverDispatchBlocked(driver);
 
   // Filtered trips
   const filteredTrips = trips.filter((t) => {
@@ -137,6 +143,43 @@ export default function DriverDetailPanel({
     }
   };
 
+  const handleBillingModeChange = async (nextMode) => {
+    const mode = normalizeBillingMode(nextMode);
+    if (mode === normalizeBillingMode(driver.billing_mode)) return;
+    setSavingBilling(true);
+    try {
+      await setBillingMode(driver.id, mode);
+      toast.success(
+        mode === BILLING_MODE_WEEKLY
+          ? 'Modo de cobro: semanal. Recibe viajes salvo bloqueo manual.'
+          : 'Modo de cobro: comisiones con gracia de 3 días.',
+      );
+    } catch (err) {
+      console.error('Billing mode error:', formatError(err));
+      toast.error(err?.message || 'No se pudo cambiar el modo de cobro');
+    } finally {
+      setSavingBilling(false);
+    }
+  };
+
+  const handleToggleManualDispatchBlock = async () => {
+    const nextBlocked = !Boolean(driver.commission_blocked);
+    setTogglingDispatchBlock(true);
+    try {
+      await setManualDispatchBlock(driver.id, nextBlocked);
+      toast.success(
+        nextBlocked
+          ? 'Chofer bloqueado: no recibirá más viajes'
+          : 'Chofer desbloqueado: vuelve a recibir viajes',
+      );
+    } catch (err) {
+      console.error('Manual dispatch block error:', formatError(err));
+      toast.error(err?.message || 'No se pudo actualizar el bloqueo');
+    } finally {
+      setTogglingDispatchBlock(false);
+    }
+  };
+
   const canManageAssigned = isFleetRoot(driver);
 
   return (
@@ -186,7 +229,7 @@ export default function DriverDetailPanel({
           {[
             { key: 'info', label: 'Resumen' },
             { key: 'trips', label: `Viajes (${trips.length})` },
-            { key: 'commission', label: 'Comisiones', alert: driver.pending_commission > 0 || driver.commission_blocked },
+            { key: 'commission', label: 'Comisiones', alert: driver.pending_commission > 0 || dispatchBlocked },
             ...(canManageAssigned
               ? [{ key: 'assigned', label: `Asignados (${assignedCount})` }]
               : []),
@@ -238,7 +281,8 @@ export default function DriverDetailPanel({
                 totalPaid={totalPaid}
                 commissionBalance={commissionBalance}
                 isOverdue={isOverdue}
-                todayCommission={todayCommission}
+                weeklyBilling={weeklyBilling}
+                dispatchBlocked={dispatchBlocked}
                 payments={payments}
                 showPayForm={showPayForm}
                 setShowPayForm={setShowPayForm}
@@ -251,6 +295,10 @@ export default function DriverDetailPanel({
                 onPayFull={() => setShowSettleConfirm(true)}
                 onToggleBlock={handleToggleBlock}
                 blocking={blocking}
+                onBillingModeChange={handleBillingModeChange}
+                savingBilling={savingBilling}
+                onToggleManualDispatchBlock={handleToggleManualDispatchBlock}
+                togglingDispatchBlock={togglingDispatchBlock}
               />
             )}
             {tab === 'assigned' && canManageAssigned ? (
@@ -324,6 +372,7 @@ function ConfirmCommissionPaymentModal({ driver, amount, loading, onCancel, onCo
 
 /* ─── Info Tab ─── */
 function InfoTab({ driver, stats }) {
+  const billingMode = normalizeBillingMode(driver.billing_mode);
   const rows = [
     { label: 'Teléfono', value: driver.phone || '—' },
     { label: 'Tipo', value: driver.vehicle_type === 'moto' ? '🏍️ Moto' : '🚗 Auto' },
@@ -331,6 +380,7 @@ function InfoTab({ driver, stats }) {
     { label: 'Patente', value: driver.vehicle_plate || '—' },
     { label: 'Color', value: driver.vehicle_color || '—' },
     { label: 'Licencia', value: driver.license_expiry || '—' },
+    { label: 'Cobro', value: BILLING_MODE_LABELS[billingMode] || BILLING_MODE_LABELS[BILLING_MODE_COMMISSION] },
     { label: 'Rating', value: `⭐ ${parseFloat(driver.rating || 5).toFixed(1)}` },
     { label: 'Registrado', value: driver.created_at ? new Date(driver.created_at).toLocaleDateString('es-AR') : '—' },
   ];
@@ -449,19 +499,21 @@ function TripRow({ trip }) {
 
 /* ─── Commission Tab ─── */
 function CommissionTab({
-  driver, totalCommission, totalPaid, commissionBalance, isOverdue, todayCommission,
+  driver, totalCommission, totalPaid, commissionBalance, isOverdue, weeklyBilling, dispatchBlocked,
   payments, showPayForm, setShowPayForm, payAmount, setPayAmount, payNotes, setPayNotes,
   paying, onPay, onPayFull, onToggleBlock, blocking,
+  onBillingModeChange, savingBilling, onToggleManualDispatchBlock, togglingDispatchBlock,
 }) {
   const [paymentPeriod, setPaymentPeriod] = useState('all');
   const [paymentAnchor, setPaymentAnchor] = useState(() => toAnchorString(new Date()));
-  const isBlocked = driver?.commission_blocked || false;
+  const isManuallyBlocked = driver?.commission_blocked || false;
   const pendingFromDB = parseFloat(driver?.pending_commission || 0);
   const displayPending = pendingFromDB > 0 ? pendingFromDB : Math.max(0, commissionBalance);
   const filteredPayments = filterPaymentsByPeriod(payments, paymentPeriod, new Date(), paymentAnchor);
   const periodPaid = sumPaymentAmounts(filteredPayments);
   const weekPaid = sumPaymentAmounts(filterPaymentsByPeriod(payments, 'week', new Date(), toAnchorString(new Date())));
   const monthPaid = sumPaymentAmounts(filterPaymentsByPeriod(payments, 'month', new Date(), toAnchorString(new Date())));
+  const billingMode = normalizeBillingMode(driver?.billing_mode);
 
   const handlePaymentModeChange = (nextMode) => {
     setPaymentPeriod(nextMode);
@@ -472,35 +524,100 @@ function CommissionTab({
 
   return (
     <div className="p-5 pb-8 space-y-4">
+      {/* Billing mode */}
+      <div className="bg-light-200/50 border border-light-300/30 rounded-xl p-4 space-y-3">
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Modo de cobro</p>
+          <p className="text-[11px] text-gray-500 mt-1">
+            {weeklyBilling
+              ? 'Cobro semanal: siempre recibe viajes salvo bloqueo manual.'
+              : 'Comisiones: se bloquea solo si la deuda supera 3 días.'}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {[BILLING_MODE_COMMISSION, BILLING_MODE_WEEKLY].map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              disabled={savingBilling}
+              onClick={() => onBillingModeChange(mode)}
+              className={`flex-1 text-[11px] font-semibold py-2 px-2 rounded-lg border transition-all disabled:opacity-50 ${
+                billingMode === mode
+                  ? 'bg-accent text-white border-accent shadow-md shadow-accent/20'
+                  : 'bg-light-50 text-gray-500 border-light-300/50 hover:text-navy-900'
+              }`}
+            >
+              {BILLING_MODE_LABELS[mode]}
+            </button>
+          ))}
+        </div>
+        {(weeklyBilling || isManuallyBlocked) && (
+          <button
+            type="button"
+            onClick={onToggleManualDispatchBlock}
+            disabled={togglingDispatchBlock}
+            className={`w-full py-2.5 text-sm font-semibold rounded-xl transition-all disabled:opacity-50 ${
+              isManuallyBlocked
+                ? 'bg-online text-white hover:bg-emerald-600'
+                : 'bg-danger text-white hover:bg-red-600'
+            }`}
+          >
+            {togglingDispatchBlock
+              ? '...'
+              : isManuallyBlocked
+                ? 'Desbloquear viajes'
+                : 'Bloquear viajes (manual)'}
+          </button>
+        )}
+      </div>
+
       {/* Block status banner */}
-      {isBlocked && (
-        <div className="flex items-center justify-between bg-danger/10 border border-danger/30 rounded-xl px-4 py-3">
-          <div className="flex items-center gap-2">
+      {dispatchBlocked && (
+        <div className="flex items-center justify-between bg-danger/10 border border-danger/30 rounded-xl px-4 py-3 gap-3">
+          <div className="flex items-center gap-2 min-w-0">
             <svg className="w-4 h-4 text-danger flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-            <div>
-              <p className="text-xs font-bold text-danger">Chofer Bloqueado</p>
-              <p className="text-[10px] text-danger/70">No puede tomar viajes hasta regularizar comisión</p>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-danger">
+                {isManuallyBlocked ? 'Bloqueo manual de viajes' : 'Chofer bloqueado por comisión vencida'}
+              </p>
+              <p className="text-[10px] text-danger/70">
+                {isManuallyBlocked
+                  ? 'No recibe viajes hasta que lo desbloquees desde el panel.'
+                  : 'No puede tomar viajes hasta regularizar la comisión (más de 3 días).'}
+              </p>
             </div>
           </div>
-          <button
-            onClick={onToggleBlock}
-            disabled={blocking}
-            className="text-[10px] font-bold text-white bg-online px-3 py-1.5 rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-all"
-          >
-            {blocking ? '...' : 'Marcar Pagado'}
-          </button>
+          {isManuallyBlocked ? (
+            <button
+              onClick={onToggleManualDispatchBlock}
+              disabled={togglingDispatchBlock}
+              className="text-[10px] font-bold text-white bg-online px-3 py-1.5 rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-all shrink-0"
+            >
+              {togglingDispatchBlock ? '...' : 'Desbloquear'}
+            </button>
+          ) : (
+            <button
+              onClick={onToggleBlock}
+              disabled={blocking}
+              className="text-[10px] font-bold text-white bg-online px-3 py-1.5 rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-all shrink-0"
+            >
+              {blocking ? '...' : 'Marcar Pagado'}
+            </button>
+          )}
         </div>
       )}
 
       {/* Balance card */}
-      <div className={`rounded-xl border p-4 ${isOverdue || isBlocked ? 'bg-danger/5 border-danger/20' : commissionBalance > 0 ? 'bg-amber-50 border-amber-200' : 'bg-online/5 border-online/20'}`}>
+      <div className={`rounded-xl border p-4 ${dispatchBlocked || isOverdue ? 'bg-danger/5 border-danger/20' : commissionBalance > 0 ? 'bg-amber-50 border-amber-200' : 'bg-online/5 border-online/20'}`}>
         <div className="flex items-center justify-between mb-3">
           <span className="text-xs font-semibold text-gray-500">Balance de Comisión</span>
           <div className="flex items-center gap-1.5">
             {isOverdue && (
-              <span className="text-[10px] font-bold text-danger bg-danger/10 px-2 py-0.5 rounded-full">⚠️ VENCIDA</span>
+              <span className="text-[10px] font-bold text-danger bg-danger/10 px-2 py-0.5 rounded-full">
+                {weeklyBilling ? '⚠️ Vencida (semanal)' : '⚠️ VENCIDA'}
+              </span>
             )}
-            {!isBlocked && commissionBalance > 0 && (
+            {displayPending > 0 && (
               <button
                 onClick={onToggleBlock}
                 disabled={blocking}
@@ -512,11 +629,15 @@ function CommissionTab({
             )}
           </div>
         </div>
-        <p className={`text-2xl font-bold ${isOverdue || isBlocked ? 'text-danger' : displayPending > 0 ? 'text-amber-600' : 'text-online'}`}>
+        <p className={`text-2xl font-bold ${dispatchBlocked || isOverdue ? 'text-danger' : displayPending > 0 ? 'text-amber-600' : 'text-online'}`}>
           ${displayPending.toFixed(2)}
         </p>
         <p className="text-[10px] text-gray-500 mt-1">
-          {displayPending <= 0 ? 'Al día ✓' : `Debe $${displayPending.toFixed(2)} de comisión`}
+          {displayPending <= 0
+            ? 'Al día ✓'
+            : weeklyBilling
+              ? `Debe $${displayPending.toFixed(2)} (cobro semanal; no se auto-bloquea)`
+              : `Debe $${displayPending.toFixed(2)} de comisión`}
         </p>
       </div>
 

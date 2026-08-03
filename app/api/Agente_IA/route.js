@@ -1,4 +1,4 @@
-﻿import OpenAI, { toFile } from 'openai';
+import OpenAI, { toFile } from 'openai';
 import { createClient } from '@supabase/supabase-js';
 import { deepseekChatCompletion } from '../../../src/lib/deepseekClient';
 import { ADDRESS_NORMALIZE_SYSTEM_PROMPT } from '../../../src/lib/tripIntentSystemPrompt';
@@ -48,6 +48,7 @@ import {
 } from '../../../src/lib/scheduledTripWhatsAppMessages';
 import { triggerDispatchWorker } from '../../../src/lib/triggerDispatchWorker';
 import { isPassengerAppTrip, resolveTripPickupCoords } from '../../../shared/trip-contract.js';
+import { isDriverEligibleForDispatch } from '../../../shared/driver-billing.js';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
 import {
   reverseGeocode as nominatimReverseGeocode,
@@ -79,6 +80,25 @@ import {
   stripTrailingTripRouteTail,
   collapseEquivalentPollCandidates,
 } from '../../../src/lib/whatsappTripAddressParse.js';
+import {
+  extractWasenderLineFromContext,
+  getActiveWasenderLine,
+  getActiveWasenderLinePhone,
+  getActiveWhatsmeowAgentCode,
+  getWasenderApiKey,
+  getWasenderLinesHealth,
+  hasAnyWasenderApiKey,
+  injectWasenderLineIntoContext,
+  resolveWasenderLine,
+  resolveWhatsmeowLineByAgentCode,
+  runWithWasenderLine,
+} from '../../../src/lib/wasenderLines';
+import {
+  downloadWhatsmeowMedia,
+  sendWhatsmeowPoll,
+  sendWhatsmeowText,
+} from '../../../src/lib/whatsmeowClient';
+import { normalizeWhatsmeowWebhookBody } from '../../../src/lib/whatsmeowWebhook';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -87,8 +107,6 @@ export const runtime = 'nodejs';
 const ACCUMULATION_MS = Number(process.env.WHATSAPP_ACCUMULATION_MS || 40000);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
-const WASENDER_API_KEY = process.env.WASENDER_API_KEY || '';
-const WASENDER_BASE_URL = process.env.WASENDER_BASE_URL || 'https://www.wasenderapi.com/api';
 const PRODUCTION_APP_URL = 'https://www.profesionalviajes.com.ar';
 
 function resolvePublicAppBaseUrl(...candidates) {
@@ -1773,9 +1791,9 @@ function maskPhone(phone) {
 
 function logWebhook(stage, meta = {}) {
   try {
-    console.info('[wasender-webhook]', JSON.stringify({ stage, ...meta }));
+    console.info('[whatsapp-webhook]', JSON.stringify({ stage, ...meta }));
   } catch {
-    console.info('[wasender-webhook]', stage);
+    console.info('[whatsapp-webhook]', stage);
   }
 }
 
@@ -2024,6 +2042,18 @@ function peekWebhookPhone(body) {
       const remote = normalizePhone(payload?.data?.key?.remoteJid || '');
       if (remote.length >= 8) return remote;
       return '';
+    }
+
+    // Payload whatsmeow plano (antes o después de normalizar)
+    const rawData = payload?.data;
+    const wmMsg = Array.isArray(rawData) ? rawData[0] : rawData;
+    if (wmMsg && (wmMsg.sender_pn || wmMsg.chat_jid || wmMsg.id) && !wmMsg.key) {
+      const fromPn = normalizePhone(wmMsg.sender_pn || '');
+      if (fromPn.length >= 8) return fromPn;
+      for (const candidate of [wmMsg.chat_jid, wmMsg.from, wmMsg.to]) {
+        const digits = normalizePhone(String(candidate || '').split('@')[0]);
+        if (digits.length >= 8) return digits;
+      }
     }
 
     const rawMessage = payload?.data?.messages || payload?.data;
@@ -4071,7 +4101,7 @@ function getMissingServerConfig() {
   if (!process.env.SUPABASE_URL) missing.push('SUPABASE_URL');
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
   if (!DEEPSEEK_API_KEY) missing.push('DEEPSEEK_API_KEY');
-  if (!WASENDER_API_KEY) missing.push('WASENDER_API_KEY');
+  if (!hasAnyWasenderApiKey()) missing.push('WHATSMEOW_API_KEY');
   return missing;
 }
 
@@ -4382,48 +4412,41 @@ async function decryptAudioMessage(messageData) {
   const audioMessage = messageData?.message?.audioMessage;
   if (!audioMessage) return null;
 
-  const payload = {
-    data: {
-      messages: {
-        key: { id: messageData.key.id },
-        message: {
-          audioMessage: {
-            url: audioMessage.url,
-            mimetype: audioMessage.mimetype || 'audio/ogg',
-            mediaKey: audioMessage.mediaKey,
-            fileSha256: audioMessage.fileSha256 || undefined,
-            fileLength: audioMessage.fileLength || undefined,
-          },
-        },
-      },
-    },
-  };
-
-  const response = await fetchWithRetry(`${WASENDER_BASE_URL}/decrypt-media`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${WASENDER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`No se pudo desencriptar el audio: ${text.slice(0, 200)}`);
+  const agentCode = getActiveWhatsmeowAgentCode();
+  const messageId = messageData?.key?.id;
+  if (!agentCode || !messageId) {
+    throw new Error('No se pudo desencriptar el audio: falta agent_code o message id');
   }
 
-  const data = await response.json();
-  return data.publicUrl || null;
+  const media = await downloadWhatsmeowMedia(
+    agentCode,
+    messageId,
+    audioMessage.ptt ? 'ptt' : 'audio',
+    { apiKey: getWasenderApiKey() }
+  );
+  if (!media.ok || !media.buffer) {
+    throw new Error(`No se pudo desencriptar el audio: ${media.error || 'sin datos'}`);
+  }
+
+  // Devolver data URL temporal para Whisper (sin depender de storage público).
+  const b64 = media.buffer.toString('base64');
+  const ctype = media.contentType || 'audio/ogg';
+  return `data:${ctype};base64,${b64}`;
 }
 
 async function transcribeAudioFromUrl(audioUrl) {
-  const response = await fetchWithRetry(audioUrl, {}, { label: 'audio_download' });
-  if (!response.ok) {
-    throw new Error(`No se pudo descargar el audio: ${response.status}`);
+  let buffer;
+  if (String(audioUrl || '').startsWith('data:')) {
+    const base64 = String(audioUrl).split(',')[1] || '';
+    buffer = Buffer.from(base64, 'base64');
+  } else {
+    const response = await fetchWithRetry(audioUrl, {}, { label: 'audio_download' });
+    if (!response.ok) {
+      throw new Error(`No se pudo descargar el audio: ${response.status}`);
+    }
+    buffer = Buffer.from(await response.arrayBuffer());
   }
 
-  const buffer = Buffer.from(await response.arrayBuffer());
   if (buffer.length < 100) {
     throw new Error('Audio inválido o vacío');
   }
@@ -4493,7 +4516,62 @@ async function appendIncomingMessage({
     conversationId: result?.conversation_id || null,
     inserted: Boolean(result?.inserted),
   });
+
+  if (result?.conversation_id && getActiveWasenderLinePhone()) {
+    await stampConversationWasenderLine(result.conversation_id).catch((err) => {
+      logWebhook('stamp_wasender_line_error', {
+        conversationId: result.conversation_id,
+        error: err?.message || 'unknown_error',
+      });
+    });
+  }
+
   return result;
+}
+
+async function stampConversationWasenderLine(conversationId) {
+  const linePhone = getActiveWasenderLinePhone();
+  if (!linePhone || !conversationId) return;
+
+  const { data, error } = await getSupabase()
+    .from('whatsapp_conversations')
+    .select('context')
+    .eq('id', conversationId)
+    .maybeSingle();
+  if (error) throw error;
+
+  const current = safeJsonParse(data?.context, {});
+  if (extractWasenderLineFromContext(current) === linePhone) return;
+
+  const nextContext = injectWasenderLineIntoContext(current);
+  const { error: updateError } = await getSupabase()
+    .from('whatsapp_conversations')
+    .update({ context: nextContext, updated_at: new Date().toISOString() })
+    .eq('id', conversationId);
+  if (updateError) throw updateError;
+}
+
+async function resolveWasenderLineForPassenger(phone, tripWaContext = null) {
+  const fromTrip = extractWasenderLineFromContext(tripWaContext);
+  if (fromTrip && resolveWasenderLine(fromTrip)) return fromTrip;
+
+  const normalized = normalizePhone(phone);
+  if (!normalized) return getActiveWasenderLinePhone();
+
+  try {
+    const conversation = await getLatestConversationByPhone(normalized);
+    const fromConv = extractWasenderLineFromContext(conversation?.context);
+    if (fromConv && resolveWasenderLine(fromConv)) return fromConv;
+  } catch (_) {
+    // fallback abajo
+  }
+
+  return getActiveWasenderLinePhone();
+}
+
+async function runWithPassengerWasenderLine(phone, tripWaContext, fn) {
+  const linePhone = await resolveWasenderLineForPassenger(phone, tripWaContext);
+  return runWithWasenderLine(linePhone, fn);
 }
 
 async function insertOutgoingMessage({ phone, messageId, content, rawPayload = null }) {
@@ -4505,39 +4583,38 @@ async function insertOutgoingMessage({ phone, messageId, content, rawPayload = n
 }
 
 async function sendWhatsAppText(phone, text) {
-  const to = toWhatsAppJid(phone);
-  if (!to) {
-    throw new Error(`Número de WhatsApp inválido: ${maskPhone(phone)}`);
+  if (!getActiveWasenderLine()?.agentCode) {
+    const linePhone = await resolveWasenderLineForPassenger(phone, null);
+    const line = linePhone ? resolveWasenderLine(linePhone) : null;
+    if (line?.agentCode) {
+      return runWithWasenderLine(line, () => sendWhatsAppText(phone, text));
+    }
   }
 
-  const response = await fetchWithRetry(`${WASENDER_BASE_URL}/send-message`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${WASENDER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ to, text }),
+  const agentCode = getActiveWhatsmeowAgentCode();
+  if (!agentCode) {
+    throw new Error('WhatsApp no configurado: falta WHATSMEOW_AGENT_CODE');
+  }
+
+  const result = await sendWhatsmeowText(agentCode, phone, text, {
+    apiKey: getWasenderApiKey(),
   });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`No se pudo enviar WhatsApp: ${body.slice(0, 200)}`);
+  if (!result.success) {
+    throw new Error(`No se pudo enviar WhatsApp: ${result.error || 'error desconocido'}`);
   }
 
-  const payload = await response.json();
   await insertOutgoingMessage({
     phone,
-    messageId: String(payload?.data?.msgId || `out_${Date.now()}`),
+    messageId: String(result.messageId || `out_${Date.now()}`),
     content: text,
-    rawPayload: payload,
+    rawPayload: result.payload,
   });
-  return payload;
+  return result.payload;
 }
 
 /**
  * Resuelve un JID de WhatsApp a número de teléfono normalizado.
- * Soporta formato @s.whatsapp.net (directo) y @lid (requiere llamada API de WASender).
- * Retorna null si no se puede resolver.
+ * whatsmeow ya envía sender_pn en el webhook; aquí solo parseamos dígitos del JID.
  */
 async function resolvePhoneFromJid(jid) {
   if (!jid) return null;
@@ -4547,26 +4624,13 @@ async function resolvePhoneFromJid(jid) {
     return normalizePhone(s.replace('@s.whatsapp.net', '')) || null;
   }
 
+  // LID sin PN: no hay endpoint pn-from-lid en whatsmeow; el Go server suele enriquecer sender_pn.
   if (s.includes('@lid')) {
-    try {
-      const response = await fetchWithRetry(
-        `${WASENDER_BASE_URL}/pn-from-lid/${encodeURIComponent(s)}`,
-        {
-          method: 'GET',
-          headers: { Authorization: `Bearer ${WASENDER_API_KEY}` },
-        }
-      );
-      if (response.ok) {
-        const payload = await response.json();
-        const pn = String(payload?.data?.pn || '').replace('@s.whatsapp.net', '');
-        return normalizePhone(pn) || null;
-      }
-    } catch {
-      // ignorar errores de resolución LID
-    }
+    return null;
   }
 
-  return null;
+  const digits = normalizePhone(s);
+  return digits.length >= 8 ? digits : null;
 }
 
 function isWasenderInternalMsgId(value) {
@@ -4576,10 +4640,12 @@ function isWasenderInternalMsgId(value) {
 function extractWhatsAppKeyIdFromPayload(payload) {
   const data = payload?.data ?? payload ?? {};
   const candidates = [
+    data?.message_id,
     data?.key?.id,
     data?.messageKey?.id,
     data?.messages?.key?.id,
     data?.waMessageId,
+    data?.id,
   ];
 
   for (const candidate of candidates) {
@@ -4591,30 +4657,7 @@ function extractWhatsAppKeyIdFromPayload(payload) {
 }
 
 async function resolveOutgoingWhatsAppKeyId(payload) {
-  const direct = extractWhatsAppKeyIdFromPayload(payload);
-  if (direct) return direct;
-
-  const internalMsgId = payload?.data?.msgId;
-  if (internalMsgId == null || internalMsgId === '') return null;
-
-  try {
-    const response = await fetchWithRetry(
-      `${WASENDER_BASE_URL}/messages/${internalMsgId}/info`,
-      {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${WASENDER_API_KEY}` },
-      },
-    );
-    if (!response.ok) return null;
-    const info = await response.json();
-    return extractWhatsAppKeyIdFromPayload(info) || extractWhatsAppKeyIdFromPayload(info?.data);
-  } catch (err) {
-    logWebhook('wasender_message_info_fail', {
-      msgId: String(internalMsgId),
-      error: err?.message || 'unknown',
-    });
-    return null;
-  }
+  return extractWhatsAppKeyIdFromPayload(payload);
 }
 
 function buildStoredPollMessageIds(pollSendResult) {
@@ -4641,40 +4684,38 @@ function isAwaitingTripPriceConfirmation(ctx, pollCandidates = []) {
 }
 
 async function sendWhatsAppPoll(phone, question, options) {
-  const to = toWhatsAppJid(phone);
-  if (!to) {
-    throw new Error(`Número de WhatsApp inválido para encuesta: ${maskPhone(phone)}`);
+  if (!getActiveWasenderLine()?.agentCode) {
+    const linePhone = await resolveWasenderLineForPassenger(phone, null);
+    const line = linePhone ? resolveWasenderLine(linePhone) : null;
+    if (line?.agentCode) {
+      return runWithWasenderLine(line, () => sendWhatsAppPoll(phone, question, options));
+    }
   }
 
-  const response = await fetchWithRetry(`${WASENDER_BASE_URL}/send-message`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${WASENDER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      to,
-      poll: {
-        question,
-        options,
-        multiSelect: false,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`No se pudo enviar encuesta WhatsApp: ${body.slice(0, 200)}`);
+  const agentCode = getActiveWhatsmeowAgentCode();
+  if (!agentCode) {
+    throw new Error('WhatsApp no configurado: falta WHATSMEOW_AGENT_CODE para encuesta');
   }
 
-  const payload = await response.json();
-  const wasenderMsgId = payload?.data?.msgId != null ? String(payload.data.msgId) : null;
+  const result = await sendWhatsmeowPoll(
+    agentCode,
+    phone,
+    { name: question, options, maxSelections: 1 },
+    { apiKey: getWasenderApiKey() }
+  );
+
+  if (!result.success) {
+    throw new Error(`No se pudo enviar encuesta WhatsApp: ${result.error || 'error desconocido'}`);
+  }
+
+  const payload = result.payload;
+  const wasenderMsgId = result.messageId != null ? String(result.messageId) : null;
   const waKeyId = await resolveOutgoingWhatsAppKeyId(payload);
   const msgId = waKeyId || wasenderMsgId || `poll_${Date.now()}`;
   await insertOutgoingMessage({
     phone,
     messageId: msgId,
-    content: `[ENCUESTA] ${question}: ${options.join(' | ')}`,
+    content: `[ENCUESTA] ${question}: ${(options || []).join(' | ')}`,
     rawPayload: payload,
   });
   logWebhook('whatsapp_poll_sent', {
@@ -4682,6 +4723,7 @@ async function sendWhatsAppPoll(phone, question, options) {
     wasenderMsgId,
     waKeyId,
     msgId,
+    agentCode,
   });
   return { msgId, wasenderMsgId, waKeyId, payload };
 }
@@ -4916,7 +4958,9 @@ async function sendPassengerLifecycleFollowup({
   }
 
   try {
-    await sendWhatsAppText(normalizedPhone, text);
+    await runWithPassengerWasenderLine(normalizedPhone, null, () =>
+      sendWhatsAppText(normalizedPhone, text)
+    );
   } catch (error) {
     logWebhook('passenger_lifecycle_followup_send_error', {
       phone: maskPhone(normalizedPhone),
@@ -5406,7 +5450,11 @@ async function claimAndNotifyPassengerTripAcceptedWhatsApp(trip) {
       throw new Error('driver_not_found');
     }
     const reply = await buildPassengerDriverConfirmationMessage(trip, driver);
-    await sendWhatsAppText(trip.passenger_phone, reply);
+    await runWithPassengerWasenderLine(
+      trip.passenger_phone,
+      trip.wa_context,
+      () => sendWhatsAppText(trip.passenger_phone, reply)
+    );
     logWebhook('trip_transition_passenger_notified', {
       tripId: trip.id,
       status: trip.status || null,
@@ -5593,11 +5641,20 @@ async function geocodePollCandidate(candidate, votedLabel = '') {
 }
 
 function findPollCandidateByVote(candidates, votedName) {
+  const list = candidates || [];
   const voted = String(votedName || '').trim();
   if (!voted) return null;
+
+  // whatsmeow: button_id opt_N o body numérico 1..N
+  const optMatch = voted.match(/^opt_(\d+)$/i) || voted.match(/^(\d+)$/);
+  if (optMatch) {
+    const idx = Number(optMatch[1]) - 1;
+    if (idx >= 0 && idx < list.length) return list[idx];
+  }
+
   const normVoted = normalizeForMatch(voted);
 
-  return (candidates || []).find((c) => {
+  return list.find((c) => {
     const label = String(c?.label || '').trim();
     const formatted = String(c?.formattedAddress || '').trim();
     if (label && label === voted) return true;
@@ -5649,15 +5706,19 @@ async function findTripRowForPollResults({ voterPhone, pollMsgId, lastTripId }) 
     ];
 
     for (const [column, value] of pollIdQueries) {
-      const { data: byPollId } = await getSupabase()
-        .from('trips')
-        .select('id, wa_context')
-        .filter(column, 'eq', value)
-        .in('status', activeStatuses)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (byPollId?.id) return byPollId;
+      try {
+        const { data: byPollId } = await getSupabase()
+          .from('trips')
+          .select('id, wa_context')
+          .filter(column, 'eq', value)
+          .in('status', activeStatuses)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (byPollId?.id) return byPollId;
+      } catch (_) {
+        // Mocks / clientes sin .filter: caer a lastTripId / phone.
+      }
     }
   }
 
@@ -6462,7 +6523,7 @@ async function requestTripPriceConfirmation({
     lng: finalDestinationGeo.lng,
   });
 
-  const priceWaCtx = {
+  const priceWaCtx = injectWasenderLineIntoContext({
     price_inquiry: true,
     pending_price_confirm: true,
     poll_msg_id: pollIds.wasender_msg_id || pollIds.msg_id,
@@ -6486,7 +6547,7 @@ async function requestTripPriceConfirmation({
       commissionAmount: passengerRouteFare.commission_amount,
     },
     extracted,
-  };
+  });
 
   const tripPayload = {
     passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
@@ -6697,18 +6758,12 @@ async function chooseDriver(
   });
   const { data: driversRaw, error } = await getSupabase()
     .from('drivers')
-    .select('id, full_name, phone, push_token, current_lat, current_lng, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, is_available, pending_commission, last_commission_payment_at')
+    .select('id, full_name, phone, push_token, current_lat, current_lng, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked')
     .eq('is_available', true);
   if (error) throw error;
 
-  // Excluir conductores con comisiones impagas por más de 3 días
-  const commissionCutoffMs = Date.now() - 3 * 24 * 60 * 60 * 1000;
-  const drivers = (driversRaw || []).filter((d) => {
-    const pending = Number(d.pending_commission || 0);
-    if (pending <= 0) return true;
-    const lastPayment = d.last_commission_payment_at ? new Date(d.last_commission_payment_at).getTime() : 0;
-    return lastPayment >= commissionCutoffMs;
-  });
+  // Cobro por comisiones: gracia 3 días. Cobro semanal: solo bloqueo manual.
+  const drivers = (driversRaw || []).filter((d) => isDriverEligibleForDispatch(d));
   const suspendedByCommission = (driversRaw || []).length - drivers.length;
   if (suspendedByCommission > 0) {
     logWebhook('drivers_suspended_by_commission', { suspendedCount: suspendedByCommission });
@@ -10029,10 +10084,12 @@ async function processClaimedConversation(batch) {
     _conversationText: combinedText ? combinedText.slice(0, 500) : null,
   };
 
-  const withScheduleWaContext = (waContext, extractedCtx = nextContext) =>
-    pendingScheduleInfo
+  const withScheduleWaContext = (waContext, extractedCtx = nextContext) => {
+    const scheduled = pendingScheduleInfo
       ? enrichWaContextForSchedule(waContext, pendingScheduleInfo, extractedCtx)
       : waContext;
+    return injectWasenderLineIntoContext(scheduled);
+  };
 
   // AI-detected intent drives the guard bypass — no fragile regex needed.
   const passengerWantsToCancel = extracted.intent === 'cancel_trip';
@@ -11298,33 +11355,45 @@ async function processConversationById(conversationId) {
     return { ok: true, skipped: true };
   }
 
-  // Declarar fuera del try para poder acceder al contexto nuevo en el catch
-  let claimedResult = null;
-  try {
-    claimedResult = await processClaimedConversation(batch);
-    await finalizeConversation(conversationId, claimedResult.updates);
-    logWebhook('conversation_process_by_id_ok', {
-      conversationId,
-      skipped: false,
-      nextStatus: claimedResult?.updates?.status || null,
-    });
-    return { ok: true, skipped: false };
-  } catch (error) {
-    // Preservar el contexto nuevo (ej: pending_poll con candidatos de dirección)
-    // para que el handler de poll.results pueda encontrarlo aunque el status falle.
-    const fallbackContext = claimedResult?.updates?.context || {};
-    await finalizeConversation(conversationId, {
-      status: 'open',
-      processing_started_at: null,
-      context: fallbackContext,
-      last_processed_at: new Date().toISOString(),
-    }).catch(() => {});
-    logWebhook('conversation_process_by_id_error', {
-      conversationId,
-      error: error?.message || 'unknown_error',
-    });
-    throw error;
-  }
+  const linePhone =
+    extractWasenderLineFromContext(batch.context) || getActiveWasenderLinePhone();
+
+  return runWithWasenderLine(linePhone, async () => {
+    // Declarar fuera del try para poder acceder al contexto nuevo en el catch
+    let claimedResult = null;
+    try {
+      claimedResult = await processClaimedConversation(batch);
+      const updates = claimedResult.updates || {};
+      if (updates.context != null) {
+        updates.context = injectWasenderLineIntoContext(updates.context);
+      }
+      await finalizeConversation(conversationId, updates);
+      logWebhook('conversation_process_by_id_ok', {
+        conversationId,
+        skipped: false,
+        nextStatus: claimedResult?.updates?.status || null,
+        wasenderLine: getActiveWasenderLinePhone(),
+      });
+      return { ok: true, skipped: false };
+    } catch (error) {
+      // Preservar el contexto nuevo (ej: pending_poll con candidatos de dirección)
+      // para que el handler de poll.results pueda encontrarlo aunque el status falle.
+      const fallbackContext = injectWasenderLineIntoContext(
+        claimedResult?.updates?.context || {}
+      );
+      await finalizeConversation(conversationId, {
+        status: 'open',
+        processing_started_at: null,
+        context: fallbackContext,
+        last_processed_at: new Date().toISOString(),
+      }).catch(() => {});
+      logWebhook('conversation_process_by_id_error', {
+        conversationId,
+        error: error?.message || 'unknown_error',
+      });
+      throw error;
+    }
+  });
 }
 
 function scheduleConversationProcessing(conversationId, delayMs = ACCUMULATION_MS) {
@@ -11406,9 +11475,13 @@ async function processPendingConversations({ onlyBypassPhones = false } = {}) {
 
 async function processWebhookBody(body, requestMeta = {}) {
   try {
-    const payloadBody = body || {};
+    const payloadBody = normalizeWhatsmeowWebhookBody(body || {});
     const event = payloadBody.event;
-    logWebhook('received', { event: event || 'unknown' });
+    logWebhook('received', {
+      event: event || 'unknown',
+      rawEvent: body?.event || null,
+      agentCode: payloadBody.agent_code || body?.agent_code || null,
+    });
 
     if (event === 'trip.driver_reject') {
       const authHeader = requestMeta.authHeader || '';
@@ -11635,8 +11708,8 @@ async function processWebhookBody(body, requestMeta = {}) {
         return { status: 200, body: { success: true, ignored: true, reason: 'missing_server_env' } };
       }
 
-      const pollMsgId = String(body?.data?.key?.id || '').trim();
-      const pollResult = Array.isArray(body?.data?.pollResult) ? body.data.pollResult : [];
+      const pollMsgId = String(payloadBody?.data?.key?.id || '').trim();
+      const pollResult = Array.isArray(payloadBody?.data?.pollResult) ? payloadBody.data.pollResult : [];
 
       if (!pollMsgId) {
         logWebhook('poll_results_ignored', { reason: 'missing_poll_msg_id' });
@@ -11650,14 +11723,15 @@ async function processWebhookBody(body, requestMeta = {}) {
       }
 
       // Extraer el teléfono del votante lo antes posible.
-      // Según docs de WASender, voters[] contiene el JID del votante.
-      // Si fromMe=true, remoteJid también es el JID del pasajero.
-      // En ambos casos puede ser @s.whatsapp.net (directo) o @lid (necesita resolución).
+      // Wasender: voters[] = JID. whatsmeow normalizado: remoteJid / sender_pn.
       const voterJid =
         voted.voters[0] ||
         body?.data?.key?.remoteJid ||
+        payloadBody?.data?.key?.remoteJid ||
         '';
-      const voterPhone = await resolvePhoneFromJid(voterJid).catch(() => null);
+      const voterPhone = await resolvePhoneFromJid(voterJid).catch(() => null)
+        || normalizePhone(voterJid)
+        || null;
       logWebhook('poll_results_voter_phone', {
         voterJid,
         voterPhone: voterPhone ? maskPhone(voterPhone) : null,
@@ -11691,7 +11765,9 @@ async function processWebhookBody(body, requestMeta = {}) {
       const pendingPoll = pollTripWaCtxResults?.pending_poll || safeJsonParse(pollConv?.context, {})?.pending_poll;
       const pollCandidates = pendingPoll?.candidates || [];
       const pollExtracted = pendingPoll?.extracted || {};
-      const votedName = voted.name || '';
+      const votedName = String(
+        voted.poll_option || voted.name || voted.button_id || ''
+      ).trim();
       const isPriceConfirmVote =
         isTripPriceConfirmYesVote(votedName) || isTripPriceConfirmNoVote(votedName);
 
@@ -12469,86 +12545,143 @@ async function ensureWarm() {
   }
 }
 
-export async function POST(req) {
-  const body = await req.json();
-  const agentEnabled = await isWhatsAppAgentEnabled();
-  const peekedPhone = peekWebhookPhone(body);
-  const lifecycleEvent = isLifecycleSystemEvent(body?.event);
-  const bypassAllowlist = !agentEnabled && isAgentDisabledBypassPhone(peekedPhone);
+export async function POST(req, context = {}) {
+  const params = context?.params ? await context.params : {};
+  const lineSlug = params?.telefono || null;
+  const rawBody = await req.json();
+  const normalizedPreview = normalizeWhatsmeowWebhookBody(rawBody || {});
+  const agentFromBody = String(
+    rawBody?.agent_code || normalizedPreview?.agent_code || ''
+  ).trim();
 
-  if (!agentEnabled && !bypassAllowlist && !lifecycleEvent) {
-    logWebhook('http_post_skipped', {
-      reason: 'whatsapp_agent_disabled',
-      event: body?.event || null,
-      phone: peekedPhone ? maskPhone(peekedPhone) : null,
-    });
-    return Response.json({ success: true, disabled: true, ignored: true }, { status: 200 });
+  let line = lineSlug ? resolveWasenderLine(lineSlug) : null;
+  if (!line && agentFromBody) {
+    line = resolveWhatsmeowLineByAgentCode(agentFromBody);
+  }
+  if (!line && !lineSlug) {
+    line = null; // default dentro de runWithWasenderLine
   }
 
-  if (bypassAllowlist) {
-    logWebhook('http_post_bypass_allowlist', {
-      reason: 'whatsapp_agent_disabled_allowlist',
-      phone: maskPhone(peekedPhone),
-    });
-  } else if (!agentEnabled && lifecycleEvent) {
-    logWebhook('http_post_bypass_lifecycle', {
-      reason: 'whatsapp_agent_disabled_lifecycle',
-      event: body?.event || null,
-    });
-  }
-
-  await ensureWarm();
-  const authHeader = req.headers.get('authorization') || '';
-  const tripTransitionSecretHeader = req.headers.get('x-trip-transition-secret') || '';
-  logWebhook('http_post', {
-    vercelId: req.headers.get('x-vercel-id') || null,
-    hasEvent: Boolean(body?.event),
-    event: body?.event || null,
-    agentEnabled,
-    bypassAllowlist,
-    lifecycleEvent,
-  });
-  const result = await processWebhookBody(body, {
-    authHeader,
-    tripTransitionSecretHeader,
-    forceImmediateProcessing: bypassAllowlist,
-  });
-  logWebhook('http_post_result', { status: result.status, success: result.body?.success === true });
-  return Response.json(result.body, { status: result.status });
-}
-
-export async function GET(req) {
-  const url = new URL(req.url);
-
-  if (url.searchParams.get('health') === '1') {
-    const whatsappAgentEnabled = await isWhatsAppAgentEnabled();
+  if (lineSlug && !line) {
     return Response.json(
-      { ...getHealthPayload(), whatsappAgentEnabled },
-      { status: 200 },
+      {
+        success: false,
+        error: 'Línea WhatsApp no configurada',
+        telefono: String(lineSlug).replace(/\D/g, '') || null,
+      },
+      { status: 404 }
     );
   }
 
-  const agentEnabled = await isWhatsAppAgentEnabled();
-  if (!agentEnabled) {
-    logWebhook('http_get_allowlist_mode', { reason: 'whatsapp_agent_disabled_allowlist' });
+  return runWithWasenderLine(line, async () => {
+    const body = normalizedPreview;
+    const agentEnabled = await isWhatsAppAgentEnabled();
+    const peekedPhone = peekWebhookPhone(body);
+    const lifecycleEvent = isLifecycleSystemEvent(body?.event);
+    const bypassAllowlist = !agentEnabled && isAgentDisabledBypassPhone(peekedPhone);
+
+    if (!agentEnabled && !bypassAllowlist && !lifecycleEvent) {
+      logWebhook('http_post_skipped', {
+        reason: 'whatsapp_agent_disabled',
+        event: body?.event || null,
+        phone: peekedPhone ? maskPhone(peekedPhone) : null,
+        wasenderLine: getActiveWasenderLinePhone(),
+      });
+      return Response.json({ success: true, disabled: true, ignored: true }, { status: 200 });
+    }
+
+    if (bypassAllowlist) {
+      logWebhook('http_post_bypass_allowlist', {
+        reason: 'whatsapp_agent_disabled_allowlist',
+        phone: maskPhone(peekedPhone),
+      });
+    } else if (!agentEnabled && lifecycleEvent) {
+      logWebhook('http_post_bypass_lifecycle', {
+        reason: 'whatsapp_agent_disabled_lifecycle',
+        event: body?.event || null,
+      });
+    }
+
     await ensureWarm();
+    const authHeader = req.headers.get('authorization') || '';
+    const tripTransitionSecretHeader = req.headers.get('x-trip-transition-secret') || '';
+    logWebhook('http_post', {
+      vercelId: req.headers.get('x-vercel-id') || null,
+      hasEvent: Boolean(body?.event),
+      event: body?.event || null,
+      agentEnabled,
+      bypassAllowlist,
+      lifecycleEvent,
+      wasenderLine: getActiveWasenderLinePhone(),
+      agentCode: getActiveWhatsmeowAgentCode() || null,
+    });
+    const result = await processWebhookBody(body, {
+      authHeader,
+      tripTransitionSecretHeader,
+      forceImmediateProcessing: bypassAllowlist,
+    });
+    logWebhook('http_post_result', {
+      status: result.status,
+      success: result.body?.success === true,
+      wasenderLine: getActiveWasenderLinePhone(),
+    });
+    return Response.json(result.body, { status: result.status });
+  });
+}
+
+export async function GET(req, context = {}) {
+  const params = context?.params ? await context.params : {};
+  const lineSlug = params?.telefono || null;
+  const line = lineSlug ? resolveWasenderLine(lineSlug) : null;
+
+  if (lineSlug && !line) {
+    return Response.json(
+      {
+        success: false,
+        error: 'Línea WhatsApp no configurada',
+        telefono: String(lineSlug).replace(/\D/g, '') || null,
+      },
+      { status: 404 }
+    );
+  }
+
+  return runWithWasenderLine(line, async () => {
+    const url = new URL(req.url);
+
+    if (url.searchParams.get('health') === '1') {
+      const whatsappAgentEnabled = await isWhatsAppAgentEnabled();
+      return Response.json(
+        {
+          ...getHealthPayload(),
+          whatsappAgentEnabled,
+          wasender: getWasenderLinesHealth(),
+        },
+        { status: 200 },
+      );
+    }
+
+    const agentEnabled = await isWhatsAppAgentEnabled();
+    if (!agentEnabled) {
+      logWebhook('http_get_allowlist_mode', { reason: 'whatsapp_agent_disabled_allowlist' });
+      await ensureWarm();
+      const authHeader = req.headers.get('authorization') || '';
+      const userAgent = req.headers.get('user-agent') || '';
+      const xVercelCron = req.headers.get('x-vercel-cron') || '';
+      const result = await processPendingConversationsRequest({
+        authHeader,
+        userAgent,
+        xVercelCron,
+        onlyBypassPhones: true,
+      });
+      return Response.json(result.body, { status: result.status });
+    }
+
+    await ensureWarm();
+
     const authHeader = req.headers.get('authorization') || '';
     const userAgent = req.headers.get('user-agent') || '';
     const xVercelCron = req.headers.get('x-vercel-cron') || '';
-    const result = await processPendingConversationsRequest({
-      authHeader,
-      userAgent,
-      xVercelCron,
-      onlyBypassPhones: true,
-    });
+    const result = await processPendingConversationsRequest({ authHeader, userAgent, xVercelCron });
     return Response.json(result.body, { status: result.status });
-  }
-
-  await ensureWarm();
-
-  const authHeader = req.headers.get('authorization') || '';
-  const userAgent = req.headers.get('user-agent') || '';
-  const xVercelCron = req.headers.get('x-vercel-cron') || '';
-  const result = await processPendingConversationsRequest({ authHeader, userAgent, xVercelCron });
-  return Response.json(result.body, { status: result.status });
+  });
 }

@@ -386,7 +386,7 @@ function DriverRow({ driver, isSelected, onClick }) {
               Asignado
             </span>
           ) : null}
-          {driver.commissionOverdue && (
+          {(driver.dispatchBlocked || driver.commissionOverdue) && (
             <span className="text-[9px] font-bold text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded-md shrink-0">⚠</span>
           )}
         </div>

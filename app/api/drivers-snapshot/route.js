@@ -9,6 +9,11 @@ import { isFleetOwner } from '../../../src/lib/driverRoles';
 import {
   resolveDriverIsOnline,
 } from '../../../src/lib/driverPresence';
+import {
+  resolveCommissionOverdue as resolveCommissionOverdueFromDriver,
+  isDriverDispatchBlocked,
+  normalizeBillingMode,
+} from '../../../shared/driver-billing.js';
 
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 
@@ -28,21 +33,6 @@ function getSupabaseAdmin() {
 function toNumber(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function resolveCommissionOverdue(pendingCommission, commissionDebtSinceAt) {
-  const balance = Math.max(0, toNumber(pendingCommission, 0));
-  if (balance <= 0) return false;
-
-  // La deuda vence cuando lleva más de 3 días sin saldarse.
-  // commission_debt_since_at registra cuándo empezó la deuda actual;
-  // si es null, la deuda aún no comenzó a contar (no hay vencimiento).
-  const debtSince = commissionDebtSinceAt ? new Date(commissionDebtSinceAt) : null;
-  if (!debtSince) return false;
-
-  const threeDaysAgo = new Date();
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-  return debtSince < threeDaysAgo;
 }
 
 export async function GET() {
@@ -137,10 +127,18 @@ export async function GET() {
         pendingCommission,
         lastCommissionPaymentAt: merged.last_commission_payment_at || null,
         commissionBalance: pendingCommission,
-        commissionOverdue: resolveCommissionOverdue(
-          pendingCommission,
-          merged.commission_debt_since_at,
-        ),
+        billingMode: normalizeBillingMode(merged.billing_mode),
+        commissionBlocked: Boolean(merged.commission_blocked),
+        commissionOverdue: resolveCommissionOverdueFromDriver({
+          pending_commission: pendingCommission,
+          commission_debt_since_at: merged.commission_debt_since_at,
+        }),
+        dispatchBlocked: isDriverDispatchBlocked({
+          pending_commission: pendingCommission,
+          commission_debt_since_at: merged.commission_debt_since_at,
+          billing_mode: merged.billing_mode,
+          commission_blocked: merged.commission_blocked,
+        }),
         isAssignedDriver: assigned,
         isFleetOwner: isFleetOwner(merged),
         ownerId: merged.owner_id || null,

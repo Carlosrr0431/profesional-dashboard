@@ -8,10 +8,33 @@ import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
 import { isAssignedDriver, findOwnerPartners, getFleetListGroupKey, getDriverPhoneKey, normalizeDriverPhone, matchesDriverSearch } from '../lib/driverRoles';
 import DriverAvatar from './DriverAvatar';
+import {
+  BILLING_MODE_LABELS,
+  normalizeBillingMode,
+  isWeeklyBillingMode,
+  isDriverDispatchBlocked,
+  resolveCommissionOverdue,
+} from '../lib/driverBilling';
 
 export default function DriverManagement({ onBack }) {
   const toast = useToast();
-  const { drivers, loading, createDriver, updateDriver, getDriverTrips, getDriverCommissionPayments, recordCommissionPayment, toggleCommissionBlock, refetch, fetchAssignedDrivers, createAssignedDriver, deleteAssignedDriver, toggleAssignedDriverStatus } = useDriverManagement();
+  const {
+    drivers,
+    loading,
+    createDriver,
+    updateDriver,
+    getDriverTrips,
+    getDriverCommissionPayments,
+    recordCommissionPayment,
+    toggleCommissionBlock,
+    setManualDispatchBlock,
+    setBillingMode,
+    refetch,
+    fetchAssignedDrivers,
+    createAssignedDriver,
+    deleteAssignedDriver,
+    toggleAssignedDriverStatus,
+  } = useDriverManagement();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
@@ -23,6 +46,7 @@ export default function DriverManagement({ onBack }) {
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [mainView, setMainView] = useState('drivers');
   const [pendingPartnerSave, setPendingPartnerSave] = useState(null);
+  const [blockingDispatchId, setBlockingDispatchId] = useState(null);
 
   useEffect(() => {
     if (!detailDriver) return;
@@ -58,8 +82,9 @@ export default function DriverManagement({ onBack }) {
     const matches = drivers.filter((d) => {
       if (filter === 'active' && !d.is_available) return false;
       if (filter === 'inactive' && d.is_available) return false;
-      if (filter === 'blocked' && !d.commission_blocked) return false;
+      if (filter === 'blocked' && !isDriverDispatchBlocked(d)) return false;
       if (filter === 'owes' && !(d.pending_commission > 0)) return false;
+      if (filter === 'weekly' && !isWeeklyBillingMode(d.billing_mode)) return false;
       if (search) {
         const ownerName = isAssignedDriver(d)
           ? (ownerById[d.owner_id]?.full_name || '')
@@ -195,6 +220,25 @@ export default function DriverManagement({ onBack }) {
     }
   };
 
+  const handleToggleManualDispatchBlock = async (driver) => {
+    if (!driver?.id) return;
+    const nextBlocked = !Boolean(driver.commission_blocked);
+    setBlockingDispatchId(driver.id);
+    try {
+      await setManualDispatchBlock(driver.id, nextBlocked);
+      toast.success(
+        nextBlocked
+          ? `${driver.full_name}: bloqueado (no recibirá viajes)`
+          : `${driver.full_name}: desbloqueado (vuelve a recibir viajes)`,
+      );
+    } catch (err) {
+      console.error('Error toggling manual dispatch block:', formatError(err));
+      toast.error(err?.message || 'No se pudo actualizar el bloqueo');
+    } finally {
+      setBlockingDispatchId(null);
+    }
+  };
+
   if (loading) {
     return <DriverManagementLoading onBack={onBack} />;
   }
@@ -265,6 +309,7 @@ export default function DriverManagement({ onBack }) {
                 { key: 'all', label: 'Todos' },
                 { key: 'active', label: 'Activos' },
                 { key: 'inactive', label: 'Inactivos' },
+                { key: 'weekly', label: 'Semanal' },
                 { key: 'owes', label: 'Deben' },
                 { key: 'blocked', label: 'Bloqueados' },
               ].map((f) => (
@@ -338,6 +383,8 @@ export default function DriverManagement({ onBack }) {
                       onEdit={() => handleEdit(driver)}
                       isSelected={detailDriver?.id === driver.id}
                       onToggleBlock={() => handleMarkCommissionPaid(driver)}
+                      onToggleManualDispatchBlock={() => handleToggleManualDispatchBlock(driver)}
+                      blockingDispatch={blockingDispatchId === driver.id}
                     />
                     );
                   })}
@@ -359,6 +406,8 @@ export default function DriverManagement({ onBack }) {
           getDriverCommissionPayments={getDriverCommissionPayments}
           recordCommissionPayment={recordCommissionPayment}
           toggleCommissionBlock={toggleCommissionBlock}
+          setManualDispatchBlock={setManualDispatchBlock}
+          setBillingMode={setBillingMode}
           fetchAssignedDrivers={fetchAssignedDrivers}
           createAssignedDriver={createAssignedDriver}
           deleteAssignedDriver={deleteAssignedDriver}
@@ -608,8 +657,14 @@ function DriverTableRow({
   onEdit,
   isSelected,
   onToggleBlock,
+  onToggleManualDispatchBlock,
+  blockingDispatch = false,
 }) {
   const assigned = isAssignedDriver(driver);
+  const weekly = isWeeklyBillingMode(driver.billing_mode);
+  const dispatchBlocked = isDriverDispatchBlocked(driver);
+  const overdue = resolveCommissionOverdue(driver);
+  const billingLabel = BILLING_MODE_LABELS[normalizeBillingMode(driver.billing_mode)];
 
   return (
     <tr
@@ -625,7 +680,7 @@ function DriverTableRow({
             photoUrl={driver.photo_url}
             name={driver.full_name}
             size="sm"
-            online={!driver.commission_blocked && driver.is_available}
+            online={!dispatchBlocked && driver.is_available}
             className={`!w-10 !h-10 text-sm ${assigned ? 'bg-indigo-100 text-indigo-600' : ''}`}
           />
           <div className="min-w-0">
@@ -636,6 +691,11 @@ function DriverTableRow({
                   #{driver.driver_number}
                 </span>
               ) : null}
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                weekly ? 'text-navy-700 bg-navy-900/10' : 'text-amber-700 bg-amber-100'
+              }`}>
+                {billingLabel}
+              </span>
               {assigned ? (
                 <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded-md">
                   Asignado
@@ -692,16 +752,22 @@ function DriverTableRow({
       <td className="px-4 py-3 text-center">
         <div className="flex flex-col items-center gap-1">
           <span className={`inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full ${
-            driver.commission_blocked
+            dispatchBlocked
               ? 'bg-danger/15 text-danger'
               : driver.is_available
               ? 'bg-online/15 text-online'
               : 'bg-light-300/50 text-gray-500'
           }`}>
-            {driver.commission_blocked ? '🔒 Bloqueado' : driver.is_available ? 'Activo' : 'Inactivo'}
+            {dispatchBlocked
+              ? (driver.commission_blocked ? '🔒 Bloqueo manual' : '🔒 Comisión vencida')
+              : driver.is_available
+                ? 'Activo'
+                : 'Inactivo'}
           </span>
           {driver.pending_commission > 0 && (
-            <span className="text-[9px] font-bold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+              overdue ? 'text-danger bg-danger/10' : 'text-amber-600 bg-amber-100'
+            }`}>
               Debe ${parseFloat(driver.pending_commission).toFixed(0)}
             </span>
           )}
@@ -711,6 +777,26 @@ function DriverTableRow({
       {/* Actions */}
       <td className="px-4 py-3 text-right">
         <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+          {(weekly || driver.commission_blocked) && (
+            <button
+              onClick={() => onToggleManualDispatchBlock()}
+              disabled={blockingDispatch}
+              className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-all disabled:opacity-50 ${
+                driver.commission_blocked
+                  ? 'bg-online/10 border-online/30 text-online hover:bg-online/20'
+                  : 'bg-danger/10 border-danger/30 text-danger hover:bg-danger/20'
+              }`}
+              title={driver.commission_blocked ? 'Desbloquear viajes' : 'Bloquear viajes (manual)'}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                {driver.commission_blocked ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                )}
+              </svg>
+            </button>
+          )}
           {driver.pending_commission > 0 && (
             <button
               onClick={() => onToggleBlock()}

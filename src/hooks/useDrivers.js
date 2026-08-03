@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveDriverIsOnline } from '../lib/driverPresence';
+import {
+  resolveCommissionOverdue,
+  isDriverDispatchBlocked,
+  normalizeBillingMode,
+} from '../lib/driverBilling';
 
 const POLL_INTERVAL_MS = 2000;
 const REALTIME_REFETCH_DEBOUNCE_MS = 300;
@@ -25,6 +30,9 @@ function driversSnapshotUnchanged(prev, next) {
     if (a.fullName !== b.fullName) return false;
     if (a.commissionBalance !== b.commissionBalance) return false;
     if (a.commissionOverdue !== b.commissionOverdue) return false;
+    if (a.dispatchBlocked !== b.dispatchBlocked) return false;
+    if (a.billingMode !== b.billingMode) return false;
+    if (Boolean(a.commissionBlocked) !== Boolean(b.commissionBlocked)) return false;
     if ((a.activeTrip?.id || null) !== (b.activeTrip?.id || null)) return false;
     if ((a.activeTrip?.status || null) !== (b.activeTrip?.status || null)) return false;
     if (Boolean(a.isAssignedDriver) !== Boolean(b.isAssignedDriver)) return false;
@@ -163,6 +171,12 @@ export function useDrivers() {
             const prevDriver = prev[idx];
             const updated = [...prev];
             const pendingCommission = Math.max(0, toNumber(row.pending_commission, prevDriver.pendingCommission));
+            const billingPatch = {
+              pending_commission: pendingCommission,
+              commission_debt_since_at: row.commission_debt_since_at ?? null,
+              billing_mode: row.billing_mode ?? prevDriver.billingMode,
+              commission_blocked: row.commission_blocked ?? prevDriver.commissionBlocked,
+            };
             const hasCoords = row.current_lat != null && row.current_lng != null;
             const nextLat = hasCoords ? toNumber(row.current_lat, prevDriver.lat) : prevDriver.lat;
             const nextLng = hasCoords ? toNumber(row.current_lng, prevDriver.lng) : prevDriver.lng;
@@ -198,11 +212,10 @@ export function useDrivers() {
               pendingCommission,
               lastCommissionPaymentAt: row.last_commission_payment_at || prevDriver.lastCommissionPaymentAt,
               commissionBalance: pendingCommission,
-              commissionOverdue: pendingCommission > 0 && (
-                row.commission_debt_since_at
-                  ? new Date(row.commission_debt_since_at) < new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
-                  : false
-              ),
+              billingMode: normalizeBillingMode(billingPatch.billing_mode),
+              commissionBlocked: Boolean(billingPatch.commission_blocked),
+              commissionOverdue: resolveCommissionOverdue(billingPatch),
+              dispatchBlocked: isDriverDispatchBlocked(billingPatch),
               isAssignedDriver: Boolean(row.is_assigned_driver && row.owner_id),
               ownerId: row.owner_id || null,
             };

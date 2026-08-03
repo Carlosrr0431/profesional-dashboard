@@ -283,6 +283,15 @@ export function useDriverManagement() {
     );
   }, [fetchDrivers, patchDriver, recordCommissionPayment]);
 
+  /** Bloqueo/desbloqueo manual de viajes (commission_blocked). Usado sobre todo en cobro semanal. */
+  const setManualDispatchBlock = useCallback(async (driverId, blocked) => {
+    return updateDriver(driverId, { commission_blocked: Boolean(blocked) });
+  }, [updateDriver]);
+
+  const setBillingMode = useCallback(async (driverId, billingMode) => {
+    return updateDriver(driverId, { billing_mode: billingMode });
+  }, [updateDriver]);
+
   const parseApiError = (response, payload) => ({
     status: response.status,
     code: payload?.error?.code || null,
@@ -365,6 +374,8 @@ export function useDriverManagement() {
     getDriverCommissionAccumulation,
     recordCommissionPayment,
     toggleCommissionBlock,
+    setManualDispatchBlock,
+    setBillingMode,
     patchDriver,
     fetchAssignedDrivers,
     createAssignedDriver,

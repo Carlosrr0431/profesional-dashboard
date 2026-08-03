@@ -2,9 +2,9 @@ import { timeAgo, formatSpeed, formatPrice, getTripStatus } from '../lib/utils';
 import DriverAvatar from './DriverAvatar';
 
 function getDriverStatusInfo(driver) {
-  if (driver.commissionOverdue) {
+  if (driver.dispatchBlocked) {
     return {
-      label: 'Bloqueado',
+      label: driver.commissionBlocked ? 'Bloqueo manual' : 'Bloqueado',
       className: 'bg-amber-50 text-amber-700 ring-amber-200',
       busy: true,
     };
@@ -61,8 +61,9 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onSendAudio, on
 
   let actionLabel = 'Asignar viaje';
   if (!canAssign) {
-    if (driver.commissionOverdue) actionLabel = 'Bloqueado por comisión';
-    else if (driver.activeTrip) actionLabel = 'En viaje';
+    if (driver.dispatchBlocked) {
+      actionLabel = driver.commissionBlocked ? 'Bloqueo manual' : 'Bloqueado por comisión';
+    } else if (driver.activeTrip) actionLabel = 'En viaje';
     else actionLabel = 'Desconectado';
   }
 
@@ -238,8 +239,8 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onSendAudio, on
             title={
               canAssign
                 ? 'Asignar un viaje'
-                : driver.commissionOverdue
-                  ? 'Comisión vencida'
+                : driver.dispatchBlocked
+                  ? (driver.commissionBlocked ? 'Bloqueo manual' : 'Comisión vencida')
                   : driver.activeTrip
                     ? 'Chofer en viaje'
                     : 'Chofer desconectado'
