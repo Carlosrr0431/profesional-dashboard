@@ -1,0 +1,29 @@
+/**
+ * @deprecated Usar whatsmeowLines. Se mantiene como re-export para imports existentes.
+ */
+export {
+  listWasenderLines,
+  getDefaultWasenderLine,
+  resolveWasenderLine,
+  getActiveWasenderLine,
+  getWasenderApiKey,
+  getActiveWasenderLinePhone,
+  runWithWasenderLine,
+  injectWasenderLineIntoContext,
+  extractWasenderLineFromContext,
+  hasAnyWasenderApiKey,
+  getWasenderLinesHealth,
+  listWhatsmeowLines,
+  getDefaultWhatsmeowLine,
+  resolveWhatsmeowLine,
+  resolveWhatsmeowLineByAgentCode,
+  getActiveWhatsmeowLine,
+  getActiveWhatsmeowAgentCode,
+  getActiveWhatsmeowLinePhone,
+  getActiveWhatsmeowApiKey,
+  runWithWhatsmeowLine,
+  injectWhatsmeowLineIntoContext,
+  extractWhatsmeowLineFromContext,
+  hasAnyWhatsmeowConfig,
+  getWhatsmeowLinesHealth,
+} from './whatsmeowLines';
