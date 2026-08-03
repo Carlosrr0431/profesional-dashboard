@@ -4,6 +4,11 @@ import {
   adminUpdateDriverPassword,
   adminUpdateDriverLoginPhone,
 } from '../../../../../src/lib/driverPhoneProvision';
+import {
+  BILLING_MODE_COMMISSION,
+  BILLING_MODE_WEEKLY,
+  normalizeBillingMode,
+} from '../../../../../shared/driver-billing.js';
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -83,6 +88,31 @@ export async function PATCH(request, { params }) {
           { status: phoneResult.status || 400 },
         );
       }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(driverUpdates, 'billing_mode')) {
+      const rawMode = driverUpdates.billing_mode;
+      if (
+        rawMode != null
+        && rawMode !== BILLING_MODE_COMMISSION
+        && rawMode !== BILLING_MODE_WEEKLY
+      ) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: {
+              code: 'BAD_REQUEST',
+              message: 'billing_mode inválido. Usá commission_current o weekly_traditional',
+            },
+          },
+          { status: 400 },
+        );
+      }
+      driverUpdates.billing_mode = normalizeBillingMode(rawMode);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(driverUpdates, 'commission_blocked')) {
+      driverUpdates.commission_blocked = Boolean(driverUpdates.commission_blocked);
     }
 
     const hasProfileUpdates = Object.keys(driverUpdates).length > 0;

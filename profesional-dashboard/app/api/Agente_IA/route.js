@@ -1,4 +1,4 @@
-﻿import OpenAI, { toFile } from 'openai';
+import OpenAI, { toFile } from 'openai';
 import { createClient } from '@supabase/supabase-js';
 import { deepseekChatCompletion } from '../../../src/lib/deepseekClient';
 import { ADDRESS_NORMALIZE_SYSTEM_PROMPT } from '../../../src/lib/tripIntentSystemPrompt';
@@ -8,13 +8,16 @@ import {
   isFirebaseCredentialError,
   isLegacyExpoPushToken,
   isLikelyFcmToken,
+  buildAndroidNotificationTag,
   normalizeFcmDataPayload,
   normalizeFirebaseSendError,
 } from '../../../src/lib/firebaseAdmin';
 import { buildAddressPollPayload, formatAddressForWhatsAppPoll } from '../../../src/lib/formatPollAddressLabel';
 import {
   GUEMES_POLL_OPTION_LIMIT,
+  CATEGORY_POI_POLL_OPTION_LIMIT,
   isGuemesHomonymQuery,
+  preferExactCatalogStreetMatches,
   sortGuemesStreetCandidates,
 } from '../../../src/lib/saltaStreetHomonyms';
 import {
@@ -24,7 +27,12 @@ import {
 } from '../../../src/lib/passengerCancelIntent';
 import { buildApproachOnlyTripInsertPayload } from '../../../src/lib/approachOnlyTripPayload';
 import {
+  buildPoiAutocompleteQueries,
+  getKnownPoiPollSeeds,
   getKnownPoiSearchQueries,
+  getPoiSpecificSearchTokens,
+  isCategoryPoiSearch,
+  isSpecificNamedPoiQuery,
   looksLikeSaltaKnownPoi,
   mergeDistinctAddressCandidates,
   resolveSaltaKnownPoi,
@@ -40,6 +48,7 @@ import {
 } from '../../../src/lib/scheduledTripWhatsAppMessages';
 import { triggerDispatchWorker } from '../../../src/lib/triggerDispatchWorker';
 import { isPassengerAppTrip, resolveTripPickupCoords } from '../../../shared/trip-contract.js';
+import { isDriverEligibleForDispatch } from '../../../shared/driver-billing.js';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
 import {
   reverseGeocode as nominatimReverseGeocode,
@@ -53,12 +62,17 @@ import {
   getAutocompletePollCandidates,
   isGoogleConfigured,
 } from '../../../src/lib/geo/placesAutocompleteResolve.js';
-import { scoreCandidateAgainstQuery } from '../../../shared/salta-address.js';
+import {
+  scoreCandidateAgainstQuery,
+  isVagueLocalityAddress,
+  formatIntersectionLabelFromQuery,
+} from '../../../shared/salta-address.js';
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 import {
   buildPendingToQueuedUpdate,
   canRequeuePendingTrip,
 } from '../../../src/lib/tripRequeue';
+import { isPassengerInitiatedCancellation } from '../../../src/lib/passengerTripCancel';
 import { buildWaContextWithExcludedDriver } from '../../../src/lib/dispatchExclusions';
 import {
   extractFullTripByPattern,
@@ -66,6 +80,25 @@ import {
   stripTrailingTripRouteTail,
   collapseEquivalentPollCandidates,
 } from '../../../src/lib/whatsappTripAddressParse.js';
+import {
+  extractWasenderLineFromContext,
+  getActiveWasenderLine,
+  getActiveWasenderLinePhone,
+  getActiveWhatsmeowAgentCode,
+  getWasenderApiKey,
+  getWasenderLinesHealth,
+  hasAnyWasenderApiKey,
+  injectWasenderLineIntoContext,
+  resolveWasenderLine,
+  resolveWhatsmeowLineByAgentCode,
+  runWithWasenderLine,
+} from '../../../src/lib/wasenderLines';
+import {
+  downloadWhatsmeowMedia,
+  sendWhatsmeowPoll,
+  sendWhatsmeowText,
+} from '../../../src/lib/whatsmeowClient';
+import { normalizeWhatsmeowWebhookBody } from '../../../src/lib/whatsmeowWebhook';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -74,9 +107,23 @@ export const runtime = 'nodejs';
 const ACCUMULATION_MS = Number(process.env.WHATSAPP_ACCUMULATION_MS || 40000);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
-const WASENDER_API_KEY = process.env.WASENDER_API_KEY || '';
-const WASENDER_BASE_URL = process.env.WASENDER_BASE_URL || 'https://www.wasenderapi.com/api';
-const TRACKING_BASE_URL = process.env.TRACKING_BASE_URL || 'https://profesional-dashboard.vercel.app';
+const PRODUCTION_APP_URL = 'https://www.profesionalviajes.com.ar';
+
+function resolvePublicAppBaseUrl(...candidates) {
+  for (const raw of candidates) {
+    const value = String(raw || '').trim().replace(/\/+$/, '');
+    if (!value) continue;
+    // No usar el host legacy de Vercel para links públicos / webhooks.
+    if (/profesional-dashboard\.vercel\.app/i.test(value)) continue;
+    return value;
+  }
+  return PRODUCTION_APP_URL;
+}
+
+const TRACKING_BASE_URL = resolvePublicAppBaseUrl(
+  process.env.TRACKING_BASE_URL,
+  process.env.NEXT_PUBLIC_APP_URL,
+);
 const SUPABASE_PUBLIC_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   process.env.SUPABASE_URL ||
@@ -94,6 +141,8 @@ const ALLOWED_PHONES = new Set(
     .map((phone) => String(phone || '').replace(/\D/g, ''))
     .filter(Boolean),
 );
+/** Teléfonos que pueden usar el agente aunque `whatsapp_agent_enabled` esté apagado (testing). */
+const AGENT_DISABLED_BYPASS_PHONES = new Set(['3878630173', '3874446237']);
 const IS_SERVERLESS = Boolean(process.env.VERCEL);
 const IMMEDIATE_PROCESSING =
   (process.env.WHATSAPP_IMMEDIATE_PROCESSING || '').toLowerCase() === 'true';
@@ -120,8 +169,8 @@ const SALTA_CAPITAL_PRIORITY_RADIUS_KM = Math.max(
   Number(process.env.WHATSAPP_SALTA_CAPITAL_PRIORITY_RADIUS_KM || 18) || 18
 );
 
-const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 60 * 1000;
-const MIN_PENDING_ACCEPT_TIMEOUT_MS = 20 * 1000;
+const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 15 * 1000;
+const MIN_PENDING_ACCEPT_TIMEOUT_MS = 10 * 1000;
 const MAX_PENDING_ACCEPT_TIMEOUT_MS = 5 * 60 * 1000;
 const configuredPendingAcceptTimeoutMs = Number(
   process.env.WHATSAPP_PENDING_ACCEPT_TIMEOUT_MS || DEFAULT_PENDING_ACCEPT_TIMEOUT_MS
@@ -1742,9 +1791,9 @@ function maskPhone(phone) {
 
 function logWebhook(stage, meta = {}) {
   try {
-    console.info('[wasender-webhook]', JSON.stringify({ stage, ...meta }));
+    console.info('[whatsapp-webhook]', JSON.stringify({ stage, ...meta }));
   } catch {
-    console.info('[wasender-webhook]', stage);
+    console.info('[whatsapp-webhook]', stage);
   }
 }
 
@@ -1948,6 +1997,81 @@ function isAuthorizedPhone(phone) {
   if (ALLOWED_PHONES.size === 0) return true;
   const normalized = normalizePhone(phone);
   return [...ALLOWED_PHONES].some((allowed) => normalized === allowed || normalized.endsWith(allowed.slice(-10)));
+}
+
+/**
+ * Compara teléfonos ignorando 54/549, +, espacios y sufijos de JID.
+ * Acepta p.ej. 3878630173, 5493878630173, +54 9 387 863-0173.
+ */
+function phonesMatchFlexible(left, right) {
+  const a = normalizePhone(left);
+  const b = normalizePhone(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.endsWith(b) || b.endsWith(a)) return true;
+  const aTail = a.slice(-10);
+  const bTail = b.slice(-10);
+  return aTail.length >= 8 && aTail === bTail;
+}
+
+function isAgentDisabledBypassPhone(phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized || normalized.length < 8) return false;
+  return [...AGENT_DISABLED_BYPASS_PHONES].some((allowed) => phonesMatchFlexible(normalized, allowed));
+}
+
+/** Eventos de ciclo de vida (aceptar/rechazar) que deben pasar aunque el agente IA esté apagado. */
+function isLifecycleSystemEvent(event) {
+  return event === 'trip.transition' || event === 'trip.driver_reject' || event === 'webhook.test';
+}
+
+/** Extrae el teléfono del payload del webhook sin I/O (para el gate de agente desactivado). */
+function peekWebhookPhone(body) {
+  try {
+    const payload = body || {};
+    const event = payload.event;
+
+    if (event === 'poll.results') {
+      const voters = Array.isArray(payload?.data?.pollResult)
+        ? payload.data.pollResult.flatMap((r) => (Array.isArray(r?.voters) ? r.voters : []))
+        : [];
+      for (const voter of voters) {
+        const digits = normalizePhone(voter);
+        if (digits.length >= 8) return digits;
+      }
+      const remote = normalizePhone(payload?.data?.key?.remoteJid || '');
+      if (remote.length >= 8) return remote;
+      return '';
+    }
+
+    // Payload whatsmeow plano (antes o después de normalizar)
+    const rawData = payload?.data;
+    const wmMsg = Array.isArray(rawData) ? rawData[0] : rawData;
+    if (wmMsg && (wmMsg.sender_pn || wmMsg.chat_jid || wmMsg.id) && !wmMsg.key) {
+      const fromPn = normalizePhone(wmMsg.sender_pn || '');
+      if (fromPn.length >= 8) return fromPn;
+      for (const candidate of [wmMsg.chat_jid, wmMsg.from, wmMsg.to]) {
+        const digits = normalizePhone(String(candidate || '').split('@')[0]);
+        if (digits.length >= 8) return digits;
+      }
+    }
+
+    const rawMessage = payload?.data?.messages || payload?.data;
+    const messageData = Array.isArray(rawMessage) ? rawMessage[0] : rawMessage;
+    if (messageData?.key) {
+      return extractPhoneFromMessage(messageData) || '';
+    }
+
+    return normalizePhone(
+      payload?.data?.key?.remoteJid ||
+        payload?.phone ||
+        payload?.passenger_phone ||
+        payload?.passengerPhone ||
+        '',
+    );
+  } catch {
+    return '';
+  }
 }
 
 function isTripTransitionAuthorized({ authHeader = '', tripTransitionSecretHeader = '' } = {}, allowedSecrets = null) {
@@ -2310,11 +2434,64 @@ function isGenericStreetWithoutName(value) {
 }
 
 function isIntersectionAddress(value) {
-  const normalized = normalizeForMatch(value || '');
-  if (!normalized || !/\s+y\s+/.test(normalized)) return false;
-  const parts = normalized.split(/\s+y\s+/);
+  const raw = String(value || '');
+  // Antes de strip de puntuación: "A & B" / "A esquina B".
+  const withConnectors = normalizeText(raw)
+    .replace(/\s*(?:&+|esquina(?:\s+con)?|esq\.?|x)\s+/gi, ' y ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!withConnectors || !/\s+y\s+/.test(withConnectors)) return false;
+  const parts = withConnectors.split(/\s+y\s+/);
   if (parts.length !== 2) return false;
   return getAddressContentTokens(parts[0]).length > 0 && getAddressContentTokens(parts[1]).length > 0;
+}
+
+/** Si Place Details devolvió solo CP/ciudad, usar el label de la intersección pedida. */
+function ensurePrecisePickupLabel(formattedAddress, query) {
+  const address = String(formattedAddress || '').trim();
+  const q = String(query || '').trim();
+  if (!q) return address;
+  if (!isVagueLocalityAddress(address) && !isIntersectionAddress(q)) return address;
+
+  if (isIntersectionAddress(q)) {
+    const resultLower = address.toLowerCase();
+    const parts = normalizeText(q)
+      .replace(/\s*(?:&+|esquina(?:\s+con)?|esq\.?|x)\s+/gi, ' y ')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .split(/\s+y\s+/);
+    if (parts.length === 2) {
+      const hasStreet1 = parts[0].split(/\s+/).some((w) => w.length > 3 && resultLower.includes(w));
+      const hasStreet2 = parts[1].split(/\s+/).some((w) => w.length > 3 && resultLower.includes(w));
+      if (hasStreet1 && hasStreet2 && !isVagueLocalityAddress(address)) return address;
+    }
+    return formatIntersectionLabelFromQuery(q);
+  }
+
+  if (isVagueLocalityAddress(address)) {
+    const cleaned = sanitizeAddressInput(q)
+      .replace(/,?\s*salta(?:\s+capital)?(?:\s*,?\s*argentina)?\s*$/i, '')
+      .trim();
+    return cleaned ? `${cleaned}, Salta` : address;
+  }
+
+  return address;
+}
+
+function buildPreGeocodedPickup(geo, query) {
+  if (!geo || !Number.isFinite(Number(geo.lat)) || !Number.isFinite(Number(geo.lng))) {
+    return null;
+  }
+  return {
+    formattedAddress: ensurePrecisePickupLabel(
+      geo.formattedAddress || geo.address || '',
+      query,
+    ),
+    lat: Number(geo.lat),
+    lng: Number(geo.lng),
+  };
 }
 
 function looksLikePoiOrEstablishment(value) {
@@ -2707,25 +2884,40 @@ function getCatalogRankedStreetMatches(address, maxResults = 4) {
     }
   }
 
-  return [...candidateMap.values()]
+  const ranked = [...candidateMap.values()]
     .map(({ street, overlap }) => {
       const overlapScore = overlap / queryTokens.length;
       const fullTokenMatch = overlap >= queryTokens.length;
+      const queryNameKey = queryTokens.join(' ');
+      const streetNameKey = String(street.nameKey || '').trim();
+      const streetTokenCount = streetNameKey ? streetNameKey.split(/\s+/).filter(Boolean).length : 0;
       let score = overlapScore;
       if (/\b(?:pasaje|pje)\b/i.test(normalizedInput) && street.type === 'pasaje') score += 0.2;
       if (/\b(?:avenida|avda|av)\b/i.test(normalizedInput) && street.type === 'avenida') score += 0.2;
       if (houseNumber) score += 0.05;
       if (street.type === 'avenida' && fullTokenMatch) score += 0.10;
-      const nameTokenCount = (street.nameKey || '').split(/\s+/).length;
-      if (nameTokenCount <= 3) score += 0.05;
-      return { street, score, overlap, houseNumber };
+      if (streetTokenCount <= 3) score += 0.05;
+      // "Alvarado" debe ganar a "C Barbaran Alvarado" / "Mtro R Alvarado", etc.
+      if (queryNameKey && streetNameKey === queryNameKey) {
+        score += 0.55;
+      } else if (
+        queryTokens.length === 1
+        && streetTokenCount > 1
+        && !isGuemesHomonymQuery(streetSegment, queryTokens)
+      ) {
+        score -= 0.4;
+      }
+      return { street, score, overlap, houseNumber, exactNameMatch: streetNameKey === queryNameKey };
     })
     .filter((item) => {
       if (queryTokens.length >= 2 && item.overlap < queryTokens.length) return false;
       return item.score >= 0.6;
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, maxResults);
+    .slice(0, Math.max(maxResults * 2, maxResults));
+
+  // Si hay calle con nombre exacto (ej. Calle Alvarado), no mezclar homónimos compuestos.
+  return preferExactCatalogStreetMatches(ranked, queryTokens, streetSegment).slice(0, maxResults);
 }
 
 function getCatalogAddressVariants(address, maxResults = 4) {
@@ -3052,6 +3244,102 @@ function extractAddressSnippetsFromText(text) {
   return [...snippets].slice(0, 6);
 }
 
+function extractStreetHintAlongsidePoi(rawText, knownPoi) {
+  let text = normalizeForMatch(rawText || '');
+  if (!text || !knownPoi) return '';
+
+  // Typos frecuentes antes de sacar el POI (bernado → bernardo).
+  text = text
+    .replace(/\bbernado\b/g, 'bernardo')
+    .replace(/\bshoping\b/g, 'shopping')
+    .replace(/\bhospitak\b/g, 'hospital');
+
+  // Patrones más largos primero ("banco macro" antes que "macro") para no dejar residuos.
+  const patterns = [...(knownPoi.patterns || [])].sort(
+    (a, b) => String(b).length - String(a).length
+  );
+  for (const pattern of patterns) {
+    try {
+      text = text.replace(pattern, ' ');
+    } catch (_) {
+      // ignore invalid patterns
+    }
+  }
+
+  // Quitar también tokens del label del POI (evita "Banco Macro Macro").
+  for (const token of normalizeForMatch(knownPoi.label || '').split(/\s+/)) {
+    if (!token || token.length < 3) continue;
+    text = text.replace(new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), ' ');
+  }
+
+  // Ruido de pedido de viaje (no es calle): "mandame un móvil al hospital…"
+  text = text
+    .replace(/\b(banco|cajero|automatico|auto|autos|coche|movil|moviles|taxi|remis|chofer|mandas?|mandame|necesito|quiero|hola|pedido|viaje|ubicacion|sucursal|plaza)\b/g, ' ')
+    .replace(/\b(de|la|el|del|al|en|a|para|cerca|frente|sobre|altura|nro|numero|por|favor|me|un|una)\b/g, ' ')
+    .replace(/\b\d{1,5}[a-z]?\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const labelTokenSet = new Set(
+    normalizeForMatch(knownPoi.label || '').split(/\s+/).filter(Boolean)
+  );
+
+  const tokens = text
+    .split(' ')
+    .filter((token) => (
+      token.length >= 4
+      && !GENERIC_ADDRESS_TOKENS.has(token)
+      && !labelTokenSet.has(token)
+    ));
+
+  if (tokens.length === 0) return '';
+  return tokens
+    .slice(0, 3)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(' ');
+}
+
+/** Descarta resultados irrelevantes (ej. Cerro cuando pidieron Hospital). */
+function candidateMatchesKnownPoiQuery(candidate, knownPoi, query = '') {
+  if (!knownPoi) return true;
+  const blob = normalizeForMatch(
+    `${candidate?.title || ''} ${candidate?.subtitle || ''} ${candidate?.formattedAddress || ''}`
+  );
+  const queryNorm = normalizeForMatch(query || knownPoi.label || '');
+  if (!blob) return false;
+
+  const specificTokens = getPoiSpecificSearchTokens(query, knownPoi);
+  if (specificTokens.length >= 1) {
+    const matched = specificTokens.filter((token) => blob.includes(token)).length;
+    if (matched < specificTokens.length) return false;
+  }
+
+  if (knownPoi.id === 'hospital' || /\bhospital\b/.test(queryNorm)) {
+    if (/\bcerro\b|\btelef|\bteleferico\b/.test(blob)) return false;
+    if (specificTokens.length >= 1) {
+      return /\bhospital\b|\bsanatorio\b/.test(blob);
+    }
+    return /\bhospital\b|\bsanatorio\b|\bclinica\b|\bmaterno\b/.test(blob);
+  }
+  if (knownPoi.id === 'shopping' || /\bshopping\b|\bcentro\s+comercial\b/.test(queryNorm)) {
+    if (/\bferia\b|\bplaza\b/.test(blob) && !/\bshopping\b|\bgaleria\b|\bpaseo\b|\bportal\b|\bcentro\s+comercial\b/.test(blob)) {
+      return false;
+    }
+    return /\bshopping\b|\bgaleria\b|\bpaseo\b|\bportal\b|\bcentro\s+comercial\b|\bhiper\b/.test(blob)
+      || blob.includes(normalizeForMatch(knownPoi.label || '').split(' ')[0] || '');
+  }
+  if (knownPoi.id === 'macro') {
+    return /\bmacro\b|\bbanco\b/.test(blob);
+  }
+
+  const labelTokens = normalizeForMatch(knownPoi.label || '')
+    .split(' ')
+    .filter((token) => token.length >= 4);
+  if (labelTokens.length === 0) return true;
+  const matched = labelTokens.filter((token) => blob.includes(token)).length;
+  return matched >= Math.ceil(labelTokens.length / 2);
+}
+
 function normalizeAddressPhrase(value) {
   const input = sanitizeAddressInput(value || '');
   if (!input) return '';
@@ -3070,6 +3358,11 @@ function normalizeAddressPhrase(value) {
 
   const knownPoi = resolveSaltaKnownPoi(work);
   if (knownPoi?.geocodeQuery) {
+    // Conservar hint de calle del pasajero: "banco macro de la belgrano" → "Banco Macro Belgrano"
+    const streetHint = extractStreetHintAlongsidePoi(work, knownPoi);
+    if (streetHint) {
+      return sanitizeAddressInput(`${knownPoi.label} ${streetHint}, Salta, Argentina`);
+    }
     return sanitizeAddressInput(knownPoi.geocodeQuery);
   }
 
@@ -3808,7 +4101,7 @@ function getMissingServerConfig() {
   if (!process.env.SUPABASE_URL) missing.push('SUPABASE_URL');
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
   if (!DEEPSEEK_API_KEY) missing.push('DEEPSEEK_API_KEY');
-  if (!WASENDER_API_KEY) missing.push('WASENDER_API_KEY');
+  if (!hasAnyWasenderApiKey()) missing.push('WHATSMEOW_API_KEY');
   return missing;
 }
 
@@ -4119,48 +4412,41 @@ async function decryptAudioMessage(messageData) {
   const audioMessage = messageData?.message?.audioMessage;
   if (!audioMessage) return null;
 
-  const payload = {
-    data: {
-      messages: {
-        key: { id: messageData.key.id },
-        message: {
-          audioMessage: {
-            url: audioMessage.url,
-            mimetype: audioMessage.mimetype || 'audio/ogg',
-            mediaKey: audioMessage.mediaKey,
-            fileSha256: audioMessage.fileSha256 || undefined,
-            fileLength: audioMessage.fileLength || undefined,
-          },
-        },
-      },
-    },
-  };
-
-  const response = await fetchWithRetry(`${WASENDER_BASE_URL}/decrypt-media`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${WASENDER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`No se pudo desencriptar el audio: ${text.slice(0, 200)}`);
+  const agentCode = getActiveWhatsmeowAgentCode();
+  const messageId = messageData?.key?.id;
+  if (!agentCode || !messageId) {
+    throw new Error('No se pudo desencriptar el audio: falta agent_code o message id');
   }
 
-  const data = await response.json();
-  return data.publicUrl || null;
+  const media = await downloadWhatsmeowMedia(
+    agentCode,
+    messageId,
+    audioMessage.ptt ? 'ptt' : 'audio',
+    { apiKey: getWasenderApiKey() }
+  );
+  if (!media.ok || !media.buffer) {
+    throw new Error(`No se pudo desencriptar el audio: ${media.error || 'sin datos'}`);
+  }
+
+  // Devolver data URL temporal para Whisper (sin depender de storage público).
+  const b64 = media.buffer.toString('base64');
+  const ctype = media.contentType || 'audio/ogg';
+  return `data:${ctype};base64,${b64}`;
 }
 
 async function transcribeAudioFromUrl(audioUrl) {
-  const response = await fetchWithRetry(audioUrl, {}, { label: 'audio_download' });
-  if (!response.ok) {
-    throw new Error(`No se pudo descargar el audio: ${response.status}`);
+  let buffer;
+  if (String(audioUrl || '').startsWith('data:')) {
+    const base64 = String(audioUrl).split(',')[1] || '';
+    buffer = Buffer.from(base64, 'base64');
+  } else {
+    const response = await fetchWithRetry(audioUrl, {}, { label: 'audio_download' });
+    if (!response.ok) {
+      throw new Error(`No se pudo descargar el audio: ${response.status}`);
+    }
+    buffer = Buffer.from(await response.arrayBuffer());
   }
 
-  const buffer = Buffer.from(await response.arrayBuffer());
   if (buffer.length < 100) {
     throw new Error('Audio inválido o vacío');
   }
@@ -4230,7 +4516,62 @@ async function appendIncomingMessage({
     conversationId: result?.conversation_id || null,
     inserted: Boolean(result?.inserted),
   });
+
+  if (result?.conversation_id && getActiveWasenderLinePhone()) {
+    await stampConversationWasenderLine(result.conversation_id).catch((err) => {
+      logWebhook('stamp_wasender_line_error', {
+        conversationId: result.conversation_id,
+        error: err?.message || 'unknown_error',
+      });
+    });
+  }
+
   return result;
+}
+
+async function stampConversationWasenderLine(conversationId) {
+  const linePhone = getActiveWasenderLinePhone();
+  if (!linePhone || !conversationId) return;
+
+  const { data, error } = await getSupabase()
+    .from('whatsapp_conversations')
+    .select('context')
+    .eq('id', conversationId)
+    .maybeSingle();
+  if (error) throw error;
+
+  const current = safeJsonParse(data?.context, {});
+  if (extractWasenderLineFromContext(current) === linePhone) return;
+
+  const nextContext = injectWasenderLineIntoContext(current);
+  const { error: updateError } = await getSupabase()
+    .from('whatsapp_conversations')
+    .update({ context: nextContext, updated_at: new Date().toISOString() })
+    .eq('id', conversationId);
+  if (updateError) throw updateError;
+}
+
+async function resolveWasenderLineForPassenger(phone, tripWaContext = null) {
+  const fromTrip = extractWasenderLineFromContext(tripWaContext);
+  if (fromTrip && resolveWasenderLine(fromTrip)) return fromTrip;
+
+  const normalized = normalizePhone(phone);
+  if (!normalized) return getActiveWasenderLinePhone();
+
+  try {
+    const conversation = await getLatestConversationByPhone(normalized);
+    const fromConv = extractWasenderLineFromContext(conversation?.context);
+    if (fromConv && resolveWasenderLine(fromConv)) return fromConv;
+  } catch (_) {
+    // fallback abajo
+  }
+
+  return getActiveWasenderLinePhone();
+}
+
+async function runWithPassengerWasenderLine(phone, tripWaContext, fn) {
+  const linePhone = await resolveWasenderLineForPassenger(phone, tripWaContext);
+  return runWithWasenderLine(linePhone, fn);
 }
 
 async function insertOutgoingMessage({ phone, messageId, content, rawPayload = null }) {
@@ -4242,39 +4583,38 @@ async function insertOutgoingMessage({ phone, messageId, content, rawPayload = n
 }
 
 async function sendWhatsAppText(phone, text) {
-  const to = toWhatsAppJid(phone);
-  if (!to) {
-    throw new Error(`Número de WhatsApp inválido: ${maskPhone(phone)}`);
+  if (!getActiveWasenderLine()?.agentCode) {
+    const linePhone = await resolveWasenderLineForPassenger(phone, null);
+    const line = linePhone ? resolveWasenderLine(linePhone) : null;
+    if (line?.agentCode) {
+      return runWithWasenderLine(line, () => sendWhatsAppText(phone, text));
+    }
   }
 
-  const response = await fetchWithRetry(`${WASENDER_BASE_URL}/send-message`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${WASENDER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ to, text }),
+  const agentCode = getActiveWhatsmeowAgentCode();
+  if (!agentCode) {
+    throw new Error('WhatsApp no configurado: falta WHATSMEOW_AGENT_CODE');
+  }
+
+  const result = await sendWhatsmeowText(agentCode, phone, text, {
+    apiKey: getWasenderApiKey(),
   });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`No se pudo enviar WhatsApp: ${body.slice(0, 200)}`);
+  if (!result.success) {
+    throw new Error(`No se pudo enviar WhatsApp: ${result.error || 'error desconocido'}`);
   }
 
-  const payload = await response.json();
   await insertOutgoingMessage({
     phone,
-    messageId: String(payload?.data?.msgId || `out_${Date.now()}`),
+    messageId: String(result.messageId || `out_${Date.now()}`),
     content: text,
-    rawPayload: payload,
+    rawPayload: result.payload,
   });
-  return payload;
+  return result.payload;
 }
 
 /**
  * Resuelve un JID de WhatsApp a número de teléfono normalizado.
- * Soporta formato @s.whatsapp.net (directo) y @lid (requiere llamada API de WASender).
- * Retorna null si no se puede resolver.
+ * whatsmeow ya envía sender_pn en el webhook; aquí solo parseamos dígitos del JID.
  */
 async function resolvePhoneFromJid(jid) {
   if (!jid) return null;
@@ -4284,26 +4624,13 @@ async function resolvePhoneFromJid(jid) {
     return normalizePhone(s.replace('@s.whatsapp.net', '')) || null;
   }
 
+  // LID sin PN: no hay endpoint pn-from-lid en whatsmeow; el Go server suele enriquecer sender_pn.
   if (s.includes('@lid')) {
-    try {
-      const response = await fetchWithRetry(
-        `${WASENDER_BASE_URL}/pn-from-lid/${encodeURIComponent(s)}`,
-        {
-          method: 'GET',
-          headers: { Authorization: `Bearer ${WASENDER_API_KEY}` },
-        }
-      );
-      if (response.ok) {
-        const payload = await response.json();
-        const pn = String(payload?.data?.pn || '').replace('@s.whatsapp.net', '');
-        return normalizePhone(pn) || null;
-      }
-    } catch {
-      // ignorar errores de resolución LID
-    }
+    return null;
   }
 
-  return null;
+  const digits = normalizePhone(s);
+  return digits.length >= 8 ? digits : null;
 }
 
 function isWasenderInternalMsgId(value) {
@@ -4313,10 +4640,12 @@ function isWasenderInternalMsgId(value) {
 function extractWhatsAppKeyIdFromPayload(payload) {
   const data = payload?.data ?? payload ?? {};
   const candidates = [
+    data?.message_id,
     data?.key?.id,
     data?.messageKey?.id,
     data?.messages?.key?.id,
     data?.waMessageId,
+    data?.id,
   ];
 
   for (const candidate of candidates) {
@@ -4328,30 +4657,7 @@ function extractWhatsAppKeyIdFromPayload(payload) {
 }
 
 async function resolveOutgoingWhatsAppKeyId(payload) {
-  const direct = extractWhatsAppKeyIdFromPayload(payload);
-  if (direct) return direct;
-
-  const internalMsgId = payload?.data?.msgId;
-  if (internalMsgId == null || internalMsgId === '') return null;
-
-  try {
-    const response = await fetchWithRetry(
-      `${WASENDER_BASE_URL}/messages/${internalMsgId}/info`,
-      {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${WASENDER_API_KEY}` },
-      },
-    );
-    if (!response.ok) return null;
-    const info = await response.json();
-    return extractWhatsAppKeyIdFromPayload(info) || extractWhatsAppKeyIdFromPayload(info?.data);
-  } catch (err) {
-    logWebhook('wasender_message_info_fail', {
-      msgId: String(internalMsgId),
-      error: err?.message || 'unknown',
-    });
-    return null;
-  }
+  return extractWhatsAppKeyIdFromPayload(payload);
 }
 
 function buildStoredPollMessageIds(pollSendResult) {
@@ -4378,40 +4684,38 @@ function isAwaitingTripPriceConfirmation(ctx, pollCandidates = []) {
 }
 
 async function sendWhatsAppPoll(phone, question, options) {
-  const to = toWhatsAppJid(phone);
-  if (!to) {
-    throw new Error(`Número de WhatsApp inválido para encuesta: ${maskPhone(phone)}`);
+  if (!getActiveWasenderLine()?.agentCode) {
+    const linePhone = await resolveWasenderLineForPassenger(phone, null);
+    const line = linePhone ? resolveWasenderLine(linePhone) : null;
+    if (line?.agentCode) {
+      return runWithWasenderLine(line, () => sendWhatsAppPoll(phone, question, options));
+    }
   }
 
-  const response = await fetchWithRetry(`${WASENDER_BASE_URL}/send-message`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${WASENDER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      to,
-      poll: {
-        question,
-        options,
-        multiSelect: false,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`No se pudo enviar encuesta WhatsApp: ${body.slice(0, 200)}`);
+  const agentCode = getActiveWhatsmeowAgentCode();
+  if (!agentCode) {
+    throw new Error('WhatsApp no configurado: falta WHATSMEOW_AGENT_CODE para encuesta');
   }
 
-  const payload = await response.json();
-  const wasenderMsgId = payload?.data?.msgId != null ? String(payload.data.msgId) : null;
+  const result = await sendWhatsmeowPoll(
+    agentCode,
+    phone,
+    { name: question, options, maxSelections: 1 },
+    { apiKey: getWasenderApiKey() }
+  );
+
+  if (!result.success) {
+    throw new Error(`No se pudo enviar encuesta WhatsApp: ${result.error || 'error desconocido'}`);
+  }
+
+  const payload = result.payload;
+  const wasenderMsgId = result.messageId != null ? String(result.messageId) : null;
   const waKeyId = await resolveOutgoingWhatsAppKeyId(payload);
   const msgId = waKeyId || wasenderMsgId || `poll_${Date.now()}`;
   await insertOutgoingMessage({
     phone,
     messageId: msgId,
-    content: `[ENCUESTA] ${question}: ${options.join(' | ')}`,
+    content: `[ENCUESTA] ${question}: ${(options || []).join(' | ')}`,
     rawPayload: payload,
   });
   logWebhook('whatsapp_poll_sent', {
@@ -4419,6 +4723,7 @@ async function sendWhatsAppPoll(phone, question, options) {
     wasenderMsgId,
     waKeyId,
     msgId,
+    agentCode,
   });
   return { msgId, wasenderMsgId, waKeyId, payload };
 }
@@ -4653,7 +4958,9 @@ async function sendPassengerLifecycleFollowup({
   }
 
   try {
-    await sendWhatsAppText(normalizedPhone, text);
+    await runWithPassengerWasenderLine(normalizedPhone, null, () =>
+      sendWhatsAppText(normalizedPhone, text)
+    );
   } catch (error) {
     logWebhook('passenger_lifecycle_followup_send_error', {
       phone: maskPhone(normalizedPhone),
@@ -5026,19 +5333,43 @@ function getTripPickupPoint(trip) {
 }
 
 function shouldReassignCancelledTrip(trip) {
+  // Cancelación del pasajero: nunca recrear viaje ni mandar "encontré otro chofer".
+  if (isPassengerInitiatedCancellation(trip)) return false;
+
   const reason = normalizeReason(trip?.cancel_reason || '');
   if (!reason) return true;
 
-  const nonReassignableReasons = [
+  // Importante: match por substring (antes usaba Array.includes = igualdad exacta,
+  // y fallaba con motivos reales tipo "[PASSENGER_APP] Cancelado por el pasajero").
+  const nonReassignableMarkers = [
     'pasajero cancelo',
-    'pasajero cancelo el viaje',
     'cancelado por el pasajero',
-    'passenger_app',
+    'cancelado por pasajero',
+    'passenger app',
     'pasajero no encontrado',
     'direccion incorrecta',
   ];
+  if (nonReassignableMarkers.some((marker) => reason.includes(marker))) {
+    return false;
+  }
 
-  return !nonReassignableReasons.includes(reason);
+  // Con dispatch-worker, los timeouts de aceptación se reencolan en el mismo trip.
+  // No crear un viaje nuevo ni disparar el follow-up legacy.
+  if (
+    SUPABASE_DISPATCH_ONLY &&
+    (
+      reason.includes('auto timeout') ||
+      reason.includes('no acepto en tiempo') ||
+      reason.includes('no aceptado en tiempo') ||
+      reason.includes('sin respuesta del chofer') ||
+      reason.includes('auto reasignacion') ||
+      reason.includes('auto requeue')
+    )
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 /**
@@ -5096,6 +5427,52 @@ async function buildPassengerDriverConfirmationMessage(trip, driver) {
   return `Listo, tu viaje quedó confirmado.\n\nChofer: *${driver?.full_name || 'Sin nombre'}*${distText}${driverMeta ? `\n${driverMeta}` : ''}${etaText}\nRetiro: *${pickup.address || 'Sin dirección'}*${trackingText}`;
 }
 
+/**
+ * Claim atómico + WhatsApp de confirmación. Si falla el envío, libera wa_notified_at
+ * para que el próximo scan/cron pueda reintentar (antes se marcaba notificado sin enviar).
+ */
+async function claimAndNotifyPassengerTripAcceptedWhatsApp(trip) {
+  if (!trip?.id || !trip?.driver_id || !trip?.passenger_phone) {
+    return false;
+  }
+
+  const { data: claimed } = await getSupabase()
+    .from('trips')
+    .update({ wa_notified_at: new Date().toISOString() })
+    .eq('id', trip.id)
+    .is('wa_notified_at', null)
+    .select('id');
+  if (!claimed?.length) return false;
+
+  try {
+    const driver = await getDriverById(trip.driver_id);
+    if (!driver) {
+      throw new Error('driver_not_found');
+    }
+    const reply = await buildPassengerDriverConfirmationMessage(trip, driver);
+    await runWithPassengerWasenderLine(
+      trip.passenger_phone,
+      trip.wa_context,
+      () => sendWhatsAppText(trip.passenger_phone, reply)
+    );
+    logWebhook('trip_transition_passenger_notified', {
+      tripId: trip.id,
+      status: trip.status || null,
+    });
+    return true;
+  } catch (err) {
+    await getSupabase()
+      .from('trips')
+      .update({ wa_notified_at: null })
+      .eq('id', trip.id);
+    logWebhook('trip_transition_passenger_notify_failed', {
+      tripId: trip.id,
+      error: err?.message || 'unknown',
+    });
+    return false;
+  }
+}
+
 async function extractTripIntent({
   combinedText,
   context,
@@ -5142,13 +5519,14 @@ async function geocodeAddress(address) {
 
     const result = await geocodeAddressViaPlaces(safeAddress);
     const resultPayload = {
-      formattedAddress: result.formattedAddress,
+      formattedAddress: ensurePrecisePickupLabel(result.formattedAddress, safeAddress),
       lat: result.lat,
       lng: result.lng,
     };
     logWebhook('dashboard_geocode_ok', {
       query: safeAddress,
       formattedAddress: resultPayload.formattedAddress,
+      rawFormattedAddress: result.formattedAddress,
       lat: resultPayload.lat,
       lng: resultPayload.lng,
       geocodeSource: result.geocodeSource || 'google_place_details_essentials',
@@ -5179,7 +5557,10 @@ async function geocodePollCandidate(candidate, votedLabel = '') {
       });
       return {
         label: candidate?.label || candidate?.pollLabel || votedLabel || candidate?.title,
-        formattedAddress: details.formattedAddress || candidate?.formattedAddress,
+        formattedAddress: ensurePrecisePickupLabel(
+          details.formattedAddress || candidate?.formattedAddress,
+          votedLabel || candidate?.formattedAddress || candidate?.title,
+        ),
         lat: details.lat,
         lng: details.lng,
         placeId: details.placeId || placeId,
@@ -5208,9 +5589,44 @@ async function geocodePollCandidate(candidate, votedLabel = '') {
     seen.add(key);
     try {
       const geo = await geocodeAddress(query);
+      const expectedStreetKey = String(candidate?.street?.nameKey || '').trim();
+      if (expectedStreetKey) {
+        const resolvedKey = normalizeForMatch(geo.formattedAddress || '');
+        const expectedTokens = expectedStreetKey.split(/\s+/).filter(Boolean);
+        const missing = expectedTokens.filter((token) => token.length >= 3 && !resolvedKey.includes(token));
+        // Si el catálogo dijo "Alvarado" y Google devolvió "Ministro Alvarado",
+        // exigir que no aparezcan tokens extra de otras calles del mismo apellido.
+        if (missing.length > 0) {
+          logWebhook('poll_candidate_geocode_street_mismatch', {
+            query,
+            expectedStreetKey,
+            resolved: geo.formattedAddress,
+          });
+          continue;
+        }
+        if (
+          expectedTokens.length === 1
+          && /\b(ministro|mtro|barbaran|general|gral)\b/.test(resolvedKey)
+          && !expectedTokens.includes('ministro')
+          && !expectedTokens.includes('mtro')
+          && !expectedTokens.includes('barbaran')
+          && !expectedTokens.includes('general')
+          && !expectedTokens.includes('gral')
+        ) {
+          logWebhook('poll_candidate_geocode_homonym_rejected', {
+            query,
+            expectedStreetKey,
+            resolved: geo.formattedAddress,
+          });
+          continue;
+        }
+      }
       return {
         label: candidate?.label || votedLabel || query,
-        formattedAddress: geo.formattedAddress,
+        formattedAddress: ensurePrecisePickupLabel(
+          geo.formattedAddress,
+          votedLabel || candidate?.formattedAddress || query,
+        ),
         lat: geo.lat,
         lng: geo.lng,
       };
@@ -5225,11 +5641,20 @@ async function geocodePollCandidate(candidate, votedLabel = '') {
 }
 
 function findPollCandidateByVote(candidates, votedName) {
+  const list = candidates || [];
   const voted = String(votedName || '').trim();
   if (!voted) return null;
+
+  // whatsmeow: button_id opt_N o body numérico 1..N
+  const optMatch = voted.match(/^opt_(\d+)$/i) || voted.match(/^(\d+)$/);
+  if (optMatch) {
+    const idx = Number(optMatch[1]) - 1;
+    if (idx >= 0 && idx < list.length) return list[idx];
+  }
+
   const normVoted = normalizeForMatch(voted);
 
-  return (candidates || []).find((c) => {
+  return list.find((c) => {
     const label = String(c?.label || '').trim();
     const formatted = String(c?.formattedAddress || '').trim();
     if (label && label === voted) return true;
@@ -5281,15 +5706,19 @@ async function findTripRowForPollResults({ voterPhone, pollMsgId, lastTripId }) 
     ];
 
     for (const [column, value] of pollIdQueries) {
-      const { data: byPollId } = await getSupabase()
-        .from('trips')
-        .select('id, wa_context')
-        .filter(column, 'eq', value)
-        .in('status', activeStatuses)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (byPollId?.id) return byPollId;
+      try {
+        const { data: byPollId } = await getSupabase()
+          .from('trips')
+          .select('id, wa_context')
+          .filter(column, 'eq', value)
+          .in('status', activeStatuses)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (byPollId?.id) return byPollId;
+      } catch (_) {
+        // Mocks / clientes sin .filter: caer a lastTripId / phone.
+      }
     }
   }
 
@@ -5496,27 +5925,157 @@ async function getAddressCandidates(query, maxResults = 5) {
   return merged.slice(0, maxResults);
 }
 
+/** True si el candidato trae calle con altura (para priorizar opciones útiles en el poll). */
+function candidateHasStreetNumber(candidate) {
+  const text = `${candidate?.subtitle || ''} ${candidate?.formattedAddress || ''} ${candidate?.title || ''}`;
+  return /\b\d{1,5}[a-z]?\b/i.test(text);
+}
+
 /** Varias búsquedas para POIs (terminal, shopping…) y encuesta con opciones legibles. */
-async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = []) {
+async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], originalQuery = '') {
   if (!knownPoi) return baseCandidates || [];
 
   let merged = [...(baseCandidates || [])];
-  const queries = getKnownPoiSearchQueries(knownPoi);
+  const streetHint = extractStreetHintAlongsidePoi(originalQuery, knownPoi);
+  const categorySearch = isCategoryPoiSearch(knownPoi, streetHint, originalQuery);
+  const specificTokens = getPoiSpecificSearchTokens(originalQuery, knownPoi);
+  const maxResults = GUEMES_POLL_OPTION_LIMIT;
+  const maxQueries = categorySearch ? 5 : 3;
+  const perQueryLimit = 5;
 
-  for (const query of queries) {
-    if (merged.length >= 5) break;
-    const autocompleteHits = await autocompleteAndGeocodeAddress(query, 4).catch(() => []);
-    merged = mergeDistinctAddressCandidates(merged, autocompleteHits, { maxResults: 6 });
-    if (merged.length >= 5) break;
-    const geocodeHits = await getAddressCandidates(query, 3).catch(() => []);
-    merged = mergeDistinctAddressCandidates(merged, geocodeHits, { maxResults: 6 });
+  const seenQueries = new Set();
+  const queries = [];
+  const addQuery = (value) => {
+    const text = String(value || '').trim();
+    if (text.length < 3) return;
+    const key = normalizeForMatch(text);
+    if (!key || seenQueries.has(key)) return;
+    seenQueries.add(key);
+    queries.push(text);
+  };
+
+  // Seeds curados primero: garantizan labels útiles aunque Google mezcle basura.
+  const pollSeeds = getKnownPoiPollSeeds(knownPoi, originalQuery).slice(0, maxResults);
+  for (const seed of pollSeeds) {
+    addQuery(seed.geocodeQuery);
   }
 
-  if (merged.length > 0 && knownPoi.label) {
-    merged[0] = { ...merged[0], pollLabel: knownPoi.label };
+  // Query limpia tipo Google Maps (sin ruido de "móvil", etc.).
+  addQuery(`${knownPoi.label}, Salta, Argentina`);
+  addQuery(knownPoi.geocodeQuery);
+  if (streetHint) {
+    addQuery(`${knownPoi.label} ${streetHint}, Salta, Argentina`);
+  }
+  for (const q of getKnownPoiSearchQueries(knownPoi, originalQuery)) {
+    addQuery(q);
+  }
+  if (categorySearch) {
+    for (const q of buildPoiAutocompleteQueries(originalQuery || knownPoi.label)) {
+      addQuery(q);
+    }
   }
 
-  return merged.slice(0, 5);
+  // Resolver seeds en paralelo con título/subtítulo fijos para el poll.
+  if (pollSeeds.length > 0) {
+    const seedHits = await Promise.all(
+      pollSeeds.map(async (seed) => {
+        const hits = await autocompleteAndGeocodeAddress(seed.geocodeQuery, 1).catch(() => []);
+        const hit = hits[0];
+        if (!hit || !Number.isFinite(Number(hit.lat)) || !Number.isFinite(Number(hit.lng))) {
+          return null;
+        }
+        return {
+          ...hit,
+          title: seed.title || hit.title || knownPoi.label,
+          subtitle: seed.subtitle || hit.subtitle || null,
+          formattedAddress: hit.formattedAddress || seed.geocodeQuery,
+          score: Math.max(Number(hit.score || 0), 0.97),
+          source: 'poi_seed',
+        };
+      })
+    );
+    merged = mergeDistinctAddressCandidates(
+      seedHits.filter(Boolean),
+      merged,
+      { maxResults: maxResults + 2 },
+    );
+  }
+
+  const selectedQueries = queries.slice(0, maxQueries);
+  const autocompleteLists = await Promise.all(
+    selectedQueries.map((query) =>
+      autocompleteAndGeocodeAddress(query, perQueryLimit).catch(() => [])
+    )
+  );
+  for (const hits of autocompleteLists) {
+    merged = mergeDistinctAddressCandidates(merged, hits, { maxResults: maxResults + 2 });
+  }
+
+  const withStreet = merged.filter(candidateHasStreetNumber).length;
+  if (categorySearch && withStreet < 2) {
+    const geocodeLists = await Promise.all(
+      selectedQueries.slice(0, 3).map((query) => getAddressCandidates(query, 3).catch(() => []))
+    );
+    for (const hits of geocodeLists) {
+      merged = mergeDistinctAddressCandidates(merged, hits, { maxResults: maxResults + 2 });
+    }
+  } else if (!categorySearch && merged.length < 2) {
+    for (const query of selectedQueries) {
+      if (merged.length >= maxResults) break;
+      const geocodeHits = await getAddressCandidates(query, 3).catch(() => []);
+      merged = mergeDistinctAddressCandidates(merged, geocodeHits, { maxResults: maxResults + 2 });
+    }
+  }
+
+  merged = merged.filter((candidate) =>
+    candidateMatchesKnownPoiQuery(candidate, knownPoi, originalQuery || knownPoi.label)
+  );
+
+  if (merged.length > 0) {
+    merged = merged.map((candidate) => ({
+      ...candidate,
+      title: candidate.title || (!categorySearch ? knownPoi.label : null) || null,
+      pollLabel: null,
+    }));
+  }
+
+  const queryForScore = originalQuery || knownPoi.label;
+  const scorePoiRelevance = (candidate) => {
+    const blob = normalizeForMatch(
+      `${candidate?.title || ''} ${candidate?.subtitle || ''} ${candidate?.formattedAddress || ''}`
+    );
+    let boost = 0;
+    if (candidate?.source === 'poi_seed') boost += 0.35;
+    if (specificTokens.length) {
+      const matched = specificTokens.filter((token) => blob.includes(token)).length;
+      boost += matched / specificTokens.length;
+    }
+    if (streetHint) {
+      const hintNorm = normalizeForMatch(streetHint);
+      if (hintNorm && blob.includes(hintNorm)) boost += 0.4;
+    }
+    return boost;
+  };
+
+  merged = [...merged].sort((a, b) => {
+    const aRel = scorePoiRelevance(a);
+    const bRel = scorePoiRelevance(b);
+    if (aRel !== bRel) return bRel - aRel;
+    const aNum = candidateHasStreetNumber(a) ? 1 : 0;
+    const bNum = candidateHasStreetNumber(b) ? 1 : 0;
+    if (aNum !== bNum) return bNum - aNum;
+    const aScore = Math.max(
+      Number(a.score || 0),
+      scoreCandidateAgainstQuery(`${a.title || ''} ${a.subtitle || ''}`, queryForScore),
+    );
+    const bScore = Math.max(
+      Number(b.score || 0),
+      scoreCandidateAgainstQuery(`${b.title || ''} ${b.subtitle || ''}`, queryForScore),
+    );
+    return bScore - aScore;
+  });
+
+  return merged.slice(0, maxResults);
 }
 
 /**
@@ -5964,7 +6523,7 @@ async function requestTripPriceConfirmation({
     lng: finalDestinationGeo.lng,
   });
 
-  const priceWaCtx = {
+  const priceWaCtx = injectWasenderLineIntoContext({
     price_inquiry: true,
     pending_price_confirm: true,
     poll_msg_id: pollIds.wasender_msg_id || pollIds.msg_id,
@@ -5988,7 +6547,7 @@ async function requestTripPriceConfirmation({
       commissionAmount: passengerRouteFare.commission_amount,
     },
     extracted,
-  };
+  });
 
   const tripPayload = {
     passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
@@ -6199,18 +6758,12 @@ async function chooseDriver(
   });
   const { data: driversRaw, error } = await getSupabase()
     .from('drivers')
-    .select('id, full_name, phone, push_token, current_lat, current_lng, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, is_available, pending_commission, last_commission_payment_at')
+    .select('id, full_name, phone, push_token, current_lat, current_lng, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked')
     .eq('is_available', true);
   if (error) throw error;
 
-  // Excluir conductores con comisiones impagas por más de 3 días
-  const commissionCutoffMs = Date.now() - 3 * 24 * 60 * 60 * 1000;
-  const drivers = (driversRaw || []).filter((d) => {
-    const pending = Number(d.pending_commission || 0);
-    if (pending <= 0) return true;
-    const lastPayment = d.last_commission_payment_at ? new Date(d.last_commission_payment_at).getTime() : 0;
-    return lastPayment >= commissionCutoffMs;
-  });
+  // Cobro por comisiones: gracia 3 días. Cobro semanal: solo bloqueo manual.
+  const drivers = (driversRaw || []).filter((d) => isDriverEligibleForDispatch(d));
   const suspendedByCommission = (driversRaw || []).length - drivers.length;
   if (suspendedByCommission > 0) {
     logWebhook('drivers_suspended_by_commission', { suspendedCount: suspendedByCommission });
@@ -6556,6 +7109,7 @@ async function sendPushNotification(pushToken, payload) {
   });
 
   try {
+    const collapseTag = buildAndroidNotificationTag(payload?.data);
     const messageId = await getFirebaseMessagingClient().send({
       token,
       notification: {
@@ -6568,6 +7122,7 @@ async function sendPushNotification(pushToken, payload) {
         notification: {
           channelId: 'trips',
           sound: 'default',
+          ...(collapseTag ? { tag: collapseTag } : {}),
         },
       },
     });
@@ -7108,6 +7663,16 @@ async function maybeSendDestinationAddressPoll({
       ? catalogDestPoll
       : googleDestPoll;
 
+  // Match exacto de catálogo (ej. "Alvarado" → solo Calle Alvarado): no abrir poll
+  // con Barbarán/Gral/Mtro Alvarado ni con sugerencias Google ambiguas.
+  if (!destIsGuemesHomonym && catalogDestPoll.length === 1) {
+    logWebhook('destination_address_poll_skipped_exact_catalog', {
+      hint: finalDestinationHint,
+      catalogAddress: catalogDestPoll[0]?.formattedAddress || null,
+    });
+    return null;
+  }
+
   const destPollCandidates = collapseEquivalentPollCandidates(
     filterSaltaCapitalCandidates(rawDestPollCandidates),
   );
@@ -7278,12 +7843,31 @@ async function createTripFromConversation({ conversation, extracted }) {
 
   let pickupLocation;
   if (extracted._preGeocodedPickup?.lat && extracted._preGeocodedPickup?.lng) {
-    pickupLocation = {
-      formattedAddress: extracted._preGeocodedPickup.formattedAddress,
-      lat: extracted._preGeocodedPickup.lat,
-      lng: extracted._preGeocodedPickup.lng,
-    };
-    logWebhook('trip_create_pickup_pre_geocoded', { formattedAddress: pickupLocation.formattedAddress });
+    const preQuery = normalizedPickupQuery || pickupQuery || '';
+    pickupLocation = buildPreGeocodedPickup(extracted._preGeocodedPickup, preQuery);
+    if (!pickupLocation || isVagueLocalityAddress(pickupLocation.formattedAddress)) {
+      logWebhook('trip_create_pickup_pre_geocoded_vague', {
+        conversationId: conversation?.id || null,
+        query: preQuery,
+        rawFormattedAddress: extracted._preGeocodedPickup.formattedAddress,
+      });
+      return {
+        ok: false,
+        reason: 'invalid_address',
+        reply:
+          'No pude ubicar con precisión el punto de retiro. Mandame *calle y número exacto* (por ejemplo "Mitre 1234") o compartime tu *ubicación actual* desde WhatsApp.',
+        context: {
+          passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
+          pickup_location: preQuery || null,
+          notes: extracted.notes || null,
+          awaiting_gps: true,
+        },
+      };
+    }
+    logWebhook('trip_create_pickup_pre_geocoded', {
+      formattedAddress: pickupLocation.formattedAddress,
+      rawFormattedAddress: extracted._preGeocodedPickup.formattedAddress,
+    });
   } else {
   // Arrancar normalización por IA en paralelo con el primer geocoding para no agregar latencia.
   const conversationText = extracted?._conversationText || '';
@@ -7291,6 +7875,13 @@ async function createTripFromConversation({ conversation, extracted }) {
 
   try {
     pickupLocation = await geocodeAddress(normalizedPickupQuery || pickupQuery);
+    pickupLocation = {
+      ...pickupLocation,
+      formattedAddress: ensurePrecisePickupLabel(
+        pickupLocation.formattedAddress,
+        normalizedPickupQuery || pickupQuery,
+      ),
+    };
 
     // Validar intersecciones: si el pasajero pidió "Calle1 y Calle2" pero el resultado
     // no contiene ninguna de las dos calles, la intersección no existe → pedir GPS.
@@ -8301,13 +8892,50 @@ async function requeueTimedOutPendingTripsSupabaseDispatchOnly() {
   for (const tripRow of tripsToRequeue || []) {
     if (!canRequeuePendingTrip(tripRow)) continue;
 
+    const currentAttempts = Number(tripRow.dispatch_attempts || 0);
+    const newAttempts = currentAttempts + 1;
+    const delaySec = Math.min(180, 30 * Math.pow(1.5, newAttempts));
+    const nextDispatchAt = new Date(Date.now() + delaySec * 1000).toISOString();
+    const excludedDriverId = String(tripRow.driver_id || '').trim() || null;
+    const updatedWaContext = excludedDriverId
+      ? buildWaContextWithExcludedDriver(tripRow.wa_context, excludedDriverId, 'pending_accept_timeout')
+      : safeJsonParse(tripRow.wa_context, {});
+
     const { error: requeueError } = await getSupabase()
       .from('trips')
-      .update(buildPendingToQueuedUpdate(tripRow))
+      .update(buildPendingToQueuedUpdate(tripRow, {
+        dispatch_attempts: newAttempts,
+        next_dispatch_at: nextDispatchAt,
+        wa_context: updatedWaContext,
+        cancel_reason: excludedDriverId
+          ? `[AUTO_REQUEUE] Sin respuesta del chofer ${excludedDriverId.slice(0, 8)}`
+          : '[AUTO_REQUEUE] Sin respuesta del chofer',
+      }))
       .eq('id', tripRow.id)
       .eq('status', 'pending');
 
-    if (!requeueError) expired += 1;
+    if (requeueError) continue;
+
+    // El trigger sync pone next_attempt_at/next_dispatch_at = NOW(); restaurar backoff.
+    await getSupabase()
+      .from('dispatch_queue')
+      .update({
+        next_attempt_at: nextDispatchAt,
+        queue_status: 'queued',
+        lock_token: null,
+        lock_owner: null,
+        lock_acquired_at: null,
+        lock_expires_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('trip_id', tripRow.id);
+    await getSupabase()
+      .from('trips')
+      .update({ next_dispatch_at: nextDispatchAt })
+      .eq('id', tripRow.id)
+      .eq('status', 'queued');
+
+    expired += 1;
   }
   logWebhook('expire_pending_db_first_done', {
     expired,
@@ -8376,21 +9004,9 @@ async function processTripLifecycleTransitions() {
         continue;
       }
 
-      // Claim atómico: solo uno de webhook/cron notifica al pasajero WhatsApp
-      const { data: claimed } = await getSupabase()
-        .from('trips')
-        .update({ wa_notified_at: new Date().toISOString() })
-        .eq('id', tripRow.id)
-        .is('wa_notified_at', null)
-        .select('id');
-      if (!claimed?.length) continue;
-
-      const driver = await getDriverById(trip.driver_id);
-      if (!driver) continue;
-      const reply = await buildPassengerDriverConfirmationMessage(trip, driver);
-      await sendWhatsAppText(trip.passenger_phone, reply).catch(() => {});
-      confirmed++;
-      logWebhook('trip_transition_passenger_notified', { tripId: trip.id, status: trip.status });
+      // Claim atómico + envío; si falla, libera wa_notified_at para reintentar
+      const notified = await claimAndNotifyPassengerTripAcceptedWhatsApp(trip);
+      if (notified) confirmed++;
     }
   }
 
@@ -8416,7 +9032,14 @@ async function processTripLifecycleTransitions() {
         .select('id');
       if (!claimed?.length) continue;
 
-      if (!shouldReassignCancelledTrip(trip)) continue;
+      if (!shouldReassignCancelledTrip(trip)) {
+        logWebhook('trip_transition_skip_no_reassign', {
+          tripId: trip.id,
+          cancelReason: trip.cancel_reason || null,
+          passengerCancel: isPassengerInitiatedCancellation(trip),
+        });
+        continue;
+      }
 
       // Verificar que no haya otro viaje abierto para este pasajero
       const existingTrip = await getLatestOpenTripByPhone(trip.passenger_phone);
@@ -8612,24 +9235,10 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
 
   // Notificar pasajero WhatsApp cuando chofer acepta
   if (ACTIVE_TRIP_STATUSES.includes(tripStatus) && !trip.wa_notified_at) {
-    const { data: claimed } = await getSupabase()
-      .from('trips')
-      .update({ wa_notified_at: new Date().toISOString() })
-      .eq('id', trip.id)
-      .is('wa_notified_at', null)
-      .select('id');
-
-    if (claimed?.length && trip.driver_id) {
-      const driver = await getDriverById(trip.driver_id);
-      if (driver) {
-        const reply = await buildPassengerDriverConfirmationMessage(trip, driver);
-        await sendWhatsAppText(trip.passenger_phone, reply).catch(() => {});
-        logWebhook('trip_transition_passenger_notified', { tripId, status: tripStatus });
-      }
-    }
+    const notified = await claimAndNotifyPassengerTripAcceptedWhatsApp(trip);
     const queueResult = await dispatchQueuedPassengers();
-    logWebhook('trip_transition_trip_scan_done', { tripId, confirmed: claimed?.length ? 1 : 0 });
-    return { confirmed: claimed?.length ? 1 : 0, reassigned: 0, queued: queueResult.dispatched };
+    logWebhook('trip_transition_trip_scan_done', { tripId, confirmed: notified ? 1 : 0 });
+    return { confirmed: notified ? 1 : 0, reassigned: 0, queued: queueResult.dispatched };
   }
 
   // Reasignar si el chofer canceló
@@ -8647,7 +9256,12 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
     }
 
     if (!shouldReassignCancelledTrip(trip)) {
-      logWebhook('trip_transition_trip_scan_done', { tripId, reason: 'no_reassign' });
+      logWebhook('trip_transition_trip_scan_done', {
+        tripId,
+        reason: 'no_reassign',
+        cancelReason: trip.cancel_reason || null,
+        passengerCancel: isPassengerInitiatedCancellation(trip),
+      });
       const queueResult = await dispatchQueuedPassengers();
       return { confirmed: 0, reassigned: 0, queued: queueResult.dispatched };
     }
@@ -9470,10 +10084,12 @@ async function processClaimedConversation(batch) {
     _conversationText: combinedText ? combinedText.slice(0, 500) : null,
   };
 
-  const withScheduleWaContext = (waContext, extractedCtx = nextContext) =>
-    pendingScheduleInfo
+  const withScheduleWaContext = (waContext, extractedCtx = nextContext) => {
+    const scheduled = pendingScheduleInfo
       ? enrichWaContextForSchedule(waContext, pendingScheduleInfo, extractedCtx)
       : waContext;
+    return injectWasenderLineIntoContext(scheduled);
+  };
 
   // AI-detected intent drives the guard bypass — no fragile regex needed.
   const passengerWantsToCancel = extracted.intent === 'cancel_trip';
@@ -10217,7 +10833,10 @@ async function processClaimedConversation(batch) {
     resolveSaltaKnownPoi(normalizedPickupForGeo);
 
   const [googlePollCandidates, catalogStreetPollCandidates, addressCandidatesResult] = await Promise.all([
-    getAutocompletePollCandidates(normalizedPickupForGeo, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
+    getAutocompletePollCandidates(
+      normalizedPickupForGeo,
+      knownPoiMatch ? CATEGORY_POI_POLL_OPTION_LIMIT : GUEMES_POLL_OPTION_LIMIT,
+    ).catch(() => []),
     buildCatalogAmbiguityPollCandidates(normalizedPickupForGeo, 4)
       .then((items) => items.filter(isSaltaCapitalCandidate))
       .catch(() => []),
@@ -10227,42 +10846,50 @@ async function processClaimedConversation(batch) {
   const pickupQueryTokens = getAddressContentTokens(normalizeForMatch(normalizedPickupForGeo || ''));
   const pickupIsGuemesHomonym = isGuemesHomonymQuery(normalizedPickupForGeo, pickupQueryTokens);
 
+  const pickupIsExactIntersection = isIntersectionAddress(normalizedPickupForGeo);
   if (
     !tripExtracted._preGeocodedPickup?.lat
     && !knownPoiMatch
     && !pickupIsGuemesHomonym
-    && isSpecificStreetAddress(normalizedPickupForGeo)
+    && (isSpecificStreetAddress(normalizedPickupForGeo) || pickupIsExactIntersection)
     && !pendingScheduleInfo
   ) {
     try {
       const directGeo = await geocodeAddress(normalizedPickupForGeo);
-      tripExtracted._preGeocodedPickup = {
-        formattedAddress: directGeo.formattedAddress,
-        lat: directGeo.lat,
-        lng: directGeo.lng,
-      };
+      tripExtracted._preGeocodedPickup = buildPreGeocodedPickup(
+        directGeo,
+        normalizedPickupForGeo,
+      );
       logWebhook('conversation_pickup_direct_geocode_ok', {
         conversationId: batch?.id || null,
         pickup: normalizedPickupForGeo,
-        formattedAddress: directGeo.formattedAddress,
+        formattedAddress: tripExtracted._preGeocodedPickup.formattedAddress,
+        rawFormattedAddress: directGeo.formattedAddress,
+        reason: pickupIsExactIntersection ? 'intersection' : 'street_number',
       });
     } catch (err) {
       logWebhook('conversation_pickup_direct_geocode_fail', {
         conversationId: batch?.id || null,
         pickup: normalizedPickupForGeo,
         error: err?.message || 'unknown',
+        reason: pickupIsExactIntersection ? 'intersection' : 'street_number',
       });
     }
   }
 
   let addressCandidates = addressCandidatesResult;
   if (knownPoiMatch) {
-    addressCandidates = await enrichCandidatesForKnownPoi(knownPoiMatch, addressCandidates);
+    addressCandidates = await enrichCandidatesForKnownPoi(
+      knownPoiMatch,
+      addressCandidates,
+      tripExtracted?._conversationText || nextContext.pickup_location || normalizedPickupForGeo || '',
+    );
     logWebhook('conversation_poi_candidates_enriched', {
       conversationId: batch?.id || null,
       poiId: knownPoiMatch.id,
       poiLabel: knownPoiMatch.label,
       candidateCount: addressCandidates.length,
+      pickupQuery: normalizedPickupForGeo,
     });
   }
 
@@ -10277,10 +10904,99 @@ async function processClaimedConversation(batch) {
   );
 
   const saltaCapitalCandidates = filterSaltaCapitalCandidates(distinctCandidates);
+  const poiCandidatesWithCoords = distinctCandidates.filter(
+    (c) => Number.isFinite(Number(c?.lat)) && Number.isFinite(Number(c?.lng))
+  );
 
-  // Poll: misma fuente que NewTripModal (Google Autocomplete sin pre-geocodificar).
+  // Poll: misma fuente que NewTripModal / Google Maps (Autocomplete).
+  // Para POIs: priorizar sugerencias de Autocomplete y enriquecer con geocode relevante.
   let addressPollCandidates = filterSaltaCapitalCandidates(googlePollCandidates);
-  if (addressPollCandidates.length < 2 && catalogStreetPollCandidates.length >= 2) {
+  const poiPollSource = saltaCapitalCandidates.length >= 1
+    ? saltaCapitalCandidates
+    : poiCandidatesWithCoords;
+  if (knownPoiMatch) {
+    const poiStreetHint = extractStreetHintAlongsidePoi(
+      tripExtracted?._conversationText || nextContext.pickup_location || normalizedPickupForGeo || '',
+      knownPoiMatch,
+    );
+    const queryForMatch =
+      tripExtracted?._conversationText || nextContext.pickup_location || normalizedPickupForGeo || knownPoiMatch.label;
+    const categorySearch = isCategoryPoiSearch(knownPoiMatch, poiStreetHint, queryForMatch);
+
+    const googleRelevant = filterSaltaCapitalCandidates(googlePollCandidates)
+      .filter((candidate) => candidateMatchesKnownPoiQuery(candidate, knownPoiMatch, queryForMatch));
+    const enrichedRelevant = (poiPollSource || [])
+      .filter((candidate) => candidateMatchesKnownPoiQuery(candidate, knownPoiMatch, queryForMatch));
+
+    // Como Google Maps: Autocomplete primero; geocode solo suma opciones distintas.
+    // Seeds curados (source=poi_seed) ganan prioridad sobre basura de Google.
+    let mergedPoiPoll = mergeDistinctAddressCandidates(
+      enrichedRelevant.filter((c) => c?.source === 'poi_seed'),
+      mergeDistinctAddressCandidates(googleRelevant, enrichedRelevant, {
+        maxResults: GUEMES_POLL_OPTION_LIMIT + 2,
+      }),
+      { maxResults: GUEMES_POLL_OPTION_LIMIT },
+    );
+    if (mergedPoiPoll.length < 2 && enrichedRelevant.length >= 1) {
+      mergedPoiPoll = mergeDistinctAddressCandidates(
+        enrichedRelevant,
+        googleRelevant,
+        { maxResults: GUEMES_POLL_OPTION_LIMIT },
+      );
+    }
+
+    const specificTokens = getPoiSpecificSearchTokens(queryForMatch, knownPoiMatch);
+    mergedPoiPoll = [...mergedPoiPoll].sort((a, b) => {
+      const scoreBoost = (candidate) => {
+        const blob = normalizeForMatch(
+          `${candidate?.title || ''} ${candidate?.subtitle || ''} ${candidate?.formattedAddress || ''}`
+        );
+        let boost = candidate?.source === 'poi_seed' ? 0.35 : 0;
+        if (specificTokens.length) {
+          boost += specificTokens.filter((token) => blob.includes(token)).length / specificTokens.length;
+        }
+        if (poiStreetHint) {
+          const hintNorm = normalizeForMatch(poiStreetHint);
+          if (hintNorm && blob.includes(hintNorm)) boost += 0.4;
+        }
+        return boost;
+      };
+      const aRel = scoreBoost(a);
+      const bRel = scoreBoost(b);
+      if (aRel !== bRel) return bRel - aRel;
+      const aNum = candidateHasStreetNumber(a) ? 1 : 0;
+      const bNum = candidateHasStreetNumber(b) ? 1 : 0;
+      if (aNum !== bNum) return bNum - aNum;
+      const aScore = Math.max(
+        Number(a.score || 0),
+        scoreCandidateAgainstQuery(`${a.title || ''} ${a.subtitle || ''}`, queryForMatch),
+      );
+      const bScore = Math.max(
+        Number(b.score || 0),
+        scoreCandidateAgainstQuery(`${b.title || ''} ${b.subtitle || ''}`, queryForMatch),
+      );
+      return bScore - aScore;
+    }).slice(0, GUEMES_POLL_OPTION_LIMIT);
+
+    addressPollCandidates = mergedPoiPoll.map((candidate) => ({
+      ...candidate,
+      title: candidate.title || (categorySearch ? null : knownPoiMatch.label) || null,
+      subtitle: candidate.subtitle || null,
+      pollLabel: null,
+      source: candidate.source || 'poi_geocode',
+    }));
+    logWebhook('conversation_poi_geocode_poll', {
+      conversationId: batch?.id || null,
+      pickup: normalizedPickupForGeo,
+      poiId: knownPoiMatch.id,
+      optionCount: addressPollCandidates.length,
+      googleRelevantCount: googleRelevant.length,
+      enrichedRelevantCount: enrichedRelevant.length,
+      categorySearch,
+      streetHint: poiStreetHint || null,
+      usedCapitalFilter: saltaCapitalCandidates.length >= 1,
+    });
+  } else if (addressPollCandidates.length < 2 && catalogStreetPollCandidates.length >= 2) {
     addressPollCandidates = catalogStreetPollCandidates;
     logWebhook('conversation_catalog_street_poll_fallback', {
       conversationId: batch?.id || null,
@@ -10320,11 +11036,10 @@ async function processClaimedConversation(batch) {
   ) {
     try {
       const directGeo = await geocodeAddress(normalizedPickupForGeo);
-      tripExtracted._preGeocodedPickup = {
-        formattedAddress: directGeo.formattedAddress,
-        lat: directGeo.lat,
-        lng: directGeo.lng,
-      };
+      tripExtracted._preGeocodedPickup = buildPreGeocodedPickup(
+        directGeo,
+        normalizedPickupForGeo,
+      );
       logWebhook('conversation_schedule_pre_geocode_ok', {
         conversationId: batch?.id || null,
         pickup: normalizedPickupForGeo,
@@ -10342,11 +11057,10 @@ async function processClaimedConversation(batch) {
   if (addressPollCandidates.length === 1 && !knownPoiMatch) {
     const onlyCandidate = addressPollCandidates[0];
     if (Number.isFinite(onlyCandidate?.lat) && Number.isFinite(onlyCandidate?.lng)) {
-    tripExtracted._preGeocodedPickup = {
-      formattedAddress: onlyCandidate.formattedAddress,
-      lat: onlyCandidate.lat,
-      lng: onlyCandidate.lng,
-    };
+    tripExtracted._preGeocodedPickup = buildPreGeocodedPickup(
+      onlyCandidate,
+      normalizedPickupForGeo,
+    );
     logWebhook('conversation_address_auto_resolved_salta_capital', {
       conversationId: batch?.id || null,
       formattedAddress: tripExtracted._preGeocodedPickup.formattedAddress,
@@ -10356,15 +11070,14 @@ async function processClaimedConversation(batch) {
       try {
         const geocoded = await geocodePollCandidate(onlyCandidate);
         if (geocoded?.lat && geocoded?.lng) {
-          tripExtracted._preGeocodedPickup = {
-            formattedAddress: geocoded.formattedAddress,
-            lat: geocoded.lat,
-            lng: geocoded.lng,
-          };
+          tripExtracted._preGeocodedPickup = buildPreGeocodedPickup(
+            geocoded,
+            normalizedPickupForGeo || onlyCandidate.formattedAddress,
+          );
           logWebhook('conversation_address_auto_resolved_via_place_id', {
             conversationId: batch?.id || null,
             placeId: onlyCandidate.placeId,
-            formattedAddress: geocoded.formattedAddress,
+            formattedAddress: tripExtracted._preGeocodedPickup.formattedAddress,
           });
         }
       } catch {
@@ -10376,12 +11089,22 @@ async function processClaimedConversation(batch) {
     && (shouldSendAddressPoll || shouldSendPoiConfirmPoll)
   ) {
     const orderedPollCandidates = [...addressPollCandidates].sort((a, b) => {
+      const aNum = candidateHasStreetNumber(a) ? 1 : 0;
+      const bNum = candidateHasStreetNumber(b) ? 1 : 0;
+      if (aNum !== bNum) return bNum - aNum;
       const scoreDiff = Number(b?.score || 0) - Number(a?.score || 0);
       if (scoreDiff !== 0) return scoreDiff;
       return String(a?.formattedAddress || '').localeCompare(String(b?.formattedAddress || ''));
     });
 
-    const pollTopCandidates = orderedPollCandidates.slice(0, GUEMES_POLL_OPTION_LIMIT);
+    const poiStreetHintForPoll = knownPoiMatch
+      ? extractStreetHintAlongsidePoi(
+          tripExtracted?._conversationText || nextContext.pickup_location || normalizedPickupForGeo || '',
+          knownPoiMatch,
+        )
+      : '';
+    const pollOptionLimit = GUEMES_POLL_OPTION_LIMIT;
+    const pollTopCandidates = orderedPollCandidates.slice(0, pollOptionLimit);
     const { pollOptions, pollCandidates: pollCandidatesForTrip } =
       buildAddressPollPayload(pollTopCandidates);
 
@@ -10632,33 +11355,45 @@ async function processConversationById(conversationId) {
     return { ok: true, skipped: true };
   }
 
-  // Declarar fuera del try para poder acceder al contexto nuevo en el catch
-  let claimedResult = null;
-  try {
-    claimedResult = await processClaimedConversation(batch);
-    await finalizeConversation(conversationId, claimedResult.updates);
-    logWebhook('conversation_process_by_id_ok', {
-      conversationId,
-      skipped: false,
-      nextStatus: claimedResult?.updates?.status || null,
-    });
-    return { ok: true, skipped: false };
-  } catch (error) {
-    // Preservar el contexto nuevo (ej: pending_poll con candidatos de dirección)
-    // para que el handler de poll.results pueda encontrarlo aunque el status falle.
-    const fallbackContext = claimedResult?.updates?.context || {};
-    await finalizeConversation(conversationId, {
-      status: 'open',
-      processing_started_at: null,
-      context: fallbackContext,
-      last_processed_at: new Date().toISOString(),
-    }).catch(() => {});
-    logWebhook('conversation_process_by_id_error', {
-      conversationId,
-      error: error?.message || 'unknown_error',
-    });
-    throw error;
-  }
+  const linePhone =
+    extractWasenderLineFromContext(batch.context) || getActiveWasenderLinePhone();
+
+  return runWithWasenderLine(linePhone, async () => {
+    // Declarar fuera del try para poder acceder al contexto nuevo en el catch
+    let claimedResult = null;
+    try {
+      claimedResult = await processClaimedConversation(batch);
+      const updates = claimedResult.updates || {};
+      if (updates.context != null) {
+        updates.context = injectWasenderLineIntoContext(updates.context);
+      }
+      await finalizeConversation(conversationId, updates);
+      logWebhook('conversation_process_by_id_ok', {
+        conversationId,
+        skipped: false,
+        nextStatus: claimedResult?.updates?.status || null,
+        wasenderLine: getActiveWasenderLinePhone(),
+      });
+      return { ok: true, skipped: false };
+    } catch (error) {
+      // Preservar el contexto nuevo (ej: pending_poll con candidatos de dirección)
+      // para que el handler de poll.results pueda encontrarlo aunque el status falle.
+      const fallbackContext = injectWasenderLineIntoContext(
+        claimedResult?.updates?.context || {}
+      );
+      await finalizeConversation(conversationId, {
+        status: 'open',
+        processing_started_at: null,
+        context: fallbackContext,
+        last_processed_at: new Date().toISOString(),
+      }).catch(() => {});
+      logWebhook('conversation_process_by_id_error', {
+        conversationId,
+        error: error?.message || 'unknown_error',
+      });
+      throw error;
+    }
+  });
 }
 
 function scheduleConversationProcessing(conversationId, delayMs = ACCUMULATION_MS) {
@@ -10687,24 +11422,33 @@ function scheduleConversationProcessing(conversationId, delayMs = ACCUMULATION_M
   processingTimers.set(conversationId, timer);
 }
 
-async function processPendingConversations() {
-  logWebhook('pending_scan_start', { accumulationMs: ACCUMULATION_MS });
+async function processPendingConversations({ onlyBypassPhones = false } = {}) {
+  logWebhook('pending_scan_start', { accumulationMs: ACCUMULATION_MS, onlyBypassPhones });
   const threshold = new Date(Date.now() - ACCUMULATION_MS).toISOString();
   const { data, error } = await getSupabase()
     .from('whatsapp_conversations')
-    .select('id')
+    .select('id, phone')
     .eq('is_collecting', true)
     .lt('accumulation_started_at', threshold);
   if (error) throw error;
 
-  logWebhook('pending_scan_found', { total: (data || []).length, threshold });
+  const candidates = onlyBypassPhones
+    ? (data || []).filter((item) => isAgentDisabledBypassPhone(item?.phone))
+    : (data || []);
+
+  logWebhook('pending_scan_found', {
+    total: candidates.length,
+    scanned: (data || []).length,
+    threshold,
+    onlyBypassPhones,
+  });
 
   let processed = 0;
   let skipped = 0;
   // Procesamiento en paralelo: cada número de teléfono es independiente,
   // permitiendo manejar múltiples pedidos simultáneos sin bloqueos.
   const parallelResults = await Promise.allSettled(
-    (data || []).map((item) => processConversationById(item.id))
+    candidates.map((item) => processConversationById(item.id))
   );
   for (const r of parallelResults) {
     if (r.status === 'rejected') {
@@ -10716,21 +11460,28 @@ async function processPendingConversations() {
     }
   }
 
-  logWebhook('pending_scan_done', { processed, skipped, total: (data || []).length });
+  logWebhook('pending_scan_done', { processed, skipped, total: candidates.length });
 
   // Intentar despachar pasajeros en cola después de procesar todos los mensajes pendientes.
   // Esto cubre el caso donde en el mismo ciclo de cron hay nuevos pasajeros en cola Y
   // choferes que terminaron viajes (y por ende ya no están en DRIVER_BUSY_TRIP_STATUSES).
-  const queueResult = await dispatchQueuedPassengers();
+  // Con agente apagado (solo allowlist) no despachar cola global.
+  const queueResult = onlyBypassPhones
+    ? { dispatched: 0 }
+    : await dispatchQueuedPassengers();
 
-  return { processed, skipped, total: (data || []).length, queueDispatched: queueResult.dispatched };
+  return { processed, skipped, total: candidates.length, queueDispatched: queueResult.dispatched };
 }
 
 async function processWebhookBody(body, requestMeta = {}) {
   try {
-    const payloadBody = body || {};
+    const payloadBody = normalizeWhatsmeowWebhookBody(body || {});
     const event = payloadBody.event;
-    logWebhook('received', { event: event || 'unknown' });
+    logWebhook('received', {
+      event: event || 'unknown',
+      rawEvent: body?.event || null,
+      agentCode: payloadBody.agent_code || body?.agent_code || null,
+    });
 
     if (event === 'trip.driver_reject') {
       const authHeader = requestMeta.authHeader || '';
@@ -10909,6 +11660,43 @@ async function processWebhookBody(body, requestMeta = {}) {
       return { status: 200, body: { success: true, ignored: true, reason: 'webhook_test' } };
     }
 
+    // Sesión Wasender: estado / QR / passkey (para re-vincular desde el dashboard).
+    if (event === 'session.status' || event === 'qrcode.updated' || event === 'passkey.updated') {
+      try {
+        const { handleWasenderSessionWebhook } = await import('../../../src/lib/wasenderSession');
+        const handled = await handleWasenderSessionWebhook(event, payloadBody?.data || {});
+        logWebhook('wasender_session_event', {
+          event,
+          handled: Boolean(handled?.handled),
+          status: handled?.status || null,
+          stage: handled?.stage || null,
+        });
+        return {
+          status: 200,
+          body: {
+            success: true,
+            event,
+            handled: Boolean(handled?.handled),
+            status: handled?.status || null,
+          },
+        };
+      } catch (sessionErr) {
+        logWebhook('wasender_session_event_fail', {
+          event,
+          error: sessionErr?.message || String(sessionErr),
+        });
+        return {
+          status: 200,
+          body: {
+            success: true,
+            event,
+            handled: false,
+            error: sessionErr?.message || 'session_webhook_error',
+          },
+        };
+      }
+    }
+
     if (UPSERT_ONLY && event === 'messages.received') {
       logWebhook('ignored', { reason: 'received_ignored_upsert_only' });
       return { status: 200, body: { success: true, ignored: true, reason: 'received_ignored_upsert_only' } };
@@ -10920,8 +11708,8 @@ async function processWebhookBody(body, requestMeta = {}) {
         return { status: 200, body: { success: true, ignored: true, reason: 'missing_server_env' } };
       }
 
-      const pollMsgId = String(body?.data?.key?.id || '').trim();
-      const pollResult = Array.isArray(body?.data?.pollResult) ? body.data.pollResult : [];
+      const pollMsgId = String(payloadBody?.data?.key?.id || '').trim();
+      const pollResult = Array.isArray(payloadBody?.data?.pollResult) ? payloadBody.data.pollResult : [];
 
       if (!pollMsgId) {
         logWebhook('poll_results_ignored', { reason: 'missing_poll_msg_id' });
@@ -10935,14 +11723,15 @@ async function processWebhookBody(body, requestMeta = {}) {
       }
 
       // Extraer el teléfono del votante lo antes posible.
-      // Según docs de WASender, voters[] contiene el JID del votante.
-      // Si fromMe=true, remoteJid también es el JID del pasajero.
-      // En ambos casos puede ser @s.whatsapp.net (directo) o @lid (necesita resolución).
+      // Wasender: voters[] = JID. whatsmeow normalizado: remoteJid / sender_pn.
       const voterJid =
         voted.voters[0] ||
         body?.data?.key?.remoteJid ||
+        payloadBody?.data?.key?.remoteJid ||
         '';
-      const voterPhone = await resolvePhoneFromJid(voterJid).catch(() => null);
+      const voterPhone = await resolvePhoneFromJid(voterJid).catch(() => null)
+        || normalizePhone(voterJid)
+        || null;
       logWebhook('poll_results_voter_phone', {
         voterJid,
         voterPhone: voterPhone ? maskPhone(voterPhone) : null,
@@ -10976,7 +11765,9 @@ async function processWebhookBody(body, requestMeta = {}) {
       const pendingPoll = pollTripWaCtxResults?.pending_poll || safeJsonParse(pollConv?.context, {})?.pending_poll;
       const pollCandidates = pendingPoll?.candidates || [];
       const pollExtracted = pendingPoll?.extracted || {};
-      const votedName = voted.name || '';
+      const votedName = String(
+        voted.poll_option || voted.name || voted.button_id || ''
+      ).trim();
       const isPriceConfirmVote =
         isTripPriceConfirmYesVote(votedName) || isTripPriceConfirmNoVote(votedName);
 
@@ -11619,11 +12410,15 @@ async function processWebhookBody(body, requestMeta = {}) {
       accumulationMs: ACCUMULATION_MS,
     });
 
-    if (IMMEDIATE_PROCESSING) {
+    const shouldProcessImmediately =
+      IMMEDIATE_PROCESSING || Boolean(requestMeta.forceImmediateProcessing);
+
+    if (shouldProcessImmediately) {
       const processResult = await processConversationById(appendResult.conversation_id);
       logWebhook('processed_immediately', {
         conversationId: appendResult.conversation_id,
         skipped: Boolean(processResult?.skipped),
+        forceImmediateProcessing: Boolean(requestMeta.forceImmediateProcessing),
       });
       return {
         status: 200,
@@ -11663,7 +12458,12 @@ function isVercelCronInvocation({ userAgent = '', xVercelCron = '' } = {}) {
   return cronHeader === '1' || ua.includes('vercel-cron');
 }
 
-async function processPendingConversationsRequest({ authHeader = '', userAgent = '', xVercelCron = '' } = {}) {
+async function processPendingConversationsRequest({
+  authHeader = '',
+  userAgent = '',
+  xVercelCron = '',
+  onlyBypassPhones = false,
+} = {}) {
   try {
     const isVercelCron = isVercelCronInvocation({ userAgent, xVercelCron });
     if (CRON_SECRET) {
@@ -11675,13 +12475,16 @@ async function processPendingConversationsRequest({ authHeader = '', userAgent =
     logWebhook('cron_run', {
       viaVercelCron: isVercelCron,
       hasAuthHeader: Boolean(authHeader),
+      onlyBypassPhones,
     });
 
     ensureServerConfig();
+    // Timeouts y notificaciones de ciclo de vida (aceptado → WhatsApp + seguimiento)
+    // siguen activos aunque el agente IA esté apagado; onlyBypassPhones solo limita el chat IA.
     const expireResult = SUPABASE_DISPATCH_ONLY
       ? await requeueTimedOutPendingTripsSupabaseDispatchOnly()
       : await expireTimedOutPendingTrips();
-    const pendingResult = await processPendingConversations();
+    const pendingResult = await processPendingConversations({ onlyBypassPhones });
     const transitionResult = await processTripLifecycleTransitions();
     return {
       status: 200,
@@ -11690,6 +12493,7 @@ async function processPendingConversationsRequest({ authHeader = '', userAgent =
         ...pendingResult,
         expiredPending: expireResult.expired,
         tripTransitions: transitionResult,
+        onlyBypassPhones,
       },
     };
   } catch (error) {
@@ -11741,47 +12545,143 @@ async function ensureWarm() {
   }
 }
 
-export async function POST(req) {
-  if (!(await isWhatsAppAgentEnabled())) {
-    logWebhook('http_post_skipped', { reason: 'whatsapp_agent_disabled' });
-    return Response.json({ success: true, disabled: true, ignored: true }, { status: 200 });
+export async function POST(req, context = {}) {
+  const params = context?.params ? await context.params : {};
+  const lineSlug = params?.telefono || null;
+  const rawBody = await req.json();
+  const normalizedPreview = normalizeWhatsmeowWebhookBody(rawBody || {});
+  const agentFromBody = String(
+    rawBody?.agent_code || normalizedPreview?.agent_code || ''
+  ).trim();
+
+  let line = lineSlug ? resolveWasenderLine(lineSlug) : null;
+  if (!line && agentFromBody) {
+    line = resolveWhatsmeowLineByAgentCode(agentFromBody);
+  }
+  if (!line && !lineSlug) {
+    line = null; // default dentro de runWithWasenderLine
   }
 
-  await ensureWarm();
-  const body = await req.json();
-  const authHeader = req.headers.get('authorization') || '';
-  const tripTransitionSecretHeader = req.headers.get('x-trip-transition-secret') || '';
-  logWebhook('http_post', {
-    vercelId: req.headers.get('x-vercel-id') || null,
-    hasEvent: Boolean(body?.event),
-    event: body?.event || null,
-  });
-  const result = await processWebhookBody(body, { authHeader, tripTransitionSecretHeader });
-  logWebhook('http_post_result', { status: result.status, success: result.body?.success === true });
-  return Response.json(result.body, { status: result.status });
-}
-
-export async function GET(req) {
-  const url = new URL(req.url);
-
-  if (url.searchParams.get('health') === '1') {
-    const whatsappAgentEnabled = await isWhatsAppAgentEnabled();
+  if (lineSlug && !line) {
     return Response.json(
-      { ...getHealthPayload(), whatsappAgentEnabled },
-      { status: 200 },
+      {
+        success: false,
+        error: 'Línea WhatsApp no configurada',
+        telefono: String(lineSlug).replace(/\D/g, '') || null,
+      },
+      { status: 404 }
     );
   }
 
-  if (!(await isWhatsAppAgentEnabled())) {
-    logWebhook('http_get_skipped', { reason: 'whatsapp_agent_disabled' });
-    return Response.json({ success: true, disabled: true, processed: 0 }, { status: 200 });
+  return runWithWasenderLine(line, async () => {
+    const body = normalizedPreview;
+    const agentEnabled = await isWhatsAppAgentEnabled();
+    const peekedPhone = peekWebhookPhone(body);
+    const lifecycleEvent = isLifecycleSystemEvent(body?.event);
+    const bypassAllowlist = !agentEnabled && isAgentDisabledBypassPhone(peekedPhone);
+
+    if (!agentEnabled && !bypassAllowlist && !lifecycleEvent) {
+      logWebhook('http_post_skipped', {
+        reason: 'whatsapp_agent_disabled',
+        event: body?.event || null,
+        phone: peekedPhone ? maskPhone(peekedPhone) : null,
+        wasenderLine: getActiveWasenderLinePhone(),
+      });
+      return Response.json({ success: true, disabled: true, ignored: true }, { status: 200 });
+    }
+
+    if (bypassAllowlist) {
+      logWebhook('http_post_bypass_allowlist', {
+        reason: 'whatsapp_agent_disabled_allowlist',
+        phone: maskPhone(peekedPhone),
+      });
+    } else if (!agentEnabled && lifecycleEvent) {
+      logWebhook('http_post_bypass_lifecycle', {
+        reason: 'whatsapp_agent_disabled_lifecycle',
+        event: body?.event || null,
+      });
+    }
+
+    await ensureWarm();
+    const authHeader = req.headers.get('authorization') || '';
+    const tripTransitionSecretHeader = req.headers.get('x-trip-transition-secret') || '';
+    logWebhook('http_post', {
+      vercelId: req.headers.get('x-vercel-id') || null,
+      hasEvent: Boolean(body?.event),
+      event: body?.event || null,
+      agentEnabled,
+      bypassAllowlist,
+      lifecycleEvent,
+      wasenderLine: getActiveWasenderLinePhone(),
+      agentCode: getActiveWhatsmeowAgentCode() || null,
+    });
+    const result = await processWebhookBody(body, {
+      authHeader,
+      tripTransitionSecretHeader,
+      forceImmediateProcessing: bypassAllowlist,
+    });
+    logWebhook('http_post_result', {
+      status: result.status,
+      success: result.body?.success === true,
+      wasenderLine: getActiveWasenderLinePhone(),
+    });
+    return Response.json(result.body, { status: result.status });
+  });
+}
+
+export async function GET(req, context = {}) {
+  const params = context?.params ? await context.params : {};
+  const lineSlug = params?.telefono || null;
+  const line = lineSlug ? resolveWasenderLine(lineSlug) : null;
+
+  if (lineSlug && !line) {
+    return Response.json(
+      {
+        success: false,
+        error: 'Línea WhatsApp no configurada',
+        telefono: String(lineSlug).replace(/\D/g, '') || null,
+      },
+      { status: 404 }
+    );
   }
 
-  await ensureWarm();
+  return runWithWasenderLine(line, async () => {
+    const url = new URL(req.url);
 
-  const authHeader = req.headers.get('authorization') || '';
-  const userAgent = req.headers.get('user-agent') || '';
-  const xVercelCron = req.headers.get('x-vercel-cron') || '';
-  const result = await processPendingConversationsRequest({ authHeader, userAgent, xVercelCron });
-  return Response.json(result.body, { status: result.status });
+    if (url.searchParams.get('health') === '1') {
+      const whatsappAgentEnabled = await isWhatsAppAgentEnabled();
+      return Response.json(
+        {
+          ...getHealthPayload(),
+          whatsappAgentEnabled,
+          wasender: getWasenderLinesHealth(),
+        },
+        { status: 200 },
+      );
+    }
+
+    const agentEnabled = await isWhatsAppAgentEnabled();
+    if (!agentEnabled) {
+      logWebhook('http_get_allowlist_mode', { reason: 'whatsapp_agent_disabled_allowlist' });
+      await ensureWarm();
+      const authHeader = req.headers.get('authorization') || '';
+      const userAgent = req.headers.get('user-agent') || '';
+      const xVercelCron = req.headers.get('x-vercel-cron') || '';
+      const result = await processPendingConversationsRequest({
+        authHeader,
+        userAgent,
+        xVercelCron,
+        onlyBypassPhones: true,
+      });
+      return Response.json(result.body, { status: result.status });
+    }
+
+    await ensureWarm();
+
+    const authHeader = req.headers.get('authorization') || '';
+    const userAgent = req.headers.get('user-agent') || '';
+    const xVercelCron = req.headers.get('x-vercel-cron') || '';
+    const result = await processPendingConversationsRequest({ authHeader, userAgent, xVercelCron });
+    return Response.json(result.body, { status: result.status });
+  });
 }

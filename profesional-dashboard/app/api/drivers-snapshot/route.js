@@ -6,6 +6,14 @@ import {
 } from '../../../src/lib/fleetDriverEnrichment';
 import { resolveDisplayActiveTrip } from '../../../src/lib/fleetDispatch';
 import { isFleetOwner } from '../../../src/lib/driverRoles';
+import {
+  resolveDriverIsOnline,
+} from '../../../src/lib/driverPresence';
+import {
+  resolveCommissionOverdue as resolveCommissionOverdueFromDriver,
+  isDriverDispatchBlocked,
+  normalizeBillingMode,
+} from '../../../shared/driver-billing.js';
 
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 
@@ -27,24 +35,10 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function resolveCommissionOverdue(pendingCommission, commissionDebtSinceAt) {
-  const balance = Math.max(0, toNumber(pendingCommission, 0));
-  if (balance <= 0) return false;
-
-  // La deuda vence cuando lleva más de 3 días sin saldarse.
-  // commission_debt_since_at registra cuándo empezó la deuda actual;
-  // si es null, la deuda aún no comenzó a contar (no hay vencimiento).
-  const debtSince = commissionDebtSinceAt ? new Date(commissionDebtSinceAt) : null;
-  if (!debtSince) return false;
-
-  const threeDaysAgo = new Date();
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-  return debtSince < threeDaysAgo;
-}
-
 export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
+    const nowMs = Date.now();
 
     const [driversRes, locationsRes, activeTripsRes, vtRes] = await Promise.all([
       supabase.from('drivers').select('*'),
@@ -60,7 +54,16 @@ export async function GET() {
 
     const locationsMap = {};
     (locationsRes.data || []).forEach((loc) => {
-      if (loc?.driver_id) locationsMap[loc.driver_id] = loc;
+      if (!loc?.driver_id) return;
+      const prev = locationsMap[loc.driver_id];
+      if (!prev) {
+        locationsMap[loc.driver_id] = loc;
+        return;
+      }
+      // Si hay historial (varias filas), quedarse con la más reciente.
+      const prevTs = new Date(prev.updated_at || prev.recorded_at || 0).getTime();
+      const nextTs = new Date(loc.updated_at || loc.recorded_at || 0).getTime();
+      if (nextTs >= prevTs) locationsMap[loc.driver_id] = loc;
     });
 
     const activeTripsList = activeTripsRes.data || [];
@@ -85,15 +88,27 @@ export async function GET() {
       const activeTrip = resolveDisplayActiveTrip(merged.id, activeTripsMap);
       const pendingCommission = Math.max(0, toNumber(merged.pending_commission, 0));
       const assigned = Boolean(merged.is_assigned_driver && merged.owner_id);
+      const lat = toNumber(loc?.lat ?? merged.current_lat, 0);
+      const lng = toNumber(loc?.lng ?? merged.current_lng, 0);
+      const updatedAt = loc?.updated_at || loc?.recorded_at || merged.updated_at;
+      const flaggedAvailable = Boolean(merged.is_available);
+      const gpsSimulationActive = Boolean(merged.gps_simulation_active);
+      const isOnline = resolveDriverIsOnline({
+        isAvailable: flaggedAvailable,
+        lat,
+        lng,
+        updatedAt,
+        gpsSimulationActive,
+      }, nowMs);
 
       return {
         id: merged.id,
-        lat: toNumber(loc?.lat ?? merged.current_lat, 0),
-        lng: toNumber(loc?.lng ?? merged.current_lng, 0),
-        speed: toNumber(loc?.speed, 0),
+        lat,
+        lng,
+        speed: toNumber(loc?.speed ?? loc?.speed_kmh, 0),
         heading: toNumber(loc?.heading, 0),
-        isOnline: Boolean(merged.is_available),
-        updatedAt: loc?.updated_at || merged.updated_at,
+        isOnline,
+        updatedAt,
         fullName: merged.full_name || 'Sin nombre',
         driverNumber: merged.driver_number ?? null,
         phone: merged.phone || '',
@@ -104,17 +119,26 @@ export async function GET() {
         vehiclePlate: merged.vehicle_plate || '',
         vehicleColor: merged.vehicle_color || '',
         vehicleType: merged.vehicle_type || vehicleTypeMap[merged.id] || 'auto',
-        isAvailable: Boolean(merged.is_available),
+        isAvailable: flaggedAvailable,
+        gpsSimulationActive,
         rating: toNumber(merged.rating, 5),
         totalTrips: toNumber(merged.total_trips, 0),
         activeTrip,
         pendingCommission,
         lastCommissionPaymentAt: merged.last_commission_payment_at || null,
         commissionBalance: pendingCommission,
-        commissionOverdue: resolveCommissionOverdue(
-          pendingCommission,
-          merged.commission_debt_since_at,
-        ),
+        billingMode: normalizeBillingMode(merged.billing_mode),
+        commissionBlocked: Boolean(merged.commission_blocked),
+        commissionOverdue: resolveCommissionOverdueFromDriver({
+          pending_commission: pendingCommission,
+          commission_debt_since_at: merged.commission_debt_since_at,
+        }),
+        dispatchBlocked: isDriverDispatchBlocked({
+          pending_commission: pendingCommission,
+          commission_debt_since_at: merged.commission_debt_since_at,
+          billing_mode: merged.billing_mode,
+          commission_blocked: merged.commission_blocked,
+        }),
         isAssignedDriver: assigned,
         isFleetOwner: isFleetOwner(merged),
         ownerId: merged.owner_id || null,

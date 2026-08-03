@@ -79,6 +79,10 @@ export async function POST(request) {
       throw createUserError || new Error('Failed to create auth user');
     }
 
+    const billingMode = profile?.billing_mode === 'weekly_traditional'
+      ? 'weekly_traditional'
+      : 'commission_current';
+
     const driverRow = {
       user_id: createdUser.user.id,
       full_name: profile?.full_name || '',
@@ -90,6 +94,7 @@ export async function POST(request) {
       vehicle_color: profile?.vehicle_color || null,
       vehicle_type: profile?.vehicle_type || 'auto',
       license_expiry: profile?.license_expiry || null,
+      billing_mode: billingMode,
     };
 
     const { data: driver, error: driverError } = await supabase

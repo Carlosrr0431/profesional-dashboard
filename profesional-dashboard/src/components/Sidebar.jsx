@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { timeAgo, formatSpeed, getTripStatus } from '../lib/utils';
 import { matchesDriverSearch } from '../lib/driverRoles';
+import { resolveDriverIsOnline } from '../lib/driverPresence';
 import DriverAvatar from './DriverAvatar';
 
 export default function Sidebar({
@@ -90,11 +91,24 @@ export default function Sidebar({
     () =>
       drivers.map((driver) => {
         const live = availability[driver.id];
-        const isOnline = live ? live.isAvailable : Boolean(driver.isAvailable);
+        const flaggedAvailable = live ? live.isAvailable : Boolean(driver.isAvailable);
+        // No pisar el timestamp de GPS con drivers.updated_at (puede quedar viejo días).
+        const gpsTs = driver.updatedAt ? new Date(driver.updatedAt).getTime() : 0;
+        const availTs = live?.updatedAt ? new Date(live.updatedAt).getTime() : 0;
+        const updatedAt = gpsTs >= availTs
+          ? (driver.updatedAt || live?.updatedAt)
+          : (live?.updatedAt || driver.updatedAt);
+        const isOnline = resolveDriverIsOnline({
+          isAvailable: flaggedAvailable,
+          lat: driver.lat,
+          lng: driver.lng,
+          updatedAt,
+          gpsSimulationActive: driver.gpsSimulationActive,
+        });
         return {
           ...driver,
           isOnline,
-          updatedAt: live?.updatedAt || driver.updatedAt,
+          updatedAt,
         };
       }),
     [drivers, availability]
@@ -372,7 +386,7 @@ function DriverRow({ driver, isSelected, onClick }) {
               Asignado
             </span>
           ) : null}
-          {driver.commissionOverdue && (
+          {(driver.dispatchBlocked || driver.commissionOverdue) && (
             <span className="text-[9px] font-bold text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded-md shrink-0">⚠</span>
           )}
         </div>

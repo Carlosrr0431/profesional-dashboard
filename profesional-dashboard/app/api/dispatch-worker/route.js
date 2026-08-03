@@ -5,6 +5,7 @@ import {
   isFirebaseCredentialError,
   isLegacyExpoPushToken,
   isLikelyFcmToken,
+  buildAndroidNotificationTag,
   normalizeFcmDataPayload,
   normalizeFirebaseSendError,
 } from '../../../src/lib/firebaseAdmin';
@@ -20,6 +21,8 @@ import {
 import { isPassengerInitiatedCancellation } from '../../../src/lib/passengerTripCancel';
 import { isPassengerAppTrip, shouldPreservePickupOriginOnAssign } from '../../../shared/trip-contract.js';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
+import { sendWhatsmeowText, getWhatsmeowApiKey } from '../../../src/lib/whatsmeowClient';
+import { getDefaultWhatsmeowLine } from '../../../src/lib/whatsmeowLines';
 import {
   MAX_DRIVER_OFFER_ATTEMPTS,
   buildWaContextAfterNotifyFailure,
@@ -35,14 +38,13 @@ import {
   validateCronAuth,
 } from '../../../src/lib/cronAuth';
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
+import { isDriverEligibleForDispatch } from '../../../shared/driver-billing.js';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const CRON_SECRET = process.env.CRON_SECRET || '';
-const WASENDER_API_KEY = process.env.WASENDER_API_KEY || '';
-const WASENDER_BASE_URL = process.env.WASENDER_BASE_URL || 'https://www.wasenderapi.com/api';
 const DRIVER_APP_DEEPLINK_BASE = process.env.DRIVER_APP_DEEPLINK_BASE || 'exp+driver-app://open';
 const PUSH_NOTIFICATIONS_ENABLED =
   (process.env.WHATSAPP_PUSH_ENABLED || 'true').toLowerCase() !== 'false';
@@ -63,6 +65,7 @@ const DISPATCH_NOTIFY_FAIL_RETRY_SECONDS = Math.max(
   DISPATCH_RETRY_SECONDS,
   Math.round(Number(process.env.DISPATCH_WORKER_NOTIFY_FAIL_RETRY_SECONDS || 45) || 45)
 );
+// Alineado con Agente_IA y driver-app TRIP_ACCEPT_TIMEOUT (15s).
 const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 15 * 1000;
 const MIN_PENDING_ACCEPT_TIMEOUT_MS = 10 * 1000;
 const MAX_PENDING_ACCEPT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -376,6 +379,51 @@ async function setDispatchQueueRetry(tripId, retrySeconds, reason = 'retry') {
   }
 }
 
+/**
+ * El trigger sync_dispatch_queue_from_trips pone next_attempt_at=NOW() y
+ * next_dispatch_at=NOW() al pasar a queued, pisando el backoff del expire.
+ * Restaurar ambos para no re-claimar el mismo viaje en el mismo ciclo.
+ */
+async function restoreDispatchBackoffAfterRequeue(tripId, nextDispatchAt, reason = 'requeue_backoff') {
+  if (!tripId || !nextDispatchAt) return;
+
+  const supabase = getSupabaseAdmin();
+  const { error: queueError } = await supabase
+    .from('dispatch_queue')
+    .update({
+      next_attempt_at: nextDispatchAt,
+      queue_status: 'queued',
+      lock_token: null,
+      lock_owner: null,
+      lock_acquired_at: null,
+      lock_expires_at: null,
+      last_error_code: 'retry',
+      last_error: String(reason || 'requeue_backoff').slice(0, 400),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('trip_id', tripId);
+
+  if (queueError) {
+    logWorker('restore_queue_backoff_error', {
+      tripId,
+      error: summarizeDbError(queueError),
+    });
+  }
+
+  const { error: tripError } = await supabase
+    .from('trips')
+    .update({ next_dispatch_at: nextDispatchAt })
+    .eq('id', tripId)
+    .eq('status', 'queued');
+
+  if (tripError) {
+    logWorker('restore_trip_backoff_error', {
+      tripId,
+      error: summarizeDbError(tripError),
+    });
+  }
+}
+
 async function expireTimedOutPendingTrips() {
   const cutoff = new Date(Date.now() - PENDING_ACCEPT_TIMEOUT_MS).toISOString();
   const supabase = getSupabaseAdmin();
@@ -498,6 +546,11 @@ async function expireTimedOutPendingTrips() {
       .eq('status', 'pending');
 
     if (!upErr) {
+      await restoreDispatchBackoffAfterRequeue(
+        t.id,
+        nextDispatchAt,
+        'pending_accept_timeout'
+      );
       expired += 1;
       if (excludedDriverId) {
         logWorkerVerbose('expire_pending_excluded_driver', {
@@ -506,6 +559,7 @@ async function expireTimedOutPendingTrips() {
           excludedCount: getTripDispatchExcludedDriverIds(updatedWaContext).length,
           driverOfferCount: getDispatchDriverOfferCounts(updatedWaContext)[excludedDriverId] || null,
           maxDriverOfferAttempts: MAX_DRIVER_OFFER_ATTEMPTS,
+          nextDispatchAt,
         });
       }
     }
@@ -592,19 +646,13 @@ async function chooseDriverForClaim(
 
   const { data: driversRaw, error } = await getSupabaseAdmin()
     .from('drivers')
-    .select('id, full_name, phone, push_token, current_lat, current_lng, is_available, pending_commission, last_commission_payment_at')
+    .select('id, full_name, phone, push_token, current_lat, current_lng, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked')
     .eq('is_available', true);
 
   if (error) throw error;
 
-  // Excluir conductores con comisiones impagas por más de 3 días
-  const commissionCutoffMs = Date.now() - 3 * 24 * 60 * 60 * 1000;
-  const drivers = (driversRaw || []).filter((d) => {
-    const pending = Number(d.pending_commission || 0);
-    if (pending <= 0) return true; // sin deuda → ok
-    const lastPayment = d.last_commission_payment_at ? new Date(d.last_commission_payment_at).getTime() : 0;
-    return lastPayment >= commissionCutoffMs; // pagó dentro de los últimos 3 días → ok
-  });
+  // Cobro por comisiones: gracia 3 días. Cobro semanal: solo bloqueo manual.
+  const drivers = (driversRaw || []).filter((d) => isDriverEligibleForDispatch(d));
 
   const suspendedCount = (driversRaw || []).length - drivers.length;
   if (suspendedCount > 0) {
@@ -850,6 +898,7 @@ async function sendPushNotification(pushToken, payload) {
   }
 
   try {
+    const collapseTag = buildAndroidNotificationTag(payload?.data);
     const messageId = await getFirebaseMessagingClient().send({
       token,
       notification: {
@@ -862,6 +911,7 @@ async function sendPushNotification(pushToken, payload) {
         notification: {
           channelId: 'trips',
           sound: 'default',
+          ...(collapseTag ? { tag: collapseTag } : {}),
         },
       },
     });
@@ -880,46 +930,25 @@ async function sendPushNotification(pushToken, payload) {
 async function sendWhatsAppText(phone, text) {
   const normalized = normalizePhone(phone);
   if (!normalized) return { ok: false, reason: 'invalid_driver_phone' };
-  if (!WASENDER_API_KEY) return { ok: false, reason: 'missing_wasender_api_key' };
 
-  const to = `${normalized}@s.whatsapp.net`;
-
-  const response = await fetch(`${WASENDER_BASE_URL}/send-message`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${WASENDER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ to, text }),
-  });
-
-  const rawBody = await response.text().catch(() => '');
-  let payload = null;
-  try {
-    payload = rawBody ? JSON.parse(rawBody) : null;
-  } catch {
-    payload = null;
+  const line = getDefaultWhatsmeowLine();
+  const apiKey = getWhatsmeowApiKey();
+  if (!apiKey || !line?.agentCode) {
+    return { ok: false, reason: 'missing_whatsmeow_config' };
   }
 
-  if (!response.ok) {
+  const result = await sendWhatsmeowText(line.agentCode, normalized, text, { apiKey });
+  if (!result.success) {
     return {
       ok: false,
-      reason: `whatsapp_send_error:http_${response.status}:${rawBody.slice(0, 120) || 'no_body'}`,
-    };
-  }
-
-  const apiError = payload?.error || payload?.errors || (payload?.success === false ? payload?.message : null);
-  if (apiError) {
-    return {
-      ok: false,
-      reason: `whatsapp_send_error:${String(apiError).slice(0, 120)}`,
+      reason: `whatsapp_send_error:${String(result.error || 'unknown').slice(0, 120)}`,
     };
   }
 
   return {
     ok: true,
-    to,
-    msgId: payload?.data?.msgId ? String(payload.data.msgId) : null,
+    to: `${normalized}@s.whatsapp.net`,
+    msgId: result.messageId ? String(result.messageId) : null,
   };
 }
 
@@ -1118,12 +1147,16 @@ async function requeuePendingTripAfterNotifyFailure(tripId, notifyReason = 'noti
   }
 
   const updatedWaContext = buildWaContextAfterNotifyFailure(tripRow?.wa_context, notifyReason);
+  const nextDispatchAt = new Date(
+    Date.now() + Math.max(1, DISPATCH_NOTIFY_FAIL_RETRY_SECONDS) * 1000
+  ).toISOString();
 
   const { data, error } = await getSupabaseAdmin()
     .from('trips')
     .update(buildPendingToQueuedUpdate(tripRow || {}, {
       cancel_reason: `[AUTO_REQUEUE] Falla de notificacion: ${String(notifyReason).slice(0, 140)}`,
       wa_context: updatedWaContext,
+      next_dispatch_at: nextDispatchAt,
     }))
     .eq('id', tripId)
     .eq('status', 'pending')
@@ -1137,6 +1170,10 @@ async function requeuePendingTripAfterNotifyFailure(tripId, notifyReason = 'noti
       error: summarizeDbError(error),
     });
     return false;
+  }
+
+  if (data?.id) {
+    await restoreDispatchBackoffAfterRequeue(tripId, nextDispatchAt, notifyReason);
   }
 
   return Boolean(data?.id);
