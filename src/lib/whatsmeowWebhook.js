@@ -183,13 +183,9 @@ function toPollResults(msg, agentCode) {
   const pollOption = String(msg.poll_option || '').trim();
   const body = String(msg.body || '').trim();
 
-  let votedName = pollOption;
-  if (!votedName && /^opt_(\d+)$/i.test(buttonId)) {
-    // Sin texto: el handler buscará por índice vía findPollCandidate — pasamos el body numérico
-    // y también el button_id en el name si no hay mejor opción.
-    votedName = body || buttonId;
-  }
-  if (!votedName) votedName = body || buttonId;
+  // Prioridad: texto de opción → body → button_id (opt_N).
+  // El handler de Agente_IA resuelve opt_N / índice vía findPollCandidateByVote.
+  let votedName = pollOption || body || buttonId;
 
   return {
     event: 'poll.results',
@@ -203,7 +199,7 @@ function toPollResults(msg, agentCode) {
       pollResult: [
         {
           name: votedName,
-          voters: remoteJid ? [remoteJid] : [],
+          voters: phone ? [`${phone}@s.whatsapp.net`] : (remoteJid ? [remoteJid] : []),
           button_id: buttonId || null,
           poll_option: pollOption || null,
         },

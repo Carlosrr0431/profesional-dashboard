@@ -1742,6 +1742,9 @@ function normalizePhone(phone) {
   const raw = String(phone || '').trim();
   if (!raw) return '';
 
+  // @lid no es teléfono: el user-id numérico no debe usarse como E.164.
+  if (raw.includes('@lid')) return '';
+
   // Si llega en formato JID (ej: 549...@s.whatsapp.net), quedarnos con la parte local.
   const localPart = raw.includes('@') ? raw.split('@')[0] : raw;
   let digits = localPart.replace(/\D/g, '');
@@ -1751,6 +1754,9 @@ function normalizePhone(phone) {
     digits = digits.slice(2);
   }
 
+  // Evitar tratar un user-id de @lid (15+ dígitos) como teléfono AR.
+  if (digits.length > 13 && !digits.startsWith('54')) return '';
+
   return digits;
 }
 
@@ -1759,8 +1765,13 @@ function normalizePhoneForWhatsApp(phone) {
   if (!digits) return '';
 
   // Números locales con 0 inicial (trunk prefix) -> quitarlo.
-  if (digits.startsWith('0') && digits.length >= 11) {
+  if (digits.startsWith('0')) {
     digits = digits.replace(/^0+/, '');
+  }
+
+  // Local AR (8–11 dígitos sin país): anteponer 549 (mismo criterio que whatsmeowClient).
+  if (!digits.startsWith('54') && digits.length >= 8 && digits.length <= 11) {
+    digits = `549${digits}`;
   }
 
   // Heurística AR: 54 + móvil suele requerir 549 para WhatsApp.
@@ -2051,7 +2062,9 @@ function peekWebhookPhone(body) {
       const fromPn = normalizePhone(wmMsg.sender_pn || '');
       if (fromPn.length >= 8) return fromPn;
       for (const candidate of [wmMsg.chat_jid, wmMsg.from, wmMsg.to]) {
-        const digits = normalizePhone(String(candidate || '').split('@')[0]);
+        const s = String(candidate || '');
+        if (!s || s.includes('@lid') || s.includes('@g.us') || s.includes('@broadcast')) continue;
+        const digits = normalizePhone(s);
         if (digits.length >= 8) return digits;
       }
     }
@@ -4363,12 +4376,20 @@ function getOpenAI() {
 
 function extractPhoneFromMessage(messageData) {
   const key = messageData?.key || {};
-  return normalizePhone(
-    key.cleanedSenderPn ||
-      key.senderPn?.replace('@s.whatsapp.net', '').replace('@lid', '') ||
-      key.remoteJid?.replace('@s.whatsapp.net', '').replace('@lid', '') ||
-      ''
-  );
+  if (key.cleanedSenderPn) {
+    return normalizePhone(key.cleanedSenderPn) || '';
+  }
+
+  const senderPn = String(key.senderPn || '').trim();
+  if (senderPn && !senderPn.includes('@lid')) {
+    return normalizePhone(senderPn) || '';
+  }
+
+  const remoteJid = String(key.remoteJid || '').trim();
+  if (!remoteJid || remoteJid.includes('@lid') || remoteJid.includes('@g.us') || remoteJid.includes('@broadcast')) {
+    return '';
+  }
+  return normalizePhone(remoteJid) || '';
 }
 
 function detectMessageType(message = {}) {
@@ -11838,14 +11859,14 @@ async function processWebhookBody(body, requestMeta = {}) {
       }
 
       if (!pollCandidates.length) {
-        logWebhook('poll_results_ignored', { reason: 'no_pending_poll_in_trip', pollMsgId, votedName: voted.name, tripId: pollTripRow?.id || null, convId: pollConv?.id || null });
+        logWebhook('poll_results_ignored', { reason: 'no_pending_poll_in_trip', pollMsgId, votedName, tripId: pollTripRow?.id || null, convId: pollConv?.id || null });
         return { status: 200, body: { success: true, ignored: true, reason: 'no_pending_poll_in_trip' } };
       }
 
-      const selectedCandidate = findPollCandidateByVote(pollCandidates, voted.name);
+      const selectedCandidate = findPollCandidateByVote(pollCandidates, votedName);
 
       if (!selectedCandidate) {
-        logWebhook('poll_results_ignored', { reason: 'voted_option_not_in_candidates', pollMsgId, votedName: voted.name });
+        logWebhook('poll_results_ignored', { reason: 'voted_option_not_in_candidates', pollMsgId, votedName });
         return { status: 200, body: { success: true, ignored: true, reason: 'voted_option_not_in_candidates' } };
       }
 
@@ -11853,7 +11874,7 @@ async function processWebhookBody(body, requestMeta = {}) {
       const pollPassengerName = pollExtracted.passenger_name || pollConv?.push_name || 'Pasajero WhatsApp';
 
       // "Ninguna de estas opciones" → pedir GPS/calle directamente
-      if (normalizeForMatch(voted.name || '').startsWith('ninguna')) {
+      if (normalizeForMatch(votedName || '').startsWith('ninguna')) {
         await clearPendingPollFromTrip(pollTripRow?.id);
         if (pollConv?.id) {
           try {
@@ -11875,23 +11896,23 @@ async function processWebhookBody(body, requestMeta = {}) {
               .eq('id', pollTripRow.id);
           } catch (_) {}
         }
-        logWebhook('poll_results_none_selected', { convId: pollConv?.id || null, votedName: voted.name });
+        logWebhook('poll_results_none_selected', { convId: pollConv?.id || null, votedName });
         return { status: 200, body: { success: true, event: 'poll.results', noneSelected: true } };
       }
 
       // Geocodificar si el candidato no tiene coordenadas (poll de catálogo / calles ambiguas)
       let confirmedCandidate = selectedCandidate;
       if (!confirmedCandidate.lat || !confirmedCandidate.lng) {
-        const geocoded = await geocodePollCandidate(selectedCandidate, voted.name);
+        const geocoded = await geocodePollCandidate(selectedCandidate, votedName);
         if (geocoded) {
           confirmedCandidate = { ...selectedCandidate, ...geocoded };
           logWebhook('poll_results_geocoded_candidate', {
-            votedName: voted.name,
+            votedName,
             formattedAddress: geocoded.formattedAddress,
           });
         } else {
           logWebhook('poll_results_geocode_fail', {
-            votedName: voted.name,
+            votedName,
             formattedAddress: selectedCandidate.formattedAddress || null,
           });
         }
@@ -11914,9 +11935,9 @@ async function processWebhookBody(body, requestMeta = {}) {
         }
         await sendWhatsAppText(
           pollPassengerPhone,
-          `No pude ubicar con precisión *${voted.name}*. Mandame la *calle y número exacto* o compartí tu *ubicación actual* desde WhatsApp.`
+          `No pude ubicar con precisión *${votedName}*. Mandame la *calle y número exacto* o compartí tu *ubicación actual* desde WhatsApp.`
         ).catch(() => {});
-        logWebhook('poll_results_ignored', { reason: 'candidate_no_coords', votedName: voted.name });
+        logWebhook('poll_results_ignored', { reason: 'candidate_no_coords', votedName });
         return { status: 200, body: { success: true, ignored: true, reason: 'candidate_no_coords' } };
       }
 

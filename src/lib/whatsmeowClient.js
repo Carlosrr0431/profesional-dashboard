@@ -1,6 +1,9 @@
 /**
  * Cliente HTTP hacia whatsmeow-api (Railway).
  * Auth: header X-API-Key. Sesión: agent_code.
+ *
+ * Patrón alineado con remax-noa `whatsmeow-send-client.js`:
+ * check-number antes de enviar, no normalizar JIDs (@lid).
  */
 
 const DEFAULT_API_URL = 'https://whatsmeow-api-production.up.railway.app';
@@ -21,11 +24,22 @@ export function getWhatsmeowApiKey() {
   ).trim();
 }
 
-/** Normaliza a dígitos AR típicos (549…). */
+/**
+ * Normaliza a dígitos AR típicos (549…).
+ * No usar con JIDs (@lid / @s.whatsapp.net): devolvería basura.
+ */
 export function normalizeWhatsmeowPhone(telefono) {
-  let clean = String(telefono || '').replace(/\D/g, '');
+  const raw = String(telefono || '').trim();
+  if (!raw || raw.includes('@')) return '';
+
+  let clean = raw.replace(/\D/g, '');
   if (!clean) return '';
+
   if (clean.startsWith('0')) clean = clean.replace(/^0+/, '');
+
+  // Evitar tratar un user-id de @lid (15+ dígitos) como teléfono AR
+  if (clean.length > 13 && !clean.startsWith('54')) return '';
+
   if (clean.startsWith('549')) return clean;
   if (clean.startsWith('54') && !clean.startsWith('549')) {
     return `549${clean.slice(2)}`;
@@ -34,6 +48,11 @@ export function normalizeWhatsmeowPhone(telefono) {
     return `549${clean}`;
   }
   return clean;
+}
+
+function isWhatsappJid(value) {
+  const s = String(value || '');
+  return s.includes('@lid') || s.includes('@s.whatsapp.net') || s.includes('@g.us');
 }
 
 async function whatsmeowFetch(path, { method = 'GET', body, apiKey } = {}) {
@@ -75,20 +94,57 @@ function extractMessageId(data) {
 }
 
 /**
- * @returns {Promise<{success: boolean, messageId?: string|null, error?: string, payload?: any}>}
+ * Resuelve el JID real (@lid o @s.whatsapp.net).
+ * Enviar solo el número 549… puede devolver success sin entregar.
+ */
+export async function resolveWhatsmeowJid(agentCode, to, { apiKey } = {}) {
+  const raw = String(to || '').trim();
+  if (!raw || !agentCode) return '';
+  if (raw.includes('@lid') || raw.includes('@s.whatsapp.net') || raw.includes('@g.us')) {
+    return raw;
+  }
+  const phone = normalizeWhatsmeowPhone(raw);
+  if (!phone) return '';
+  try {
+    const result = await whatsmeowFetch(
+      `/api/check-number?agent_code=${encodeURIComponent(agentCode)}&phone=${encodeURIComponent(phone)}`,
+      { method: 'GET', apiKey }
+    );
+    const jid = result.data?.data?.jid;
+    const registered = result.data?.data?.registered;
+    if (result.ok && result.data?.success !== false && registered && jid) {
+      return String(jid);
+    }
+    if (result.ok && result.data?.success !== false && registered === false) {
+      return '';
+    }
+  } catch {
+    // fallback al teléfono
+  }
+  return phone;
+}
+
+/**
+ * @returns {Promise<{success: boolean, messageId?: string|null, error?: string, payload?: any, destinatario?: string}>}
  */
 export async function sendWhatsmeowText(agentCode, to, text, { apiKey } = {}) {
-  const phone = normalizeWhatsmeowPhone(to);
   const message = String(text || '').trim();
-  if (!agentCode || !phone || !message) {
+  if (!agentCode || !to || !message) {
     return { success: false, error: 'agentCode, to y text son requeridos' };
   }
 
   try {
+    const dest = await resolveWhatsmeowJid(agentCode, to, { apiKey });
+    if (!dest) {
+      return { success: false, error: 'number is not registered on WhatsApp' };
+    }
+    // Si `to` es teléfono → mandar dígitos (server resuelve JID + sender_pn).
+    // Si `to` ya es JID (@lid) → mandar el JID resuelto. NUNCA normalizePhone(JID).
+    const phonePayload = isWhatsappJid(to) ? dest : (normalizeWhatsmeowPhone(to) || dest);
     const result = await whatsmeowFetch('/api/messages/send', {
       method: 'POST',
       apiKey,
-      body: { agent_code: agentCode, phone, message },
+      body: { agent_code: agentCode, phone: phonePayload, message },
     });
     const messageId = extractMessageId(result.data);
     if (!result.ok || result.data?.success === false) {
@@ -98,7 +154,12 @@ export async function sendWhatsmeowText(agentCode, to, text, { apiKey } = {}) {
         payload: result.data,
       };
     }
-    return { success: true, messageId: messageId || `out_${Date.now()}`, payload: result.data };
+    return {
+      success: true,
+      messageId: messageId || `out_${Date.now()}`,
+      payload: result.data,
+      destinatario: dest,
+    };
   } catch (err) {
     return { success: false, error: err?.message || 'send_failed' };
   }
@@ -106,20 +167,24 @@ export async function sendWhatsmeowText(agentCode, to, text, { apiKey } = {}) {
 
 /**
  * POST /v2/message/sendPoll/{agentCode}
- * @returns {Promise<{success: boolean, messageId?: string|null, error?: string, payload?: any}>}
+ * @returns {Promise<{success: boolean, messageId?: string|null, error?: string, payload?: any, destinatario?: string}>}
  */
 export async function sendWhatsmeowPoll(agentCode, to, { name, options, maxSelections = 1 } = {}, { apiKey } = {}) {
-  const phone = normalizeWhatsmeowPhone(to);
   const opts = (Array.isArray(options) ? options : [])
     .map((o) => String(o || '').trim())
     .filter(Boolean)
     .slice(0, 8);
 
-  if (!agentCode || !phone || opts.length < 2) {
+  if (!agentCode || !to || opts.length < 2) {
     return { success: false, error: 'agentCode, to y al menos 2 options son requeridos' };
   }
 
   try {
+    const dest = await resolveWhatsmeowJid(agentCode, to, { apiKey });
+    if (!dest) {
+      return { success: false, error: 'number is not registered on WhatsApp' };
+    }
+    const numberPayload = isWhatsappJid(to) ? dest : (normalizeWhatsmeowPhone(to) || dest);
     const result = await whatsmeowFetch(
       `/v2/message/sendPoll/${encodeURIComponent(agentCode)}`,
       {
@@ -127,7 +192,7 @@ export async function sendWhatsmeowPoll(agentCode, to, { name, options, maxSelec
         apiKey,
         body: {
           agent_code: agentCode,
-          number: phone,
+          number: numberPayload,
           name: name || 'Elegí una opción',
           options: opts,
           max_selections: maxSelections > 0 ? maxSelections : 1,
@@ -142,7 +207,12 @@ export async function sendWhatsmeowPoll(agentCode, to, { name, options, maxSelec
         payload: result.data,
       };
     }
-    return { success: true, messageId: messageId || `poll_${Date.now()}`, payload: result.data };
+    return {
+      success: true,
+      messageId: messageId || `poll_${Date.now()}`,
+      payload: result.data,
+      destinatario: dest,
+    };
   } catch (err) {
     return { success: false, error: err?.message || 'poll_send_failed' };
   }

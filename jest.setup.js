@@ -15,8 +15,14 @@ process.env.OPENAI_API_KEY                   = 'sk-test-openai-key';
 process.env.DEEPSEEK_API_KEY                 = 'sk-test-deepseek-key';
 process.env.DEEPSEEK_BASE_URL                = 'https://api.deepseek.com';
 process.env.DEEPSEEK_MODEL                   = 'deepseek-v4-flash';
+process.env.WHATSMEOW_API_KEY                = 'test-whatsmeow-key';
+process.env.WHATSMEOW_API_URL                = 'https://test.whatsmeow.example';
+process.env.WHATSMEOW_AGENT_CODE             = 'Test_Agent';
+process.env.WHATSMEOW_PHONE                  = '5493873088777';
+// Compat legacy en tests antiguos
 process.env.WASENDER_API_KEY                 = 'test-wasender-key';
 process.env.WASENDER_BASE_URL                = 'https://test.wasenderapi.com/api';
+process.env.WASENDER_PHONE                   = '5493873088777';
 process.env.SUPABASE_URL                     = 'https://test.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY        = 'test-service-role-key';
 process.env.NEXT_PUBLIC_SUPABASE_URL         = 'https://test.supabase.co';
@@ -34,12 +40,33 @@ process.env.EXPO_PUBLIC_NOMINATIM_URL        = 'https://test-nominatim.example';
 const { installGeoFetchMock } = require('./__tests__/helpers/geo-fetch-mock');
 installGeoFetchMock((url) => {
   const urlStr = String(url);
-  if (urlStr.includes('wasenderapi.com') || urlStr.includes('test.wasenderapi.com')) {
+  if (
+    urlStr.includes('wasenderapi.com')
+    || urlStr.includes('test.wasenderapi.com')
+    || urlStr.includes('whatsmeow')
+    || urlStr.includes('/api/messages/send')
+    || urlStr.includes('/v2/message/sendPoll')
+    || urlStr.includes('/api/check-number')
+  ) {
+    if (urlStr.includes('/api/check-number')) {
+      const phoneMatch = urlStr.match(/[?&]phone=([^&]+)/);
+      const phone = phoneMatch ? decodeURIComponent(phoneMatch[1]) : '5493870000000';
+      const payload = {
+        success: true,
+        data: { jid: `${phone}@s.whatsapp.net`, registered: true },
+      };
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(payload),
+        text: () => Promise.resolve(JSON.stringify(payload)),
+      });
+    }
     return Promise.resolve({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ success: true, data: { msgId: 'test-msg' } }),
-      text: () => Promise.resolve(JSON.stringify({ success: true })),
+      json: () => Promise.resolve({ success: true, data: { message_id: 'test-msg', msgId: 'test-msg' } }),
+      text: () => Promise.resolve(JSON.stringify({ success: true, data: { message_id: 'test-msg' } })),
     });
   }
   return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
