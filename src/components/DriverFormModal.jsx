@@ -244,7 +244,7 @@ export default function DriverFormModal({ driver, ownerName = null, onClose, onS
               {[
                 {
                   value: BILLING_MODE_COMMISSION,
-                  hint: 'Se bloquea automáticamente si no paga comisiones en 3 días.',
+                  hint: '1 semana de trabajo + 3 días de gracia. Si no paga, se bloquea solo.',
                 },
                 {
                   value: BILLING_MODE_WEEKLY,

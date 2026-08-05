@@ -651,7 +651,7 @@ async function chooseDriverForClaim(
 
   if (error) throw error;
 
-  // Cobro por comisiones: gracia 3 días. Cobro semanal: solo bloqueo manual.
+  // Cobro por comisiones: 1 sem. trabajo + 3 días gracia. Semanal: solo bloqueo manual.
   const drivers = (driversRaw || []).filter((d) => isDriverEligibleForDispatch(d));
 
   const suspendedCount = (driversRaw || []).length - drivers.length;

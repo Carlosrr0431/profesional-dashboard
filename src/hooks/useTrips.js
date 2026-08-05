@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveCommissionOverdue } from '../../shared/driver-billing';
 
 export function useDriverTrips(driverId) {
   const [trips, setTrips] = useState([]);
@@ -162,10 +163,10 @@ function computeStats(
     ? 0
     : Math.max(0, Math.round((totalPaid - totalCommission) * 100) / 100);
 
-  const debtSince = commissionDebtSinceAt ? new Date(commissionDebtSinceAt) : null;
-  const threeDaysAgo = new Date();
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-  const isOverdue = commissionBalance > 0 && debtSince !== null && debtSince < threeDaysAgo;
+  const isOverdue = resolveCommissionOverdue({
+    pending_commission: commissionBalance,
+    commission_debt_since_at: commissionDebtSinceAt,
+  });
   const lastPayment = lastCommissionPaymentAt
     ? new Date(lastCommissionPaymentAt)
     : (commissionPayments.length > 0 ? new Date(commissionPayments[0].created_at) : null);

@@ -152,7 +152,7 @@ export default function DriverDetailPanel({
       toast.success(
         mode === BILLING_MODE_WEEKLY
           ? 'Modo de cobro: semanal. Recibe viajes salvo bloqueo manual.'
-          : 'Modo de cobro: comisiones con gracia de 3 días.',
+          : 'Modo de cobro: comisiones (1 semana + 3 días de gracia).',
       );
     } catch (err) {
       console.error('Billing mode error:', formatError(err));
@@ -531,7 +531,7 @@ function CommissionTab({
           <p className="text-[11px] text-gray-500 mt-1">
             {weeklyBilling
               ? 'Cobro semanal: siempre recibe viajes salvo bloqueo manual.'
-              : 'Comisiones: se bloquea solo si la deuda supera 3 días.'}
+              : 'Comisiones: 1 semana de trabajo + 3 días de gracia; luego se bloquea si no paga.'}
           </p>
         </div>
         <div className="flex gap-2">
@@ -583,7 +583,7 @@ function CommissionTab({
               <p className="text-[10px] text-danger/70">
                 {isManuallyBlocked
                   ? 'No recibe viajes hasta que lo desbloquees desde el panel.'
-                  : 'No puede tomar viajes hasta regularizar la comisión (más de 3 días).'}
+                  : 'No puede tomar viajes hasta regularizar la comisión (venció la semana + gracia).'}
               </p>
             </div>
           </div>

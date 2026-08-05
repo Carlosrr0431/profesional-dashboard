@@ -6640,61 +6640,20 @@ async function getBlockedDriverIds(driverIds) {
 
   logWebhook('db_blocked_drivers_start', { driverCandidates: driverIds.length });
 
-  const { data: trips, error: tripsError } = await getSupabase()
-    .from('trips')
-    .select('driver_id, commission_amount, completed_at')
-    .in('driver_id', driverIds)
-    .eq('status', 'completed')
-    .gt('commission_amount', 0)
-    .order('completed_at', { ascending: true });
-  if (tripsError) throw tripsError;
-
-  const { data: payments, error: paymentsError } = await getSupabase()
-    .from('commission_payments')
-    .select('driver_id, amount, created_at')
-    .in('driver_id', driverIds)
-    .order('created_at', { ascending: false });
-  if (paymentsError) throw paymentsError;
-
-  const paymentsByDriver = new Map();
-  for (const payment of payments || []) {
-    if (!paymentsByDriver.has(payment.driver_id)) paymentsByDriver.set(payment.driver_id, []);
-    paymentsByDriver.get(payment.driver_id).push(payment);
-  }
-
-  const tripsByDriver = new Map();
-  for (const trip of trips || []) {
-    if (!tripsByDriver.has(trip.driver_id)) tripsByDriver.set(trip.driver_id, []);
-    tripsByDriver.get(trip.driver_id).push(trip);
-  }
+  // Misma regla que el filtro primario: pending + debt_since (7+3) / semanal / bloqueo manual.
+  const { data: drivers, error } = await getSupabase()
+    .from('drivers')
+    .select('id, pending_commission, commission_debt_since_at, billing_mode, commission_blocked')
+    .in('id', driverIds);
+  if (error) throw error;
 
   const blocked = new Set();
-  const threeDaysAgo = new Date();
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-
-  for (const driverId of driverIds) {
-    const driverTrips = tripsByDriver.get(driverId) || [];
-    if (driverTrips.length === 0) continue;
-    const driverPayments = paymentsByDriver.get(driverId) || [];
-    const totalCommission = driverTrips.reduce((sum, item) => sum + (Number(item.commission_amount) || 0), 0);
-    const totalPaid = driverPayments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    const balance = totalCommission - totalPaid;
-    if (balance <= 0) continue;
-
-    const lastPaymentDate = driverPayments[0]?.created_at ? new Date(driverPayments[0].created_at) : null;
-    const unpaidTrips = lastPaymentDate
-      ? driverTrips.filter((trip) => new Date(trip.completed_at) > lastPaymentDate)
-      : driverTrips;
-    const oldestUnpaid = unpaidTrips[0];
-    if (oldestUnpaid && new Date(oldestUnpaid.completed_at) < threeDaysAgo) {
-      blocked.add(driverId);
-    }
+  for (const driver of drivers || []) {
+    if (!isDriverEligibleForDispatch(driver)) blocked.add(driver.id);
   }
 
   logWebhook('db_blocked_drivers_ok', {
     driverCandidates: driverIds.length,
-    tripsRows: (trips || []).length,
-    paymentsRows: (payments || []).length,
     blockedCount: blocked.size,
   });
   return blocked;
@@ -6783,7 +6742,7 @@ async function chooseDriver(
     .eq('is_available', true);
   if (error) throw error;
 
-  // Cobro por comisiones: gracia 3 días. Cobro semanal: solo bloqueo manual.
+  // Cobro por comisiones: 1 sem. trabajo + 3 días gracia. Semanal: solo bloqueo manual.
   const drivers = (driversRaw || []).filter((d) => isDriverEligibleForDispatch(d));
   const suspendedByCommission = (driversRaw || []).length - drivers.length;
   if (suspendedByCommission > 0) {
