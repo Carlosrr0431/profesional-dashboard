@@ -82,6 +82,21 @@ function parseJsonLines() {
   }
 }
 
+/**
+ * Línea dedicada a OTPs y comunicaciones de la passenger-app.
+ * Por convención es la primera línea (index 1). Se puede sobreescribir
+ * con la variable WHATSMEOW_OTP_AGENT_CODE para apuntar a un agentCode específico.
+ */
+export function getPassengerWhatsmeowLine() {
+  const override = String(process.env.WHATSMEOW_OTP_AGENT_CODE || '').trim();
+  if (override) {
+    const all = listWhatsmeowLines();
+    const found = all.find((l) => l.agentCode.toLowerCase() === override.toLowerCase());
+    if (found) return found;
+  }
+  return listWhatsmeowLines()[0] || null;
+}
+
 /** @returns {{ phone: string, agentCode: string, apiKey: string, label: string, index: number }[]} */
 export function listWhatsmeowLines() {
   const fromJson = parseJsonLines();

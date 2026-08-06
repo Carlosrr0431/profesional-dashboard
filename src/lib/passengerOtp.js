@@ -6,9 +6,8 @@ import {
   normalizePassengerPhoneForDb,
   toWhatsAppJid,
 } from './passengerAuthPhone';
-
-const WASENDER_API_KEY = process.env.WASENDER_API_KEY || '';
-const WASENDER_BASE_URL = process.env.WASENDER_BASE_URL || 'https://www.wasenderapi.com/api';
+import { sendWhatsmeowText, getWhatsmeowApiKey } from './whatsmeowClient';
+import { getPassengerWhatsmeowLine } from './whatsmeowLines';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
@@ -57,8 +56,10 @@ export function generateOtpCode() {
 }
 
 export async function sendWhatsAppOtp(phone, code) {
-  if (!WASENDER_API_KEY) {
-    return { ok: false, reason: 'missing_wasender_api_key' };
+  const line = getPassengerWhatsmeowLine();
+  const apiKey = getWhatsmeowApiKey();
+  if (!apiKey || !line?.agentCode) {
+    return { ok: false, reason: 'missing_whatsmeow_config' };
   }
 
   const to = toWhatsAppJid(phone);
@@ -74,6 +75,7 @@ export async function sendWhatsAppOtp(phone, code) {
   const logBase = {
     phone: phoneDigits,
     jid: to,
+    agentCode: line.agentCode,
   };
 
   console.info('[passenger-otp]', JSON.stringify({
@@ -81,57 +83,23 @@ export async function sendWhatsAppOtp(phone, code) {
     ...logBase,
   }));
 
-  const response = await fetch(`${WASENDER_BASE_URL}/send-message`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${WASENDER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ to, text }),
-  });
+  const result = await sendWhatsmeowText(line.agentCode, phone, text, { apiKey });
 
-  const rawBody = await response.text().catch(() => '');
-  let payload = null;
-  try {
-    payload = rawBody ? JSON.parse(rawBody) : null;
-  } catch {
-    payload = null;
-  }
-
-  if (!response.ok) {
-    const bodyLower = rawBody.toLowerCase();
-    const jidMissing = bodyLower.includes('does not exist') || bodyLower.includes('jid');
-    console.info('[passenger-otp]', JSON.stringify({
-      stage: 'send_failed',
+  if (!result.success) {
+    console.warn('[passenger-otp]', JSON.stringify({
+      stage: 'send_fail',
       ...logBase,
-      httpStatus: response.status,
-      body: rawBody || 'no_body',
+      error: result.error || null,
     }));
-    return {
-      ok: false,
-      reason: `whatsapp_send_error:http_${response.status}:${rawBody || 'no_body'}`,
-      jidMissing,
-    };
-  }
-
-  const apiError = payload?.error || payload?.errors
-    || (payload?.success === false ? payload?.message : null);
-  if (apiError) {
-    console.info('[passenger-otp]', JSON.stringify({
-      stage: 'send_api_error',
-      ...logBase,
-      error: String(apiError),
-    }));
-    return { ok: false, reason: `whatsapp_send_error:${String(apiError)}` };
+    return { ok: false, reason: result.error || 'whatsmeow_send_failed' };
   }
 
   console.info('[passenger-otp]', JSON.stringify({
     stage: 'send_ok',
     ...logBase,
-    msgId: payload?.data?.msgId ? String(payload.data.msgId) : null,
+    messageId: result.messageId || null,
   }));
-
-  return { ok: true, to, msgId: payload?.data?.msgId ? String(payload.data.msgId) : null };
+  return { ok: true, messageId: result.messageId || null };
 }
 
 export async function assertCanSendOtp(supabase, phone) {
