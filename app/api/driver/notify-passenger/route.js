@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-
-const WASENDER_API_KEY = process.env.WASENDER_API_KEY || '';
-const WASENDER_BASE_URL = process.env.WASENDER_BASE_URL || 'https://www.wasenderapi.com/api';
+import { sendWhatsmeowText, getWhatsmeowApiKey } from '../../../../src/lib/whatsmeowClient';
+import { getDefaultWhatsmeowLine } from '../../../../src/lib/whatsmeowLines';
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -24,47 +23,47 @@ async function getDriverForUser(supabase, userId) {
     .eq('user_id', userId)
     .maybeSingle();
   if (error) throw error;
-  return data?.id || null;
+  return data;
 }
 
 async function claimCompletionSummarySend(supabase, tripId, driverId) {
+  const now = new Date().toISOString();
   const { data, error } = await supabase
     .from('trips')
-    .update({ completion_summary_sent_at: new Date().toISOString() })
+    .update({ completion_summary_sent_at: now })
     .eq('id', tripId)
     .eq('driver_id', driverId)
-    .eq('status', 'completed')
     .is('completion_summary_sent_at', null)
     .select('id')
     .maybeSingle();
-
   if (error) throw error;
-  return !!data?.id;
+  return Boolean(data?.id);
 }
 
 export async function POST(request) {
   try {
     const authHeader = request.headers.get('authorization') || '';
-    const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-    if (!jwt) {
-      return NextResponse.json({ ok: false, error: 'No autenticado' }, { status: 401 });
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (!token) {
+      return NextResponse.json({ ok: false, error: 'No autorizado' }, { status: 401 });
     }
 
     const supabase = getSupabaseAdmin();
-    const { data: userData, error: authError } = await supabase.auth.getUser(jwt);
-    if (authError || !userData?.user) {
-      return NextResponse.json({ ok: false, error: 'Token inválido' }, { status: 401 });
+    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !authData?.user) {
+      return NextResponse.json({ ok: false, error: 'No autorizado' }, { status: 401 });
     }
 
-    const driverId = await getDriverForUser(supabase, userData.user.id);
-    if (!driverId) {
-      return NextResponse.json({ ok: false, error: 'Conductor no encontrado' }, { status: 403 });
+    const driver = await getDriverForUser(supabase, authData.user.id);
+    if (!driver?.id) {
+      return NextResponse.json({ ok: false, error: 'Chofer no encontrado' }, { status: 403 });
     }
+    const driverId = driver.id;
 
-    const body = await request.json();
-    const rawPhone = String(body?.phone || '').trim();
+    const body = await request.json().catch(() => ({}));
+    const rawPhone = body?.phone || body?.passengerPhone || '';
     const message = String(body?.message || '').trim();
-    const tripId = String(body?.tripId || body?.trip_id || '').trim();
+    const tripId = String(body?.tripId || '').trim();
 
     if (!rawPhone || !message) {
       return NextResponse.json({ ok: false, error: 'phone y message son requeridos' }, { status: 400 });
@@ -84,36 +83,27 @@ export async function POST(request) {
       return NextResponse.json({ ok: true, skipped: true, reason: 'already_sent' });
     }
 
-    if (!WASENDER_API_KEY) {
-      return NextResponse.json({ ok: false, error: 'WaSender no configurado' }, { status: 503 });
+    const line = getDefaultWhatsmeowLine();
+    const apiKey = getWhatsmeowApiKey();
+    if (!apiKey || !line?.agentCode) {
+      return NextResponse.json({ ok: false, error: 'WhatsApp (whatsmeow) no configurado' }, { status: 503 });
     }
 
-    const to = `${phone}@s.whatsapp.net`;
-    const resp = await fetch(`${WASENDER_BASE_URL}/send-message`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${WASENDER_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ to, text: message }),
-    });
-
-    if (!resp.ok) {
+    const result = await sendWhatsmeowText(line.agentCode, phone, message, { apiKey });
+    if (!result.success) {
       await supabase
         .from('trips')
         .update({ completion_summary_sent_at: null })
         .eq('id', tripId)
         .eq('driver_id', driverId);
 
-      const errBody = await resp.text();
       return NextResponse.json(
-        { ok: false, error: `WaSender error: ${errBody.slice(0, 200)}` },
+        { ok: false, error: `WhatsApp error: ${String(result.error || '').slice(0, 200)}` },
         { status: 502 }
       );
     }
 
-    const payload = await resp.json();
-    return NextResponse.json({ ok: true, msgId: payload?.data?.msgId || null });
+    return NextResponse.json({ ok: true, msgId: result.messageId || null });
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: err?.message || 'Error interno' },
