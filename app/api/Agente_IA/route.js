@@ -11726,6 +11726,30 @@ async function processWebhookBody(body, requestMeta = {}) {
         return { status: 200, body: { success: true, ignored: true, reason: 'voter_phone_unresolvable' } };
       }
 
+      // Deduplicación de votos: whatsmeow envía messages.poll + messages.upsert para el mismo
+      // voto. Ambos llegan como poll.results (vía normalizeWhatsmeowWebhookBody). Si el voto
+      // tiene un ID único (_vote_msg_id = msg.id del voto, no del poll), usarlo para guardar
+      // exactamente una entrada en whatsapp_messages y rechazar el duplicado.
+      const voteMsgId = voted._vote_msg_id || null;
+      if (voteMsgId && voterPhone) {
+        try {
+          const dedupResult = await appendIncomingMessage({
+            phone: voterPhone,
+            pushName: null,
+            messageId: `poll_vote:${voteMsgId}`,
+            messageType: 'poll_vote',
+            content: null,
+            rawPayload: null,
+          });
+          if (!dedupResult?.inserted) {
+            logWebhook('poll_results_ignored', { reason: 'duplicate_vote', pollMsgId, voteMsgId });
+            return { status: 200, body: { success: true, ignored: true, reason: 'duplicate_vote' } };
+          }
+        } catch {
+          // Si el RPC falla, continuar (mejor procesar doble que no procesar)
+        }
+      }
+
       // 1️⃣ Buscar la conversación del votante (para datos básicos)
       const { data: pollConv } = await getSupabase()
         .from('whatsapp_conversations')

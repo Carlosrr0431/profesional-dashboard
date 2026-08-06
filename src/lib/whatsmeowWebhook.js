@@ -134,6 +134,12 @@ function buildMessageObject(msg) {
           selectedButtonID: buttonId,
           selectedDisplayText: display,
         },
+        // Permite que detectMessageType() identifique votos que llegan como messages.upsert
+        // sin poll_id (no atrapados por isPollVoteMsg) y los trate como 'poll_response',
+        // deferiendo al handler poll.results en lugar de procesarlos como texto libre.
+        ...(String(msg.type || '') === 'poll_vote' || String(msg.button_id || '').match(/^opt_\d+$/i)
+          ? { pollUpdateMessage: { vote: { selectedOptions: display ? [{ name: display }] : [] } } }
+          : {}),
       };
     }
     default:
@@ -202,6 +208,9 @@ function toPollResults(msg, agentCode) {
           voters: phone ? [`${phone}@s.whatsapp.net`] : (remoteJid ? [remoteJid] : []),
           button_id: buttonId || null,
           poll_option: pollOption || null,
+          // ID único del voto (no el del poll): permite deduplicación en el handler
+          // cuando messages.poll + messages.upsert llegan para el mismo voto.
+          _vote_msg_id: msg.id || null,
         },
       ],
       _whatsmeow_vote: true,
