@@ -4,7 +4,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../../../src/lib/supabase';
 import Link from 'next/link';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Constantes ───────────────────────────────────────────────────────────────
+
+const QR_EXPIRE_SECONDS = 55; // segundos antes de auto-refrescar el QR (~60s es el límite real)
+const STATUS_POLL_MS = 2500;  // polling rápido mientras el modal QR está abierto
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const LABELS = {
   connected: 'Conectado',
@@ -24,40 +29,161 @@ function statusBadge(status) {
 
 function formatPhone(raw) {
   const d = String(raw || '').replace(/\D/g, '');
-  if (d.startsWith('549') && d.length === 13) {
-    return `+54 9 ${d.slice(3, 7)} ${d.slice(7, 9)}-${d.slice(9)}`;
-  }
-  if (d.startsWith('54') && d.length === 12) {
-    return `+54 ${d.slice(2, 6)} ${d.slice(6, 8)}-${d.slice(8)}`;
-  }
+  if (d.startsWith('549') && d.length === 13) return `+54 9 ${d.slice(3, 7)} ${d.slice(7, 9)}-${d.slice(9)}`;
+  if (d.startsWith('54') && d.length === 12) return `+54 ${d.slice(2, 6)} ${d.slice(6, 8)}-${d.slice(8)}`;
   return `+${d}`;
 }
 
-function QrImage({ qr }) {
+function buildQrSrc(qr) {
   if (!qr) return null;
-  const src = qr.startsWith('data:image') ? qr
-    : qr.startsWith('http') ? qr
-    : `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(qr)}`;
+  if (qr.startsWith('data:image') || qr.startsWith('http')) return qr;
+  return `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=8&data=${encodeURIComponent(qr)}`;
+}
+
+async function getAuthHeaders() {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+// ─── Modal QR ─────────────────────────────────────────────────────────────────
+
+function QrModal({ modal, onClose, onRefresh }) {
+  const [countdown, setCountdown] = useState(QR_EXPIRE_SECONDS);
+  const timerRef = useRef(null);
+  const src = buildQrSrc(modal.qr);
+
+  // Reiniciar countdown cada vez que llega un QR nuevo
+  useEffect(() => {
+    setCountdown(QR_EXPIRE_SECONDS);
+    clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          onRefresh(); // auto-refresh antes de expirar
+          return QR_EXPIRE_SECONDS;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timerRef.current);
+  }, [modal.qr, onRefresh]);
+
+  // Estado de éxito: auto-cierre después de 2 s
+  useEffect(() => {
+    if (!modal.connected) return;
+    const t = setTimeout(onClose, 2000);
+    return () => clearTimeout(t);
+  }, [modal.connected, onClose]);
+
   return (
-    <div className="flex flex-col items-center gap-3 mt-4">
-      <div className="rounded-2xl bg-white p-3 shadow-xl shadow-black/40">
-        <img
-          src={src}
-          alt="Código QR WhatsApp"
-          className="w-52 h-52 object-contain"
-          key={src}
-        />
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className={`relative w-full max-w-sm rounded-2xl shadow-2xl transition-all duration-300 ${
+        modal.connected
+          ? 'bg-[#0d1f14] border border-emerald-600/40 p-8'
+          : 'bg-[#111827] border border-white/10 p-6'
+      }`}>
+
+        {/* Botón cerrar (solo antes de conectar) */}
+        {!modal.connected && (
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-white/10 text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+
+        {modal.connected ? (
+          /* ── Estado éxito ── */
+          <div className="flex flex-col items-center gap-4 text-center">
+            <div className="w-18 h-18 rounded-full bg-emerald-500/20 flex items-center justify-center ring-2 ring-emerald-500/30 p-4">
+              <svg className="w-10 h-10 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-emerald-300 font-bold text-2xl">¡Conectado!</p>
+              <p className="text-gray-400 text-sm mt-1">{modal.lineName}</p>
+            </div>
+          </div>
+        ) : (
+          /* ── Estado QR ── */
+          <>
+            {/* Título */}
+            <div className="mb-5 pr-8">
+              <h3 className="text-white font-bold text-lg">Escanear código QR</h3>
+              <p className="text-gray-400 text-sm">{modal.lineName} · {formatPhone(modal.phone)}</p>
+            </div>
+
+            {/* QR */}
+            <div className="flex justify-center mb-5">
+              {src ? (
+                <div className="rounded-2xl bg-white p-3 shadow-xl shadow-black/40">
+                  <img
+                    src={src}
+                    alt="Código QR WhatsApp"
+                    className="w-60 h-60 object-contain"
+                    key={src}
+                  />
+                </div>
+              ) : (
+                <div className="w-60 h-60 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+                  <svg className="w-10 h-10 text-gray-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                </div>
+              )}
+            </div>
+
+            {/* Instrucciones */}
+            <ol className="text-gray-400 text-xs space-y-1.5 list-decimal list-inside mb-5">
+              <li>Abrí <strong className="text-white">WhatsApp</strong> en tu teléfono</li>
+              <li>Ir a <strong className="text-white">Ajustes → Dispositivos vinculados</strong></li>
+              <li>Tocá <strong className="text-white">Vincular dispositivo</strong> y escaneá</li>
+            </ol>
+
+            {/* Footer: pulse + countdown + refresh */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-xs text-gray-400">Esperando escaneo...</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-500">
+                  Expira en{' '}
+                  <span className={`font-mono font-semibold ${countdown <= 10 ? 'text-amber-400' : 'text-gray-400'}`}>
+                    {countdown}s
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  className="flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 transition-colors"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Actualizar
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
-      <p className="text-xs text-gray-400 text-center max-w-[200px] leading-relaxed">
-        Abrí WhatsApp → Ajustes → Dispositivos vinculados → Vincular dispositivo
-      </p>
     </div>
   );
 }
 
 // ─── Tarjeta por línea ────────────────────────────────────────────────────────
 
-function LineCard({ lineData, onRefresh }) {
+function LineCard({ lineData, onRefresh, onQrReady }) {
   const [acting, setActing] = useState(false);
   const [localError, setLocalError] = useState('');
   const [localSnap, setLocalSnap] = useState(null);
@@ -66,14 +192,11 @@ function LineCard({ lineData, onRefresh }) {
   const snap = localSnap || lineData;
   const badge = statusBadge(snap.status);
 
-  async function getAuthHeaders() {
-    const { data } = await supabase.auth.getSession();
-    const token = data?.session?.access_token;
-    return {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    };
-  }
+  const lineNames = {
+    1: { name: 'Nueva línea', icon: '🧳', desc: 'Agente IA — reservas WhatsApp + OTPs de la app' },
+    2: { name: 'Línea Principal', icon: '🚕', desc: 'Agente IA — reservas por WhatsApp' },
+  };
+  const meta = lineNames[snap.index] || { name: `Línea ${snap.index}`, icon: '📱', desc: '' };
 
   async function callAction(action) {
     if (acting) return;
@@ -92,6 +215,10 @@ function LineCard({ lineData, onRefresh }) {
       } else {
         setLocalSnap(json);
         onRefresh?.();
+        // Si la respuesta trae QR, abrir modal en el padre
+        if (json.qr) {
+          onQrReady?.({ agentCode: snap.agentCode, qr: json.qr, lineName: meta.name, phone: snap.phone });
+        }
       }
     } catch (err) {
       setLocalError(err?.message || 'Error de red');
@@ -100,18 +227,19 @@ function LineCard({ lineData, onRefresh }) {
     }
   }
 
+  // Sincronizar snap externo cuando lineData cambia (ej: polling detecta connected)
+  useEffect(() => {
+    if (lineData.connected && localSnap && !localSnap.connected) {
+      setLocalSnap(null); // ceder control al lineData actualizado
+    }
+  }, [lineData.connected, localSnap]);
+
   function copyWebhook() {
     navigator.clipboard.writeText(snap.webhookUrl || '').then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
   }
-
-  const lineNames = {
-    1: { name: 'Nueva línea', icon: '🧳', desc: 'Agente IA — reservas WhatsApp + OTPs de la app' },
-    2: { name: 'Línea Principal', icon: '🚕', desc: 'Agente IA — reservas por WhatsApp' },
-  };
-  const meta = lineNames[snap.index] || { name: `Línea ${snap.index}`, icon: '📱', desc: '' };
 
   return (
     <div className={`flex flex-col gap-4 rounded-2xl border p-6 transition-all ${
@@ -129,7 +257,6 @@ function LineCard({ lineData, onRefresh }) {
             <p className="text-gray-400 text-xs mt-0.5 leading-relaxed">{meta.desc}</p>
           </div>
         </div>
-        {/* Badge estado */}
         <span className={`shrink-0 inline-flex items-center gap-1.5 border rounded-full px-2.5 py-0.5 text-xs font-semibold ${badge.color}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
           {LABELS[snap.status] || snap.status}
@@ -163,13 +290,6 @@ function LineCard({ lineData, onRefresh }) {
         <p className="text-gray-300 text-[11px] font-mono break-all leading-relaxed">{snap.webhookUrl}</p>
       </div>
 
-      {/* QR code */}
-      {!snap.connected && snap.qr && (
-        <div className="flex flex-col items-center">
-          <QrImage qr={snap.qr} />
-        </div>
-      )}
-
       {/* Estado conectado */}
       {snap.connected && (
         <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3">
@@ -187,7 +307,7 @@ function LineCard({ lineData, onRefresh }) {
         </p>
       )}
 
-      {/* Botones de acción */}
+      {/* Botones */}
       <div className="flex gap-2 mt-auto pt-1">
         {!snap.connected && (
           <button
@@ -212,19 +332,6 @@ function LineCard({ lineData, onRefresh }) {
                 Conectar
               </>
             )}
-          </button>
-        )}
-        {!snap.connected && snap.qr && (
-          <button
-            type="button"
-            disabled={acting}
-            onClick={() => callAction('refresh-qr')}
-            className="flex items-center justify-center gap-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 text-sm font-medium py-2.5 px-4 rounded-xl transition-all disabled:opacity-50"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Nuevo QR
           </button>
         )}
         {snap.connected && (
@@ -252,16 +359,9 @@ export default function WhatsAppAdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lastRefresh, setLastRefresh] = useState(null);
+  const [qrModal, setQrModal] = useState(null); // { agentCode, qr, phone, lineName, connected }
   const pollRef = useRef(null);
-
-  async function getAuthHeaders() {
-    const { data } = await supabase.auth.getSession();
-    const token = data?.session?.access_token;
-    return {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    };
-  }
+  const qrPollRef = useRef(null); // polling rápido mientras el modal está abierto
 
   const fetchLines = useCallback(async () => {
     try {
@@ -271,6 +371,7 @@ export default function WhatsAppAdminPage() {
       if (json.ok && Array.isArray(json.lines)) {
         setLines(json.lines);
         setError('');
+        return json.lines;
       } else {
         setError(json.error || 'Error al cargar las líneas');
       }
@@ -280,6 +381,7 @@ export default function WhatsAppAdminPage() {
       setLoading(false);
       setLastRefresh(new Date());
     }
+    return null;
   }, []);
 
   // Carga inicial
@@ -287,14 +389,66 @@ export default function WhatsAppAdminPage() {
     fetchLines();
   }, [fetchLines]);
 
-  // Polling cada 5s mientras alguna línea no está conectada
+  // Polling lento (5s) mientras alguna línea no está conectada Y el modal QR no está abierto
   useEffect(() => {
     clearInterval(pollRef.current);
-    const needsPoll = lines.length === 0 || lines.some((l) => !l.connected);
+    const needsPoll = (lines.length === 0 || lines.some((l) => !l.connected)) && !qrModal;
     if (!needsPoll) return;
     pollRef.current = setInterval(fetchLines, 5000);
     return () => clearInterval(pollRef.current);
-  }, [lines, fetchLines]);
+  }, [lines, fetchLines, qrModal]);
+
+  // Polling rápido (2.5s) mientras el modal QR está abierto para detectar conexión
+  useEffect(() => {
+    clearInterval(qrPollRef.current);
+    if (!qrModal || qrModal.connected) return;
+
+    qrPollRef.current = setInterval(async () => {
+      const updated = await fetchLines();
+      if (!updated) return;
+      const line = updated.find((l) => l.agentCode === qrModal.agentCode);
+      if (line?.connected) {
+        setQrModal((prev) => prev ? { ...prev, connected: true } : null);
+      }
+    }, STATUS_POLL_MS);
+
+    return () => clearInterval(qrPollRef.current);
+  }, [qrModal, fetchLines]);
+
+  // Handler para refrescar el QR desde el modal
+  const handleQrRefresh = useCallback(async () => {
+    if (!qrModal?.agentCode) return;
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch('/api/whatsapp/lines', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'refresh-qr', agentCode: qrModal.agentCode }),
+      });
+      const json = await res.json();
+      if (json.ok && json.qr) {
+        setQrModal((prev) => prev ? { ...prev, qr: json.qr } : null);
+      } else if (json.ok) {
+        // No hay QR nuevo todavía, intentar connect para generarlo
+        const res2 = await fetch('/api/whatsapp/lines', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ action: 'connect', agentCode: qrModal.agentCode }),
+        });
+        const json2 = await res2.json();
+        if (json2.ok && json2.qr) {
+          setQrModal((prev) => prev ? { ...prev, qr: json2.qr } : null);
+        }
+      }
+    } catch {
+      // silencioso
+    }
+  }, [qrModal?.agentCode]);
+
+  const closeModal = useCallback(() => {
+    clearInterval(qrPollRef.current);
+    setQrModal(null);
+  }, []);
 
   const allConnected = lines.length > 0 && lines.every((l) => l.connected);
 
@@ -349,14 +503,14 @@ export default function WhatsAppAdminPage() {
           </div>
         )}
 
-        {/* Instrucciones (solo cuando no todo conectado) */}
+        {/* Instrucciones */}
         {!allConnected && !loading && lines.length > 0 && (
           <div className="bg-sky-500/10 border border-sky-500/20 rounded-2xl px-5 py-4 mb-6">
             <p className="text-sky-300 text-sm font-semibold mb-1">Cómo conectar</p>
             <ol className="text-sky-200/70 text-xs space-y-1 list-decimal list-inside">
               <li>Abrí WhatsApp en el teléfono correspondiente.</li>
               <li>Ir a <strong>Ajustes → Dispositivos vinculados → Vincular dispositivo</strong>.</li>
-              <li>Escaneá el código QR que aparece en la tarjeta de cada línea.</li>
+              <li>Tocá <strong>Conectar</strong> en la tarjeta y escaneá el QR que aparece.</li>
             </ol>
           </div>
         )}
@@ -388,7 +542,12 @@ export default function WhatsAppAdminPage() {
         {!loading && lines.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {lines.map((line) => (
-              <LineCard key={line.agentCode} lineData={line} onRefresh={fetchLines} />
+              <LineCard
+                key={line.agentCode}
+                lineData={line}
+                onRefresh={fetchLines}
+                onQrReady={setQrModal}
+              />
             ))}
           </div>
         )}
@@ -448,6 +607,15 @@ export default function WhatsAppAdminPage() {
           </div>
         )}
       </div>
+
+      {/* Modal QR — centrado sobre toda la página */}
+      {qrModal && (
+        <QrModal
+          modal={qrModal}
+          onClose={closeModal}
+          onRefresh={handleQrRefresh}
+        />
+      )}
     </div>
   );
 }
