@@ -108,7 +108,7 @@ function LineCard({ lineData, onRefresh }) {
   }
 
   const lineNames = {
-    1: { name: 'Línea Pasajeros', icon: '🧳', desc: 'Agente IA — reservas WhatsApp + OTPs de la app' },
+    1: { name: 'Nueva línea', icon: '🧳', desc: 'Agente IA — reservas WhatsApp + OTPs de la app' },
     2: { name: 'Línea Principal', icon: '🚕', desc: 'Agente IA — reservas por WhatsApp' },
   };
   const meta = lineNames[snap.index] || { name: `Línea ${snap.index}`, icon: '📱', desc: '' };
@@ -399,7 +399,7 @@ export default function WhatsAppAdminPage() {
             <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-4">Variables de entorno requeridas (Vercel)</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mb-2">Línea 1 — Pasajeros (Agente IA + OTPs)</p>
+                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mb-2">Línea 1 — Nueva línea (Agente IA + OTPs)</p>
                 <div className="space-y-1.5">
                   {[
                     ['WHATSMEOW_AGENT_CODE', 'Profesional_Pasajeros'],
