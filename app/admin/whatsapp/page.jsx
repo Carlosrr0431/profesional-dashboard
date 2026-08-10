@@ -604,8 +604,8 @@ export default function WhatsAppAdminPage() {
   const allConnected = lines.length > 0 && connectedCount === lines.length;
 
   return (
-    <div className="relative min-h-dvh overflow-hidden bg-[#060b14] text-white">
-      <div className="pointer-events-none absolute inset-0">
+    <div className="relative min-h-dvh w-full overflow-x-hidden bg-[#060b14] text-white">
+      <div className="pointer-events-none fixed inset-0 -z-0">
         <div className="absolute -top-32 left-1/2 h-[420px] w-[720px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
         <div className="absolute bottom-0 right-0 h-72 w-72 rounded-full bg-sky-500/5 blur-3xl" />
         <div
@@ -617,7 +617,7 @@ export default function WhatsAppAdminPage() {
         />
       </div>
 
-      <div className="relative mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
+      <div className="relative z-10 mx-auto max-w-5xl px-4 py-8 pb-16 sm:px-6 sm:py-10 sm:pb-20">
         <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <Link
