@@ -121,7 +121,7 @@ export default function App() {
   const mapRef = useRef(null);
   const whatsappConnected = whatsappSessionStatus === 'connected';
   // El dashboard ya no se bloquea si WhatsApp está desconectado.
-  // La conexión se gestiona en /admin/whatsapp (modal opcional solo si el usuario lo abre).
+  // La conexión se gestiona en /admin/whatsapp.
   const whatsappGateRequired = false;
 
   useEffect(() => {
@@ -132,7 +132,7 @@ export default function App() {
     return () => media.removeEventListener('change', syncLayout);
   }, []);
 
-  // Estado de sesión Wasender: si no está conectada, bloquea el dashboard (salvo en local).
+  // Estado multi-línea: verde solo si TODAS están líneas están conectadas.
   useEffect(() => {
     let cancelled = false;
 
@@ -140,16 +140,30 @@ export default function App() {
       try {
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData?.session?.access_token;
-        const res = await fetch('/api/whatsapp/session', {
-          cache: 'no-store',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+        // Preferir /api/whatsapp/lines (ambas líneas). Fallback a /session.
+        const res = await fetch('/api/whatsapp/lines', { cache: 'no-store', headers });
         const payload = await res.json().catch(() => ({}));
         if (cancelled) return;
-        if (res.ok && payload?.status) {
-          setWhatsappSessionStatus(String(payload.status));
-        } else if (res.ok) {
-          setWhatsappSessionStatus('unknown');
+
+        if (res.ok && Array.isArray(payload?.lines) && payload.lines.length > 0) {
+          const allConnected = payload.lines.every((l) => Boolean(l.connected));
+          const anyWaiting = payload.lines.some((l) =>
+            ['need_scan', 'connecting'].includes(String(l.status || ''))
+          );
+          setWhatsappSessionStatus(
+            allConnected ? 'connected' : (anyWaiting ? 'need_scan' : 'disconnected')
+          );
+        } else {
+          const res2 = await fetch('/api/whatsapp/session', { cache: 'no-store', headers });
+          const p2 = await res2.json().catch(() => ({}));
+          if (cancelled) return;
+          if (res2.ok && p2?.status) {
+            setWhatsappSessionStatus(String(p2.status));
+          } else {
+            setWhatsappSessionStatus('unknown');
+          }
         }
         setWhatsappSessionChecked(true);
       } catch {
@@ -158,34 +172,14 @@ export default function App() {
     };
 
     refreshSessionStatus();
-    // Polling más frecuente mientras esté desconectado para liberar el gate al instante.
-    const poll = setInterval(refreshSessionStatus, whatsappGateRequired ? 2000 : 30000);
-    const channel = supabase
-      .channel('wasender_session_badge')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'settings' },
-        (payload) => {
-          const key = payload?.new?.key || payload?.old?.key;
-          if (String(key || '') === 'wasender_session_status') {
-            const value = payload?.new?.value;
-            if (value) {
-              setWhatsappSessionStatus(String(value));
-              setWhatsappSessionChecked(true);
-            } else {
-              refreshSessionStatus();
-            }
-          }
-        }
-      )
-      .subscribe();
+    const pollMs = whatsappConnected ? 30000 : 8000;
+    const poll = setInterval(refreshSessionStatus, pollMs);
 
     return () => {
       cancelled = true;
       clearInterval(poll);
-      supabase.removeChannel(channel);
     };
-  }, [whatsappGateRequired]);
+  }, [whatsappConnected]);
 
   // ── Selección múltiple ─────────────────────────────────────────────────────
   const toggleMultiSelect = useCallback((driverId) => {
@@ -508,28 +502,23 @@ export default function App() {
 
           <button
             type="button"
-            onClick={() => setShowWhatsAppSessionModal(true)}
+            onClick={() => {
+              window.location.href = '/admin/whatsapp';
+            }}
             className={`flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] font-semibold transition-all lg:px-3 ${
-              whatsappSessionStatus === 'connected'
+              whatsappConnected
                 ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                : whatsappSessionStatus === 'need_scan' || whatsappSessionStatus === 'need_passkey' || whatsappSessionStatus === 'connecting'
-                  ? 'bg-amber-50 text-amber-800 hover:bg-amber-100'
-                  : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
             }`}
             title={
-              whatsappSessionStatus === 'connected'
-                ? 'Sesión WhatsApp conectada'
-                : 'Sesión WhatsApp desconectada — tocá para vincular con QR'
+              whatsappConnected
+                ? 'Ambas líneas WhatsApp conectadas'
+                : 'Hay una línea desconectada — tocá para reconectar'
             }
           >
             <span className="relative flex h-1.5 w-1.5">
-              {whatsappSessionStatus === 'connected' ? (
+              {whatsappConnected ? (
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              ) : whatsappSessionStatus === 'need_scan' || whatsappSessionStatus === 'need_passkey' || whatsappSessionStatus === 'connecting' ? (
-                <>
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-60" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
-                </>
               ) : (
                 <>
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-500 opacity-60" />
