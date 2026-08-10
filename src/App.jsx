@@ -120,7 +120,9 @@ export default function App() {
 
   const mapRef = useRef(null);
   const whatsappConnected = whatsappSessionStatus === 'connected';
-  const whatsappGateRequired = whatsappSessionChecked && !whatsappConnected && !whatsappJustConnected;
+  // El dashboard ya no se bloquea si WhatsApp está desconectado.
+  // La conexión se gestiona en /admin/whatsapp (modal opcional solo si el usuario lo abre).
+  const whatsappGateRequired = false;
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 1024px)');
@@ -130,7 +132,7 @@ export default function App() {
     return () => media.removeEventListener('change', syncLayout);
   }, []);
 
-  // Estado de sesión Wasender: si no está conectada, bloquea el dashboard.
+  // Estado de sesión Wasender: si no está conectada, bloquea el dashboard (salvo en local).
   useEffect(() => {
     let cancelled = false;
 
