@@ -211,7 +211,7 @@ function QrModal({ modal, onClose, onRefresh, refreshing }) {
 
             <div className="flex justify-center mb-3">
               {showSpinner ? (
-                <div className="flex h-44 w-44 flex-col items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03]">
+                <div className="flex h-56 w-56 flex-col items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] sm:h-60 sm:w-60">
                   <svg className="h-7 w-7 animate-spin text-emerald-400" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -225,7 +225,7 @@ function QrModal({ modal, onClose, onRefresh, refreshing }) {
                   <img
                     src={src}
                     alt="Código QR WhatsApp"
-                    className="h-40 w-40 object-contain sm:h-44 sm:w-44"
+                    className="h-56 w-56 object-contain sm:h-60 sm:w-60"
                     key={src}
                   />
                 </div>
