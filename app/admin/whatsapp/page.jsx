@@ -420,6 +420,7 @@ export default function WhatsAppAdminPage() {
     if (!qrModal?.agentCode) return;
     try {
       const headers = await getAuthHeaders();
+      // Intentar refresh-qr primero (QR ya generado por la sesión activa)
       const res = await fetch('/api/whatsapp/lines', {
         method: 'POST',
         headers,
@@ -428,17 +429,18 @@ export default function WhatsAppAdminPage() {
       const json = await res.json();
       if (json.ok && json.qr) {
         setQrModal((prev) => prev ? { ...prev, qr: json.qr } : null);
-      } else if (json.ok) {
-        // No hay QR nuevo todavía, intentar connect para generarlo
-        const res2 = await fetch('/api/whatsapp/lines', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ action: 'connect', agentCode: qrModal.agentCode }),
-        });
-        const json2 = await res2.json();
-        if (json2.ok && json2.qr) {
-          setQrModal((prev) => prev ? { ...prev, qr: json2.qr } : null);
-        }
+        return;
+      }
+      // Si refresh-qr falla o no devuelve QR (ok:false cuando expiró),
+      // reconectar para generar uno nuevo
+      const res2 = await fetch('/api/whatsapp/lines', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'connect', agentCode: qrModal.agentCode }),
+      });
+      const json2 = await res2.json();
+      if (json2.ok && json2.qr) {
+        setQrModal((prev) => prev ? { ...prev, qr: json2.qr } : null);
       }
     } catch {
       // silencioso
