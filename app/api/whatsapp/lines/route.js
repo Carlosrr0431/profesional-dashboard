@@ -14,6 +14,7 @@ import {
   fetchWhatsmeowStatus,
   fetchWhatsmeowQr,
   connectWhatsmeowSession,
+  disconnectWhatsmeowSession,
   configureWhatsmeowWebhook,
 } from '../../../../src/lib/whatsmeowClient';
 
@@ -125,19 +126,17 @@ export async function POST(request) {
   const secret = process.env.WHATSMEOW_WEBHOOK_SECRET || '';
 
   try {
-    if (action === 'refresh-qr') {
-      const qr = await fetchWhatsmeowQr(line.agentCode);
-      if (!qr) {
-        return NextResponse.json(
-          { ok: false, error: 'QR no disponible. Intentá "Conectar" primero.' },
-          { status: 400 }
-        );
-      }
-      const snapshot = await getLineSnapshot(line);
-      return NextResponse.json({ ok: true, ...snapshot, qr });
+    // refresh-qr: fuerza regeneración (disconnect → connect → poll)
+    // connect: inicia/reconecta sesión y espera QR
+    const forceNewQr = action === 'refresh-qr';
+
+    if (forceNewQr) {
+      // Cierra el websocket/QR viejo para que Connect genere uno nuevo
+      await disconnectWhatsmeowSession(line.agentCode).catch(() => null);
+      // Breve pausa para que whatsmeow libere el cliente
+      await new Promise((r) => setTimeout(r, 400));
     }
 
-    // action === 'connect'
     await configureWhatsmeowWebhook(line.agentCode, webhookUrl, secret);
     const connectResult = await connectWhatsmeowSession(line.agentCode, webhookUrl);
     if (!connectResult.ok && connectResult.data?.success === false) {
@@ -147,12 +146,19 @@ export async function POST(request) {
       );
     }
 
-    // Esperar QR (8 intentos × 700ms)
+    // Esperar QR nuevo (12 intentos × 700ms ≈ 8s)
     let qr = null;
-    for (let i = 0; i < 8; i += 1) {
+    for (let i = 0; i < 12; i += 1) {
       qr = await fetchWhatsmeowQr(line.agentCode);
       if (qr) break;
       await new Promise((r) => setTimeout(r, 700));
+    }
+
+    if (forceNewQr && !qr) {
+      return NextResponse.json(
+        { ok: false, error: 'No se pudo regenerar el QR. Intentá de nuevo.' },
+        { status: 400 }
+      );
     }
 
     const snapshot = await getLineSnapshot(line);

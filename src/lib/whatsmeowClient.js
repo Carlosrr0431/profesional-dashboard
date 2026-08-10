@@ -297,6 +297,14 @@ export async function configureWhatsmeowWebhook(agentCode, webhookUrl, webhookSe
   });
 }
 
+export async function disconnectWhatsmeowSession(agentCode, { apiKey } = {}) {
+  return whatsmeowFetch('/api/session/disconnect', {
+    method: 'POST',
+    apiKey,
+    body: { agent_code: agentCode },
+  });
+}
+
 export async function logoutWhatsmeowSession(agentCode, { apiKey } = {}) {
   return whatsmeowFetch('/api/session/logout', {
     method: 'POST',

@@ -4,12 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../../../src/lib/supabase';
 import Link from 'next/link';
 
-// ─── Constantes ───────────────────────────────────────────────────────────────
-
-const QR_EXPIRE_SECONDS = 55; // segundos antes de auto-refrescar el QR (~60s es el límite real)
-const STATUS_POLL_MS = 2500;  // polling rápido mientras el modal QR está abierto
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const QR_EXPIRE_SECONDS = 55;
+const STATUS_POLL_MS = 2500;
 
 const LABELS = {
   connected: 'Conectado',
@@ -17,14 +13,47 @@ const LABELS = {
   disconnected: 'Desconectado',
   logged_out: 'Sesión cerrada',
   expired: 'Sesión expirada',
-  need_scan: 'Esperando escaneo QR',
+  need_scan: 'Esperando QR',
   unknown: 'Verificando…',
 };
 
-function statusBadge(status) {
-  if (status === 'connected') return { color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', dot: 'bg-emerald-400' };
-  if (status === 'need_scan' || status === 'connecting') return { color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', dot: 'bg-amber-400 animate-pulse' };
-  return { color: 'bg-red-500/20 text-red-400 border-red-500/30', dot: 'bg-red-400' };
+const LINE_META = {
+  1: {
+    name: 'Nueva línea',
+    desc: 'Reservas por WhatsApp + OTPs de la app',
+    accent: 'from-emerald-500/20 to-teal-500/5',
+    ring: 'ring-emerald-500/20',
+    iconBg: 'bg-emerald-500/15 text-emerald-400',
+  },
+  2: {
+    name: 'Línea Principal',
+    desc: 'Agente IA — reservas por WhatsApp',
+    accent: 'from-sky-500/20 to-blue-500/5',
+    ring: 'ring-sky-500/20',
+    iconBg: 'bg-sky-500/15 text-sky-400',
+  },
+};
+
+function statusStyle(status) {
+  if (status === 'connected') {
+    return {
+      badge: 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30',
+      dot: 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]',
+      bar: 'bg-emerald-400',
+    };
+  }
+  if (status === 'need_scan' || status === 'connecting') {
+    return {
+      badge: 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30',
+      dot: 'bg-amber-400 animate-pulse',
+      bar: 'bg-amber-400',
+    };
+  }
+  return {
+    badge: 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30',
+    dot: 'bg-rose-400',
+    bar: 'bg-rose-400',
+  };
 }
 
 function formatPhone(raw) {
@@ -37,7 +66,7 @@ function formatPhone(raw) {
 function buildQrSrc(qr) {
   if (!qr) return null;
   if (qr.startsWith('data:image') || qr.startsWith('http')) return qr;
-  return `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=8&data=${encodeURIComponent(qr)}`;
+  return `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=8&data=${encodeURIComponent(qr)}`;
 }
 
 async function getAuthHeaders() {
@@ -49,49 +78,106 @@ async function getAuthHeaders() {
   };
 }
 
+function PhoneIcon({ className = 'w-5 h-5' }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />
+    </svg>
+  );
+}
+
+function WhatsAppIcon({ className = 'w-6 h-6' }) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+    </svg>
+  );
+}
+
+function CountdownRing({ seconds, total }) {
+  const r = 14;
+  const c = 2 * Math.PI * r;
+  const progress = Math.max(0, Math.min(1, seconds / total));
+  const urgent = seconds <= 10;
+  return (
+    <div className="relative w-9 h-9 flex items-center justify-center">
+      <svg className="absolute inset-0 -rotate-90" viewBox="0 0 36 36">
+        <circle cx="18" cy="18" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="2.5" />
+        <circle
+          cx="18"
+          cy="18"
+          r={r}
+          fill="none"
+          stroke={urgent ? '#fbbf24' : '#34d399'}
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - progress)}
+          className="transition-[stroke-dashoffset] duration-1000 linear"
+        />
+      </svg>
+      <span className={`text-[10px] font-mono font-bold ${urgent ? 'text-amber-300' : 'text-white/80'}`}>
+        {seconds}
+      </span>
+    </div>
+  );
+}
+
 // ─── Modal QR ─────────────────────────────────────────────────────────────────
 
-function QrModal({ modal, onClose, onRefresh }) {
+function QrModal({ modal, onClose, onRefresh, refreshing }) {
   const [countdown, setCountdown] = useState(QR_EXPIRE_SECONDS);
   const timerRef = useRef(null);
   const src = buildQrSrc(modal.qr);
+  const showSpinner = refreshing || !src;
 
-  // Reiniciar countdown cada vez que llega un QR nuevo
   useEffect(() => {
+    if (refreshing || !modal.qr) return undefined;
     setCountdown(QR_EXPIRE_SECONDS);
     clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          onRefresh(); // auto-refresh antes de expirar
+          onRefresh();
           return QR_EXPIRE_SECONDS;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(timerRef.current);
-  }, [modal.qr, onRefresh]);
+  }, [modal.qr, onRefresh, refreshing]);
 
-  // Estado de éxito: auto-cierre después de 2 s
+  useEffect(() => {
+    if (refreshing) clearInterval(timerRef.current);
+  }, [refreshing]);
+
   useEffect(() => {
     if (!modal.connected) return;
-    const t = setTimeout(onClose, 2000);
+    const t = setTimeout(onClose, 2200);
     return () => clearTimeout(t);
   }, [modal.connected, onClose]);
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className={`relative w-full max-w-sm rounded-2xl shadow-2xl transition-all duration-300 ${
-        modal.connected
-          ? 'bg-[#0d1f14] border border-emerald-600/40 p-8'
-          : 'bg-[#111827] border border-white/10 p-6'
-      }`}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-[#020617]/80 backdrop-blur-md" onClick={refreshing ? undefined : onClose} />
+      <div
+        className={`relative w-full max-w-md overflow-hidden rounded-3xl border shadow-2xl transition-all duration-300 ${
+          modal.connected
+            ? 'border-emerald-500/40 bg-gradient-to-b from-emerald-950/90 to-[#0a1628]'
+            : 'border-white/10 bg-gradient-to-b from-[#122033] to-[#0a1220]'
+        }`}
+      >
+        {!modal.connected && (
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-400/60 to-transparent" />
+        )}
 
-        {/* Botón cerrar (solo antes de conectar) */}
         {!modal.connected && (
           <button
+            type="button"
             onClick={onClose}
-            className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-white/10 text-gray-500 hover:text-gray-300 transition-colors"
+            disabled={refreshing}
+            className="absolute top-4 right-4 z-10 rounded-xl p-2 text-white/40 hover:bg-white/5 hover:text-white/80 transition-colors disabled:opacity-30"
+            aria-label="Cerrar"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -100,81 +186,105 @@ function QrModal({ modal, onClose, onRefresh }) {
         )}
 
         {modal.connected ? (
-          /* ── Estado éxito ── */
-          <div className="flex flex-col items-center gap-4 text-center">
-            <div className="w-18 h-18 rounded-full bg-emerald-500/20 flex items-center justify-center ring-2 ring-emerald-500/30 p-4">
-              <svg className="w-10 h-10 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+          <div className="flex flex-col items-center gap-5 px-8 py-12 text-center animate-[fadeIn_0.3s_ease]">
+            <div className="relative">
+              <div className="absolute inset-0 rounded-full bg-emerald-400/20 blur-xl" />
+              <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/20 ring-2 ring-emerald-400/40">
+                <svg className="w-10 h-10 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
             </div>
             <div>
-              <p className="text-emerald-300 font-bold text-2xl">¡Conectado!</p>
-              <p className="text-gray-400 text-sm mt-1">{modal.lineName}</p>
+              <p className="text-2xl font-bold text-white tracking-tight">¡Listo!</p>
+              <p className="mt-1 text-emerald-300/90 text-sm font-medium">{modal.lineName} vinculada</p>
+              <p className="mt-0.5 text-white/40 text-xs font-mono">{formatPhone(modal.phone)}</p>
             </div>
           </div>
         ) : (
-          /* ── Estado QR ── */
-          <>
-            {/* Título */}
-            <div className="mb-5 pr-8">
-              <h3 className="text-white font-bold text-lg">Escanear código QR</h3>
-              <p className="text-gray-400 text-sm">{modal.lineName} · {formatPhone(modal.phone)}</p>
-            </div>
-
-            {/* QR */}
-            <div className="flex justify-center mb-5">
-              {src ? (
-                <div className="rounded-2xl bg-white p-3 shadow-xl shadow-black/40">
-                  <img
-                    src={src}
-                    alt="Código QR WhatsApp"
-                    className="w-60 h-60 object-contain"
-                    key={src}
-                  />
-                </div>
-              ) : (
-                <div className="w-60 h-60 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-                  <svg className="w-10 h-10 text-gray-600 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                </div>
-              )}
-            </div>
-
-            {/* Instrucciones */}
-            <ol className="text-gray-400 text-xs space-y-1.5 list-decimal list-inside mb-5">
-              <li>Abrí <strong className="text-white">WhatsApp</strong> en tu teléfono</li>
-              <li>Ir a <strong className="text-white">Ajustes → Dispositivos vinculados</strong></li>
-              <li>Tocá <strong className="text-white">Vincular dispositivo</strong> y escaneá</li>
-            </ol>
-
-            {/* Footer: pulse + countdown + refresh */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-xs text-gray-400">Esperando escaneo...</span>
+          <div className="p-6 sm:p-8">
+            <div className="mb-6 pr-8">
+              <div className="mb-1 inline-flex items-center gap-2 rounded-lg bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-emerald-300/90">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Vincular dispositivo
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-500">
-                  Expira en{' '}
-                  <span className={`font-mono font-semibold ${countdown <= 10 ? 'text-amber-400' : 'text-gray-400'}`}>
-                    {countdown}s
+              <h3 className="text-xl font-bold text-white tracking-tight">Escaneá el código QR</h3>
+              <p className="mt-1 text-sm text-white/45">
+                {modal.lineName}
+                <span className="mx-1.5 text-white/20">·</span>
+                <span className="font-mono text-white/60">{formatPhone(modal.phone)}</span>
+              </p>
+            </div>
+
+            <div className="flex justify-center mb-6">
+              <div className="relative">
+                {showSpinner ? (
+                  <div className="flex h-64 w-64 flex-col items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03]">
+                    <svg className="h-9 w-9 animate-spin text-emerald-400" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    <p className="text-xs text-white/50">
+                      {refreshing ? 'Generando QR nuevo…' : 'Preparando código…'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl bg-white p-3.5 shadow-[0_20px_50px_-20px_rgba(16,185,129,0.45)]">
+                    <img
+                      src={src}
+                      alt="Código QR WhatsApp"
+                      className="h-56 w-56 object-contain sm:h-60 sm:w-60"
+                      key={src}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mb-6 space-y-2">
+              {[
+                ['1', 'Abrí WhatsApp en el teléfono'],
+                ['2', 'Ajustes → Dispositivos vinculados'],
+                ['3', 'Vincular dispositivo y escaneá'],
+              ].map(([n, text]) => (
+                <div key={n} className="flex items-center gap-3 rounded-xl bg-white/[0.03] px-3 py-2.5">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-[11px] font-bold text-emerald-300">
+                    {n}
                   </span>
-                </span>
-                <button
-                  type="button"
-                  onClick={onRefresh}
-                  className="flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 transition-colors"
-                >
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Actualizar
-                </button>
-              </div>
+                  <p className="text-xs text-white/55 leading-snug">{text}</p>
+                </div>
+              ))}
             </div>
-          </>
+
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/5 bg-black/20 px-3.5 py-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                {!refreshing && src ? (
+                  <CountdownRing seconds={countdown} total={QR_EXPIRE_SECONDS} />
+                ) : (
+                  <div className="h-9 w-9 rounded-full border border-white/10" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-white/80">
+                    {refreshing ? 'Regenerando…' : 'Esperando escaneo'}
+                  </p>
+                  <p className="text-[10px] text-white/35 truncate">
+                    {refreshing ? 'Esto puede tardar unos segundos' : 'Se cierra solo al vincular'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={refreshing}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-white/5 px-3 py-2 text-xs font-semibold text-emerald-300 ring-1 ring-white/10 hover:bg-emerald-500/15 hover:ring-emerald-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <svg className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {refreshing ? '…' : 'Nuevo QR'}
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -188,15 +298,17 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
   const [localError, setLocalError] = useState('');
   const [localSnap, setLocalSnap] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [showWebhook, setShowWebhook] = useState(false);
 
   const snap = localSnap || lineData;
-  const badge = statusBadge(snap.status);
-
-  const lineNames = {
-    1: { name: 'Nueva línea', icon: '🧳', desc: 'Agente IA — reservas WhatsApp + OTPs de la app' },
-    2: { name: 'Línea Principal', icon: '🚕', desc: 'Agente IA — reservas por WhatsApp' },
+  const style = statusStyle(snap.status);
+  const meta = LINE_META[snap.index] || {
+    name: `Línea ${snap.index}`,
+    desc: '',
+    accent: 'from-white/10 to-transparent',
+    ring: 'ring-white/10',
+    iconBg: 'bg-white/10 text-white/70',
   };
-  const meta = lineNames[snap.index] || { name: `Línea ${snap.index}`, icon: '📱', desc: '' };
 
   async function callAction(action) {
     if (acting) return;
@@ -215,9 +327,13 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
       } else {
         setLocalSnap(json);
         onRefresh?.();
-        // Si la respuesta trae QR, abrir modal en el padre
         if (json.qr) {
-          onQrReady?.({ agentCode: snap.agentCode, qr: json.qr, lineName: meta.name, phone: snap.phone });
+          onQrReady?.({
+            agentCode: snap.agentCode,
+            qr: json.qr,
+            lineName: meta.name,
+            phone: snap.phone,
+          });
         }
       }
     } catch (err) {
@@ -227,10 +343,9 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
     }
   }
 
-  // Sincronizar snap externo cuando lineData cambia (ej: polling detecta connected)
   useEffect(() => {
     if (lineData.connected && localSnap && !localSnap.connected) {
-      setLocalSnap(null); // ceder control al lineData actualizado
+      setLocalSnap(null);
     }
   }, [lineData.connected, localSnap]);
 
@@ -242,113 +357,143 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
   }
 
   return (
-    <div className={`flex flex-col gap-4 rounded-2xl border p-6 transition-all ${
-      snap.connected
-        ? 'bg-[#0d1f14]/60 border-emerald-600/30'
-        : 'bg-[#111827]/70 border-white/10'
-    }`}>
+    <article
+      className={`group relative flex flex-col overflow-hidden rounded-3xl border transition-all duration-300 ${
+        snap.connected
+          ? 'border-emerald-500/25 bg-[#0b1a14]/80 shadow-[0_0_40px_-20px_rgba(16,185,129,0.35)]'
+          : 'border-white/[0.08] bg-[#0d1524]/80 hover:border-white/15'
+      }`}
+    >
+      <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${meta.accent} opacity-80`} />
+      <div className={`absolute left-0 top-0 h-full w-1 ${style.bar}`} />
 
-      {/* Encabezado */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="text-2xl select-none">{meta.icon}</span>
-          <div className="min-w-0">
-            <h2 className="text-white font-bold text-base truncate">{meta.name}</h2>
-            <p className="text-gray-400 text-xs mt-0.5 leading-relaxed">{meta.desc}</p>
+      <div className="relative flex flex-col gap-5 p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${meta.iconBg} ring-1 ${meta.ring}`}>
+              <PhoneIcon className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-bold text-white tracking-tight">{meta.name}</h2>
+              <p className="mt-0.5 text-xs text-white/40 leading-relaxed">{meta.desc}</p>
+            </div>
+          </div>
+          <span className={`shrink-0 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${style.badge}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
+            {LABELS[snap.status] || snap.status}
+          </span>
+        </div>
+
+        <div className="rounded-2xl border border-white/[0.06] bg-black/25 p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/30 mb-1.5">Número</p>
+          <p className="text-lg font-semibold tracking-tight text-white font-mono">{formatPhone(snap.phone)}</p>
+          <div className="mt-3 flex items-center gap-2 border-t border-white/[0.05] pt-3">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/30">Código</span>
+            <code className="truncate text-xs text-white/55 font-mono">{snap.agentCode}</code>
           </div>
         </div>
-        <span className={`shrink-0 inline-flex items-center gap-1.5 border rounded-full px-2.5 py-0.5 text-xs font-semibold ${badge.color}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
-          {LABELS[snap.status] || snap.status}
-        </span>
-      </div>
 
-      {/* Teléfono + agent code */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-black/30 rounded-xl p-3 border border-white/5">
-          <p className="text-gray-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Número</p>
-          <p className="text-white text-sm font-mono">{formatPhone(snap.phone)}</p>
-        </div>
-        <div className="bg-black/30 rounded-xl p-3 border border-white/5">
-          <p className="text-gray-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Agent Code</p>
-          <p className="text-white text-sm font-mono truncate">{snap.agentCode}</p>
-        </div>
-      </div>
-
-      {/* Webhook URL */}
-      <div className="bg-black/30 rounded-xl p-3 border border-white/5">
-        <div className="flex items-center justify-between gap-2 mb-1">
-          <p className="text-gray-500 text-[10px] font-semibold uppercase tracking-wider">Webhook URL</p>
-          <button
-            type="button"
-            onClick={copyWebhook}
-            className="text-[10px] font-semibold text-sky-400 hover:text-sky-300 transition-colors shrink-0"
-          >
-            {copied ? '¡Copiado!' : 'Copiar'}
-          </button>
-        </div>
-        <p className="text-gray-300 text-[11px] font-mono break-all leading-relaxed">{snap.webhookUrl}</p>
-      </div>
-
-      {/* Estado conectado */}
-      {snap.connected && (
-        <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3">
-          <svg className="w-5 h-5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <p className="text-emerald-300 text-sm font-semibold">Teléfono conectado y listo</p>
-        </div>
-      )}
-
-      {/* Error */}
-      {localError && (
-        <p className="text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
-          {localError}
-        </p>
-      )}
-
-      {/* Botones */}
-      <div className="flex gap-2 mt-auto pt-1">
-        {!snap.connected && (
-          <button
-            type="button"
-            disabled={acting}
-            onClick={() => callAction('connect')}
-            className="flex-1 flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold py-2.5 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {acting ? (
-              <>
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                Conectando…
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                </svg>
-                Conectar
-              </>
-            )}
-          </button>
+        {snap.connected ? (
+          <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20">
+              <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-emerald-300">Operativa</p>
+              <p className="text-[11px] text-emerald-300/50">Lista para recibir y enviar mensajes</p>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-3.5">
+            <p className="text-xs text-white/45 leading-relaxed">
+              Tocá <span className="text-white/80 font-medium">Conectar</span> para generar el QR y vincular este número.
+            </p>
+          </div>
         )}
-        {snap.connected && (
+
+        <div>
           <button
             type="button"
-            disabled={acting}
-            onClick={() => callAction('connect')}
-            className="flex items-center justify-center gap-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 text-xs font-medium py-2 px-3 rounded-lg transition-all disabled:opacity-50"
+            onClick={() => setShowWebhook((v) => !v)}
+            className="flex w-full items-center justify-between text-[11px] font-medium text-white/35 hover:text-white/60 transition-colors"
           >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            <span>Webhook técnico</span>
+            <svg
+              className={`w-3.5 h-3.5 transition-transform ${showWebhook ? 'rotate-180' : ''}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
-            Reconectar
           </button>
-        )}
+          {showWebhook ? (
+            <div className="mt-2 rounded-xl border border-white/[0.06] bg-black/30 p-3">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <p className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">URL</p>
+                <button
+                  type="button"
+                  onClick={copyWebhook}
+                  className="text-[10px] font-semibold text-emerald-400/90 hover:text-emerald-300"
+                >
+                  {copied ? 'Copiado' : 'Copiar'}
+                </button>
+              </div>
+              <p className="break-all font-mono text-[10px] leading-relaxed text-white/45">{snap.webhookUrl}</p>
+            </div>
+          ) : null}
+        </div>
+
+        {localError ? (
+          <p className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+            {localError}
+          </p>
+        ) : null}
+
+        <div className="mt-auto flex gap-2 pt-1">
+          {!snap.connected ? (
+            <button
+              type="button"
+              disabled={acting}
+              onClick={() => callAction('connect')}
+              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(16,185,129,0.7)] transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {acting ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Generando QR…
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 15.75l2.25 2.25m0 0l2.25-2.25M16.5 18v-5.25" />
+                  </svg>
+                  Conectar con QR
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={acting}
+              onClick={() => callAction('connect')}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs font-medium text-white/50 hover:bg-white/[0.06] hover:text-white/80 transition-all disabled:opacity-50"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Reconectar
+            </button>
+          )}
+        </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -359,9 +504,12 @@ export default function WhatsAppAdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lastRefresh, setLastRefresh] = useState(null);
-  const [qrModal, setQrModal] = useState(null); // { agentCode, qr, phone, lineName, connected }
+  const [qrModal, setQrModal] = useState(null);
+  const [qrRefreshing, setQrRefreshing] = useState(false);
+  const [showEnvHelp, setShowEnvHelp] = useState(false);
   const pollRef = useRef(null);
-  const qrPollRef = useRef(null); // polling rápido mientras el modal está abierto
+  const qrPollRef = useRef(null);
+  const refreshLockRef = useRef(false);
 
   const fetchLines = useCallback(async () => {
     try {
@@ -372,9 +520,8 @@ export default function WhatsAppAdminPage() {
         setLines(json.lines);
         setError('');
         return json.lines;
-      } else {
-        setError(json.error || 'Error al cargar las líneas');
       }
+      setError(json.error || 'Error al cargar las líneas');
     } catch (err) {
       setError(err?.message || 'Error de red');
     } finally {
@@ -384,43 +531,41 @@ export default function WhatsAppAdminPage() {
     return null;
   }, []);
 
-  // Carga inicial
   useEffect(() => {
     fetchLines();
   }, [fetchLines]);
 
-  // Polling lento (5s) mientras alguna línea no está conectada Y el modal QR no está abierto
   useEffect(() => {
     clearInterval(pollRef.current);
     const needsPoll = (lines.length === 0 || lines.some((l) => !l.connected)) && !qrModal;
-    if (!needsPoll) return;
+    if (!needsPoll) return undefined;
     pollRef.current = setInterval(fetchLines, 5000);
     return () => clearInterval(pollRef.current);
   }, [lines, fetchLines, qrModal]);
 
-  // Polling rápido (2.5s) mientras el modal QR está abierto para detectar conexión
   useEffect(() => {
     clearInterval(qrPollRef.current);
-    if (!qrModal || qrModal.connected) return;
+    if (!qrModal || qrModal.connected) return undefined;
 
     qrPollRef.current = setInterval(async () => {
       const updated = await fetchLines();
       if (!updated) return;
       const line = updated.find((l) => l.agentCode === qrModal.agentCode);
       if (line?.connected) {
-        setQrModal((prev) => prev ? { ...prev, connected: true } : null);
+        setQrModal((prev) => (prev ? { ...prev, connected: true } : null));
       }
     }, STATUS_POLL_MS);
 
     return () => clearInterval(qrPollRef.current);
   }, [qrModal, fetchLines]);
 
-  // Handler para refrescar el QR desde el modal
   const handleQrRefresh = useCallback(async () => {
-    if (!qrModal?.agentCode) return;
+    if (!qrModal?.agentCode || refreshLockRef.current) return;
+    refreshLockRef.current = true;
+    setQrRefreshing(true);
+    setQrModal((prev) => (prev ? { ...prev, qr: null } : null));
     try {
       const headers = await getAuthHeaders();
-      // Intentar refresh-qr primero (QR ya generado por la sesión activa)
       const res = await fetch('/api/whatsapp/lines', {
         method: 'POST',
         headers,
@@ -428,64 +573,106 @@ export default function WhatsAppAdminPage() {
       });
       const json = await res.json();
       if (json.ok && json.qr) {
-        setQrModal((prev) => prev ? { ...prev, qr: json.qr } : null);
-        return;
-      }
-      // Si refresh-qr falla o no devuelve QR (ok:false cuando expiró),
-      // reconectar para generar uno nuevo
-      const res2 = await fetch('/api/whatsapp/lines', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ action: 'connect', agentCode: qrModal.agentCode }),
-      });
-      const json2 = await res2.json();
-      if (json2.ok && json2.qr) {
-        setQrModal((prev) => prev ? { ...prev, qr: json2.qr } : null);
+        setQrModal((prev) => (prev ? { ...prev, qr: json.qr } : null));
+      } else {
+        const res2 = await fetch('/api/whatsapp/lines', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ action: 'connect', agentCode: qrModal.agentCode }),
+        });
+        const json2 = await res2.json();
+        if (json2.ok && json2.qr) {
+          setQrModal((prev) => (prev ? { ...prev, qr: json2.qr } : null));
+        }
       }
     } catch {
       // silencioso
+    } finally {
+      setQrRefreshing(false);
+      refreshLockRef.current = false;
     }
   }, [qrModal?.agentCode]);
 
   const closeModal = useCallback(() => {
     clearInterval(qrPollRef.current);
+    setQrRefreshing(false);
+    refreshLockRef.current = false;
     setQrModal(null);
   }, []);
 
-  const allConnected = lines.length > 0 && lines.every((l) => l.connected);
+  const connectedCount = lines.filter((l) => l.connected).length;
+  const allConnected = lines.length > 0 && connectedCount === lines.length;
 
   return (
-    <div className="min-h-dvh bg-[#070d1a] px-4 py-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4 mb-8">
+    <div className="relative min-h-dvh overflow-hidden bg-[#060b14] text-white">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-32 left-1/2 h-[420px] w-[720px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
+        <div className="absolute bottom-0 right-0 h-72 w-72 rounded-full bg-sky-500/5 blur-3xl" />
+        <div
+          className="absolute inset-0 opacity-[0.035]"
+          style={{
+            backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
+            backgroundSize: '28px 28px',
+          }}
+        />
+      </div>
+
+      <div className="relative mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
+        <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Link href="/admin/dashboard" className="text-gray-500 hover:text-gray-300 transition-colors text-sm">
-                ← Dashboard
-              </Link>
-            </div>
-            <h1 className="text-white text-2xl font-bold flex items-center gap-2">
-              <svg className="w-6 h-6 text-green-400" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+            <Link
+              href="/admin/dashboard"
+              className="mb-3 inline-flex items-center gap-1.5 text-sm text-white/35 hover:text-white/70 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
-              Conexión WhatsApp
-            </h1>
-            <p className="text-gray-400 text-sm mt-1">
-              Vinculá los dos teléfonos escaneando el código QR con WhatsApp.
-            </p>
+              Dashboard
+            </Link>
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/25">
+                <WhatsAppIcon className="w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Conexión WhatsApp</h1>
+                <p className="mt-0.5 text-sm text-white/40">
+                  Vinculá los teléfonos del Agente IA con un escaneo.
+                </p>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {!loading && lines.length > 0 && (
+              <div className="hidden sm:flex items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.03] px-3.5 py-2">
+                <div className="flex -space-x-1">
+                  {lines.map((l) => (
+                    <span
+                      key={l.agentCode}
+                      className={`h-2.5 w-2.5 rounded-full ring-2 ring-[#060b14] ${
+                        l.connected ? 'bg-emerald-400' : 'bg-white/20'
+                      }`}
+                    />
+                  ))}
+                </div>
+                <span className="text-xs text-white/50">
+                  <span className="font-semibold text-white/80">{connectedCount}</span>
+                  /{lines.length} activas
+                </span>
+              </div>
+            )}
             {lastRefresh && (
-              <span className="text-gray-600 text-xs hidden sm:block">
-                Actualizado {lastRefresh.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+              <span className="hidden md:block text-[11px] text-white/25">
+                {lastRefresh.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
             <button
               type="button"
-              onClick={() => { setLoading(true); fetchLines(); }}
-              className="flex items-center gap-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 text-sm font-medium py-2 px-3 rounded-xl transition-all"
+              onClick={() => {
+                setLoading(true);
+                fetchLines();
+              }}
+              className="inline-flex items-center gap-1.5 rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm font-medium text-white/70 hover:bg-white/[0.07] hover:text-white transition-all"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -495,54 +682,62 @@ export default function WhatsAppAdminPage() {
           </div>
         </div>
 
-        {/* Banner de éxito global */}
         {allConnected && (
-          <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/25 rounded-2xl px-5 py-4 mb-6">
-            <svg className="w-5 h-5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className="text-emerald-300 font-semibold">Ambas líneas están conectadas y operativas.</p>
+          <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-5 py-4">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20">
+              <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-emerald-300">Todas las líneas están operativas</p>
+              <p className="text-xs text-emerald-300/50">WhatsApp listo para reservas y notificaciones.</p>
+            </div>
           </div>
         )}
 
-        {/* Instrucciones */}
         {!allConnected && !loading && lines.length > 0 && (
-          <div className="bg-sky-500/10 border border-sky-500/20 rounded-2xl px-5 py-4 mb-6">
-            <p className="text-sky-300 text-sm font-semibold mb-1">Cómo conectar</p>
-            <ol className="text-sky-200/70 text-xs space-y-1 list-decimal list-inside">
-              <li>Abrí WhatsApp en el teléfono correspondiente.</li>
-              <li>Ir a <strong>Ajustes → Dispositivos vinculados → Vincular dispositivo</strong>.</li>
-              <li>Tocá <strong>Conectar</strong> en la tarjeta y escaneá el QR que aparece.</li>
-            </ol>
+          <div className="mb-6 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {[
+              ['1', 'Elegí la línea', 'Tocá Conectar en la tarjeta'],
+              ['2', 'Abrí WhatsApp', 'Dispositivos vinculados'],
+              ['3', 'Escaneá el QR', 'El modal se cierra solo'],
+            ].map(([n, title, sub]) => (
+              <div
+                key={n}
+                className="flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/[0.05] text-xs font-bold text-white/50">
+                  {n}
+                </span>
+                <div>
+                  <p className="text-xs font-semibold text-white/80">{title}</p>
+                  <p className="text-[11px] text-white/35">{sub}</p>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
-        {/* Loading */}
         {loading && (
-          <div className="flex flex-col items-center justify-center py-20 gap-4">
-            <svg className="w-8 h-8 text-sky-400 animate-spin" fill="none" viewBox="0 0 24 24">
+          <div className="flex flex-col items-center justify-center gap-4 py-24">
+            <svg className="h-8 w-8 animate-spin text-emerald-400" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            <p className="text-gray-400 text-sm">Cargando estado de las líneas…</p>
+            <p className="text-sm text-white/40">Consultando estado de las líneas…</p>
           </div>
         )}
 
-        {/* Error global */}
         {!loading && error && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-2xl px-5 py-4 mb-6">
-            <p className="text-red-400 font-semibold text-sm mb-1">Error al cargar</p>
-            <p className="text-red-300/70 text-xs">{error}</p>
-            <p className="text-red-300/50 text-xs mt-2">
-              Revisá que las variables de entorno <code>WHATSMEOW_AGENT_CODE</code>, <code>WHATSMEOW_PHONE</code>,{' '}
-              <code>WHATSMEOW_AGENT_CODE_2</code>, <code>WHATSMEOW_PHONE_2</code> y <code>WHATSMEOW_API_KEY</code> estén configuradas en Vercel.
-            </p>
+          <div className="mb-6 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-5 py-4">
+            <p className="text-sm font-semibold text-rose-300 mb-1">No se pudo cargar</p>
+            <p className="text-xs text-rose-200/60">{error}</p>
           </div>
         )}
 
-        {/* Tarjetas de líneas */}
         {!loading && lines.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
             {lines.map((line) => (
               <LineCard
                 key={line.agentCode}
@@ -554,68 +749,53 @@ export default function WhatsAppAdminPage() {
           </div>
         )}
 
-        {/* Variables de entorno requeridas */}
         {!loading && (
-          <div className="mt-10 bg-[#0f1729]/60 border border-white/5 rounded-2xl p-5">
-            <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-4">Variables de entorno requeridas (Vercel)</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mb-2">Línea 1 — Nueva línea (Agente IA + OTPs)</p>
-                <div className="space-y-1.5">
-                  {[
-                    ['WHATSMEOW_AGENT_CODE', 'Profesional_Pasajeros'],
-                    ['WHATSMEOW_PHONE', '+5493872138777'],
-                  ].map(([k, v]) => (
-                    <div key={k} className="flex items-baseline gap-2">
-                      <code className="text-sky-400 text-[10px] font-mono">{k}</code>
-                      <span className="text-gray-600 text-[10px]">=</span>
-                      <code className="text-gray-400 text-[10px] font-mono">{v}</code>
+          <div className="mt-10">
+            <button
+              type="button"
+              onClick={() => setShowEnvHelp((v) => !v)}
+              className="flex items-center gap-2 text-xs font-medium text-white/30 hover:text-white/55 transition-colors"
+            >
+              <svg
+                className={`w-3.5 h-3.5 transition-transform ${showEnvHelp ? 'rotate-90' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              Variables de entorno (referencia)
+            </button>
+            {showEnvHelp ? (
+              <div className="mt-3 rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5">
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                  <div>
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/30">Línea 1</p>
+                    <div className="space-y-1.5 font-mono text-[11px]">
+                      <p><span className="text-emerald-400/80">WHATSMEOW_AGENT_CODE</span> <span className="text-white/25">=</span> <span className="text-white/50">Profesional_Pasajeros</span></p>
+                      <p><span className="text-emerald-400/80">WHATSMEOW_PHONE</span> <span className="text-white/25">=</span> <span className="text-white/50">+5493872138777</span></p>
                     </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mb-2">Línea 2 — Principal (Agente IA)</p>
-                <div className="space-y-1.5">
-                  {[
-                    ['WHATSMEOW_AGENT_CODE_2', 'Profesional_1'],
-                    ['WHATSMEOW_PHONE_2', '+5493873088777'],
-                  ].map(([k, v]) => (
-                    <div key={k} className="flex items-baseline gap-2">
-                      <code className="text-sky-400 text-[10px] font-mono">{k}</code>
-                      <span className="text-gray-600 text-[10px]">=</span>
-                      <code className="text-gray-400 text-[10px] font-mono">{v}</code>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="mt-4 pt-4 border-t border-white/5">
-              <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mb-2">Compartidas</p>
-              <div className="flex flex-wrap gap-x-6 gap-y-1">
-                {[
-                  ['WHATSMEOW_API_KEY', '(de Railway)'],
-                  ['WHATSMEOW_API_URL', 'https://whatsmeow-api-production.up.railway.app'],
-                  ['WHATSMEOW_WEBHOOK_SECRET', '(opcional, secreto)'],
-                ].map(([k, v]) => (
-                  <div key={k} className="flex items-baseline gap-2">
-                    <code className="text-sky-400 text-[10px] font-mono">{k}</code>
-                    <span className="text-gray-600 text-[10px]">=</span>
-                    <code className="text-gray-400 text-[10px] font-mono">{v}</code>
                   </div>
-                ))}
+                  <div>
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/30">Línea 2</p>
+                    <div className="space-y-1.5 font-mono text-[11px]">
+                      <p><span className="text-emerald-400/80">WHATSMEOW_AGENT_CODE_2</span> <span className="text-white/25">=</span> <span className="text-white/50">Profesional_1</span></p>
+                      <p><span className="text-emerald-400/80">WHATSMEOW_PHONE_2</span> <span className="text-white/25">=</span> <span className="text-white/50">+5493873088777</span></p>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
         )}
       </div>
 
-      {/* Modal QR — centrado sobre toda la página */}
       {qrModal && (
         <QrModal
           modal={qrModal}
           onClose={closeModal}
           onRefresh={handleQrRefresh}
+          refreshing={qrRefreshing}
         />
       )}
     </div>
