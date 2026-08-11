@@ -275,7 +275,8 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
   const [copied, setCopied] = useState(false);
   const [showWebhook, setShowWebhook] = useState(false);
 
-  const snap = localSnap || lineData;
+  // Preferir el estado del servidor salvo mientras hay una acción en curso.
+  const snap = acting && localSnap ? localSnap : (localSnap && localSnap.qr ? localSnap : lineData);
   const style = statusStyle(snap.status);
   const meta = LINE_META[snap.index] || {
     name: `Línea ${snap.index}`,
@@ -301,7 +302,10 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
         setLocalError(json.error || 'Error inesperado');
       } else {
         setLocalSnap(json);
-        onRefresh?.();
+        await onRefresh?.();
+        if (action === 'reset' || action === 'logout') {
+          setLocalSnap(null);
+        }
         if (json.qr) {
           onQrReady?.({
             agentCode: snap.agentCode,
@@ -319,10 +323,11 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
   }
 
   useEffect(() => {
-    if (lineData.connected && localSnap && !localSnap.connected) {
+    // Si el servidor ya reporta desconectado/conectado, no conservar snap local viejo.
+    if (!acting) {
       setLocalSnap(null);
     }
-  }, [lineData.connected, localSnap]);
+  }, [lineData.status, lineData.connected, lineData.agentCode, acting]);
 
   function copyWebhook() {
     navigator.clipboard.writeText(snap.webhookUrl || '').then(() => {
@@ -427,13 +432,13 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
           </p>
         ) : null}
 
-        <div className="mt-auto flex gap-2 pt-1">
+        <div className="mt-auto flex flex-col gap-2 pt-1">
           {!snap.connected ? (
             <button
               type="button"
               disabled={acting}
               onClick={() => callAction('connect')}
-              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(16,185,129,0.7)] transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(16,185,129,0.7)] transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {acting ? (
                 <>
@@ -458,7 +463,7 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
               type="button"
               disabled={acting}
               onClick={() => callAction('connect')}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs font-medium text-white/50 hover:bg-white/[0.06] hover:text-white/80 transition-all disabled:opacity-50"
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs font-medium text-white/50 hover:bg-white/[0.06] hover:text-white/80 transition-all disabled:opacity-50"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -466,6 +471,15 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
               Reconectar
             </button>
           )}
+          <button
+            type="button"
+            disabled={acting}
+            onClick={() => callAction('reset')}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-transparent px-3 py-2 text-[11px] font-medium text-white/40 hover:border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-200 transition-all disabled:opacity-50"
+            title="Cierra la sesión en whatsmeow y deja la línea lista para un QR nuevo"
+          >
+            Reiniciar para escanear
+          </button>
         </div>
       </div>
     </article>
@@ -482,6 +496,7 @@ export default function WhatsAppAdminPage() {
   const [qrModal, setQrModal] = useState(null);
   const [qrRefreshing, setQrRefreshing] = useState(false);
   const [showEnvHelp, setShowEnvHelp] = useState(false);
+  const [resettingAll, setResettingAll] = useState(false);
   const pollRef = useRef(null);
   const qrPollRef = useRef(null);
   const refreshLockRef = useRef(false);
@@ -575,6 +590,30 @@ export default function WhatsAppAdminPage() {
     setQrModal(null);
   }, []);
 
+  const handleResetAll = useCallback(async () => {
+    if (resettingAll) return;
+    setResettingAll(true);
+    setError('');
+    closeModal();
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch('/api/whatsapp/lines', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'reset-all' }),
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        setError(json.error || 'No se pudieron reiniciar las líneas');
+      }
+      await fetchLines();
+    } catch (err) {
+      setError(err?.message || 'Error de red al reiniciar');
+    } finally {
+      setResettingAll(false);
+    }
+  }, [resettingAll, closeModal, fetchLines]);
+
   const connectedCount = lines.filter((l) => l.connected).length;
   const allConnected = lines.length > 0 && connectedCount === lines.length;
 
@@ -641,6 +680,21 @@ export default function WhatsAppAdminPage() {
                 {lastRefresh.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
+            <button
+              type="button"
+              disabled={resettingAll || loading}
+              onClick={handleResetAll}
+              className="inline-flex items-center gap-1.5 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-3.5 py-2 text-sm font-medium text-rose-200 hover:bg-rose-500/15 transition-all disabled:opacity-50"
+              title="Logout + disconnect en ambas líneas"
+            >
+              {resettingAll ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : null}
+              Reiniciar ambas
+            </button>
             <button
               type="button"
               onClick={() => {

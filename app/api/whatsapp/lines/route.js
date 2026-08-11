@@ -2,10 +2,10 @@
  * /api/whatsapp/lines
  *
  * GET  → estado en vivo de todas las líneas configuradas.
- * POST → conectar o refrescar QR de una línea específica.
+ * POST → conectar, refrescar QR o reiniciar (logout) una/todas las líneas.
  *
- * Body POST: { action: 'connect'|'refresh-qr', agentCode: string }
- * Si agentCode está vacío usa la primera línea.
+ * Body POST: { action: 'connect'|'refresh-qr'|'reset'|'reset-all', agentCode?: string }
+ * Si agentCode está vacío usa la primera línea (excepto reset-all).
  */
 import { NextResponse } from 'next/server';
 import { requireAdminUser } from '../../../../src/lib/adminAuthServer';
@@ -15,6 +15,7 @@ import {
   fetchWhatsmeowQr,
   connectWhatsmeowSession,
   disconnectWhatsmeowSession,
+  logoutWhatsmeowSession,
   configureWhatsmeowWebhook,
 } from '../../../../src/lib/whatsmeowClient';
 
@@ -43,15 +44,20 @@ const DISCONNECTED_STATUSES = new Set([
   'need_scan', 'connecting', 'disconnected', 'logged_out', 'expired', 'unknown',
 ]);
 
-async function getLineSnapshot(line) {
+async function getLineSnapshot(line, { includeQr = false } = {}) {
   const webhookUrl = resolveWebhookUrl(line.phone, line.agentCode);
   try {
     const statusData = await fetchWhatsmeowStatus(line.agentCode);
     const rawConnected = Boolean(statusData?.connected);
-    const status = normalizeStatus(rawConnected ? 'connected' : (statusData?.status || 'unknown'));
+    let status = normalizeStatus(rawConnected ? 'connected' : (statusData?.status || 'disconnected'));
+    // En listado no pedimos QR: evita quedar en "Esperando QR" por un intento a medias.
     let qr = null;
-    if (!rawConnected && DISCONNECTED_STATUSES.has(status)) {
+    if (includeQr && !rawConnected && DISCONNECTED_STATUSES.has(status)) {
       qr = await fetchWhatsmeowQr(line.agentCode).catch(() => null);
+    }
+    // Si no hay QR activo, need_scan/unknown se muestran como desconectado limpio.
+    if (!rawConnected && !qr && (status === 'need_scan' || status === 'unknown' || status === 'connecting')) {
+      status = 'disconnected';
     }
     return {
       agentCode: line.agentCode,
@@ -70,12 +76,31 @@ async function getLineSnapshot(line) {
       label: line.label,
       index: line.index,
       webhookUrl,
-      status: 'unknown',
+      status: 'disconnected',
       connected: false,
       qr: null,
       error: err?.message || 'status_error',
     };
   }
+}
+
+/** Cierra sesión WhatsApp (logout) + desconecta websocket. Deja la línea lista para QR nuevo. */
+async function resetLineSession(line) {
+  const logoutResult = await logoutWhatsmeowSession(line.agentCode).catch((err) => ({
+    ok: false,
+    data: { success: false, message: err?.message || 'logout_failed' },
+  }));
+  await new Promise((r) => setTimeout(r, 350));
+  await disconnectWhatsmeowSession(line.agentCode).catch(() => null);
+  await new Promise((r) => setTimeout(r, 250));
+  const snapshot = await getLineSnapshot(line, { includeQr: false });
+  return {
+    ok: true,
+    ...snapshot,
+    status: snapshot.connected ? snapshot.status : 'disconnected',
+    reset: true,
+    logoutOk: Boolean(logoutResult?.ok || logoutResult?.data?.success !== false),
+  };
 }
 
 export async function GET(request) {
@@ -114,18 +139,39 @@ export async function POST(request) {
   const agentCodeParam = String(body?.agentCode || '').trim();
 
   const lines = listWhatsmeowLines();
-  const line = agentCodeParam
-    ? lines.find((l) => l.agentCode.toLowerCase() === agentCodeParam.toLowerCase())
-    : lines[0];
-
-  if (!line) {
-    return NextResponse.json({ ok: false, error: 'Línea no encontrada' }, { status: 404 });
+  if (!lines.length) {
+    return NextResponse.json({ ok: false, error: 'No hay líneas configuradas' }, { status: 404 });
   }
 
-  const webhookUrl = resolveWebhookUrl(line.phone, line.agentCode);
-  const secret = process.env.WHATSMEOW_WEBHOOK_SECRET || '';
-
   try {
+    if (action === 'reset-all') {
+      const results = [];
+      for (const line of lines) {
+        results.push(await resetLineSession(line));
+      }
+      return NextResponse.json({
+        ok: true,
+        resetAll: true,
+        lines: results,
+      });
+    }
+
+    const line = agentCodeParam
+      ? lines.find((l) => l.agentCode.toLowerCase() === agentCodeParam.toLowerCase())
+      : lines[0];
+
+    if (!line) {
+      return NextResponse.json({ ok: false, error: 'Línea no encontrada' }, { status: 404 });
+    }
+
+    if (action === 'reset' || action === 'logout' || action === 'disconnect') {
+      const result = await resetLineSession(line);
+      return NextResponse.json(result);
+    }
+
+    const webhookUrl = resolveWebhookUrl(line.phone, line.agentCode);
+    const secret = process.env.WHATSMEOW_WEBHOOK_SECRET || '';
+
     // refresh-qr: fuerza regeneración (disconnect → connect → poll)
     // connect: inicia/reconecta sesión y espera QR
     const forceNewQr = action === 'refresh-qr';
@@ -161,7 +207,7 @@ export async function POST(request) {
       );
     }
 
-    const snapshot = await getLineSnapshot(line);
+    const snapshot = await getLineSnapshot(line, { includeQr: Boolean(qr) });
     return NextResponse.json({ ok: true, ...snapshot, qr: qr || snapshot.qr });
   } catch (err) {
     return NextResponse.json(
