@@ -89,7 +89,13 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: 'WhatsApp (whatsmeow) no configurado' }, { status: 503 });
     }
 
-    const result = await sendWhatsmeowText(line.agentCode, phone, message, { apiKey });
+    // Esperar entrega real: si solo encoláramos, completion_summary_sent_at
+    // quedaría marcado aunque el envío falle después.
+    const result = await sendWhatsmeowText(line.agentCode, phone, message, {
+      apiKey,
+      awaitDelivery: true,
+      meta: { source: 'notify_passenger', tripId },
+    });
     if (!result.success) {
       await supabase
         .from('trips')

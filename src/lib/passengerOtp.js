@@ -9,6 +9,9 @@ import {
 import { sendWhatsmeowText, getWhatsmeowApiKey } from './whatsmeowClient';
 import { getPassengerWhatsmeowLine } from './whatsmeowLines';
 
+/** Prioridad alta en whatsapp_outbound_queue (ver OUTBOUND_PRIORITY.OTP). */
+const OTP_OUTBOUND_PRIORITY = 100;
+
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const OTP_MAX_PER_HOUR = 5;
@@ -83,7 +86,11 @@ export async function sendWhatsAppOtp(phone, code) {
     ...logBase,
   }));
 
-  const result = await sendWhatsmeowText(line.agentCode, phone, text, { apiKey });
+  const result = await sendWhatsmeowText(line.agentCode, phone, text, {
+    apiKey,
+    priority: OTP_OUTBOUND_PRIORITY,
+    meta: { source: 'passenger_otp' },
+  });
 
   if (!result.success) {
     console.warn('[passenger-otp]', JSON.stringify({
@@ -95,11 +102,17 @@ export async function sendWhatsAppOtp(phone, code) {
   }
 
   console.info('[passenger-otp]', JSON.stringify({
-    stage: 'send_ok',
+    stage: result.queued ? 'queued' : 'send_ok',
     ...logBase,
+    queueId: result.queueId || null,
     messageId: result.messageId || null,
   }));
-  return { ok: true, messageId: result.messageId || null };
+  return {
+    ok: true,
+    queued: Boolean(result.queued),
+    queueId: result.queueId || null,
+    messageId: result.messageId || null,
+  };
 }
 
 export async function assertCanSendOtp(supabase, phone) {

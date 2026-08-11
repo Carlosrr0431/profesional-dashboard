@@ -93,6 +93,17 @@ function extractMessageId(data) {
   return data?.data?.message_id || data?.data?.id || data?.message_id || null;
 }
 
+/** Check local (sin importar la cola) para no cargar next/server en tests. */
+function shouldUseOutboundQueue(bypassQueue) {
+  if (bypassQueue) return false;
+  const flag = String(process.env.WHATSAPP_OUTBOUND_QUEUE_ENABLED || 'true').toLowerCase();
+  if (flag === 'false' || flag === '0' || flag === 'off') return false;
+  if (process.env.NODE_ENV === 'test' && process.env.WHATSAPP_OUTBOUND_QUEUE_ENABLED !== 'true') {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Resuelve el JID real (@lid o @s.whatsapp.net).
  * Enviar solo el número 549… puede devolver success sin entregar.
@@ -125,9 +136,10 @@ export async function resolveWhatsmeowJid(agentCode, to, { apiKey } = {}) {
 }
 
 /**
+ * Envío HTTP inmediato (sin cola). Usar solo desde el worker de cola o bypass explícito.
  * @returns {Promise<{success: boolean, messageId?: string|null, error?: string, payload?: any, destinatario?: string}>}
  */
-export async function sendWhatsmeowText(agentCode, to, text, { apiKey } = {}) {
+export async function sendWhatsmeowTextDirect(agentCode, to, text, { apiKey } = {}) {
   const message = String(text || '').trim();
   if (!agentCode || !to || !message) {
     return { success: false, error: 'agentCode, to y text son requeridos' };
@@ -166,10 +178,10 @@ export async function sendWhatsmeowText(agentCode, to, text, { apiKey } = {}) {
 }
 
 /**
- * POST /v2/message/sendPoll/{agentCode}
+ * POST /v2/message/sendPoll/{agentCode} — envío inmediato (sin cola).
  * @returns {Promise<{success: boolean, messageId?: string|null, error?: string, payload?: any, destinatario?: string}>}
  */
-export async function sendWhatsmeowPoll(agentCode, to, { name, options, maxSelections = 1 } = {}, { apiKey } = {}) {
+export async function sendWhatsmeowPollDirect(agentCode, to, { name, options, maxSelections = 1 } = {}, { apiKey } = {}) {
   const opts = (Array.isArray(options) ? options : [])
     .map((o) => String(o || '').trim())
     .filter(Boolean)
@@ -216,6 +228,121 @@ export async function sendWhatsmeowPoll(agentCode, to, { name, options, maxSelec
   } catch (err) {
     return { success: false, error: err?.message || 'poll_send_failed' };
   }
+}
+
+/**
+ * Envío de texto vía cola global (1 msg / 15s). Fallback a directo si la cola no está migrada.
+ * Opciones:
+ * - `{ bypassQueue: true }` fuerza envío inmediato
+ * - `{ awaitDelivery: true }` encola y espera el envío real (p.ej. resumen de viaje)
+ */
+export async function sendWhatsmeowText(agentCode, to, text, {
+  apiKey,
+  bypassQueue = false,
+  awaitDelivery = false,
+  priority,
+  meta,
+} = {}) {
+  const message = String(text || '').trim();
+  if (!agentCode || !to || !message) {
+    return { success: false, error: 'agentCode, to y text son requeridos' };
+  }
+
+  if (shouldUseOutboundQueue(bypassQueue)) {
+    try {
+      const {
+        enqueueWhatsappOutbound,
+        enqueueAndAwaitWhatsappOutbound,
+        OUTBOUND_PRIORITY,
+      } = await import('./whatsappOutboundQueue');
+
+      const enqueueParams = {
+        agentCode,
+        to,
+        kind: 'text',
+        payload: { text: message },
+        priority: priority ?? OUTBOUND_PRIORITY.DEFAULT,
+        meta,
+      };
+
+      const queued = awaitDelivery
+        ? await enqueueAndAwaitWhatsappOutbound(enqueueParams, {
+          apiKey,
+          timeoutMs: 50_000,
+          claimer: 'text-await',
+        })
+        : await enqueueWhatsappOutbound(enqueueParams);
+
+      if (queued.success) return queued;
+      if (!queued.missingTable) {
+        return queued;
+      }
+      console.warn('[whatsmeow] cola ausente; envío directo', queued.error);
+    } catch (err) {
+      console.warn('[whatsmeow] cola falló; envío directo', err?.message || err);
+    }
+  }
+
+  return sendWhatsmeowTextDirect(agentCode, to, message, { apiKey });
+}
+
+/**
+ * Envío de poll vía cola global (espera el messageId real para matchear votos).
+ * `{ bypassQueue: true }` fuerza inmediato.
+ */
+export async function sendWhatsmeowPoll(agentCode, to, { name, options, maxSelections = 1 } = {}, {
+  apiKey,
+  bypassQueue = false,
+  priority,
+  meta,
+} = {}) {
+  const opts = (Array.isArray(options) ? options : [])
+    .map((o) => String(o || '').trim())
+    .filter(Boolean)
+    .slice(0, 8);
+
+  if (!agentCode || !to || opts.length < 2) {
+    return { success: false, error: 'agentCode, to y al menos 2 options son requeridos' };
+  }
+
+  if (shouldUseOutboundQueue(bypassQueue)) {
+    try {
+      const {
+        enqueueAndAwaitWhatsappOutbound,
+        OUTBOUND_PRIORITY,
+      } = await import('./whatsappOutboundQueue');
+
+      const queued = await enqueueAndAwaitWhatsappOutbound(
+        {
+          agentCode,
+          to,
+          kind: 'poll',
+          payload: {
+            name: name || 'Elegí una opción',
+            options: opts,
+            maxSelections: maxSelections > 0 ? maxSelections : 1,
+          },
+          priority: priority ?? OUTBOUND_PRIORITY.POLL,
+          meta,
+        },
+        { apiKey, timeoutMs: 50_000, claimer: 'poll-await' }
+      );
+      if (queued.success) return queued;
+      if (!queued.missingTable) {
+        return queued;
+      }
+      console.warn('[whatsmeow] cola ausente; poll directo', queued.error);
+    } catch (err) {
+      console.warn('[whatsmeow] cola falló; poll directo', err?.message || err);
+    }
+  }
+
+  return sendWhatsmeowPollDirect(
+    agentCode,
+    to,
+    { name, options: opts, maxSelections },
+    { apiKey }
+  );
 }
 
 /**

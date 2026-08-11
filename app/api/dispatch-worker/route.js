@@ -23,6 +23,7 @@ import { isPassengerAppTrip, shouldPreservePickupOriginOnAssign } from '../../..
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
 import { sendWhatsmeowText, getWhatsmeowApiKey } from '../../../src/lib/whatsmeowClient';
 import { getDefaultWhatsmeowLine } from '../../../src/lib/whatsmeowLines';
+import { triggerWhatsappQueueWorker } from '../../../src/lib/whatsappOutboundQueue';
 import {
   MAX_DRIVER_OFFER_ATTEMPTS,
   buildWaContextAfterNotifyFailure,
@@ -1729,6 +1730,8 @@ export async function GET(req) {
     }
 
     const summary = await runDispatchWorkerCycle();
+    // Red de seguridad: sin cron propio (límite Hobby = 2), el dispatch despierta la cola WA.
+    triggerWhatsappQueueWorker({ reason: 'dispatch_cron' });
     logWorker('http_get_result', {
       viaVercelCron: auth.viaVercelCron,
       scheduledPromoted: summary.scheduledPromoted,
