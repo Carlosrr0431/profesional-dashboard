@@ -338,16 +338,16 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
 
   return (
     <article
-      className={`group relative flex flex-col overflow-hidden rounded-3xl border transition-all duration-300 ${
+      className={`group relative flex flex-col rounded-3xl border transition-all duration-300 ${
         snap.connected
           ? 'border-emerald-500/25 bg-[#0b1a14]/80 shadow-[0_0_40px_-20px_rgba(16,185,129,0.35)]'
           : 'border-white/[0.08] bg-[#0d1524]/80 hover:border-white/15'
       }`}
     >
-      <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${meta.accent} opacity-80`} />
-      <div className={`absolute left-0 top-0 h-full w-1 ${style.bar}`} />
+      <div className={`pointer-events-none absolute inset-0 rounded-3xl bg-gradient-to-br ${meta.accent} opacity-80`} />
+      <div className={`absolute left-0 top-0 h-full w-1 rounded-l-3xl ${style.bar}`} />
 
-      <div className="relative flex flex-col gap-5 p-6">
+      <div className="relative flex flex-col gap-4 p-5 sm:p-6">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${meta.iconBg} ring-1 ${meta.ring}`}>
@@ -374,7 +374,7 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
         </div>
 
         {snap.connected ? (
-          <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3.5">
+          <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20">
               <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -385,15 +385,66 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
               <p className="text-[11px] text-emerald-300/50">Lista para recibir y enviar mensajes</p>
             </div>
           </div>
-        ) : (
-          <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-3.5">
-            <p className="text-xs text-white/45 leading-relaxed">
-              Tocá <span className="text-white/80 font-medium">Conectar</span> para generar el QR y vincular este número.
-            </p>
-          </div>
-        )}
+        ) : null}
 
-        <div>
+        {localError ? (
+          <p className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+            {localError}
+          </p>
+        ) : null}
+
+        {/* Acciones siempre visibles, justo debajo del número */}
+        <div className="flex flex-col gap-2">
+          {!snap.connected ? (
+            <button
+              type="button"
+              disabled={acting}
+              onClick={() => callAction('connect')}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3.5 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(16,185,129,0.7)] transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {acting ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Generando QR…
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 15.75l2.25 2.25m0 0l2.25-2.25M16.5 18v-5.25" />
+                  </svg>
+                  Conectar con QR
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={acting}
+              onClick={() => callAction('connect')}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-2xl border border-white/10 bg-white/[0.03] px-3.5 py-3 text-sm font-medium text-white/70 hover:bg-white/[0.06] hover:text-white transition-all disabled:opacity-50"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Reconectar
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={acting}
+            onClick={() => callAction('reset')}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-3 py-2.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/15 transition-all disabled:opacity-50"
+            title="Cierra la sesión en whatsmeow y deja la línea lista para un QR nuevo"
+          >
+            Reiniciar para escanear
+          </button>
+        </div>
+
+        <div className="border-t border-white/[0.05] pt-3">
           <button
             type="button"
             onClick={() => setShowWebhook((v) => !v)}
@@ -424,62 +475,6 @@ function LineCard({ lineData, onRefresh, onQrReady }) {
               <p className="break-all font-mono text-[10px] leading-relaxed text-white/45">{snap.webhookUrl}</p>
             </div>
           ) : null}
-        </div>
-
-        {localError ? (
-          <p className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-            {localError}
-          </p>
-        ) : null}
-
-        <div className="mt-auto flex flex-col gap-2 pt-1">
-          {!snap.connected ? (
-            <button
-              type="button"
-              disabled={acting}
-              onClick={() => callAction('connect')}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(16,185,129,0.7)] transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {acting ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Generando QR…
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 15.75l2.25 2.25m0 0l2.25-2.25M16.5 18v-5.25" />
-                  </svg>
-                  Conectar con QR
-                </>
-              )}
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={acting}
-              onClick={() => callAction('connect')}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs font-medium text-white/50 hover:bg-white/[0.06] hover:text-white/80 transition-all disabled:opacity-50"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Reconectar
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={acting}
-            onClick={() => callAction('reset')}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-transparent px-3 py-2 text-[11px] font-medium text-white/40 hover:border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-200 transition-all disabled:opacity-50"
-            title="Cierra la sesión en whatsmeow y deja la línea lista para un QR nuevo"
-          >
-            Reiniciar para escanear
-          </button>
         </div>
       </div>
     </article>
@@ -618,7 +613,7 @@ export default function WhatsAppAdminPage() {
   const allConnected = lines.length > 0 && connectedCount === lines.length;
 
   return (
-    <div className="relative min-h-dvh w-full overflow-x-hidden bg-[#060b14] text-white">
+    <div className="relative min-h-dvh w-full overflow-x-hidden overflow-y-auto bg-[#060b14] text-white">
       <div className="pointer-events-none fixed inset-0 -z-0">
         <div className="absolute -top-32 left-1/2 h-[420px] w-[720px] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
         <div className="absolute bottom-0 right-0 h-72 w-72 rounded-full bg-sky-500/5 blur-3xl" />
@@ -631,7 +626,7 @@ export default function WhatsAppAdminPage() {
         />
       </div>
 
-      <div className="relative z-10 mx-auto max-w-5xl px-4 py-8 pb-16 sm:px-6 sm:py-10 sm:pb-20">
+      <div className="relative z-10 mx-auto w-full max-w-6xl px-4 py-6 pb-24 sm:px-6 sm:py-8 sm:pb-28">
         <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <Link
@@ -726,7 +721,7 @@ export default function WhatsAppAdminPage() {
         )}
 
         {!allConnected && !loading && lines.length > 0 && (
-          <div className="mb-6 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="mb-5 hidden gap-2 sm:grid sm:grid-cols-3">
             {[
               ['1', 'Elegí la línea', 'Tocá Conectar en la tarjeta'],
               ['2', 'Abrí WhatsApp', 'Dispositivos vinculados'],
@@ -766,7 +761,7 @@ export default function WhatsAppAdminPage() {
         )}
 
         {!loading && lines.length > 0 && (
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
             {lines.map((line) => (
               <LineCard
                 key={line.agentCode}
