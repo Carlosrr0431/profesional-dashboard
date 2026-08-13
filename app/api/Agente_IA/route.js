@@ -73,7 +73,10 @@ import {
   buildPendingToQueuedUpdate,
   canRequeuePendingTrip,
 } from '../../../src/lib/tripRequeue';
-import { isPassengerInitiatedCancellation } from '../../../src/lib/passengerTripCancel';
+import {
+  isOperatorInitiatedCancellation,
+  isPassengerInitiatedCancellation,
+} from '../../../src/lib/passengerTripCancel';
 import { buildWaContextWithExcludedDriver } from '../../../src/lib/dispatchExclusions';
 import {
   extractFullTripByPattern,
@@ -107,6 +110,7 @@ import {
   isBettoGreetedContext,
   mergeWhatsappSessionContext,
   shouldSendBettoWelcome,
+  stampBettoGreeted,
   withBettoIntro,
 } from '../../../src/lib/bettoWelcome';
 
@@ -5355,8 +5359,9 @@ function getTripPickupPoint(trip) {
 }
 
 function shouldReassignCancelledTrip(trip) {
-  // Cancelación del pasajero: nunca recrear viaje ni mandar "encontré otro chofer".
+  // Cancelación del pasajero u operador: nunca recrear viaje ni mandar "encontré otro chofer".
   if (isPassengerInitiatedCancellation(trip)) return false;
+  if (isOperatorInitiatedCancellation(trip)) return false;
 
   const reason = normalizeReason(trip?.cancel_reason || '');
   if (!reason) return true;
@@ -9031,6 +9036,7 @@ async function processTripLifecycleTransitions() {
           tripId: trip.id,
           cancelReason: trip.cancel_reason || null,
           passengerCancel: isPassengerInitiatedCancellation(trip),
+          operatorCancel: isOperatorInitiatedCancellation(trip),
         });
         continue;
       }
@@ -9249,12 +9255,14 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
       return { confirmed: 0, reassigned: 0, queued: 0 };
     }
 
-    if (!shouldReassignCancelledTrip(trip)) {
+    if (!trip.driver_id || !shouldReassignCancelledTrip(trip)) {
       logWebhook('trip_transition_trip_scan_done', {
         tripId,
         reason: 'no_reassign',
         cancelReason: trip.cancel_reason || null,
         passengerCancel: isPassengerInitiatedCancellation(trip),
+        operatorCancel: isOperatorInitiatedCancellation(trip),
+        hadDriver: Boolean(trip.driver_id),
       });
       const queueResult = await dispatchQueuedPassengers();
       return { confirmed: 0, reassigned: 0, queued: queueResult.dispatched };
@@ -10100,9 +10108,10 @@ async function processClaimedConversation(batch) {
     tripWaContext.pending_cancel_confirm ||
     tripWaContext.price_inquiry
   );
-  const alreadyBettoGreeted = !shouldResetConversationState && isBettoGreetedContext(batch.context);
+  const alreadyBettoGreeted = isBettoGreetedContext(batch.context);
 
   if (
+    !alreadyBettoGreeted &&
     !tripWaMidFlow &&
     !passengerWantsToCancel &&
     !pickupLocation &&
@@ -10123,7 +10132,7 @@ async function processClaimedConversation(batch) {
       handled: true,
       updates: {
         status: 'open',
-        context: { betto_greeted: true },
+        context: stampBettoGreeted(),
         last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
         processing_started_at: null,
         last_processed_at: new Date().toISOString(),
@@ -11380,7 +11389,7 @@ async function processClaimedConversation(batch) {
     handled: true,
     updates: {
       status: 'open',
-      context: { betto_greeted: true },
+      context: alreadyBettoGreeted ? { betto_greeted: true } : stampBettoGreeted(),
       last_trip_id: tripResult.trip?.id || (shouldResetConversationState ? null : batch.last_trip_id || null),
       processing_started_at: null,
       last_processed_at: new Date().toISOString(),

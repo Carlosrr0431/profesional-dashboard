@@ -1,10 +1,12 @@
 const {
   BETTO_INTRO,
+  BETTO_GREETING_TTL_MS,
   buildBettoWelcomeMessage,
   withBettoIntro,
   isBettoGreetedContext,
   isAvailabilityAskWithoutRoute,
   shouldSendBettoWelcome,
+  stampBettoGreeted,
   mergeWhatsappSessionContext,
 } = require('../../src/lib/bettoWelcome');
 
@@ -72,26 +74,46 @@ describe('bettoWelcome', () => {
     })).toBe(false);
   });
 
-  it('persiste betto_greeted entre turnos y lo limpia al resetear sesión', () => {
-    expect(isBettoGreetedContext({ betto_greeted: true })).toBe(true);
+  it('persiste el saludo 30 minutos aunque se resetee la sesión', () => {
+    const now = Date.parse('2026-08-12T22:20:00-03:00');
+    const stamped = stampBettoGreeted(new Date(now));
+    expect(isBettoGreetedContext(stamped, now)).toBe(true);
+    expect(isBettoGreetedContext(stamped, now + BETTO_GREETING_TTL_MS - 1000)).toBe(true);
+    expect(isBettoGreetedContext(stamped, now + BETTO_GREETING_TTL_MS + 1000)).toBe(false);
+
     const kept = mergeWhatsappSessionContext(
-      { betto_greeted: true, wasender_line: '5493872138777' },
+      { ...stamped, wasender_line: '5493872138777' },
       {},
+      { now },
     );
     expect(kept.betto_greeted).toBe(true);
+    expect(kept.betto_greeted_at).toBe(stamped.betto_greeted_at);
 
-    const reset = mergeWhatsappSessionContext(
-      { betto_greeted: true },
+    const resetWithinWindow = mergeWhatsappSessionContext(
+      stamped,
       {},
-      { sessionReset: true },
+      { sessionReset: true, now: now + 60 * 1000 },
     );
-    expect(reset.betto_greeted).toBeUndefined();
+    expect(resetWithinWindow.betto_greeted).toBe(true);
+    expect(resetWithinWindow.betto_greeted_at).toBe(stamped.betto_greeted_at);
 
-    const greetedThisTurn = mergeWhatsappSessionContext(
-      { betto_greeted: true },
-      { betto_greeted: true },
-      { sessionReset: true },
+    const resetAfterTtl = mergeWhatsappSessionContext(
+      stamped,
+      {},
+      { sessionReset: true, now: now + BETTO_GREETING_TTL_MS + 1000 },
     );
-    expect(greetedThisTurn.betto_greeted).toBe(true);
+    expect(resetAfterTtl.betto_greeted).toBeUndefined();
+    expect(resetAfterTtl.betto_greeted_at).toBeUndefined();
+  });
+
+  it('no corre la ventana si este turno vuelve a marcar el saludo', () => {
+    const now = Date.parse('2026-08-12T22:20:00-03:00');
+    const prev = stampBettoGreeted(new Date(now));
+    const merged = mergeWhatsappSessionContext(
+      prev,
+      stampBettoGreeted(new Date(now + 60 * 1000)),
+      { sessionReset: true, now: now + 60 * 1000 },
+    );
+    expect(merged.betto_greeted_at).toBe(prev.betto_greeted_at);
   });
 });

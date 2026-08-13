@@ -1,5 +1,6 @@
 const {
   isPassengerInitiatedCancellation,
+  isOperatorInitiatedCancellation,
   buildPassengerCancelledTripUpdate,
 } = require('../../src/lib/passengerTripCancel');
 const { canRequeuePendingTrip } = require('../../src/lib/tripRequeue');
@@ -11,6 +12,12 @@ describe('passengerTripCancel', () => {
         cancel_reason: '[PASSENGER_APP] Cancelado por el pasajero',
       })
     ).toBe(true);
+  });
+
+  it('detecta cancelación manual del operador y no la trata como del pasajero', () => {
+    const reason = '[MANUAL_CANCEL] Cancelado por operador para pedir un viaje nuevo';
+    expect(isOperatorInitiatedCancellation({ cancel_reason: reason })).toBe(true);
+    expect(isPassengerInitiatedCancellation({ cancel_reason: reason })).toBe(false);
   });
 
   it('buildPassengerCancelledTripUpdate marca dispatch cancelado', () => {

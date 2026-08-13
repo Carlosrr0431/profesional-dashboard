@@ -1,6 +1,6 @@
 /**
  * Saludo de inicio de conversación WhatsApp (ambas líneas).
- * Solo en el primer mensaje de la sesión: bienvenida sin ruta, o el
+ * Una vez por ventana de 30 minutos: bienvenida sin ruta, o el
  * "Tomé tu pedido..." cuando el pasajero ya mandó la dirección.
  */
 import {
@@ -11,6 +11,43 @@ import {
 } from './whatsappTripIntentPatterns';
 
 export const BETTO_INTRO = 'Hola, soy el Chat Bot Betto 👋';
+export const BETTO_GREETING_TTL_MS = 30 * 60 * 1000;
+
+function parseSessionContext(context) {
+  if (!context) return {};
+  if (typeof context === 'string') {
+    try {
+      const parsed = JSON.parse(context);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof context === 'object' && !Array.isArray(context)) return context;
+  return {};
+}
+
+export function getBettoGreetedAtMs(context) {
+  const raw = parseSessionContext(context);
+  if (!raw.betto_greeted_at) return null;
+  const ms = new Date(raw.betto_greeted_at).getTime();
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+
+export function isBettoGreetedContext(context, now = Date.now()) {
+  const raw = parseSessionContext(context);
+  const at = getBettoGreetedAtMs(raw);
+  if (at != null) return now - at < BETTO_GREETING_TTL_MS;
+  return Boolean(raw.betto_greeted);
+}
+
+export function stampBettoGreeted(now = new Date()) {
+  const date = now instanceof Date ? now : new Date(now);
+  return {
+    betto_greeted: true,
+    betto_greeted_at: date.toISOString(),
+  };
+}
 
 export function buildBettoWelcomeMessage() {
   return [
@@ -28,16 +65,6 @@ export function withBettoIntro(message) {
   if (!body) return BETTO_INTRO;
   if (body.startsWith('Hola, soy el Chat Bot Betto')) return body;
   return `${BETTO_INTRO}\n\n${body}`;
-}
-
-export function isBettoGreetedContext(context) {
-  if (!context) return false;
-  const raw = typeof context === 'string'
-    ? (() => {
-      try { return JSON.parse(context); } catch { return null; }
-    })()
-    : context;
-  return Boolean(raw?.betto_greeted);
 }
 
 export function isAvailabilityAskWithoutRoute(text) {
@@ -66,22 +93,34 @@ export function shouldSendBettoWelcome({
   return false;
 }
 
-export function mergeWhatsappSessionContext(prevRaw, nextContext, { sessionReset = false } = {}) {
-  let prev = {};
-  if (typeof prevRaw === 'string') {
-    try { prev = JSON.parse(prevRaw) || {}; } catch { prev = {}; }
-  } else if (prevRaw && typeof prevRaw === 'object') {
-    prev = prevRaw;
+function resolveGreetedAtIso(prev, next, nowMs) {
+  if (isBettoGreetedContext(prev, nowMs) && prev.betto_greeted_at) {
+    return prev.betto_greeted_at;
   }
+  if (next.betto_greeted_at) return next.betto_greeted_at;
+  return new Date(nowMs).toISOString();
+}
+
+export function mergeWhatsappSessionContext(prevRaw, nextContext, { sessionReset = false, now = Date.now() } = {}) {
+  void sessionReset;
+  const prev = parseSessionContext(prevRaw);
   const next = nextContext && typeof nextContext === 'object' && !Array.isArray(nextContext)
     ? { ...nextContext }
     : {};
+  const nowMs = typeof now === 'number' ? now : new Date(now).getTime();
+  const prevStillGreeted = isBettoGreetedContext(prev, nowMs);
+  const nextClears = next.betto_greeted === false;
+  const nextMarksGreeted = next.betto_greeted === true || Boolean(next.betto_greeted_at);
 
-  if (sessionReset) {
-    if (next.betto_greeted !== true) delete next.betto_greeted;
-  } else if (next.betto_greeted !== false && (next.betto_greeted || prev.betto_greeted)) {
+  if (nextClears) {
+    delete next.betto_greeted;
+    delete next.betto_greeted_at;
+  } else if (nextMarksGreeted || prevStillGreeted) {
     next.betto_greeted = true;
+    next.betto_greeted_at = resolveGreetedAtIso(prev, next, nowMs);
+  } else {
+    delete next.betto_greeted;
+    delete next.betto_greeted_at;
   }
-  if (next.betto_greeted === false) delete next.betto_greeted;
   return next;
 }
