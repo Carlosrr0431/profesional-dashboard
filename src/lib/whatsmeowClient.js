@@ -231,7 +231,7 @@ export async function sendWhatsmeowPollDirect(agentCode, to, { name, options, ma
 }
 
 /**
- * Envío de texto vía cola global (1 msg / 15s). Fallback a directo si la cola no está migrada.
+ * Envío de texto vía cola por línea (1 msg / 15s por agent_code). Fallback a directo si la cola no está migrada.
  * Opciones:
  * - `{ bypassQueue: true }` fuerza envío inmediato
  * - `{ awaitDelivery: true }` encola y espera el envío real (p.ej. resumen de viaje)
@@ -287,7 +287,7 @@ export async function sendWhatsmeowText(agentCode, to, text, {
 }
 
 /**
- * Envío de poll vía cola global (espera el messageId real para matchear votos).
+ * Envío de poll vía cola por línea (espera el messageId real para matchear votos).
  * `{ bypassQueue: true }` fuerza inmediato.
  */
 export async function sendWhatsmeowPoll(agentCode, to, { name, options, maxSelections = 1 } = {}, {

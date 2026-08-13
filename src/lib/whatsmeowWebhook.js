@@ -191,14 +191,15 @@ function toPollResults(msg, agentCode) {
 
   // Prioridad: texto de opción → body → button_id (opt_N).
   // El handler de Agente_IA resuelve opt_N / índice vía findPollCandidateByVote.
-  let votedName = pollOption || body || buttonId;
+  // key.id = poll_id real (puede ir vacío: el handler busca el viaje por teléfono).
+  const votedName = pollOption || body || buttonId;
 
   return {
     event: 'poll.results',
     agent_code: agentCode || undefined,
     data: {
       key: {
-        id: pollMsgId || msg.id || '',
+        id: pollMsgId,
         remoteJid,
         fromMe: false,
       },
@@ -218,11 +219,18 @@ function toPollResults(msg, agentCode) {
   };
 }
 
+function isOutgoingWhatsmeowMsg(msg) {
+  return msg?.is_from_me === true;
+}
+
 function isPollVoteMsg(msg) {
   if (!msg || typeof msg !== 'object') return false;
-  if (msg.poll_id) return true;
-  if (String(msg.type || '') === 'poll_vote') return true;
+  if (isOutgoingWhatsmeowMsg(msg)) return false;
+  const type = String(msg.type || '');
+  if (type === 'poll_vote') return true;
   if (/^opt_\d+$/i.test(String(msg.button_id || ''))) return true;
+  if (String(msg.poll_option || '').trim()) return true;
+  if (msg.poll_id && (type === 'button_reply' || type === 'list_reply')) return true;
   return false;
 }
 
@@ -257,6 +265,9 @@ export function normalizeWhatsmeowWebhookBody(body) {
   const first = msgs[0];
 
   if (['messages.poll', 'messages.button', 'messages.list'].includes(event) && isWhatsmeowMessageEvent(first)) {
+    if (isOutgoingWhatsmeowMsg(first)) {
+      return toWasenderUpsert(first, agentCode);
+    }
     if (isPollVoteMsg(first) || event === 'messages.poll') {
       return toPollResults(first, agentCode);
     }

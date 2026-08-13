@@ -20,7 +20,12 @@ function statusTone(status) {
 
 function qrImageUrl(qr, bust) {
   if (!qr) return null;
-  const base = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=8&data=${encodeURIComponent(qr)}`;
+  const value = String(qr);
+  // whatsmeow ya entrega data:image/png;base64,... — usarlo directo
+  if (value.startsWith('data:image') || value.startsWith('http://') || value.startsWith('https://')) {
+    return bust ? `${value}${value.includes('?') ? '&' : '?'}t=${encodeURIComponent(bust)}` : value;
+  }
+  const base = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=8&data=${encodeURIComponent(value)}`;
   return bust ? `${base}&t=${encodeURIComponent(bust)}` : base;
 }
 
@@ -212,7 +217,13 @@ export default function WhatsAppSessionModal({
     if (!open || loading || !snapshot) return;
     if (autoConnectRef.current) return;
     if (snapshot.connected || snapshot.status === 'connected') return;
-    if (snapshot.config && !snapshot.config.hasPersonalAccessToken) return;
+    // whatsmeow: hasSessionApiKey. Compat Wasender: hasPersonalAccessToken.
+    const canConnect = Boolean(
+      snapshot.config?.hasSessionApiKey
+      || snapshot.config?.hasPersonalAccessToken
+      || snapshot.config?.provider === 'whatsmeow'
+    );
+    if (snapshot.config && !canConnect) return;
 
     // Si ya hay QR fresco en need_scan, no forzar otro connect.
     if (snapshot.qr && snapshot.status === 'need_scan') {
@@ -268,8 +279,9 @@ export default function WhatsAppSessionModal({
     || status === 'logged_out'
     || status === 'disconnected'
     || status === 'expired';
-  const showPasskey = status === 'need_passkey' || Boolean(snapshot?.passkey?.token);
-  const missingPat = snapshot?.config && !snapshot.config.hasPersonalAccessToken;
+  const showPasskey = false; // whatsmeow solo QR
+  const missingConfig = snapshot?.config
+    && !(snapshot.config.hasSessionApiKey || snapshot.config.hasPersonalAccessToken || snapshot.config.agentCode);
   const waitingScan = status === 'need_scan' || status === 'connecting' || Boolean(snapshot?.qr);
   const qrUrl = qrImageUrl(snapshot?.qr, qrBust);
 
@@ -293,7 +305,7 @@ export default function WhatsAppSessionModal({
           <p className="mt-0.5 text-[12px] leading-snug text-slate-500">
             {required
               ? 'Escaneá el QR con el celular de la empresa para usar el dashboard.'
-              : `Wasender · ${snapshot?.config?.phone || '+5493873088777'}`}
+              : `WhatsApp · ${snapshot?.config?.phone || snapshot?.config?.agentCode || 'sesión'}`}
           </p>
           {required ? (
             <p className="mt-1 text-[11px] font-semibold text-rose-600">
@@ -352,11 +364,15 @@ export default function WhatsAppSessionModal({
                 </div>
               </div>
 
-              {missingPat ? (
+              {missingConfig ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12px] text-amber-900">
                   Falta configurar
                   {' '}
-                  <code className="rounded bg-white/80 px-1">WASENDER_PERSONAL_ACCESS_TOKEN</code>
+                  <code className="rounded bg-white/80 px-1">WHATSMEOW_API_KEY</code>
+                  {' '}
+                  y
+                  {' '}
+                  <code className="rounded bg-white/80 px-1">WHATSMEOW_AGENT_CODE</code>
                   {' '}
                   en el servidor.
                 </div>
@@ -370,7 +386,7 @@ export default function WhatsAppSessionModal({
 
               {snapshot?.liveError ? (
                 <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[12px] text-rose-700">
-                  Wasender: {snapshot.liveError}
+                  WhatsApp: {snapshot.liveError}
                 </div>
               ) : null}
 
@@ -430,7 +446,7 @@ export default function WhatsAppSessionModal({
                     </button>
                     <button
                       type="button"
-                      disabled={acting || missingPat}
+                      disabled={acting || missingConfig}
                       onClick={() => runAction({ action: 'refresh-passkey' })}
                       className="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-indigo-800 hover:bg-indigo-50 disabled:opacity-50"
                     >
@@ -447,7 +463,7 @@ export default function WhatsAppSessionModal({
           <div className="shrink-0 border-t border-slate-100 bg-slate-50/90 px-4 py-3 sm:px-5">
             <button
               type="button"
-              disabled={acting || missingPat}
+              disabled={acting || missingConfig}
               onClick={() => {
                 autoConnectRef.current = true;
                 regenerateQr();
@@ -459,16 +475,6 @@ export default function WhatsAppSessionModal({
               ) : null}
               {snapshot?.qr ? 'Actualizar QR' : 'Generar QR'}
             </button>
-            {!required ? (
-              <button
-                type="button"
-                disabled={acting || missingPat}
-                onClick={() => runAction({ action: 'connect', linkMethod: 'passkey', force: true })}
-                className="mt-2 inline-flex w-full items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Vincular con Passkey
-              </button>
-            ) : null}
           </div>
         ) : null}
       </div>

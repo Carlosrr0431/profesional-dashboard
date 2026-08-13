@@ -40,15 +40,31 @@ function normalizeStatus(raw) {
   return v;
 }
 
+function isStatusConnected(statusData) {
+  if (!statusData || typeof statusData !== 'object') return false;
+  if (statusData.connected === true) return true;
+  return normalizeStatus(statusData.status) === 'connected';
+}
+
 const DISCONNECTED_STATUSES = new Set([
   'need_scan', 'connecting', 'disconnected', 'logged_out', 'expired', 'unknown',
 ]);
 
-async function getLineSnapshot(line, { includeQr = false } = {}) {
+async function ensureLineWebhook(line) {
+  const webhookUrl = resolveWebhookUrl(line.phone, line.agentCode);
+  const secret = process.env.WHATSMEOW_WEBHOOK_SECRET || '';
+  try {
+    await configureWhatsmeowWebhook(line.agentCode, webhookUrl, secret);
+  } catch {
+    // no bloquear el listado si whatsmeow no responde
+  }
+}
+
+async function getLineSnapshot(line, { includeQr = false, ensureWebhook = false } = {}) {
   const webhookUrl = resolveWebhookUrl(line.phone, line.agentCode);
   try {
     const statusData = await fetchWhatsmeowStatus(line.agentCode);
-    const rawConnected = Boolean(statusData?.connected);
+    const rawConnected = isStatusConnected(statusData);
     let status = normalizeStatus(rawConnected ? 'connected' : (statusData?.status || 'disconnected'));
     // En listado no pedimos QR: evita quedar en "Esperando QR" por un intento a medias.
     let qr = null;
@@ -58,6 +74,12 @@ async function getLineSnapshot(line, { includeQr = false } = {}) {
     // Si no hay QR activo, need_scan/unknown se muestran como desconectado limpio.
     if (!rawConnected && !qr && (status === 'need_scan' || status === 'unknown' || status === 'connecting')) {
       status = 'disconnected';
+    }
+    if (ensureWebhook) {
+      const current = String(statusData?.webhook_url || '').replace(/\/+$/, '');
+      if (!current || current !== webhookUrl.replace(/\/+$/, '')) {
+        await ensureLineWebhook(line);
+      }
     }
     return {
       agentCode: line.agentCode,
@@ -121,7 +143,9 @@ export async function GET(request) {
     });
   }
 
-  const snapshots = await Promise.all(lines.map(getLineSnapshot));
+  const snapshots = await Promise.all(
+    lines.map((line) => getLineSnapshot(line, { ensureWebhook: true }))
+  );
   return NextResponse.json({ ok: true, lines: snapshots });
 }
 

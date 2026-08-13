@@ -2,10 +2,8 @@ import { NextResponse } from 'next/server';
 import { requireAdminUser } from '../../../../src/lib/adminAuthServer';
 import {
   connectWasenderSession,
-  fetchWasenderPasskeyToken,
   fetchWasenderQrCode,
   getWasenderSessionSnapshot,
-  isReconnectStatus,
 } from '../../../../src/lib/wasenderSession';
 
 export const dynamic = 'force-dynamic';
@@ -31,10 +29,9 @@ export async function GET(request) {
 
 /**
  * body.action:
- *  - connect (default): inicia vinculación QR o passkey
+ *  - connect (default): inicia vinculación QR vía whatsmeow
  *  - refresh-qr: pide un QR fresco
- *  - refresh-passkey: pide token passkey fresco
- * body.linkMethod: 'qr' | 'passkey'
+ *  - refresh-passkey: no disponible (whatsmeow solo QR)
  */
 export async function POST(request) {
   const auth = await requireAdminUser(request);
@@ -45,12 +42,15 @@ export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
     const action = String(body?.action || 'connect').trim().toLowerCase();
-    const linkMethod = String(body?.linkMethod || 'qr').trim().toLowerCase() === 'passkey'
-      ? 'passkey'
-      : 'qr';
+
+    if (action === 'refresh-passkey' || body?.linkMethod === 'passkey') {
+      return NextResponse.json(
+        { ok: false, error: 'Passkey no está disponible con whatsmeow. Usá vinculación por QR.' },
+        { status: 400 }
+      );
+    }
 
     if (action === 'refresh-qr') {
-      // Preferir connect forzado: el endpoint /qrcode a veces devuelve un QR ya vencido.
       const connected = await connectWasenderSession({ linkMethod: 'qr' });
       if (connected.ok && connected.qr) {
         const snapshot = await getWasenderSessionSnapshot({ refreshLive: true });
@@ -73,16 +73,6 @@ export async function POST(request) {
       return NextResponse.json({ ok: true, ...snapshot, qr: result.qr });
     }
 
-    if (action === 'refresh-passkey') {
-      const result = await fetchWasenderPasskeyToken();
-      if (!result.ok) {
-        return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
-      }
-      const snapshot = await getWasenderSessionSnapshot({ refreshLive: true });
-      return NextResponse.json({ ok: true, ...snapshot, passkey: result.passkey });
-    }
-
-    // Antes de conectar, si ya está connected, no forzar salvo body.force
     const current = await getWasenderSessionSnapshot({ refreshLive: true });
     if (current.connected && !body?.force) {
       return NextResponse.json({
@@ -92,11 +82,7 @@ export async function POST(request) {
       });
     }
 
-    if (!isReconnectStatus(current.status) && current.status !== 'unknown' && current.status !== 'connecting' && !body?.force) {
-      // Igual permitir connect si el operador lo pide con force; si no, informar.
-    }
-
-    const result = await connectWasenderSession({ linkMethod });
+    const result = await connectWasenderSession({ linkMethod: 'qr' });
     if (!result.ok) {
       return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
     }
@@ -106,7 +92,6 @@ export async function POST(request) {
       ok: true,
       ...snapshot,
       qr: result.qr || snapshot.qr,
-      passkey: result.passkey || snapshot.passkey,
       sessionId: result.sessionId,
     });
   } catch (err) {
@@ -117,3 +102,4 @@ export async function POST(request) {
     );
   }
 }
+

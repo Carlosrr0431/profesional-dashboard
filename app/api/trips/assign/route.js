@@ -6,6 +6,7 @@ import {
   isDriverEligibleForDispatch,
   resolveDispatchBlockReason,
 } from '../../../../shared/driver-billing.js';
+import { selectDriversCompat } from '../../../../src/lib/driversBillingSelect';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -100,11 +101,11 @@ export async function POST(request) {
   try {
     const supabase = getSupabaseAdmin();
 
-    const { data: driverRow, error: driverError } = await supabase
-      .from('drivers')
-      .select('id, billing_mode, commission_blocked, pending_commission, commission_debt_since_at')
-      .eq('id', driverId)
-      .maybeSingle();
+    const { data: driverRow, error: driverError } = await selectDriversCompat(
+      supabase,
+      'id, billing_mode, commission_blocked, pending_commission, commission_debt_since_at',
+      (query) => query.eq('id', driverId).maybeSingle(),
+    );
 
     if (driverError) throw driverError;
     if (!driverRow) {

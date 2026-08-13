@@ -22,7 +22,10 @@ import { isPassengerInitiatedCancellation } from '../../../src/lib/passengerTrip
 import { isPassengerAppTrip, shouldPreservePickupOriginOnAssign } from '../../../shared/trip-contract.js';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
 import { sendWhatsmeowText, getWhatsmeowApiKey } from '../../../src/lib/whatsmeowClient';
-import { getDefaultWhatsmeowLine } from '../../../src/lib/whatsmeowLines';
+import {
+  getDefaultWhatsmeowLine,
+  resolveWhatsmeowLineForPassenger,
+} from '../../../src/lib/whatsmeowLines';
 import { triggerWhatsappQueueWorker } from '../../../src/lib/whatsappOutboundQueue';
 import {
   MAX_DRIVER_OFFER_ATTEMPTS,
@@ -40,6 +43,7 @@ import {
 } from '../../../src/lib/cronAuth';
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 import { isDriverEligibleForDispatch } from '../../../shared/driver-billing.js';
+import { selectDriversCompat } from '../../../src/lib/driversBillingSelect';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -645,10 +649,11 @@ async function chooseDriverForClaim(
     : getActiveDispatchExcludedDriverIds(trip?.wa_context);
   const excludedDriverIdsSet = new Set(excludedDriverIdList);
 
-  const { data: driversRaw, error } = await getSupabaseAdmin()
-    .from('drivers')
-    .select('id, full_name, phone, push_token, current_lat, current_lng, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked')
-    .eq('is_available', true);
+  const { data: driversRaw, error } = await selectDriversCompat(
+    getSupabaseAdmin(),
+    'id, full_name, phone, push_token, current_lat, current_lng, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
+    (query) => query.eq('is_available', true),
+  );
 
   if (error) throw error;
 
@@ -928,15 +933,30 @@ async function sendPushNotification(pushToken, payload) {
   }
 }
 
-async function sendWhatsAppText(phone, text) {
+async function sendWhatsAppText(phone, text, { trip = null, role = 'driver' } = {}) {
   const normalized = normalizePhone(phone);
   if (!normalized) return { ok: false, reason: 'invalid_driver_phone' };
 
-  const line = getDefaultWhatsmeowLine();
+  let line = getDefaultWhatsmeowLine();
+  if (role === 'passenger') {
+    line = await resolveWhatsmeowLineForPassenger(getSupabaseAdmin(), {
+      passengerPhone: trip?.passenger_phone || normalized,
+      tripWaContext: trip?.wa_context,
+    }) || line;
+  }
+
   const apiKey = getWhatsmeowApiKey();
   if (!apiKey || !line?.agentCode) {
     return { ok: false, reason: 'missing_whatsmeow_config' };
   }
+
+  logWorkerVerbose('whatsapp_send', {
+    role,
+    agentCode: line.agentCode,
+    linePhone: line.phone || null,
+    to: maskPhone(normalized),
+    tripId: trip?.id || null,
+  });
 
   const result = await sendWhatsmeowText(line.agentCode, normalized, text, { apiKey });
   if (!result.success) {
@@ -1299,7 +1319,8 @@ async function processDispatchClaim(claim) {
       if (!cancelErr && cancelledTrip?.id && trip.passenger_phone) {
         await sendWhatsAppText(
           trip.passenger_phone,
-          '😔 Lamentablemente no encontramos un chofer disponible para tu viaje en este momento. Podés intentarlo de nuevo en unos minutos.'
+          '😔 Lamentablemente no encontramos un chofer disponible para tu viaje en este momento. Podés intentarlo de nuevo en unos minutos.',
+          { trip, role: 'passenger' },
         ).catch(() => {});
       }
       return { status: 'max_attempts_exhausted' };
@@ -1633,7 +1654,7 @@ async function promoteScheduledTripsBeforeDispatch() {
     supabase: getSupabaseAdmin(),
     log: logWorker,
     dispatchAheadMs: SCHEDULED_DISPATCH_AHEAD_MS,
-    sendPassengerWhatsApp: async (phone, text) => sendWhatsAppText(phone, text),
+    sendPassengerWhatsApp: async (phone, text, trip) => sendWhatsAppText(phone, text, { trip, role: 'passenger' }),
   });
 }
 

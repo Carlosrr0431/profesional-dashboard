@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendWhatsmeowText, getWhatsmeowApiKey } from '../../../../src/lib/whatsmeowClient';
-import { getDefaultWhatsmeowLine } from '../../../../src/lib/whatsmeowLines';
+import { resolveWhatsmeowLineForPassenger } from '../../../../src/lib/whatsmeowLines';
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -83,7 +83,16 @@ export async function POST(request) {
       return NextResponse.json({ ok: true, skipped: true, reason: 'already_sent' });
     }
 
-    const line = getDefaultWhatsmeowLine();
+    const { data: tripRow } = await supabase
+      .from('trips')
+      .select('id, wa_context, passenger_phone')
+      .eq('id', tripId)
+      .maybeSingle();
+
+    const line = await resolveWhatsmeowLineForPassenger(supabase, {
+      passengerPhone: tripRow?.passenger_phone || phone,
+      tripWaContext: tripRow?.wa_context,
+    });
     const apiKey = getWhatsmeowApiKey();
     if (!apiKey || !line?.agentCode) {
       return NextResponse.json({ ok: false, error: 'WhatsApp (whatsmeow) no configurado' }, { status: 503 });

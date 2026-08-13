@@ -36,6 +36,34 @@ describe('whatsappOutboundQueue helpers', () => {
     expect(OUTBOUND_PRIORITY.OTP).toBeGreaterThan(OUTBOUND_PRIORITY.POLL);
     expect(OUTBOUND_PRIORITY.POLL).toBeGreaterThan(OUTBOUND_PRIORITY.DEFAULT);
   });
+
+  test('dedup_key distinto por línea/texto y estable para el mismo poll', () => {
+    const { buildOutboundDedupKey } = require('../../src/lib/whatsappOutboundQueue');
+    const a = buildOutboundDedupKey({
+      kind: 'text',
+      dest: '5493878630173',
+      payload: { text: 'Hola' },
+    });
+    const b = buildOutboundDedupKey({
+      kind: 'text',
+      dest: '+54 9 3878 63-0173',
+      payload: { text: 'Hola' },
+    });
+    const c = buildOutboundDedupKey({
+      kind: 'text',
+      dest: '5493878630173',
+      payload: { text: 'Chau' },
+    });
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
+
+    const poll = {
+      kind: 'poll',
+      dest: '5493878630173',
+      payload: { name: 'Elegí', options: ['Sí', 'No'] },
+    };
+    expect(buildOutboundDedupKey(poll)).toBe(buildOutboundDedupKey(poll));
+  });
 });
 
 describe('sendWhatsmeowText con cola', () => {
@@ -172,5 +200,85 @@ describe('processOneWhatsappOutbound', () => {
     const { processOneWhatsappOutbound } = require('../../src/lib/whatsappOutboundQueue');
     const result = await processOneWhatsappOutbound({ claimer: 'test' });
     expect(result).toMatchObject({ claimed: false, skipped: 'empty_or_throttled' });
+  });
+});
+
+describe('processWhatsappOutboundBatch por línea', () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    jest.resetModules();
+    jest.clearAllMocks();
+  });
+
+  test('envía dos líneas seguidas sin esperar el intervalo global', async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.WHATSAPP_OUTBOUND_QUEUE_ENABLED = 'true';
+    process.env.SUPABASE_URL = 'https://example.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key';
+
+    const updateEq = jest.fn(async () => ({ error: null }));
+    const update = jest.fn(() => ({ eq: updateEq }));
+    let claimCount = 0;
+    const rpc = jest.fn(async (name) => {
+      if (name === 'release_stale_whatsapp_outbound') return { data: 0, error: null };
+      if (name === 'claim_whatsapp_outbound_message') {
+        claimCount += 1;
+        if (claimCount === 1) {
+          return {
+            data: [{
+              id: 'q-a',
+              agent_code: 'Profesional_Pasajeros',
+              dest: '549111',
+              kind: 'text',
+              payload: { text: 'otp' },
+              attempts: 1,
+              max_attempts: 5,
+            }],
+            error: null,
+          };
+        }
+        if (claimCount === 2) {
+          return {
+            data: [{
+              id: 'q-b',
+              agent_code: 'Profesional_1',
+              dest: '549222',
+              kind: 'text',
+              payload: { text: 'viaje' },
+              attempts: 1,
+              max_attempts: 5,
+            }],
+            error: null,
+          };
+        }
+        return { data: [], error: null };
+      }
+      return { data: null, error: { message: `unexpected rpc ${name}` } };
+    });
+
+    jest.doMock('@supabase/supabase-js', () => ({
+      createClient: () => ({ rpc, from: () => ({ update }) }),
+    }));
+
+    jest.doMock('../../src/lib/whatsmeowClient', () => ({
+      sendWhatsmeowTextDirect: jest.fn(async () => ({ success: true, messageId: 'wa' })),
+      sendWhatsmeowPollDirect: jest.fn(),
+      getWhatsmeowApiKey: () => 'k',
+    }));
+
+    const started = Date.now();
+    const { processWhatsappOutboundBatch } = require('../../src/lib/whatsappOutboundQueue');
+    const batch = await processWhatsappOutboundBatch({
+      claimer: 'test',
+      maxMessages: 8,
+      deadlineMs: 5_000,
+    });
+
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(batch.sent).toBe(2);
+    expect(batch.results[0].agentCode).toBe('Profesional_Pasajeros');
+    expect(batch.results[1].agentCode).toBe('Profesional_1');
   });
 });

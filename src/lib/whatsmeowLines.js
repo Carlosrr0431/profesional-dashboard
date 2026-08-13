@@ -190,21 +190,86 @@ export function injectWhatsmeowLineIntoContext(context = {}) {
   return base;
 }
 
-export function extractWhatsmeowLineFromContext(context) {
+function parseContextObject(context) {
   if (!context) return null;
-  const raw = typeof context === 'string'
-    ? (() => {
-      try { return JSON.parse(context); } catch { return null; }
-    })()
-    : context;
-  const phone = digitsOnly(raw?.wasender_line || raw?.wasenderLine || raw?.whatsmeow_line || '');
+  if (typeof context === 'string') {
+    try { return JSON.parse(context); } catch { return null; }
+  }
+  if (typeof context === 'object') return context;
+  return null;
+}
+
+export function extractWhatsmeowLineFromContext(context) {
+  const raw = parseContextObject(context);
+  if (!raw) return null;
+  const phone = digitsOnly(raw.wasender_line || raw.wasenderLine || raw.whatsmeow_line || '');
   if (phone) return phone;
-  const agent = String(raw?.whatsmeow_agent || raw?.agent_code || '').trim();
+  const agent = String(raw.whatsmeow_agent || raw.agent_code || '').trim();
   if (agent) {
     const line = resolveWhatsmeowLineByAgentCode(agent);
     return line?.phone || null;
   }
   return null;
+}
+
+/** Resuelve el objeto de línea (phone + agentCode) desde trips.wa_context o conversation.context. */
+export function resolveWhatsmeowLineFromContext(context) {
+  const raw = parseContextObject(context);
+  if (!raw) return null;
+  const phone = digitsOnly(raw.wasender_line || raw.wasenderLine || raw.whatsmeow_line || '');
+  if (phone) {
+    const byPhone = resolveWhatsmeowLine(phone);
+    if (byPhone) return byPhone;
+  }
+  const agent = String(raw.whatsmeow_agent || raw.agent_code || '').trim();
+  if (agent) return resolveWhatsmeowLineByAgentCode(agent);
+  return null;
+}
+
+/**
+ * Sello mínimo de línea para trips.wa_context (sin polls ni hold).
+ * Prioridad: contexto existente → línea activa del webhook → línea default.
+ */
+export function buildTripWhatsmeowLineContext(existing = null) {
+  const line = resolveWhatsmeowLineFromContext(existing)
+    || getActiveWhatsmeowLine()
+    || getDefaultWhatsmeowLine();
+  if (!line?.phone && !line?.agentCode) return {};
+  const stamped = {};
+  if (line.phone) stamped.wasender_line = line.phone;
+  if (line.agentCode) stamped.whatsmeow_agent = line.agentCode;
+  return stamped;
+}
+
+/**
+ * Línea con la que hay que hablarle al pasajero.
+ * 1) trips.wa_context  2) última conversación WhatsApp  3) línea activa/default
+ */
+export async function resolveWhatsmeowLineForPassenger(supabase, {
+  passengerPhone,
+  tripWaContext,
+} = {}) {
+  const fromTrip = resolveWhatsmeowLineFromContext(tripWaContext);
+  if (fromTrip) return fromTrip;
+
+  const phone = digitsOnly(passengerPhone);
+  if (supabase && phone) {
+    try {
+      const { data } = await supabase
+        .from('whatsapp_conversations')
+        .select('context')
+        .eq('phone', phone)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const fromConv = resolveWhatsmeowLineFromContext(data?.context);
+      if (fromConv) return fromConv;
+    } catch {
+      // fallback abajo
+    }
+  }
+
+  return getActiveWhatsmeowLine() || getDefaultWhatsmeowLine();
 }
 
 export function hasAnyWhatsmeowConfig() {

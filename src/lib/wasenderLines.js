@@ -24,6 +24,9 @@ export {
   runWithWhatsmeowLine,
   injectWhatsmeowLineIntoContext,
   extractWhatsmeowLineFromContext,
+  resolveWhatsmeowLineFromContext,
+  buildTripWhatsmeowLineContext,
+  resolveWhatsmeowLineForPassenger,
   hasAnyWhatsmeowConfig,
   getWhatsmeowLinesHealth,
 } from './whatsmeowLines';

@@ -1,8 +1,9 @@
 /**
- * Cola global de salida WhatsApp: 1 mensaje cada N ms (default 15s).
- * Persistida en Supabase para sobrevivir instancias serverless.
+ * Cola de salida WhatsApp por línea (agent_code): 1 mensaje cada N ms (default 15s).
+ * Las dos líneas pueden enviar en paralelo. Persistida en Supabase.
  */
 
+import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import {
   sendWhatsmeowTextDirect,
@@ -27,6 +28,7 @@ const QUEUE_WAKE_TIMEOUT_MS = Math.max(
   10_000,
   Math.round(Number(process.env.WHATSAPP_QUEUE_WAKE_TIMEOUT_MS || 65_000) || 65_000)
 );
+const EMPTY_RETRY_MS = 250;
 
 function isMissingQueueRelationError(error) {
   const code = String(error?.code || '');
@@ -35,8 +37,13 @@ function isMissingQueueRelationError(error) {
     code === '42P01'
     || code === 'PGRST202'
     || code === 'PGRST205'
-    || /whatsapp_outbound_queue|claim_whatsapp_outbound|whatsapp_send_throttle/i.test(message)
+    || /whatsapp_outbound_queue|claim_whatsapp_outbound|whatsapp_send_throttle|whatsapp_line_throttle|dedup_key/i.test(message)
   );
+}
+
+function isUniqueViolation(error) {
+  return String(error?.code || '') === '23505'
+    || /duplicate key|unique constraint/i.test(String(error?.message || ''));
 }
 
 export function isWhatsappOutboundQueueEnabled() {
@@ -58,6 +65,29 @@ function getSupabaseAdmin() {
   return createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+}
+
+function digitsOrRaw(value) {
+  const raw = String(value || '').trim();
+  const digits = raw.replace(/\D/g, '');
+  return digits || raw;
+}
+
+/** Clave estable para no encolar el mismo texto/poll pendiente dos veces en la misma línea. */
+export function buildOutboundDedupKey({ kind, dest, payload } = {}) {
+  const destNorm = digitsOrRaw(dest);
+  if (kind === 'poll') {
+    const name = String(payload?.name || '').trim().toLowerCase();
+    const opts = (Array.isArray(payload?.options) ? payload.options : [])
+      .map((o) => String(o || '').trim().toLowerCase())
+      .filter(Boolean)
+      .join('|');
+    const raw = `poll:${destNorm}:${name}:${opts}`;
+    return createHash('sha256').update(raw).digest('hex').slice(0, 40);
+  }
+  const text = String(payload?.text || '').trim();
+  const raw = `text:${destNorm}:${text}`;
+  return createHash('sha256').update(raw).digest('hex').slice(0, 40);
 }
 
 function resolveQueueWorkerUrl() {
@@ -134,6 +164,20 @@ export function triggerWhatsappQueueWorker(meta = {}) {
     });
 }
 
+async function findPendingByDedup(supabase, agentCode, dedupKey) {
+  const { data, error } = await supabase
+    .from('whatsapp_outbound_queue')
+    .select('id')
+    .eq('agent_code', agentCode)
+    .eq('dedup_key', dedupKey)
+    .in('status', ['pending', 'sending'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return null;
+  return data?.id || null;
+}
+
 /**
  * Encola un mensaje saliente.
  * @returns {Promise<{success: boolean, queued?: boolean, queueId?: string, error?: string, missingTable?: boolean}>}
@@ -165,6 +209,8 @@ export async function enqueueWhatsappOutbound({
     }
   }
 
+  const dedupKey = buildOutboundDedupKey({ kind: messageKind, dest, payload });
+
   try {
     const supabase = getSupabaseAdmin();
     const row = {
@@ -177,6 +223,7 @@ export async function enqueueWhatsappOutbound({
       meta: meta && typeof meta === 'object' ? meta : {},
       status: 'pending',
       available_at: new Date().toISOString(),
+      dedup_key: dedupKey,
     };
 
     const { data, error } = await supabase
@@ -188,6 +235,19 @@ export async function enqueueWhatsappOutbound({
     if (error) {
       if (isMissingQueueRelationError(error)) {
         return { success: false, error: error.message, missingTable: true };
+      }
+      if (isUniqueViolation(error)) {
+        const existingId = await findPendingByDedup(supabase, code, dedupKey);
+        if (wake) {
+          triggerWhatsappQueueWorker({ queueId: existingId, kind: messageKind, duplicate: true });
+        }
+        return {
+          success: true,
+          queued: true,
+          duplicate: true,
+          queueId: existingId,
+          messageId: null,
+        };
       }
       return { success: false, error: error.message || 'enqueue_failed' };
     }
@@ -266,8 +326,8 @@ async function sendClaimedRow(row, { apiKey } = {}) {
 }
 
 /**
- * Toma y envía como máximo un mensaje (respeta el throttle en Postgres).
- * @returns {Promise<{claimed: boolean, sent?: boolean, skipped?: string, queueId?: string, error?: string, missingTable?: boolean}>}
+ * Toma y envía como máximo un mensaje listo (throttle por línea en Postgres).
+ * @returns {Promise<{claimed: boolean, sent?: boolean, skipped?: string, queueId?: string, agentCode?: string, error?: string, missingTable?: boolean}>}
  */
 export async function processOneWhatsappOutbound({ claimer = 'worker', apiKey } = {}) {
   let supabase;
@@ -306,6 +366,7 @@ export async function processOneWhatsappOutbound({ claimer = 'worker', apiKey } 
       claimed: true,
       sent: true,
       queueId: row.id,
+      agentCode: row.agent_code || null,
       messageId: result.messageId || null,
     };
   }
@@ -315,6 +376,7 @@ export async function processOneWhatsappOutbound({ claimer = 'worker', apiKey } 
     claimed: true,
     sent: false,
     queueId: row.id,
+    agentCode: row.agent_code || null,
     error: result?.error || 'send_failed',
     permanentFailure: fail.permanent,
   };
@@ -325,18 +387,18 @@ function sleep(ms) {
 }
 
 /**
- * Drena la cola respetando el intervalo global.
- * En una invocación de ~60s puede enviar varios mensajes (uno cada 15s).
+ * Drena la cola. Cada línea tiene su propio throttle: no espera 15s entre líneas distintas.
  */
 export async function processWhatsappOutboundBatch({
   claimer = 'worker',
-  maxMessages = 4,
+  maxMessages = 8,
   deadlineMs = 55_000,
   apiKey,
 } = {}) {
   const started = Date.now();
   const results = [];
-  const limit = Math.max(1, Math.min(20, Math.trunc(maxMessages) || 4));
+  const limit = Math.max(1, Math.min(20, Math.trunc(maxMessages) || 8));
+  let emptyStreak = 0;
 
   for (let i = 0; i < limit; i += 1) {
     if (Date.now() - started > deadlineMs) break;
@@ -345,12 +407,15 @@ export async function processWhatsappOutboundBatch({
     results.push(one);
 
     if (one.missingTable) break;
-    if (!one.claimed) break;
-    if (i + 1 >= limit) break;
-    if (Date.now() - started + WHATSAPP_OUTBOUND_INTERVAL_MS > deadlineMs) break;
+    if (one.claimed) {
+      emptyStreak = 0;
+      continue;
+    }
 
-    // El claim ya reservó last_sent_at; esperamos el intervalo antes del siguiente.
-    await sleep(WHATSAPP_OUTBOUND_INTERVAL_MS);
+    emptyStreak += 1;
+    if (emptyStreak >= 2) break;
+    if (Date.now() - started + EMPTY_RETRY_MS > deadlineMs) break;
+    await sleep(EMPTY_RETRY_MS);
   }
 
   return {
@@ -363,7 +428,7 @@ export async function processWhatsappOutboundBatch({
 async function readQueueRow(supabase, queueId) {
   const { data, error } = await supabase
     .from('whatsapp_outbound_queue')
-    .select('id, status, message_id, last_error, payload')
+    .select('id, status, message_id, last_error, payload, agent_code')
     .eq('id', queueId)
     .maybeSingle();
   if (error) return null;
@@ -379,6 +444,7 @@ export async function enqueueAndAwaitWhatsappOutbound(params, {
   apiKey,
   claimer = 'await-inline',
 } = {}) {
+  const ourCode = String(params?.agentCode || '').trim();
   // wake:false — este request drena la cola; evita carrera con otro worker.
   const queued = await enqueueWhatsappOutbound({
     ...params,
@@ -408,6 +474,7 @@ export async function enqueueAndAwaitWhatsappOutbound(params, {
         success: true,
         queued: false,
         awaited: true,
+        duplicate: Boolean(queued.duplicate),
         queueId,
         messageId: row.message_id || null,
         payload: { message_id: row.message_id || null },
@@ -450,10 +517,15 @@ export async function enqueueAndAwaitWhatsappOutbound(params, {
       };
     }
 
-    // Throttle o mensaje ajeno delante: esperar el intervalo global.
+    const otherLine = Boolean(
+      lastProcess.claimed
+      && lastProcess.agentCode
+      && ourCode
+      && lastProcess.agentCode !== ourCode
+    );
     const waitMs = Math.min(
-      WHATSAPP_OUTBOUND_INTERVAL_MS,
-      Math.max(250, deadline - Date.now())
+      otherLine || !lastProcess.claimed ? 250 : WHATSAPP_OUTBOUND_INTERVAL_MS,
+      Math.max(200, deadline - Date.now())
     );
     await sleep(waitMs);
   }

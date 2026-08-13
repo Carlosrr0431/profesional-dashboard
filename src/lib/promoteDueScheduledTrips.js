@@ -77,7 +77,7 @@ function summarizeDbError(error) {
  * @param {object} options
  * @param {import('@supabase/supabase-js').SupabaseClient} options.supabase
  * @param {(stage: string, meta?: object) => void} [options.log]
- * @param {(phone: string, text: string) => Promise<{ok?: boolean, reason?: string}>} [options.sendPassengerWhatsApp]
+ * @param {(phone: string, text: string, trip?: object) => Promise<{ok?: boolean, reason?: string}>} [options.sendPassengerWhatsApp]
  * @param {number} [options.dispatchAheadMs]
  * @param {number} [options.nowMs]
  */
@@ -96,7 +96,7 @@ export async function promoteDueScheduledTrips({
 
   const { data: scheduledTrips, error } = await supabase
     .from('trips')
-    .select('id, passenger_phone, destination_address, notes, scheduled_for')
+    .select('id, passenger_phone, destination_address, notes, scheduled_for, wa_context')
     .eq('status', 'scheduled');
 
   if (error) {
@@ -156,7 +156,8 @@ export async function promoteDueScheduledTrips({
     if (notifyViaWhatsApp && sendPassengerWhatsApp && trip.passenger_phone) {
       const notifyResult = await sendPassengerWhatsApp(
         trip.passenger_phone,
-        buildScheduledDispatchWhatsAppMessage(displayText)
+        buildScheduledDispatchWhatsAppMessage(displayText),
+        trip,
       );
       if (!notifyResult?.ok) {
         log('scheduled_trip_notify_error', {

@@ -46,6 +46,66 @@ describe('normalizeWhatsmeowWebhookBody', () => {
     expect(out.data.pollResult[0].button_id).toBe('opt_1');
   });
 
+  test('ignora votos is_from_me (eco de la línea, no del pasajero)', () => {
+    const out = normalizeWhatsmeowWebhookBody({
+      event: 'messages.poll',
+      agent_code: 'Profesional_1',
+      data: {
+        id: 'ECHO1',
+        body: '1',
+        type: 'button_reply',
+        button_id: 'opt_1',
+        poll_id: 'POLL123',
+        poll_option: 'Sí, confirmar el viaje',
+        sender_pn: '5493873088777',
+        is_from_me: true,
+      },
+    });
+
+    expect(out.event).toBe('messages.upsert');
+    expect(out.data.messages.key.fromMe).toBe(true);
+  });
+
+  test('voto sin poll_id igual se convierte a poll.results', () => {
+    const out = normalizeWhatsmeowWebhookBody({
+      event: 'messages.poll',
+      agent_code: 'Profesional_Pasajeros',
+      data: {
+        id: 'VOTE_NOPOLL',
+        body: 'Sí, confirmar el viaje',
+        type: 'poll_vote',
+        poll_option: 'Sí, confirmar el viaje',
+        sender_pn: '5493878630173',
+        is_from_me: false,
+      },
+    });
+
+    expect(out.event).toBe('poll.results');
+    expect(out.data.key.id).toBe('');
+    expect(out.data.pollResult[0].name).toBe('Sí, confirmar el viaje');
+    expect(out.data.pollResult[0]._vote_msg_id).toBe('VOTE_NOPOLL');
+  });
+
+  test('upsert de poll_vote también deriva a poll.results', () => {
+    const out = normalizeWhatsmeowWebhookBody({
+      event: 'messages.upsert',
+      agent_code: 'Profesional_1',
+      data: {
+        id: 'VOTE_UPSERT',
+        type: 'poll_vote',
+        button_id: 'opt_1',
+        poll_id: 'POLL789',
+        poll_option: 'Casa',
+        sender_pn: '5493878630173',
+        is_from_me: false,
+      },
+    });
+
+    expect(out.event).toBe('poll.results');
+    expect(out.data.key.id).toBe('POLL789');
+    expect(out.data.pollResult[0]._vote_msg_id).toBe('VOTE_UPSERT');
+  });
+
   test('voto poll sin poll_option usa button_id opt_N', () => {
     const out = normalizeWhatsmeowWebhookBody({
       event: 'messages.poll',

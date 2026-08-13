@@ -10,12 +10,12 @@ const {
   WASENDER_SESSION_WEBHOOK_EVENTS,
 } = require('../../src/lib/wasenderSession');
 
-describe('wasenderSession helpers', () => {
-  test('normaliza estados de Wasender', () => {
+describe('whatsmeow session helpers', () => {
+  test('normaliza estados', () => {
     expect(normalizeWasenderStatus('CONNECTED')).toBe('connected');
     expect(normalizeWasenderStatus('NEED_SCAN')).toBe('need_scan');
     expect(normalizeWasenderStatus('Logged Out')).toBe('logged_out');
-    expect(normalizeWasenderStatus('needpasskey')).toBe('need_passkey');
+    expect(normalizeWasenderStatus('waiting_qr')).toBe('need_scan');
   });
 
   test('detecta estados que requieren revinculación', () => {
@@ -27,7 +27,7 @@ describe('wasenderSession helpers', () => {
 
   test('lista eventos de webhook soportados', () => {
     expect(WASENDER_SESSION_WEBHOOK_EVENTS).toEqual(
-      expect.arrayContaining(['session.status', 'qrcode.updated', 'passkey.updated'])
+      expect.arrayContaining(['session.status'])
     );
   });
 });
@@ -64,32 +64,18 @@ describe('handleWasenderSessionWebhook', () => {
     ]));
   });
 
-  test('qrcode.updated guarda QR', async () => {
-    const result = await handleWasenderSessionWebhook('qrcode.updated', { qr: '2@abc' });
+  test('session.status con QR guarda need_scan', async () => {
+    const result = await handleWasenderSessionWebhook('session.status', {
+      status: 'disconnected',
+      qr_image: '2@abc',
+    });
     expect(result.handled).toBe(true);
     expect(result.status).toBe('need_scan');
     expect(upsertCalls.find((r) => r.key === 'wasender_session_qr')?.value).toBe('2@abc');
   });
 
-  test('passkey.updated request guarda token', async () => {
-    const result = await handleWasenderSessionWebhook('passkey.updated', {
-      stage: 'request',
-      token: 'temp-token',
-      requestId: 'req-1',
-      expiresAt: 123,
-    });
-    expect(result.handled).toBe(true);
-    expect(result.status).toBe('need_passkey');
-    const passkeyRow = upsertCalls.find((r) => r.key === 'wasender_session_passkey');
-    expect(JSON.parse(passkeyRow.value).token).toBe('temp-token');
-  });
-
-  test('passkey.updated fallback_qr vuelve a need_scan', async () => {
-    const result = await handleWasenderSessionWebhook('passkey.updated', {
-      stage: 'fallback_qr',
-      error: 'timeout',
-    });
-    expect(result.handled).toBe(true);
-    expect(result.status).toBe('need_scan');
+  test('qrcode.updated ya no se maneja (solo whatsmeow session.status)', async () => {
+    const result = await handleWasenderSessionWebhook('qrcode.updated', { qr: '2@abc' });
+    expect(result.handled).toBe(false);
   });
 });

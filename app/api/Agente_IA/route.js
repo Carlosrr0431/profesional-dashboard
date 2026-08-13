@@ -49,6 +49,7 @@ import {
 import { triggerDispatchWorker } from '../../../src/lib/triggerDispatchWorker';
 import { isPassengerAppTrip, resolveTripPickupCoords } from '../../../shared/trip-contract.js';
 import { isDriverEligibleForDispatch } from '../../../shared/driver-billing.js';
+import { selectDriversCompat } from '../../../src/lib/driversBillingSelect';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
 import {
   reverseGeocode as nominatimReverseGeocode,
@@ -89,6 +90,8 @@ import {
   getWasenderLinesHealth,
   hasAnyWasenderApiKey,
   injectWasenderLineIntoContext,
+  buildTripWhatsmeowLineContext,
+  resolveWhatsmeowLineForPassenger,
   resolveWasenderLine,
   resolveWhatsmeowLineByAgentCode,
   runWithWasenderLine,
@@ -99,6 +102,13 @@ import {
   sendWhatsmeowText,
 } from '../../../src/lib/whatsmeowClient';
 import { normalizeWhatsmeowWebhookBody } from '../../../src/lib/whatsmeowWebhook';
+import {
+  buildBettoWelcomeMessage,
+  isBettoGreetedContext,
+  mergeWhatsappSessionContext,
+  shouldSendBettoWelcome,
+  withBettoIntro,
+} from '../../../src/lib/bettoWelcome';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -4573,20 +4583,11 @@ async function stampConversationWasenderLine(conversationId) {
 }
 
 async function resolveWasenderLineForPassenger(phone, tripWaContext = null) {
-  const fromTrip = extractWasenderLineFromContext(tripWaContext);
-  if (fromTrip && resolveWasenderLine(fromTrip)) return fromTrip;
-
-  const normalized = normalizePhone(phone);
-  if (!normalized) return getActiveWasenderLinePhone();
-
-  try {
-    const conversation = await getLatestConversationByPhone(normalized);
-    const fromConv = extractWasenderLineFromContext(conversation?.context);
-    if (fromConv && resolveWasenderLine(fromConv)) return fromConv;
-  } catch (_) {
-    // fallback abajo
-  }
-
+  const line = await resolveWhatsmeowLineForPassenger(getSupabase(), {
+    passengerPhone: phone,
+    tripWaContext,
+  });
+  if (line?.phone && resolveWasenderLine(line.phone)) return line.phone;
   return getActiveWasenderLinePhone();
 }
 
@@ -6393,6 +6394,8 @@ async function refreshDispatchQueueForTrip(tripId) {
       enqueued_at: now,
       next_attempt_at: now,
       queue_status: 'queued',
+      attempts_count: 0,
+      selected_driver_id: null,
       lock_token: null,
       lock_owner: null,
       lock_acquired_at: null,
@@ -6435,7 +6438,7 @@ async function activateTripAfterPriceConfirmation(tripId, priceCtx, passengerPho
   ].filter(Boolean).join('\n');
 
   const updatePayload = {
-    wa_context: null,
+    wa_context: buildTripWhatsmeowLineContext(priceCtx),
     dispatch_status: 'queued',
     status: 'queued',
     assigned_at: null,
@@ -6641,10 +6644,11 @@ async function getBlockedDriverIds(driverIds) {
   logWebhook('db_blocked_drivers_start', { driverCandidates: driverIds.length });
 
   // Misma regla que el filtro primario: pending + debt_since (7+3) / semanal / bloqueo manual.
-  const { data: drivers, error } = await getSupabase()
-    .from('drivers')
-    .select('id, pending_commission, commission_debt_since_at, billing_mode, commission_blocked')
-    .in('id', driverIds);
+  const { data: drivers, error } = await selectDriversCompat(
+    getSupabase(),
+    'id, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
+    (query) => query.in('id', driverIds),
+  );
   if (error) throw error;
 
   const blocked = new Set();
@@ -6736,10 +6740,11 @@ async function chooseDriver(
     allowExclusionRelaxation,
     passengerPhone: passengerPhoneNormalized ? maskPhone(passengerPhoneNormalized) : null,
   });
-  const { data: driversRaw, error } = await getSupabase()
-    .from('drivers')
-    .select('id, full_name, phone, push_token, current_lat, current_lng, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked')
-    .eq('is_available', true);
+  const { data: driversRaw, error } = await selectDriversCompat(
+    getSupabase(),
+    'id, full_name, phone, push_token, current_lat, current_lng, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
+    (query) => query.eq('is_available', true),
+  );
   if (error) throw error;
 
   // Cobro por comisiones: 1 sem. trabajo + 3 días gracia. Semanal: solo bloqueo manual.
@@ -7439,7 +7444,7 @@ async function createScheduledTripRecord({
     origin_lat: null,
     origin_lng: null,
     assigned_at: null,
-    wa_context: null,
+    wa_context: buildTripWhatsmeowLineContext(),
     dispatch_status: 'idle',
   };
 
@@ -7513,6 +7518,7 @@ function buildPassengerTripDerivedReply({
   finalDestinationGeo,
   finalDestinationHint,
   destinationFollowupText,
+  includeBettoIntro = false,
 }) {
   const destinationConfirmLine = finalDestinationGeo
     ? `\nDestino: *${finalDestinationGeo.formattedAddress}*`
@@ -7524,7 +7530,8 @@ function buildPassengerTripDerivedReply({
     ? `\n${destinationFollowupText}`
     : '';
 
-  return `Tomé tu pedido y ya lo derivé. Apenas un chofer lo acepte, te paso por WhatsApp quién va a buscarte.\n\nRetiro: *${pickupLocation.formattedAddress}*${destinationConfirmLine}${destinationGpsLine}`;
+  const body = `Tomé tu pedido y ya lo derivé. Apenas un chofer lo acepte, te paso por WhatsApp quién va a buscarte.\n\nRetiro: *${pickupLocation.formattedAddress}*${destinationConfirmLine}${destinationGpsLine}`;
+  return includeBettoIntro ? withBettoIntro(body) : body;
 }
 
 function buildApproachOnlyQueuePayload({
@@ -7562,21 +7569,24 @@ async function persistQueuedApproachTrip({
   finalDestJson,
   logStage = 'trip_queued',
 }) {
-  const queuePayload = buildApproachOnlyQueuePayload({
-    conversation,
-    extracted,
-    pickupLocation,
-    passengerRouteFare,
-    finalDestinationGeo,
-    finalDestinationHint,
-    finalDestJson,
-  });
+  const queuePayload = {
+    ...buildApproachOnlyQueuePayload({
+      conversation,
+      extracted,
+      pickupLocation,
+      passengerRouteFare,
+      finalDestinationGeo,
+      finalDestinationHint,
+      finalDestJson,
+    }),
+    wa_context: buildTripWhatsmeowLineContext(),
+  };
 
   let queuedTrip;
   if (extracted._existingTripId) {
     const { data: updatedQueuedTrip, error: updateQueueErr } = await getSupabase()
       .from('trips')
-      .update({ ...queuePayload, wa_context: null })
+      .update(queuePayload)
       .eq('id', extracted._existingTripId)
       .select()
       .single();
@@ -7596,6 +7606,7 @@ async function persistQueuedApproachTrip({
     if (queueErr) throw queueErr;
     queuedTrip = newQueuedTrip;
     logWebhook(`${logStage}_insert_ok`, { tripId: queuedTrip?.id });
+    await refreshDispatchQueueForTrip(queuedTrip.id);
   }
 
   return queuedTrip;
@@ -7769,7 +7780,7 @@ async function maybeSendDestinationAddressPoll({
   };
 }
 
-async function createTripFromConversation({ conversation, extracted }) {
+async function createTripFromConversation({ conversation, extracted, includeBettoIntro = false }) {
   logWebhook('trip_create_start', {
     conversationId: conversation?.id || null,
     phone: maskPhone(conversation?.phone || ''),
@@ -8115,6 +8126,7 @@ async function createTripFromConversation({ conversation, extracted }) {
         finalDestinationGeo,
         finalDestinationHint,
         destinationFollowupText,
+        includeBettoIntro,
       }),
       context: buildTripCreateSuccessContext({
         conversation,
@@ -8225,6 +8237,7 @@ async function createTripFromConversation({ conversation, extracted }) {
         ? `[INDICACIONES_PASAJERO] ${extracted._conversationText.replace(/\n+/g, ' | ').trim()}`
         : null,
     ].filter(Boolean).join('\n'),
+    wa_context: buildTripWhatsmeowLineContext(),
   };
 
   let trip;
@@ -8232,7 +8245,7 @@ async function createTripFromConversation({ conversation, extracted }) {
     // Actualizar el trip placeholder existente en vez de crear uno nuevo
     const { data: updatedTrip, error: updateErr } = await getSupabase()
       .from('trips')
-      .update({ ...tripPayload, wa_context: null })
+      .update(tripPayload)
       .eq('id', extracted._existingTripId)
       .select()
       .single();
@@ -8322,6 +8335,7 @@ async function createTripFromConversation({ conversation, extracted }) {
       finalDestinationGeo,
       finalDestinationHint,
       destinationFollowupText,
+      includeBettoIntro,
     }),
     context: buildTripCreateSuccessContext({
       conversation,
@@ -9643,6 +9657,7 @@ async function processClaimedConversation(batch) {
 
   // If the previous trip is already closed, start the new request with a clean context/history.
   let shouldResetConversationState = Boolean(lastTripById && !isOpenTripStatus(lastTripById.status));
+  batch._sessionReset = shouldResetConversationState;
   if (shouldResetConversationState) {
     logWebhook('conversation_reset_closed_trip_context', {
       conversationId: batch?.id || null,
@@ -9681,6 +9696,8 @@ async function processClaimedConversation(batch) {
       }
     }
   }
+
+  batch._sessionReset = shouldResetConversationState;
 
   // ── Fast path: viaje activo/en cola/pendiente sin GPS/poll pendiente ──────────
   // Si el pasajero ya tiene un viaje abierto y bloqueante, skip full AI classification.
@@ -10073,6 +10090,46 @@ async function processClaimedConversation(batch) {
 
   // AI-detected intent drives the guard bypass — no fragile regex needed.
   const passengerWantsToCancel = extracted.intent === 'cancel_trip';
+
+  const tripWaMidFlow = Boolean(
+    openTripByPhone ||
+    tripWaContext.awaiting_gps ||
+    tripWaContext.awaiting_pickup_number ||
+    tripWaContext.pending_poll ||
+    tripWaContext.pending_price_confirm ||
+    tripWaContext.pending_cancel_confirm ||
+    tripWaContext.price_inquiry
+  );
+  const alreadyBettoGreeted = !shouldResetConversationState && isBettoGreetedContext(batch.context);
+
+  if (
+    !tripWaMidFlow &&
+    !passengerWantsToCancel &&
+    !pickupLocation &&
+    !nextContext.pickup_location &&
+    shouldSendBettoWelcome({
+      text: combinedText,
+      intent: extracted.intent,
+      hasConcreteAddress,
+      looksLikeTripRequest: heuristics.looksLikeTripRequest,
+    })
+  ) {
+    await sendWhatsAppText(batch.phone, buildBettoWelcomeMessage());
+    logWebhook('conversation_betto_welcome', {
+      conversationId: batch?.id || null,
+      intent: extracted.intent || null,
+    });
+    return {
+      handled: true,
+      updates: {
+        status: 'open',
+        context: { betto_greeted: true },
+        last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
 
   // --- Reasignación de dirección de retiro cuando el viaje está 'pending' (Caso 18) ---
   // Si el pasajero corrige la dirección antes de que el chofer acepte el viaje,
@@ -11299,7 +11356,11 @@ async function processClaimedConversation(batch) {
     }
   }
 
-  const tripResult = await createTripFromConversation({ conversation: batch, extracted: tripExtracted });
+  const tripResult = await createTripFromConversation({
+    conversation: batch,
+    extracted: tripExtracted,
+    includeBettoIntro: !alreadyBettoGreeted && !tripWaMidFlow,
+  });
   if (tripResult?.reply) {
     await sendWhatsAppText(batch.phone, tripResult.reply);
   }
@@ -11319,7 +11380,7 @@ async function processClaimedConversation(batch) {
     handled: true,
     updates: {
       status: 'open',
-      context: {},
+      context: { betto_greeted: true },
       last_trip_id: tripResult.trip?.id || (shouldResetConversationState ? null : batch.last_trip_id || null),
       processing_started_at: null,
       last_processed_at: new Date().toISOString(),
@@ -11345,7 +11406,11 @@ async function processConversationById(conversationId) {
       claimedResult = await processClaimedConversation(batch);
       const updates = claimedResult.updates || {};
       if (updates.context != null) {
-        updates.context = injectWasenderLineIntoContext(updates.context);
+        updates.context = injectWasenderLineIntoContext(
+          mergeWhatsappSessionContext(batch.context, updates.context, {
+            sessionReset: Boolean(batch._sessionReset),
+          }),
+        );
       }
       await finalizeConversation(conversationId, updates);
       logWebhook('conversation_process_by_id_ok', {
@@ -11691,14 +11756,9 @@ async function processWebhookBody(body, requestMeta = {}) {
       const pollMsgId = String(payloadBody?.data?.key?.id || '').trim();
       const pollResult = Array.isArray(payloadBody?.data?.pollResult) ? payloadBody.data.pollResult : [];
 
-      if (!pollMsgId) {
-        logWebhook('poll_results_ignored', { reason: 'missing_poll_msg_id' });
-        return { status: 200, body: { success: true, ignored: true, reason: 'missing_poll_msg_id' } };
-      }
-
       const voted = pollResult.find((r) => Array.isArray(r.voters) && r.voters.length > 0);
       if (!voted) {
-        logWebhook('poll_results_ignored', { reason: 'no_votes_yet', pollMsgId });
+        logWebhook('poll_results_ignored', { reason: 'no_votes_yet', pollMsgId: pollMsgId || null });
         return { status: 200, body: { success: true, ignored: true, reason: 'no_votes_yet' } };
       }
 
@@ -11715,39 +11775,40 @@ async function processWebhookBody(body, requestMeta = {}) {
       logWebhook('poll_results_voter_phone', {
         voterJid,
         voterPhone: voterPhone ? maskPhone(voterPhone) : null,
-        pollMsgId,
+        pollMsgId: pollMsgId || null,
       });
 
       // ── Resolución del poll: fuente de verdad = trips.wa_context ────────
       // El pending_poll se guarda en trips.wa_context al enviar la encuesta.
+      // Sin poll_id (whatsmeow a veces no lo manda) se busca el viaje por teléfono.
 
       if (!voterPhone) {
-        logWebhook('poll_results_ignored', { reason: 'voter_phone_unresolvable', pollMsgId });
+        logWebhook('poll_results_ignored', { reason: 'voter_phone_unresolvable', pollMsgId: pollMsgId || null });
         return { status: 200, body: { success: true, ignored: true, reason: 'voter_phone_unresolvable' } };
       }
 
-      // Deduplicación de votos: whatsmeow envía messages.poll + messages.upsert para el mismo
-      // voto. Ambos llegan como poll.results (vía normalizeWhatsmeowWebhookBody). Si el voto
-      // tiene un ID único (_vote_msg_id = msg.id del voto, no del poll), usarlo para guardar
-      // exactamente una entrada en whatsapp_messages y rechazar el duplicado.
-      const voteMsgId = voted._vote_msg_id || null;
-      if (voteMsgId && voterPhone) {
-        try {
-          const dedupResult = await appendIncomingMessage({
-            phone: voterPhone,
-            pushName: null,
-            messageId: `poll_vote:${voteMsgId}`,
-            messageType: 'poll_vote',
-            content: null,
-            rawPayload: null,
-          });
-          if (!dedupResult?.inserted) {
-            logWebhook('poll_results_ignored', { reason: 'duplicate_vote', pollMsgId, voteMsgId });
-            return { status: 200, body: { success: true, ignored: true, reason: 'duplicate_vote' } };
-          }
-        } catch {
-          // Si el RPC falla, continuar (mejor procesar doble que no procesar)
+      // Deduplicación de votos: whatsmeow envía messages.poll + messages.upsert + messages.button
+      // para el mismo voto. Ambos llegan como poll.results. Clave: id del voto, o poll+tel+opción.
+      const votedNameEarly = String(
+        voted.poll_option || voted.name || voted.button_id || ''
+      ).trim();
+      const voteMsgId = voted._vote_msg_id
+        || `${pollMsgId || 'nopoll'}:${normalizePhone(voterPhone)}:${votedNameEarly}`;
+      try {
+        const dedupResult = await appendIncomingMessage({
+          phone: voterPhone,
+          pushName: null,
+          messageId: `poll_vote:${voteMsgId}`,
+          messageType: 'poll_vote',
+          content: votedNameEarly || null,
+          rawPayload: null,
+        });
+        if (!dedupResult?.inserted) {
+          logWebhook('poll_results_ignored', { reason: 'duplicate_vote', pollMsgId: pollMsgId || null, voteMsgId });
+          return { status: 200, body: { success: true, ignored: true, reason: 'duplicate_vote' } };
         }
+      } catch {
+        // Si el RPC falla, continuar (mejor procesar doble que no procesar)
       }
 
       // 1️⃣ Buscar la conversación del votante (para datos básicos)
