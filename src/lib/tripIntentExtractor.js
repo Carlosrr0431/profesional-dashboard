@@ -1,15 +1,23 @@
 /**
- * Extracción híbrida: patrones primero (0 tokens), DeepSeek v4-flash como fallback
- * y para refinar pickup/destino cuando el mensaje trae direcciones concretas.
+ * Extracción híbrida: patrones baratos (saludo, ack, cancel) sin LLM.
+ * El resto lo decide DeepSeek Pro. Si Pro deja pickup en null, no se rellena
+ * con heurística. Disponibilidad sin calle no es un viaje.
  */
-import { deepseekChatCompletion, isDeepSeekConfigured } from './deepseekClient';
+import {
+  deepseekChatCompletion,
+  getDeepSeekProModel,
+  isDeepSeekConfigured,
+} from './deepseekClient';
 import {
   buildTripIntentSystemPrompt,
-  TRIP_ADDRESS_EXTRACT_SYSTEM_PROMPT,
+  buildTripIntentTurnPreamble,
 } from './tripIntentSystemPrompt';
 import {
   buildPatternTripExtraction,
-  looksLikeAddressText,
+  isAddressNoisePhrase,
+  isAvailabilityAskWithoutRoute,
+  isGreetingOnly,
+  isShortAck,
   PATTERN_CONFIDENCE_THRESHOLD,
   shouldUsePatternExtraction,
 } from './whatsappTripIntentPatterns';
@@ -33,145 +41,101 @@ const DEFAULT_EXTRACTION = {
   schedule_time: null,
 };
 
-function looksLikeRouteWithDestination(text) {
-  return /\b(?:es\s+para\s+ir\s+(?:hasta|a)|(?:me\s+)?voy\s+(?:para|a)\s+|me\s+llev(?:a|as|en)\s+a\s+|destino(?:\s+es)?\s+|hasta\s+[a-záéíóúü]|hacia\s+[a-záéíóúü])/i.test(
-    String(text || ''),
-  );
-}
+const ALLOWED_INTENTS = new Set([
+  'trip_request',
+  'price_inquiry',
+  'status_query',
+  'cancel_trip',
+  'schedule_trip',
+  'ask_human',
+  'other',
+]);
 
-function pickupLooksContaminated(pickup) {
-  const value = String(pickup || '');
-  return (
-    /\b(?:es\s+para\s+ir|voy\s+para|me\s+voy|me\s+llev(?:a|as|en)\s+a)\b/i.test(value) ||
-    /,\s*(?:me|yo)\s*$/i.test(value)
-  );
-}
-
-function addressLooksValid(value) {
-  const normalized = normalizeExtractedAddress(value);
-  if (!normalized || normalized.length < 3) return false;
-  return !pickupLooksContaminated(normalized);
-}
+const AVAILABILITY_REPLY =
+  'Sí, estamos en servicio. Decime de dónde te buscamos (calle y número, o tu ubicación).';
 
 function normalizeExtractedAddress(value) {
   const stripped = stripTrailingTripRouteTail(value);
   const normalized = normalizeAddressPhrase(stripped || value || '');
-  return sanitizeAddressInput(normalized) || null;
+  const sanitized = sanitizeAddressInput(normalized) || null;
+  if (!sanitized) return null;
+  if (isAddressNoisePhrase(sanitized)) return null;
+  return sanitized;
 }
 
-function shouldRefineTripAddressesWithDeepSeek({
-  combinedText,
-  patternResult,
-  heuristics,
-  context = {},
-}) {
-  if (!isDeepSeekConfigured()) return false;
-  if (patternResult.intent !== 'trip_request') return false;
-  if (context?.awaiting_pickup_number) return false;
-
-  const hasAddressSignal = Boolean(
-    patternResult.pickup_location ||
-    patternResult.destination ||
-    heuristics?.pickup ||
-    heuristics?.destination ||
-    looksLikeAddressText(combinedText),
-  );
-  if (!hasAddressSignal) return false;
-
-  return (
-    looksLikeRouteWithDestination(combinedText) ||
-    Boolean(heuristics?.pickup && heuristics?.destination) ||
-    pickupLooksContaminated(patternResult.pickup_location || heuristics?.pickup) ||
-    Boolean(patternResult.pickup_location || heuristics?.pickup)
-  );
+function shouldSkipLlmForPattern(patternResult, text, context = {}) {
+  if (context.awaiting_pickup_number || context.awaiting_gps) return false;
+  if (isAvailabilityAskWithoutRoute(text)) return false;
+  if (isGreetingOnly(text) || isShortAck(text)) return true;
+  const intent = String(patternResult?.intent || '');
+  if (intent === 'cancel_trip' && shouldUsePatternExtraction(patternResult)) {
+    return true;
+  }
+  return false;
 }
 
-function mergeTripAddressExtraction(patternResult, aiResult, heuristics, { preferAiAddresses = false } = {}) {
-  const aiConf = Number(aiResult?.confidence) || 0;
-  const aiPickup = normalizeExtractedAddress(aiResult?.pickup_location);
-  const aiDestination = normalizeExtractedAddress(aiResult?.destination);
-
-  const useAiPickup =
-    addressLooksValid(aiPickup) && (preferAiAddresses || aiConf >= 0.55);
-  const useAiDestination =
-    addressLooksValid(aiDestination) && (preferAiAddresses || aiConf >= 0.55);
-
-  const patternPickup = normalizeExtractedAddress(patternResult.pickup_location);
-  const heuristicPickup = normalizeExtractedAddress(heuristics?.pickup);
-  const patternDestination = normalizeExtractedAddress(patternResult.destination);
-  const heuristicDestination = normalizeExtractedAddress(heuristics?.destination);
-
-  const pickup =
-    (useAiPickup ? aiPickup : null) ||
-    (addressLooksValid(patternPickup) ? patternPickup : null) ||
-    (addressLooksValid(heuristicPickup) ? heuristicPickup : null) ||
-    null;
-
-  const destination =
-    (useAiDestination ? aiDestination : null) ||
-    patternDestination ||
-    heuristicDestination ||
-    null;
-
-  const missingFields = Array.isArray(aiResult.missing_fields) && aiResult.missing_fields.length
-    ? aiResult.missing_fields
-    : (patternResult.missing_fields || []);
-
-  return {
-    ...patternResult,
-    intent: 'trip_request',
-    passenger_name: aiResult.passenger_name || patternResult.passenger_name,
-    pickup_location: pickup,
-    origin: normalizeExtractedAddress(aiResult.origin) || patternResult.origin || pickup,
-    destination,
-    notes: aiResult.notes || patternResult.notes || null,
-    reply: aiResult.reply ?? patternResult.reply ?? null,
-    missing_fields: pickup ? missingFields.filter((f) => f !== 'pickup_location') : missingFields,
-    confidence: Math.max(aiConf, Number(patternResult.confidence) || 0),
-    schedule_time: aiResult.schedule_time || patternResult.schedule_time || null,
-    cancel_confirmed: aiResult.cancel_confirmed ?? patternResult.cancel_confirmed ?? false,
-  };
+function stripPatternSource(patternResult) {
+  const { source: _source, ...rest } = patternResult || {};
+  return rest;
 }
 
-async function extractTripAddressesWithDeepSeek({
-  combinedText,
-  patternPickup = null,
-  patternDestination = null,
-  logFn,
-}) {
-  const userContent = [
-    patternPickup || patternDestination
-      ? `Detección automática previa (puede estar mal): retiro="${patternPickup || ''}", destino="${patternDestination || ''}"`
-      : null,
-    `Mensaje del pasajero:\n${combinedText}`,
-  ]
-    .filter(Boolean)
-    .join('\n\n');
+function sanitizePatternFallback(patternFallback, combinedText) {
+  const rest = stripPatternSource(patternFallback);
+  if (isAvailabilityAskWithoutRoute(combinedText)) {
+    return {
+      ...rest,
+      intent: 'other',
+      pickup_location: null,
+      origin: null,
+      destination: null,
+      reply: rest.reply || AVAILABILITY_REPLY,
+    };
+  }
+  if (isAddressNoisePhrase(rest.pickup_location)) {
+    return { ...rest, pickup_location: null };
+  }
+  return rest;
+}
 
-  const { content } = await deepseekChatCompletion({
-    systemPrompt: TRIP_ADDRESS_EXTRACT_SYSTEM_PROMPT,
-    userContent,
-    maxTokens: 160,
-    jsonMode: true,
-    logFn,
-    purpose: 'trip_address_extract',
-  });
+function normalizeProExtraction(parsed, passengerName, combinedText) {
+  const pickup = normalizeExtractedAddress(parsed.pickup_location);
+  const destination = normalizeExtractedAddress(parsed.destination);
+  const origin = normalizeExtractedAddress(parsed.origin) || pickup;
+  let intent = ALLOWED_INTENTS.has(parsed.intent) ? parsed.intent : 'other';
+  let reply = parsed.reply == null ? null : String(parsed.reply).trim() || null;
 
-  const parsed = parseTripIntentJson(content, {
-    pickup_location: null,
-    destination: null,
-    confidence: 0,
-  });
-
-  if (logFn) {
-    logFn('ai_extract_addresses_ok', {
-      pickup: parsed.pickup_location ? '[set]' : null,
-      destination: parsed.destination ? '[set]' : null,
-      confidence: parsed.confidence,
-    });
+  const availabilityWithoutRoute =
+    isAvailabilityAskWithoutRoute(combinedText) && !pickup && !destination;
+  if (availabilityWithoutRoute) {
+    intent = 'other';
+    reply = reply || AVAILABILITY_REPLY;
   }
 
-  return parsed;
+  let missing = Array.isArray(parsed.missing_fields) ? [...parsed.missing_fields] : [];
+  if (intent === 'trip_request' && !pickup && !missing.includes('pickup_location')) {
+    missing.push('pickup_location');
+  }
+  if (pickup) {
+    missing = missing.filter((field) => field !== 'pickup_location');
+  }
+  if (intent === 'other') {
+    missing = [];
+  }
+
+  return {
+    ...DEFAULT_EXTRACTION,
+    ...parsed,
+    intent,
+    passenger_name: parsed.passenger_name || passengerName || null,
+    pickup_location: availabilityWithoutRoute ? null : pickup,
+    origin: availabilityWithoutRoute ? null : origin,
+    destination: availabilityWithoutRoute ? null : destination,
+    reply,
+    missing_fields: missing,
+    confidence: Number(parsed.confidence) || 0,
+    cancel_confirmed: Boolean(parsed.cancel_confirmed),
+    source: 'deepseek-pro',
+  };
 }
 
 export function parseTripIntentJson(raw, fallback = DEFAULT_EXTRACTION) {
@@ -209,47 +173,7 @@ export async function extractTripIntentHybrid({
     heuristics,
   });
 
-  if (shouldUsePatternExtraction(patternResult)) {
-    if (
-      shouldRefineTripAddressesWithDeepSeek({
-        combinedText,
-        patternResult,
-        heuristics,
-        context,
-      })
-    ) {
-      if (logFn) {
-        logFn('ai_extract_intent_deepseek_refine', {
-          phone,
-          intent: patternResult.intent,
-          patternConfidence: patternResult.confidence,
-          hasHeuristicDestination: Boolean(heuristics?.destination),
-          routeWithDestination: looksLikeRouteWithDestination(combinedText),
-        });
-      }
-
-      const aiResult = await extractTripAddressesWithDeepSeek({
-        combinedText,
-        patternPickup: patternResult.pickup_location || heuristics?.pickup || null,
-        patternDestination: patternResult.destination || heuristics?.destination || null,
-        logFn,
-      });
-
-      const merged = mergeTripAddressExtraction(patternResult, aiResult, heuristics, {
-        preferAiAddresses: true,
-      });
-      if (logFn) {
-        logFn('ai_extract_intent_pattern_deepseek_merged', {
-          phone,
-          intent: merged.intent,
-          confidence: merged.confidence,
-          pickup: merged.pickup_location ? '[set]' : null,
-          destination: merged.destination ? '[set]' : null,
-        });
-      }
-      return merged;
-    }
-
+  if (shouldSkipLlmForPattern(patternResult, combinedText, context) || !isDeepSeekConfigured()) {
     if (logFn) {
       logFn('ai_extract_intent_pattern_hit', {
         phone,
@@ -258,15 +182,15 @@ export async function extractTripIntentHybrid({
         source: 'pattern',
       });
     }
-    const { source: _s, ...rest } = patternResult;
-    return rest;
+    return sanitizePatternFallback(patternResult, combinedText);
   }
 
   if (logFn) {
-    logFn('ai_extract_intent_deepseek_fallback', {
+    logFn('ai_extract_intent_deepseek_pro', {
       phone,
+      patternIntent: patternResult.intent,
       patternConfidence: patternResult.confidence,
-      reason: 'below_threshold',
+      patternPickup: patternResult.pickup_location ? '[set]' : null,
     });
   }
 
@@ -296,6 +220,9 @@ async function extractTripIntentWithDeepSeek({
   const awaitingGps = Boolean(context?.awaiting_gps);
   const awaitingPickupNumber = Boolean(context?.awaiting_pickup_number);
   const pendingCancelConfirm = Boolean(context?.pending_cancel_confirm);
+  const knownPickup = (awaitingPickupNumber || awaitingGps)
+    ? (context?.pickup_location || context?.origin || null)
+    : null;
 
   const stateDescription = {
     open: awaitingPickupNumber
@@ -307,21 +234,23 @@ async function extractTripIntentWithDeepSeek({
     paused: 'Conversación pausada.',
   }[conversationStatus] || 'Sin viaje activo.';
 
-  const systemPrompt = buildTripIntentSystemPrompt({
+  const systemPrompt = buildTripIntentSystemPrompt();
+  const turnPreamble = buildTripIntentTurnPreamble({
     stateDescription,
     passengerName,
     awaitingGps,
     awaitingPickupNumber,
     pendingCancelConfirm,
     lastBotReply,
+    knownPickup,
   });
 
   const historyMessages = history
     .filter((item) => Boolean(item.transcription || item.content))
-    .slice(-4)
+    .slice(-6)
     .map((item) => ({
       role: item.direction === 'outgoing' ? 'assistant' : 'user',
-      content: String(item.transcription || item.content || '').slice(0, 160),
+      content: String(item.transcription || item.content || '').slice(0, 200),
     }));
 
   const contextForModel = Object.fromEntries(
@@ -330,36 +259,52 @@ async function extractTripIntentWithDeepSeek({
     )
   );
 
+  const patternHint = patternFallback
+    ? `Detección automática previa (puede estar mal; no la copies si no hay calle real): intent=${patternFallback.intent || 'other'}, retiro="${patternFallback.pickup_location || ''}", destino="${patternFallback.destination || ''}"`
+    : null;
+
   const userContent = [
+    turnPreamble,
     passengerName ? `Nombre: ${passengerName}` : null,
     Object.keys(contextForModel).length > 0 ? `Contexto: ${JSON.stringify(contextForModel)}` : null,
-    `Mensaje:\n${combinedText}`,
+    patternHint,
+    `Mensaje actual del pasajero:\n${combinedText}`,
   ]
     .filter(Boolean)
     .join('\n\n');
+
+  const model = getDeepSeekProModel();
 
   try {
     const { content } = await deepseekChatCompletion({
       systemPrompt,
       userContent,
       historyMessages,
-      maxTokens: 280,
+      maxTokens: 360,
       jsonMode: true,
       logFn,
       purpose: 'trip_intent',
+      model,
     });
 
-    const parsed = parseTripIntentJson(content, {
-      ...DEFAULT_EXTRACTION,
-      passenger_name: passengerName,
-    });
+    const parsed = normalizeProExtraction(
+      parseTripIntentJson(content, {
+        ...DEFAULT_EXTRACTION,
+        passenger_name: passengerName,
+      }),
+      passengerName,
+      combinedText,
+    );
 
     if (logFn) {
       logFn('ai_extract_intent_ok', {
         intent: parsed.intent,
         confidence: parsed.confidence,
-        source: 'deepseek',
-        model: 'deepseek-v4-flash',
+        source: 'deepseek-pro',
+        model,
+        pickup: parsed.pickup_location ? '[set]' : null,
+        destination: parsed.destination ? '[set]' : null,
+        hasReply: Boolean(parsed.reply),
       });
     }
 
@@ -369,6 +314,7 @@ async function extractTripIntentWithDeepSeek({
     if (logFn) {
       logFn('ai_extract_intent_provider_error', {
         provider: 'deepseek',
+        model,
         status: status || null,
         message: error?.message || 'unknown_error',
         fallbackUsed: true,
@@ -383,18 +329,27 @@ async function extractTripIntentWithDeepSeek({
         || patternIntent === 'trip_request'
         || patternConfidence > 0.5
       ) {
-        const { source: _s, ...rest } = patternFallback;
-        return rest;
+        return sanitizePatternFallback(patternFallback, combinedText);
       }
+    }
+
+    if (isAvailabilityAskWithoutRoute(combinedText)) {
+      return {
+        ...DEFAULT_EXTRACTION,
+        intent: 'other',
+        passenger_name: passengerName,
+        reply: AVAILABILITY_REPLY,
+        confidence: 0.5,
+      };
     }
 
     return {
       ...DEFAULT_EXTRACTION,
-      intent: 'trip_request',
+      intent: 'other',
       passenger_name: passengerName,
       reply: '¿Desde dónde te buscamos?',
-      missing_fields: ['pickup_location'],
-      confidence: 0.55,
+      missing_fields: [],
+      confidence: 0.4,
     };
   }
 }

@@ -15,6 +15,7 @@ process.env.OPENAI_API_KEY                   = 'sk-test-openai-key';
 process.env.DEEPSEEK_API_KEY                 = 'sk-test-deepseek-key';
 process.env.DEEPSEEK_BASE_URL                = 'https://api.deepseek.com';
 process.env.DEEPSEEK_MODEL                   = 'deepseek-v4-flash';
+process.env.DEEPSEEK_PRO_MODEL               = 'deepseek-v4-pro';
 process.env.WHATSMEOW_API_KEY                = 'test-whatsmeow-key';
 process.env.WHATSMEOW_API_URL                = 'https://test.whatsmeow.example';
 process.env.WHATSMEOW_AGENT_CODE             = 'Test_Agent';

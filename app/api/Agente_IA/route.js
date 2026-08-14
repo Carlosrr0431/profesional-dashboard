@@ -113,6 +113,13 @@ import {
   stampBettoGreeted,
   withBettoIntro,
 } from '../../../src/lib/bettoWelcome';
+import {
+  isAddressNoisePhrase,
+  isAvailabilityAskWithoutRoute,
+  isGreetingOnly,
+  isShortAck,
+  looksLikeTripRequest as messageLooksLikeTripRequest,
+} from '../../../src/lib/whatsappTripIntentPatterns';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -3949,9 +3956,12 @@ function scheduleInfoFromWaContext(waContext) {
 
 function inferTripHeuristics(combinedText) {
   const text = String(combinedText || '').trim();
-  const normalized = normalizeForMatch(text);
 
-  const looksLikeTripRequest = /(remis|taxi|movil|m[oó]vil|\bauto\b|coche|viaje|pasame\s+a\s+buscar|busc[aá][sm]e?|me\s+busc[aá]s|llevame|llevarme|quiero\s+ir|mand[aá](?:me)?\s+(?:un|una|uno|el|la|m[oó]vil|movil|remis|taxi|auto)|ven[ií]\s+a\s+buscarme)/i.test(normalized);
+  if (isAvailabilityAskWithoutRoute(text)) {
+    return { pickup: null, destination: null, looksLikeTripRequest: false };
+  }
+
+  const looksLikeTripRequest = messageLooksLikeTripRequest(text);
 
   // Casos de ruta completa en una sola oración.
   // Ej: "un remis para belgrano al 200, voy para mitre al 300"
@@ -4011,7 +4021,7 @@ function inferTripHeuristics(combinedText) {
     const addressPart = text
       .replace(/(?:remis|m[oó]vil|movil|taxi|auto|viaje|quiero|pedir?|necesito|manda(?:me)?|un|una|por\s+favor)\s*/gi, '')
       .trim();
-    if (addressPart.length >= 4) {
+    if (addressPart.length >= 4 && !isAddressNoisePhrase(addressPart)) {
       pickup = normalizeAddressPhrase(addressPart);
     }
   }
@@ -9870,9 +9880,43 @@ async function processClaimedConversation(batch) {
         ...(tripWaContext.awaiting_gps ? { awaiting_gps: true } : {}),
         ...(tripWaContext.awaiting_pickup_number ? { awaiting_pickup_number: true } : {}),
       };
-  const history = []; // siempre vacío — evita que mensajes previos contaminen la clasificación
 
-  const lastBotReply = null; // sin historial, no hay último reply del bot
+  const pendingContents = pendingMessages
+    .map((item) => String(item?.contenido || '').trim())
+    .filter(Boolean);
+  let history = [];
+  let lastBotReply = null;
+  const skipIntentHistory = isGreetingOnly(combinedText) || isShortAck(combinedText);
+  if (batch.id && !skipIntentHistory) {
+    try {
+      const recent = await getRecentConversationMessages(batch.id, 8);
+      const lastOutgoing = [...recent].reverse().find((row) => (
+        row.direction === 'outgoing' && (row.content || row.transcription)
+      ));
+      lastBotReply = String(lastOutgoing?.content || lastOutgoing?.transcription || '').slice(0, 240) || null;
+      if (!shouldResetConversationState) {
+        const pendingSet = new Set(pendingContents);
+        history = recent
+          .filter((row) => {
+            const text = String(row.transcription || row.content || '').trim();
+            if (!text) return false;
+            if (row.direction === 'incoming' && pendingSet.has(text)) return false;
+            return true;
+          })
+          .slice(-6)
+          .map((row) => ({
+            direction: row.direction,
+            content: row.content,
+            transcription: row.transcription,
+          }));
+      }
+    } catch (error) {
+      logWebhook('conversation_intent_history_error', {
+        conversationId: batch?.id || null,
+        error: error?.message || 'unknown',
+      });
+    }
+  }
 
   const extracted = await extractTripIntent({
     combinedText,
@@ -9885,14 +9929,15 @@ async function processClaimedConversation(batch) {
   });
 
   const heuristics = inferTripHeuristics(combinedText);
+  const llmOwnsIntent = extracted.source === 'deepseek-pro';
   const hasConcreteAddress = Boolean(
-    heuristics.pickup ||
-    heuristics.destination ||
     extracted.pickup_location ||
     extracted.origin ||
-    extracted.destination
+    extracted.destination ||
+    (!llmOwnsIntent && (heuristics.pickup || heuristics.destination))
   );
   if (
+    extracted.source !== 'deepseek-pro' &&
     extracted.intent === 'other' &&
     heuristics.looksLikeTripRequest &&
     hasConcreteAddress
@@ -9918,7 +9963,7 @@ async function processClaimedConversation(batch) {
   }
 
   const scheduleFromText = detectScheduledTripFromText(combinedText);
-  const scheduleIntentLocked = new Set(['cancel_trip', 'price_inquiry', 'status_query']);
+  const scheduleIntentLocked = new Set(['cancel_trip', 'price_inquiry', 'status_query', 'other', 'ask_human']);
   if (scheduleFromText && !scheduleIntentLocked.has(extracted.intent)) {
     if (extracted.intent !== 'schedule_trip') {
       logWebhook('conversation_override_to_schedule_trip', {
@@ -9972,11 +10017,12 @@ async function processClaimedConversation(batch) {
   const heuristicPickupRaw = sanitizeAddressInput(heuristics.pickup || '');
   const directPickupRaw = sanitizeAddressInput(extractDirectAddressCandidate(combinedText) || '');
 
-  let pickupLocation =
-    extractedPickupRaw ||
-    heuristicPickupRaw ||
-    directPickupRaw ||
-    null;
+  let pickupLocation = extractedPickupRaw || null;
+  if (!pickupLocation && !llmOwnsIntent) {
+    pickupLocation = heuristicPickupRaw || directPickupRaw || null;
+  } else if (!pickupLocation && isSpecificStreetAddress(directPickupRaw)) {
+    pickupLocation = directPickupRaw;
+  }
 
   const extractedIsLessSpecific =
     extractedPickupRaw &&
@@ -10039,7 +10085,7 @@ async function processClaimedConversation(batch) {
 
   const destinationHint = resolveDestinationHint({
     extractedDestination: extracted.destination,
-    heuristicDestination: heuristics.destination,
+    heuristicDestination: llmOwnsIntent ? null : heuristics.destination,
     contextDestination: context.destination,
     pickupLocation,
     combinedText,
@@ -10062,7 +10108,7 @@ async function processClaimedConversation(batch) {
     passenger_name: extracted.passenger_name || context.passenger_name || batch.push_name || null,
     // Pickup should map to passenger origin. Destination remains only as final-destination hint.
     pickup_location: sanitizeAddressInput(pickupLocation),
-    origin: sanitizeAddressInput(extracted.origin || heuristics.pickup || ''),
+    origin: sanitizeAddressInput(extracted.origin || (llmOwnsIntent ? pickupLocation : heuristics.pickup) || ''),
     destination: sanitizeAddressInput(destinationHint),
     notes: extracted.notes || context.notes || null,
     awaiting_destination_gps: Boolean(context.awaiting_destination_gps) && !sanitizeAddressInput(destinationHint),
@@ -10491,9 +10537,27 @@ async function processClaimedConversation(batch) {
   }
 
   if (extracted.intent === 'other') {
-    // Sin interés en viajar y sin viaje activo → ignorar silenciosamente.
-    // No responder evita que el agente conteste mensajes de chat genéricos
-    // ("hola", "gracias", stickers, etc.) que no son pedidos de viaje.
+    const otherReply = String(extracted.reply || '').trim();
+    if (otherReply) {
+      const outbound = alreadyBettoGreeted ? otherReply : withBettoIntro(otherReply);
+      await sendWhatsAppText(batch.phone, outbound);
+      logWebhook('conversation_intent_other_replied', {
+        conversationId: batch?.id || null,
+        withBettoIntro: !alreadyBettoGreeted,
+      });
+      return {
+        handled: true,
+        updates: {
+          status: 'open',
+          context: alreadyBettoGreeted
+            ? nextContext
+            : { ...nextContext, ...stampBettoGreeted() },
+          last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
+      };
+    }
     logWebhook('conversation_intent_other_ignored', { conversationId: batch?.id || null });
     return {
       handled: true,

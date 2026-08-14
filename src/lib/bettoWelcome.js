@@ -4,11 +4,13 @@
  * "Tomé tu pedido..." cuando el pasajero ya mandó la dirección.
  */
 import {
+  isAvailabilityAskWithoutRoute,
   isGreetingOnly,
   isShortAck,
   looksLikeAddressText,
-  normalizeForMatch,
 } from './whatsappTripIntentPatterns';
+
+export { isAvailabilityAskWithoutRoute };
 
 export const BETTO_INTRO = 'Hola, soy el Chat Bot Betto 👋';
 export const BETTO_GREETING_TTL_MS = 30 * 60 * 1000;
@@ -37,8 +39,8 @@ export function getBettoGreetedAtMs(context) {
 export function isBettoGreetedContext(context, now = Date.now()) {
   const raw = parseSessionContext(context);
   const at = getBettoGreetedAtMs(raw);
-  if (at != null) return now - at < BETTO_GREETING_TTL_MS;
-  return Boolean(raw.betto_greeted);
+  if (at == null) return false;
+  return now - at < BETTO_GREETING_TTL_MS;
 }
 
 export function stampBettoGreeted(now = new Date()) {
@@ -65,15 +67,6 @@ export function withBettoIntro(message) {
   if (!body) return BETTO_INTRO;
   if (body.startsWith('Hola, soy el Chat Bot Betto')) return body;
   return `${BETTO_INTRO}\n\n${body}`;
-}
-
-export function isAvailabilityAskWithoutRoute(text) {
-  if (looksLikeAddressText(text)) return false;
-  const n = normalizeForMatch(text);
-  if (!n) return false;
-  const asks = /\b(tenes|hay|andan|disponible|trabajan|estan|necesito|quiero|mandame|pasame)\b/.test(n);
-  const vehicle = /\b(movil|moviles|remis|taxi|auto|servicio)\b/.test(n);
-  return asks && vehicle;
 }
 
 export function shouldSendBettoWelcome({

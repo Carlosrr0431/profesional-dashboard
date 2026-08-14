@@ -28,6 +28,7 @@ describe('bettoWelcome', () => {
   it('detecta "hola, tenes movil" sin dirección', () => {
     expect(isAvailabilityAskWithoutRoute('hola, tenes movil')).toBe(true);
     expect(isAvailabilityAskWithoutRoute('hay remis?')).toBe(true);
+    expect(isAvailabilityAskWithoutRoute('tienen movil')).toBe(true);
     expect(isAvailabilityAskWithoutRoute('me podes mandar un auto a mitre al 200')).toBe(false);
   });
 
@@ -44,6 +45,13 @@ describe('bettoWelcome', () => {
       intent: 'trip_request',
       hasConcreteAddress: false,
       looksLikeTripRequest: true,
+    })).toBe(true);
+
+    expect(shouldSendBettoWelcome({
+      text: 'tienen movil',
+      intent: 'other',
+      hasConcreteAddress: false,
+      looksLikeTripRequest: false,
     })).toBe(true);
 
     expect(shouldSendBettoWelcome({
@@ -115,5 +123,11 @@ describe('bettoWelcome', () => {
       { sessionReset: true, now: now + 60 * 1000 },
     );
     expect(merged.betto_greeted_at).toBe(prev.betto_greeted_at);
+  });
+
+  it('no trata betto_greeted sin timestamp como saludo eterno', () => {
+    const now = Date.parse('2026-08-13T22:31:00-03:00');
+    expect(isBettoGreetedContext({ betto_greeted: true }, now)).toBe(false);
+    expect(isBettoGreetedContext({ betto_greeted: true, betto_greeted_at: null }, now)).toBe(false);
   });
 });

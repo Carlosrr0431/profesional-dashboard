@@ -1,5 +1,6 @@
 jest.mock('../../src/lib/deepseekClient', () => ({
   isDeepSeekConfigured: jest.fn(() => true),
+  getDeepSeekProModel: jest.fn(() => 'deepseek-v4-pro'),
   deepseekChatCompletion: jest.fn(),
 }));
 
@@ -19,17 +20,19 @@ function inferTripHeuristics(combinedText) {
   return { pickup: null, destination: null, looksLikeTripRequest: false };
 }
 
-describe('extractTripIntentHybrid + DeepSeek refine', () => {
+describe('extractTripIntentHybrid + DeepSeek Pro', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('refina pickup y destino con DeepSeek aunque el patrón tenga alta confianza', async () => {
+  it('clasifica pedido con direcciones usando DeepSeek Pro, no el refine de Flash', async () => {
     deepseekChatCompletion.mockResolvedValue({
       content: JSON.stringify({
+        intent: 'trip_request',
         pickup_location: 'Mitre 200, Salta',
         destination: 'Güemes 400, Salta',
         confidence: 0.92,
+        missing_fields: [],
       }),
       usage: {},
     });
@@ -46,16 +49,25 @@ describe('extractTripIntentHybrid + DeepSeek refine', () => {
     });
 
     expect(deepseekChatCompletion).toHaveBeenCalledTimes(1);
+    expect(deepseekChatCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        purpose: 'trip_intent',
+        model: 'deepseek-v4-pro',
+        jsonMode: true,
+      }),
+    );
     expect(result.intent).toBe('trip_request');
     expect(result.pickup_location).toBe('Mitre 200, Salta');
     expect(result.destination).toBe('Güemes 400, Salta');
-    expect(logs.some((entry) => entry.stage === 'ai_extract_intent_deepseek_refine')).toBe(true);
-    expect(logs.some((entry) => entry.stage === 'ai_extract_addresses_ok')).toBe(true);
+    expect(result.source).toBe('deepseek-pro');
+    expect(logs.some((entry) => entry.stage === 'ai_extract_intent_deepseek_pro')).toBe(true);
+    expect(logs.some((entry) => entry.stage === 'ai_extract_intent_ok')).toBe(true);
   });
 
-  it('prioriza direcciones de DeepSeek aunque el patrón haya contaminado el retiro con ", me"', async () => {
+  it('prioriza direcciones de DeepSeek Pro aunque el patrón haya contaminado el retiro con ", me"', async () => {
     deepseekChatCompletion.mockResolvedValue({
       content: JSON.stringify({
+        intent: 'trip_request',
         pickup_location: 'Juan Gálvez 218, Salta',
         destination: 'Tadeo Tadia 500, Salta',
         confidence: 0.88,
@@ -79,9 +91,10 @@ describe('extractTripIntentHybrid + DeepSeek refine', () => {
     expect(result.pickup_location).not.toMatch(/,\s*me\b/i);
   });
 
-  it('usa direcciones de DeepSeek aunque devuelva confidence baja', async () => {
+  it('usa direcciones de DeepSeek Pro aunque devuelva confidence baja', async () => {
     deepseekChatCompletion.mockResolvedValue({
       content: JSON.stringify({
+        intent: 'trip_request',
         pickup_location: 'Juan Gálvez 218, Salta',
         destination: 'Tadeo Tadia 500, Salta',
         confidence: 0,
@@ -101,6 +114,131 @@ describe('extractTripIntentHybrid + DeepSeek refine', () => {
 
     expect(result.pickup_location).toBe('Juan Gálvez 218, Salta');
     expect(result.destination).toBe('Tadeo Tadia 500, Salta');
+  });
+
+  it('no rellena pickup si Pro lo deja en null, aunque la heurística invente una calle', async () => {
+    deepseekChatCompletion.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'other',
+        pickup_location: null,
+        destination: null,
+        confidence: 0.9,
+        missing_fields: [],
+      }),
+      usage: {},
+    });
+
+    const result = await extractTripIntentHybrid({
+      combinedText: 'tienen movil',
+      context: {},
+      pushName: 'Carlos',
+      phone: '5493878630173',
+      inferHeuristics: () => ({
+        pickup: 'tienen',
+        destination: null,
+        looksLikeTripRequest: true,
+      }),
+    });
+
+    expect(deepseekChatCompletion).toHaveBeenCalledTimes(1);
+    expect(deepseekChatCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'deepseek-v4-pro', purpose: 'trip_intent' }),
+    );
+    expect(result.intent).toBe('other');
+    expect(result.pickup_location).toBeNull();
+    expect(result.source).toBe('deepseek-pro');
+    expect(result.reply).toMatch(/de dónde te buscamos/i);
+  });
+
+  it('corrige a other si Pro trata "tienen movil" como viaje o calle Tienen', async () => {
+    deepseekChatCompletion.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'trip_request',
+        pickup_location: 'Tienen',
+        destination: null,
+        confidence: 0.7,
+      }),
+      usage: {},
+    });
+
+    const result = await extractTripIntentHybrid({
+      combinedText: 'tienen movil',
+      context: {},
+      pushName: 'Carlos',
+      phone: '5493878630173',
+      inferHeuristics: () => ({
+        pickup: 'tienen',
+        destination: null,
+        looksLikeTripRequest: true,
+      }),
+    });
+
+    expect(result.pickup_location).toBeNull();
+    expect(result.intent).toBe('other');
+    expect(result.reply).toMatch(/de dónde te buscamos/i);
+  });
+
+  it('pasa el retiro parcial a Pro cuando espera la altura', async () => {
+    deepseekChatCompletion.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'trip_request',
+        pickup_location: 'Belgrano 300, Salta',
+        destination: null,
+        confidence: 0.9,
+        missing_fields: [],
+      }),
+      usage: {},
+    });
+
+    await extractTripIntentHybrid({
+      combinedText: '300',
+      context: {
+        awaiting_pickup_number: true,
+        pickup_location: 'Belgrano, Salta',
+      },
+      pushName: 'Juan',
+      phone: '5493878630173',
+      lastBotReply: '¿A qué altura de Belgrano?',
+      inferHeuristics: inferTripHeuristics,
+    });
+
+    expect(deepseekChatCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'deepseek-v4-pro',
+        userContent: expect.stringMatching(/Belgrano/),
+      }),
+    );
+  });
+
+  it('pasa historial reciente a DeepSeek Pro', async () => {
+    deepseekChatCompletion.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'other',
+        pickup_location: null,
+        confidence: 0.8,
+        reply: 'Sí, decime de dónde te buscamos.',
+      }),
+      usage: {},
+    });
+
+    await extractTripIntentHybrid({
+      combinedText: 'tienen movil',
+      context: {},
+      pushName: 'Carlos',
+      phone: '5493878630173',
+      history: [
+        { direction: 'outgoing', content: 'Hola, soy el Chat Bot Betto. Contame el viaje.' },
+      ],
+      inferHeuristics: inferTripHeuristics,
+    });
+
+    expect(deepseekChatCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        historyMessages: [
+          { role: 'assistant', content: 'Hola, soy el Chat Bot Betto. Contame el viaje.' },
+        ],
+      }),
+    );
   });
 
   it('no llama DeepSeek para saludos sin dirección', async () => {

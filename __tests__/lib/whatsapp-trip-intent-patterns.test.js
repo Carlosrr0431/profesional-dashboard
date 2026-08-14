@@ -1,6 +1,7 @@
 import {
   buildPatternTripExtraction,
   classifyWhatsAppIncomingText,
+  isAvailabilityAskWithoutRoute,
   looksLikeTripRequest,
   shouldUsePatternExtraction,
 } from '../../src/lib/whatsappTripIntentPatterns';
@@ -57,5 +58,34 @@ describe('whatsappTripIntentPatterns', () => {
     });
     expect(extraction.intent).toBe('other');
     expect(shouldUsePatternExtraction(extraction)).toBe(false);
+  });
+
+  it('no trata un número de altura como acknowledgment', () => {
+    expect(classifyWhatsAppIncomingText('300').category).toBe('address_reply');
+    expect(classifyWhatsAppIncomingText('ok').category).toBe('acknowledgment');
+  });
+
+  it('no trata "tienen movil" / "hay remis" como pedido de viaje ni como calle', () => {
+    expect(isAvailabilityAskWithoutRoute('tienen movil')).toBe(true);
+    expect(isAvailabilityAskWithoutRoute('hay remis')).toBe(true);
+    expect(isAvailabilityAskWithoutRoute('tenes movil')).toBe(true);
+    expect(looksLikeTripRequest('tienen movil')).toBe(false);
+    expect(looksLikeTripRequest('hay remis?')).toBe(false);
+    expect(looksLikeTripRequest('mandame un móvil a Mitre 200')).toBe(true);
+
+    const classified = classifyWhatsAppIncomingText('tienen movil');
+    expect(classified.category).toBe('availability_ask');
+    expect(classified.intentHint).toBe('other');
+
+    const extraction = buildPatternTripExtraction({
+      combinedText: 'tienen movil',
+      heuristics: {
+        looksLikeTripRequest: true,
+        pickup: 'tienen',
+        destination: null,
+      },
+    });
+    expect(extraction.intent).toBe('other');
+    expect(extraction.pickup_location).toBeNull();
   });
 });

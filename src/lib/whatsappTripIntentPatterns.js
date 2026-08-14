@@ -25,7 +25,43 @@ export function looksLikeAddressText(value) {
   return false;
 }
 
+const AVAILABILITY_ASK_RE =
+  /\b(tenes|tenés|tiene|tienen|hay|andan|andas|disponible|trabajan|estan|están|anda)\b/;
+const VEHICLE_WORD_RE = /\b(movil|moviles|m[oó]vil|m[oó]viles|remis|taxi|auto|servicio)\b/;
+const ADDRESS_NOISE_WORDS = new Set([
+  'tenes', 'tene', 'tiene', 'tienen', 'hay', 'andan', 'andas', 'anda',
+  'disponible', 'trabajan', 'estan', 'necesito', 'quiero', 'mandame', 'pasame',
+  'hola', 'buenas', 'buenos', 'movil', 'moviles', 'remis', 'taxi', 'auto',
+  'servicio', 'un', 'una', 'unos', 'unas', 'el', 'la', 'los', 'las', 'me',
+  'por', 'favor', 'hola',
+]);
+
+export function isAddressNoisePhrase(value) {
+  const n = normalizeForMatch(value);
+  if (!n) return true;
+  const tokens = n.split(' ').filter(Boolean);
+  if (tokens.length === 0) return true;
+  return tokens.every((token) => ADDRESS_NOISE_WORDS.has(token));
+}
+
+export function isAvailabilityAskWithoutRoute(text) {
+  if (looksLikeAddressText(text)) return false;
+  const n = normalizeForMatch(text);
+  if (!n) return false;
+  if (!AVAILABILITY_ASK_RE.test(n) || !VEHICLE_WORD_RE.test(n)) return false;
+  const leftover = n
+    .replace(AVAILABILITY_ASK_RE, ' ')
+    .replace(VEHICLE_WORD_RE, ' ')
+    .replace(/\b(un|una|unos|unas|el|la|los|las|me|por|favor|hola|buenas?|necesito|quiero)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (looksLikeAddressText(leftover)) return false;
+  if (leftover.length >= 4 && /\d/.test(leftover)) return false;
+  return leftover.length < 4 || isAddressNoisePhrase(leftover);
+}
+
 export function looksLikeTripRequest(text) {
+  if (isAvailabilityAskWithoutRoute(text)) return false;
   const normalized = normalizeForMatch(text);
   return /(remis|taxi|movil|m[oó]vil|\bauto\b|coche|viaje|pasame\s+a\s+buscar|busc[aá][sm]e?|me\s+busc[aá]s|llevame|llevarme|quiero\s+ir|me\s+mand[aá]s?|mand[aá](?:me|as|an)?\s+(?:un|una|uno|el|la|movil|remis|taxi|auto)|ven[ií]\s+a\s+buscarme|necesito\s+(?:un|una)?\s*(?:remis|movil|taxi|auto)|quiero\s+(?:un|una)?\s*(?:remis|movil|taxi|auto))/i.test(
     normalized
@@ -56,6 +92,7 @@ export function looksLikeStatusQuery(text) {
 export function isShortAck(text) {
   const n = normalizeForMatch(text);
   if (!n || n.length > 40) return false;
+  if (/^\d{1,5}[a-z]?$/.test(n)) return false;
   if (/^(?:ok|dale|si|sí|no|gracias|chau|listo|perfecto|genial|buenisimo|buenísimo|de\s+una|a\s+una\s+cuadra|👍|👌|🙏|✅|❌|🙂|😊)+$/.test(n)) return true;
   if (/^[\p{Emoji}\s]+$/u.test(String(text || '').trim()) && String(text || '').trim().length <= 8) return true;
   return false;
@@ -84,6 +121,9 @@ export function classifyWhatsAppIncomingText(text, { messageType = 'text' } = {}
   }
   if (isGreetingOnly(content)) {
     return { category: 'greeting', intentHint: 'other' };
+  }
+  if (isAvailabilityAskWithoutRoute(content)) {
+    return { category: 'availability_ask', intentHint: 'other' };
   }
   if (isShortAck(content)) {
     return { category: 'acknowledgment', intentHint: 'other' };
@@ -176,6 +216,10 @@ export function buildPatternTripExtraction({
 
   if (classified.category === 'greeting' || classified.category === 'acknowledgment') {
     return { ...base, intent: 'other', confidence: 0.9 };
+  }
+
+  if (classified.category === 'availability_ask' || isAvailabilityAskWithoutRoute(text)) {
+    return { ...base, intent: 'other', confidence: 0.88 };
   }
 
   if (classified.intentHint === 'status_query') {
