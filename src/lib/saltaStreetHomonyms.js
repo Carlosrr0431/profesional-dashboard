@@ -18,23 +18,33 @@ export const GUEMES_POLL_OPTION_LIMIT = 5;
 /** Poll de POIs genéricos (shopping, hospital…) sin calle/altura. */
 export const CATEGORY_POI_POLL_OPTION_LIMIT = 5;
 
-/**
- * True cuando el query es básicamente "Güemes" + altura (sin otro nombre de calle).
- */
-export function isGuemesHomonymQuery(streetSegment, queryTokens = []) {
-  const segment = String(streetSegment || '')
+const GUEMES_PERSON_RE = /\b(?:adolfo|luis|domingo|juan\s+manuel)\b/;
+
+function normalizeGuemesBlob(value) {
+  return String(value || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
+}
 
-  const contentTokens = (queryTokens || []).filter(
-    (token) => token && token.length >= 3 && token !== 'guemes',
+/**
+ * True cuando el pasajero dijo "Güemes" sin nombrar a cuál (Adolfo, Luis, Domingo, Juan Manuel).
+ * "Gral / Martín" no desambigua: el LLM suele inventar Gral. Martín Güemes y hay más de una.
+ */
+export function isGuemesHomonymQuery(streetSegment, queryTokens = []) {
+  const blob = normalizeGuemesBlob(
+    [streetSegment, ...(queryTokens || [])].filter(Boolean).join(' '),
   );
+  if (!/\bguemes\b/.test(blob)) return false;
+  return !GUEMES_PERSON_RE.test(blob);
+}
 
-  if (contentTokens.length > 0) return false;
-  return /\bguemes\b/.test(segment) || (queryTokens || []).includes('guemes');
+/** Query de catálogo/poll: apellido + altura, sin expandir a una Güemes concreta. */
+export function ambiguousGuemesSearchQuery(value) {
+  const house = String(value || '').match(/\b(\d{1,5}[a-z]?)\b/i);
+  return house ? `Güemes ${house[1]}, Salta` : 'Güemes, Salta';
 }
 
 export function guemesStreetPriority(nameKey) {

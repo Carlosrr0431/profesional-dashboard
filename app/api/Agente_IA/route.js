@@ -16,6 +16,7 @@ import { buildAddressPollPayload, formatAddressForWhatsAppPoll } from '../../../
 import {
   GUEMES_POLL_OPTION_LIMIT,
   CATEGORY_POI_POLL_OPTION_LIMIT,
+  ambiguousGuemesSearchQuery,
   isGuemesHomonymQuery,
   preferExactCatalogStreetMatches,
   sortGuemesStreetCandidates,
@@ -7658,11 +7659,17 @@ async function maybeSendDestinationAddressPoll({
   if (!finalDestinationHint) return null;
 
   const destTokens = getAddressContentTokens(normalizeForMatch(finalDestinationHint));
-  const destIsGuemesHomonym = isGuemesHomonymQuery(finalDestinationHint, destTokens);
+  const destIsGuemesHomonym = isGuemesHomonymQuery(
+    finalDestinationHint,
+    destTokens,
+  ) || isGuemesHomonymQuery(extracted?._conversationText || '');
+  const destPollQuery = destIsGuemesHomonym
+    ? ambiguousGuemesSearchQuery(finalDestinationHint)
+    : finalDestinationHint;
 
   const [googleDestPoll, catalogDestPoll] = await Promise.all([
-    getAutocompletePollCandidates(finalDestinationHint, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
-    buildCatalogAmbiguityPollCandidates(finalDestinationHint, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
+    getAutocompletePollCandidates(destPollQuery, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
+    buildCatalogAmbiguityPollCandidates(destPollQuery, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
   ]);
 
   const rawDestPollCandidates = destIsGuemesHomonym && catalogDestPoll.length >= 2
@@ -10946,19 +10953,24 @@ async function processClaimedConversation(batch) {
     resolveSaltaKnownPoi(nextContext.pickup_location) ||
     resolveSaltaKnownPoi(normalizedPickupForGeo);
 
+  const pickupQueryTokens = getAddressContentTokens(normalizeForMatch(normalizedPickupForGeo || ''));
+  const pickupIsGuemesHomonym =
+    isGuemesHomonymQuery(normalizedPickupForGeo, pickupQueryTokens)
+    || isGuemesHomonymQuery(tripExtracted?._conversationText || combinedText || '');
+  const pickupPollQuery = pickupIsGuemesHomonym
+    ? ambiguousGuemesSearchQuery(normalizedPickupForGeo)
+    : normalizedPickupForGeo;
+
   const [googlePollCandidates, catalogStreetPollCandidates, addressCandidatesResult] = await Promise.all([
     getAutocompletePollCandidates(
-      normalizedPickupForGeo,
+      pickupPollQuery,
       knownPoiMatch ? CATEGORY_POI_POLL_OPTION_LIMIT : GUEMES_POLL_OPTION_LIMIT,
     ).catch(() => []),
-    buildCatalogAmbiguityPollCandidates(normalizedPickupForGeo, 4)
+    buildCatalogAmbiguityPollCandidates(pickupPollQuery, GUEMES_POLL_OPTION_LIMIT)
       .then((items) => items.filter(isSaltaCapitalCandidate))
       .catch(() => []),
-    getAddressCandidates(normalizedPickupForGeo, 5).catch(() => []),
+    getAddressCandidates(pickupPollQuery, 5).catch(() => []),
   ]);
-
-  const pickupQueryTokens = getAddressContentTokens(normalizeForMatch(normalizedPickupForGeo || ''));
-  const pickupIsGuemesHomonym = isGuemesHomonymQuery(normalizedPickupForGeo, pickupQueryTokens);
 
   const pickupIsExactIntersection = isIntersectionAddress(normalizedPickupForGeo);
   if (
@@ -11110,13 +11122,18 @@ async function processClaimedConversation(batch) {
       streetHint: poiStreetHint || null,
       usedCapitalFilter: saltaCapitalCandidates.length >= 1,
     });
-  } else if (addressPollCandidates.length < 2 && catalogStreetPollCandidates.length >= 2) {
+  } else if (
+    (pickupIsGuemesHomonym || addressPollCandidates.length < 2)
+    && catalogStreetPollCandidates.length >= 2
+  ) {
     addressPollCandidates = catalogStreetPollCandidates;
     logWebhook('conversation_catalog_street_poll_fallback', {
       conversationId: batch?.id || null,
       pickup: normalizedPickupForGeo,
+      pollQuery: pickupPollQuery,
       googleCount: googlePollCandidates.length,
       optionCount: catalogStreetPollCandidates.length,
+      guemesHomonym: pickupIsGuemesHomonym,
     });
   } else {
     logWebhook('conversation_google_autocomplete_poll', {
@@ -11168,7 +11185,7 @@ async function processClaimedConversation(batch) {
     }
   }
 
-  if (addressPollCandidates.length === 1 && !knownPoiMatch) {
+  if (addressPollCandidates.length === 1 && !knownPoiMatch && !pickupIsGuemesHomonym) {
     const onlyCandidate = addressPollCandidates[0];
     if (Number.isFinite(onlyCandidate?.lat) && Number.isFinite(onlyCandidate?.lng)) {
     tripExtracted._preGeocodedPickup = buildPreGeocodedPickup(

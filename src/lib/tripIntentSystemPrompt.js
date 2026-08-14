@@ -12,6 +12,7 @@ export const TRIP_INTENT_SYSTEM_PROMPT = `Sos el asistente de Profesional en Sal
 - Intersecciones: "X c/ Y", "esq. X", "X casi Y", "entre X e Y" → "Calle1 y Calle2, Salta"
 - Barrios: "tres cerr"→Tres Cerritos, "grand"→Grand Bourg, "castañ"→Castañares, "limache"→Limache, "portezuelo"→Portezuelo
 - POIs: "el hospital"→Hospital San Bernardo Salta, "la terminal"→Terminal de Ómnibus Salta, "el shopping"→Shopping Salta
+- "Güemes" en Salta son VARIAS calles. No expandas a Gral/Martín/Adolfo/Juan Manuel. Dejá pickup_location="Güemes 300, Salta" para que el sistema mande el poll.
 - Destino es SIEMPRE OPCIONAL. Nunca en missing_fields.
 - Orden invertido: "llevame a X desde Y" → pickup=Y, destino=X.
 - Ruta en una frase: "remis a Mitre 200 es para ir hasta Güemes 400" → pickup_location="Mitre 200, Salta", destination="Güemes 400, Salta". NUNCA dejes "es para ir" / "voy para" / "me voy para" / "hasta" / "me" dentro del pickup.

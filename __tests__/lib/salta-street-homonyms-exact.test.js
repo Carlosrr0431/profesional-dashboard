@@ -1,6 +1,7 @@
 const {
   preferExactCatalogStreetMatches,
   isGuemesHomonymQuery,
+  ambiguousGuemesSearchQuery,
 } = require('../../src/lib/saltaStreetHomonyms');
 
 describe('preferExactCatalogStreetMatches', () => {
@@ -33,3 +34,21 @@ describe('preferExactCatalogStreetMatches', () => {
     expect(result).toHaveLength(3);
   });
 });
+
+describe('isGuemesHomonymQuery', () => {
+  it('pide poll si el pasajero dijo solo Güemes + altura', () => {
+    expect(isGuemesHomonymQuery('Güemes 300, Salta')).toBe(true);
+    expect(isGuemesHomonymQuery('me mandas un remis para guemes al 300')).toBe(true);
+  });
+
+  it('sigue siendo ambiguo si el modelo expandió a Gral. Martín Güemes', () => {
+    expect(isGuemesHomonymQuery('Gral. Martin Güemes 300, A4400 Salta, Argentina')).toBe(true);
+    expect(ambiguousGuemesSearchQuery('Gral. Martin Güemes 300, Salta')).toBe('Güemes 300, Salta');
+  });
+
+  it('no pide poll si el pasajero nombró una Güemes concreta', () => {
+    expect(isGuemesHomonymQuery('Dr. Adolfo Güemes 300')).toBe(false);
+    expect(isGuemesHomonymQuery('juan manuel guemes 200')).toBe(false);
+  });
+});
+
