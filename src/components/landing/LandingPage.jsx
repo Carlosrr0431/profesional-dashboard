@@ -183,7 +183,7 @@ export default function LandingPage() {
               </h1>
 
               <p className="landing-hero-enter landing-hero-enter-delay-2 mt-4 max-w-2xl text-[15px] leading-relaxed text-slate-600 sm:mt-6 sm:text-lg lg:text-xl">
-                Descargá la app de pasajero para pedir un remis al instante, o unite como conductor a la flota Profesional.
+                Descargá la app de pasajero para pedir un auto al instante, o unite como conductor a la flota Profesional.
                 Todo conectado en tiempo real.
               </p>
 
@@ -245,7 +245,7 @@ export default function LandingPage() {
         variant="passenger"
         eyebrow="App Pasajero"
         title="Pedí, seguí y viajá con confianza"
-        subtitle="La app de pasajeros te permite solicitar un remis en segundos, ver la ubicación del chofer en vivo y recibir actualizaciones en cada etapa del viaje."
+        subtitle="La app de pasajeros te permite solicitar un auto en segundos, ver la ubicación del chofer en vivo y recibir actualizaciones en cada etapa del viaje."
         features={[
           'Pedí un viaje en segundos desde la app',
           'Seguí tu chofer en el mapa en tiempo real',

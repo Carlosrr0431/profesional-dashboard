@@ -138,7 +138,7 @@ export default function AppsFichaPage({ focus = null }) {
                 tone="light"
                 meta="Para viajar"
                 title="Pasajero"
-                subtitle="Pedí tu remis y seguí el viaje en vivo"
+                subtitle="Pedí tu auto y seguí el viaje en vivo"
                 emphasized={focus === 'pasajero'}
               />
             ) : null}
