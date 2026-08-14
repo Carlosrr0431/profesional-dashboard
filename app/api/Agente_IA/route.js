@@ -106,9 +106,11 @@ import {
 } from '../../../src/lib/whatsmeowClient';
 import { normalizeWhatsmeowWebhookBody } from '../../../src/lib/whatsmeowWebhook';
 import {
+  ASK_PICKUP_STREET_OR_GPS,
   buildBettoWelcomeMessage,
   isBettoGreetedContext,
   mergeWhatsappSessionContext,
+  rewriteVaguePickupAsk,
   shouldSendBettoWelcome,
   stampBettoGreeted,
   withBettoIntro,
@@ -10156,9 +10158,11 @@ async function processClaimedConversation(batch) {
   );
   const alreadyBettoGreeted = isBettoGreetedContext(batch.context);
 
+  const greetingOrAvailability =
+    isGreetingOnly(combinedText) || isAvailabilityAskWithoutRoute(combinedText);
   if (
     !alreadyBettoGreeted &&
-    !tripWaMidFlow &&
+    (!tripWaMidFlow || greetingOrAvailability) &&
     !passengerWantsToCancel &&
     !pickupLocation &&
     !nextContext.pickup_location &&
@@ -10537,7 +10541,7 @@ async function processClaimedConversation(batch) {
   }
 
   if (extracted.intent === 'other') {
-    const otherReply = String(extracted.reply || '').trim();
+    const otherReply = rewriteVaguePickupAsk(String(extracted.reply || '').trim());
     if (otherReply) {
       const outbound = alreadyBettoGreeted ? otherReply : withBettoIntro(otherReply);
       await sendWhatsAppText(batch.phone, outbound);
@@ -10638,10 +10642,10 @@ async function processClaimedConversation(batch) {
     const reply = alreadyAwaitingGps
       ? null
       : pendingScheduleInfo
-        ? (extracted.reply ||
-          `Perfecto, te anoto para el *${pendingScheduleInfo.displayText}*. ¿Desde qué dirección te paso a buscar? Podés mandar *calle y número* o tu *ubicación actual*.`)
-        : (extracted.reply ||
-          'Para derivarte un móvil necesito tu ubicación de retiro. Podés mandarme la dirección (calle y número) o compartir tu *ubicación actual* tocando el ícono de ubicación en WhatsApp.');
+        ? (rewriteVaguePickupAsk(extracted.reply) ||
+          `Perfecto, te anoto para el *${pendingScheduleInfo.displayText}*. ${ASK_PICKUP_STREET_OR_GPS}`)
+        : (rewriteVaguePickupAsk(extracted.reply) ||
+          `Para derivarte un móvil. ${ASK_PICKUP_STREET_OR_GPS}`);
     if (reply) await sendWhatsAppText(batch.phone, reply);
     logWebhook('conversation_missing_fields', {
       conversationId: batch?.id || null,

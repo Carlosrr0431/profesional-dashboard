@@ -14,8 +14,9 @@ describe('bettoWelcome', () => {
   it('arma la bienvenida con el nombre del bot', () => {
     const msg = buildBettoWelcomeMessage();
     expect(msg.startsWith(BETTO_INTRO)).toBe(true);
-    expect(msg).toMatch(/de dónde te buscamos/i);
-    expect(msg).toMatch(/a dónde vas/i);
+    expect(msg).toMatch(/calle y altura/i);
+    expect(msg).toMatch(/ubicaci[oó]n GPS/i);
+    expect(msg).not.toMatch(/referencia/i);
   });
 
   it('antepone el saludo una sola vez', () => {
@@ -23,6 +24,15 @@ describe('bettoWelcome', () => {
     const once = withBettoIntro(body);
     expect(once).toBe(`${BETTO_INTRO}\n\n${body}`);
     expect(withBettoIntro(once)).toBe(once);
+  });
+
+  it('no duplica un Hola del modelo si Betto ya saludó', () => {
+    const once = withBettoIntro(
+      'Hola Carlos, ¿de dónde te buscamos? Pasame la calle y el número.',
+    );
+    expect(once.startsWith(BETTO_INTRO)).toBe(true);
+    expect(once).not.toMatch(/Hola Carlos/i);
+    expect(once.split(/hola/i).length - 1).toBe(1);
   });
 
   it('detecta "hola, tenes movil" sin dirección', () => {
@@ -129,5 +139,17 @@ describe('bettoWelcome', () => {
     const now = Date.parse('2026-08-13T22:31:00-03:00');
     expect(isBettoGreetedContext({ betto_greeted: true }, now)).toBe(false);
     expect(isBettoGreetedContext({ betto_greeted: true, betto_greeted_at: null }, now)).toBe(false);
+  });
+
+  it('reemplaza pedidos de retiro vagos por calle y altura o GPS', () => {
+    const { rewriteVaguePickupAsk, ASK_PICKUP_STREET_OR_GPS } = require('../../src/lib/bettoWelcome');
+    expect(rewriteVaguePickupAsk(
+      'Hola Carlos, ¿me pasás la calle y número o una referencia para buscarte?',
+    )).toBe(ASK_PICKUP_STREET_OR_GPS);
+    expect(rewriteVaguePickupAsk(
+      'Hola Carlos, ¿de dónde te buscamos? Pasame la calle y el número.',
+    )).toBe(ASK_PICKUP_STREET_OR_GPS);
+    expect(rewriteVaguePickupAsk('Mandame una referencia')).toBe(ASK_PICKUP_STREET_OR_GPS);
+    expect(rewriteVaguePickupAsk(ASK_PICKUP_STREET_OR_GPS)).toBe(ASK_PICKUP_STREET_OR_GPS);
   });
 });

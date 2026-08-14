@@ -14,6 +14,32 @@ export { isAvailabilityAskWithoutRoute };
 
 export const BETTO_INTRO = 'Hola, soy el Chat Bot Betto 👋';
 export const BETTO_GREETING_TTL_MS = 30 * 60 * 1000;
+export const ASK_PICKUP_STREET_OR_GPS =
+  'Mandame *calle y altura* (por ejemplo Mitre 200) o tu *ubicación GPS* desde WhatsApp.';
+
+const HOLA_PREFIX_RE = /^(?:¡?hola(?:\s+[^,\n!]{1,40})?\s*[,!]?\s*)+/i;
+const HAS_GPS_ASK_RE = /ubicaci[oó]n\s+GPS|\bGPS\b/i;
+const PICKUP_ASK_RE =
+  /de d[oó]nde te buscamos|desde d[oó]nde|referencias?|punto de encuentro|calle y(?:\s+el)?\s+n[uú]mero|(?:pasame|pas[aá]s|mandame|decime).{0,40}calle/i;
+
+export function stripLeadingHolaGreeting(text) {
+  return String(text || '').trim().replace(HOLA_PREFIX_RE, '').trim();
+}
+
+function isPickupAskWithoutGps(text) {
+  const raw = String(text || '');
+  if (!PICKUP_ASK_RE.test(raw)) return false;
+  return !HAS_GPS_ASK_RE.test(raw);
+}
+
+export function rewriteVaguePickupAsk(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return raw;
+  if (isPickupAskWithoutGps(raw)) return ASK_PICKUP_STREET_OR_GPS;
+  return stripLeadingHolaGreeting(raw)
+    .replace(/\bcalle y(?:\s+el)?\s+n[uú]meros?(?:\s+exactos?)?/gi, 'calle y altura')
+    .replace(/\bubicaci[oó]n actual\b/gi, 'ubicación GPS');
+}
 
 function parseSessionContext(context) {
   if (!context) return {};
@@ -56,14 +82,17 @@ export function buildBettoWelcomeMessage() {
     BETTO_INTRO,
     '',
     'Contame el viaje que querés tomar.',
-    'Necesito *de dónde te buscamos* (calle y número, o tu ubicación) y, si ya lo sabés, *a dónde vas*.',
+    'Necesito *de dónde te buscamos*: *calle y altura*, o tu *ubicación GPS*.',
     '',
     'Ejemplo: _Mitre 200_ o _buscame en Mitre 200 para ir a Güemes 400_.',
   ].join('\n');
 }
 
 export function withBettoIntro(message) {
-  const body = String(message || '').trim();
+  const raw = String(message || '').trim();
+  if (!raw) return BETTO_INTRO;
+  if (raw.startsWith('Hola, soy el Chat Bot Betto')) return raw;
+  const body = stripLeadingHolaGreeting(raw);
   if (!body) return BETTO_INTRO;
   if (body.startsWith('Hola, soy el Chat Bot Betto')) return body;
   return `${BETTO_INTRO}\n\n${body}`;

@@ -22,6 +22,10 @@ import {
   shouldUsePatternExtraction,
 } from './whatsappTripIntentPatterns';
 import {
+  ASK_PICKUP_STREET_OR_GPS,
+  rewriteVaguePickupAsk,
+} from './bettoWelcome';
+import {
   sanitizeAddressInput,
   normalizeAddressPhrase,
 } from '../../shared/salta-address.js';
@@ -52,7 +56,7 @@ const ALLOWED_INTENTS = new Set([
 ]);
 
 const AVAILABILITY_REPLY =
-  'Sí, estamos en servicio. Decime de dónde te buscamos (calle y número, o tu ubicación).';
+  `Sí, estamos en servicio. ${ASK_PICKUP_STREET_OR_GPS}`;
 
 function normalizeExtractedAddress(value) {
   const stripped = stripTrailingTripRouteTail(value);
@@ -64,9 +68,9 @@ function normalizeExtractedAddress(value) {
 }
 
 function shouldSkipLlmForPattern(patternResult, text, context = {}) {
+  if (isGreetingOnly(text) || isShortAck(text)) return true;
   if (context.awaiting_pickup_number || context.awaiting_gps) return false;
   if (isAvailabilityAskWithoutRoute(text)) return false;
-  if (isGreetingOnly(text) || isShortAck(text)) return true;
   const intent = String(patternResult?.intent || '');
   if (intent === 'cancel_trip' && shouldUsePatternExtraction(patternResult)) {
     return true;
@@ -79,8 +83,9 @@ function stripPatternSource(patternResult) {
   return rest;
 }
 
-function sanitizePatternFallback(patternFallback, combinedText) {
+function sanitizePatternFallback(patternFallback, combinedText, context = {}) {
   const rest = stripPatternSource(patternFallback);
+  const reply = rest.reply ? rewriteVaguePickupAsk(rest.reply) : rest.reply;
   if (isAvailabilityAskWithoutRoute(combinedText)) {
     return {
       ...rest,
@@ -88,13 +93,23 @@ function sanitizePatternFallback(patternFallback, combinedText) {
       pickup_location: null,
       origin: null,
       destination: null,
-      reply: rest.reply || AVAILABILITY_REPLY,
+      reply: reply || AVAILABILITY_REPLY,
+    };
+  }
+  if (isGreetingOnly(combinedText) && (context.awaiting_gps || context.awaiting_pickup_number)) {
+    return {
+      ...rest,
+      intent: 'other',
+      pickup_location: null,
+      origin: null,
+      destination: null,
+      reply: ASK_PICKUP_STREET_OR_GPS,
     };
   }
   if (isAddressNoisePhrase(rest.pickup_location)) {
-    return { ...rest, pickup_location: null };
+    return { ...rest, pickup_location: null, reply };
   }
-  return rest;
+  return { ...rest, reply };
 }
 
 function normalizeProExtraction(parsed, passengerName, combinedText) {
@@ -102,7 +117,7 @@ function normalizeProExtraction(parsed, passengerName, combinedText) {
   const destination = normalizeExtractedAddress(parsed.destination);
   const origin = normalizeExtractedAddress(parsed.origin) || pickup;
   let intent = ALLOWED_INTENTS.has(parsed.intent) ? parsed.intent : 'other';
-  let reply = parsed.reply == null ? null : String(parsed.reply).trim() || null;
+  let reply = parsed.reply == null ? null : rewriteVaguePickupAsk(String(parsed.reply).trim()) || null;
 
   const availabilityWithoutRoute =
     isAvailabilityAskWithoutRoute(combinedText) && !pickup && !destination;
@@ -182,7 +197,7 @@ export async function extractTripIntentHybrid({
         source: 'pattern',
       });
     }
-    return sanitizePatternFallback(patternResult, combinedText);
+    return sanitizePatternFallback(patternResult, combinedText, context);
   }
 
   if (logFn) {
@@ -329,7 +344,7 @@ async function extractTripIntentWithDeepSeek({
         || patternIntent === 'trip_request'
         || patternConfidence > 0.5
       ) {
-        return sanitizePatternFallback(patternFallback, combinedText);
+        return sanitizePatternFallback(patternFallback, combinedText, context);
       }
     }
 
@@ -347,7 +362,7 @@ async function extractTripIntentWithDeepSeek({
       ...DEFAULT_EXTRACTION,
       intent: 'other',
       passenger_name: passengerName,
-      reply: '¿Desde dónde te buscamos?',
+      reply: ASK_PICKUP_STREET_OR_GPS,
       missing_fields: [],
       confidence: 0.4,
     };

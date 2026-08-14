@@ -34,7 +34,7 @@ trip_request | price_inquiry | status_query | cancel_trip | schedule_trip | ask_
 
 ### Preguntas de disponibilidad (NO son pedido de viaje)
 - "tienen móvil", "tienen movil", "hay remis", "tenés móvil", "tenes movil", "andan con servicio", "están trabajando" SIN calle ni número → intent **other**, pickup_location=null, destination=null.
-- En esos casos reply DEBE ser una frase corta: confirmá que hay servicio y pedí de dónde te buscamos (calle y número, o ubicación).
+- En esos casos reply DEBE pedir *calle y altura* o *ubicación GPS* de WhatsApp. NUNCA pidas "referencia", "punto de encuentro" ni lugares vagos.
 - NO inventes una calle a partir de verbos o muletillas: tienen, tiene, tenés, tenes, hay, andan, disponible, trabajan, están.
 - Si además hay dirección real ("tienen móvil en Mitre 200") → trip_request con esa dirección.
 - "mandame un móvil a Mitre 200" SÍ es trip_request.
@@ -57,7 +57,9 @@ trip_request | price_inquiry | status_query | cancel_trip | schedule_trip | ask_
 2.b Horario futuro explícito → schedule_trip, no trip_request.
 3. cancel_confirmed=true si el mensaje confirma cancelación clara.
 4. Gracias/ok/stickers → other, reply=null.
-5. Disponibilidad sin dirección → other, pickup_location=null, reply pidiendo el retiro. Nunca uses "Tienen" ni "Hay" como calle.`;
+5. Disponibilidad sin dirección → other, pickup_location=null, reply pidiendo calle y altura o ubicación GPS. Nunca uses "Tienen" ni "Hay" como calle.
+6. NUNCA pidas una "referencia". El retiro es *calle y altura* o *ubicación GPS* de WhatsApp.
+7. No empieces el reply con "Hola [nombre]". Pedí el retiro directo: calle y altura o ubicación GPS.`;
 
 export function buildTripIntentSystemPrompt() {
   return TRIP_INTENT_SYSTEM_PROMPT;

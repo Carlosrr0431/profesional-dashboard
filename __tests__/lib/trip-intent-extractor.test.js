@@ -147,7 +147,8 @@ describe('extractTripIntentHybrid + DeepSeek Pro', () => {
     expect(result.intent).toBe('other');
     expect(result.pickup_location).toBeNull();
     expect(result.source).toBe('deepseek-pro');
-    expect(result.reply).toMatch(/de dónde te buscamos/i);
+    expect(result.reply).toMatch(/calle y altura/i);
+    expect(result.reply).toMatch(/ubicaci[oó]n GPS/i);
   });
 
   it('corrige a other si Pro trata "tienen movil" como viaje o calle Tienen', async () => {
@@ -175,7 +176,8 @@ describe('extractTripIntentHybrid + DeepSeek Pro', () => {
 
     expect(result.pickup_location).toBeNull();
     expect(result.intent).toBe('other');
-    expect(result.reply).toMatch(/de dónde te buscamos/i);
+    expect(result.reply).toMatch(/calle y altura/i);
+    expect(result.reply).toMatch(/ubicaci[oó]n GPS/i);
   });
 
   it('pasa el retiro parcial a Pro cuando espera la altura', async () => {
@@ -239,6 +241,46 @@ describe('extractTripIntentHybrid + DeepSeek Pro', () => {
         ],
       }),
     );
+  });
+
+  it('no pide referencia si Pro lo escribe en el reply', async () => {
+    deepseekChatCompletion.mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'other',
+        pickup_location: null,
+        confidence: 0.8,
+        reply: 'Hola Carlos, ¿me pasás la calle y número o una referencia para buscarte?',
+      }),
+      usage: {},
+    });
+
+    const result = await extractTripIntentHybrid({
+      combinedText: 'tienen movil',
+      context: {},
+      pushName: 'Carlos',
+      phone: '5493878630173',
+      inferHeuristics: inferTripHeuristics,
+    });
+
+    expect(result.reply).toMatch(/calle y altura/i);
+    expect(result.reply).toMatch(/ubicaci[oó]n GPS/i);
+    expect(result.reply).not.toMatch(/referencia/i);
+    expect(result.reply).not.toMatch(/Hola Carlos/i);
+  });
+
+  it('un hola con GPS pendiente no llama a Pro y pide calle y altura o GPS', async () => {
+    const result = await extractTripIntentHybrid({
+      combinedText: 'hola',
+      context: { awaiting_gps: true },
+      pushName: 'Carlos',
+      phone: '5493878630173',
+      inferHeuristics: inferTripHeuristics,
+    });
+
+    expect(deepseekChatCompletion).not.toHaveBeenCalled();
+    expect(result.intent).toBe('other');
+    expect(result.reply).toMatch(/calle y altura/i);
+    expect(result.reply).toMatch(/ubicaci[oó]n GPS/i);
   });
 
   it('no llama DeepSeek para saludos sin dirección', async () => {
