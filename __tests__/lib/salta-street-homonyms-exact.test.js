@@ -2,6 +2,8 @@ const {
   preferExactCatalogStreetMatches,
   isGuemesHomonymQuery,
   ambiguousGuemesSearchQuery,
+  sortGuemesStreetCandidates,
+  guemesStreetPriority,
 } = require('../../src/lib/saltaStreetHomonyms');
 
 describe('preferExactCatalogStreetMatches', () => {
@@ -49,6 +51,25 @@ describe('isGuemesHomonymQuery', () => {
   it('no pide poll si el pasajero nombró una Güemes concreta', () => {
     expect(isGuemesHomonymQuery('Dr. Adolfo Güemes 300')).toBe(false);
     expect(isGuemesHomonymQuery('juan manuel guemes 200')).toBe(false);
+  });
+});
+
+describe('sortGuemesStreetCandidates', () => {
+  it('prioriza Adolfo y trata Gral/General Güemes igual', () => {
+    expect(guemesStreetPriority('gral guemes')).toBe(guemesStreetPriority('general guemes'));
+    expect(guemesStreetPriority('dr adolfo guemes')).toBeGreaterThan(guemesStreetPriority('general guemes'));
+
+    const sorted = sortGuemesStreetCandidates([
+      { street: { nameKey: 'domingo guemes' }, score: 1 },
+      { street: { nameKey: 'general guemes' }, score: 1.2 },
+      { street: { nameKey: 'dr adolfo guemes' }, score: 1.1 },
+    ]);
+
+    expect(sorted.map((item) => item.street.nameKey)).toEqual([
+      'dr adolfo guemes',
+      'general guemes',
+      'domingo guemes',
+    ]);
   });
 });
 

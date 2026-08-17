@@ -97,19 +97,27 @@ function getAddressPollIdentityKey(candidate) {
   const number = numMatch ? numMatch[1] : '';
   const street = normalized.replace(/\b\d{1,5}\b/g, ' ').replace(/\s+/g, ' ').trim();
   if (candidate?.street?.nameKey) {
-    return `${candidate.street.nameKey}|${number}|${normalizePollStreetKey(subtitle)}`;
+    const typeKey = String(candidate.street.type || '').trim().toLowerCase();
+    return `${typeKey}|${candidate.street.nameKey}|${number}|${normalizePollStreetKey(subtitle)}`;
   }
   return `${street}|${number}`;
 }
 
+function isFiniteCoord(value) {
+  // Number(null) === 0: no tratar "sin geocode" como Null Island.
+  if (value == null || value === '') return false;
+  return Number.isFinite(Number(value));
+}
+
 function candidatesAreNearDuplicate(a, b) {
-  const aLat = Number(a?.lat);
-  const aLng = Number(a?.lng);
-  const bLat = Number(b?.lat);
-  const bLng = Number(b?.lng);
-  if (![aLat, aLng, bLat, bLng].every(Number.isFinite)) return false;
+  const aLat = a?.lat;
+  const aLng = a?.lng;
+  const bLat = b?.lat;
+  const bLng = b?.lng;
+  if (![aLat, aLng, bLat, bLng].every(isFiniteCoord)) return false;
   // ~80 m en Salta: misma esquina con labels distintos (y vs &).
-  return Math.abs(aLat - bLat) < 0.0008 && Math.abs(aLng - bLng) < 0.0008;
+  return Math.abs(Number(aLat) - Number(bLat)) < 0.0008
+    && Math.abs(Number(aLng) - Number(bLng)) < 0.0008;
 }
 
 function collapseEquivalentPollCandidates(candidates) {

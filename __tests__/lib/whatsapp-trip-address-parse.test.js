@@ -116,4 +116,65 @@ describe('whatsappTripAddressParse', () => {
 
     expect(collapsed).toHaveLength(2);
   });
+
+  it('no colapsa variantes de catálogo sin coordenadas (lat/lng null)', () => {
+    const candidates = [
+      {
+        formattedAddress: 'Calle Dr Adolfo Guemes 300, Salta, Argentina',
+        pollLabel: 'Calle Dr Adolfo Guemes 300',
+        lat: null,
+        lng: null,
+        score: 1.1,
+        source: 'catalog_variant',
+        street: { type: 'calle', nameKey: 'dr adolfo guemes' },
+      },
+      {
+        formattedAddress: 'Avenida Dr Luis Guemes 300, Salta, Argentina',
+        pollLabel: 'Avenida Dr Luis Guemes 300',
+        lat: null,
+        lng: null,
+        score: 1.2,
+        source: 'catalog_variant',
+        street: { type: 'avenida', nameKey: 'dr luis guemes' },
+      },
+      {
+        formattedAddress: 'Calle Domingo Guemes 300, Salta, Argentina',
+        pollLabel: 'Calle Domingo Guemes 300',
+        lat: null,
+        lng: null,
+        score: 1.1,
+        source: 'catalog_variant',
+        street: { type: 'calle', nameKey: 'domingo guemes' },
+      },
+      {
+        formattedAddress: 'Avenida Gral Guemes 300, Salta, Argentina',
+        pollLabel: 'Avenida General Güemes 300',
+        lat: null,
+        lng: null,
+        score: 1.2,
+        source: 'catalog_variant',
+        street: { type: 'avenida', nameKey: 'general guemes' },
+      },
+      {
+        formattedAddress: 'Calle Gral Guemes 300, Salta, Argentina',
+        pollLabel: 'Calle General Güemes 300',
+        lat: null,
+        lng: null,
+        score: 1.1,
+        source: 'catalog_variant',
+        street: { type: 'calle', nameKey: 'general guemes' },
+      },
+    ];
+
+    const collapsed = collapseEquivalentPollCandidates(candidates);
+
+    expect(collapsed).toHaveLength(5);
+    expect(collapsed.map((c) => c.pollLabel).sort()).toEqual([
+      'Avenida Dr Luis Guemes 300',
+      'Avenida General Güemes 300',
+      'Calle Domingo Guemes 300',
+      'Calle Dr Adolfo Guemes 300',
+      'Calle General Güemes 300',
+    ].sort());
+  });
 });

@@ -5864,8 +5864,6 @@ async function buildCatalogAmbiguityPollCandidates(query, maxResults = 4) {
       source: 'catalog_variant',
       street: item.street,
     });
-
-    if (candidates.length >= maxResults) break;
   }
 
   const queryTokens = tokenizeAddress(
@@ -5879,7 +5877,7 @@ async function buildCatalogAmbiguityPollCandidates(query, maxResults = 4) {
     return sortGuemesStreetCandidates(candidates).slice(0, maxResults);
   }
 
-  return candidates;
+  return candidates.slice(0, maxResults);
 }
 
 /**
@@ -11143,7 +11141,16 @@ async function processClaimedConversation(batch) {
     });
   }
 
+  const pollCountBeforeCollapse = addressPollCandidates.length;
   addressPollCandidates = collapseEquivalentPollCandidates(addressPollCandidates);
+  if (pollCountBeforeCollapse !== addressPollCandidates.length) {
+    logWebhook('conversation_address_poll_collapsed', {
+      conversationId: batch?.id || null,
+      before: pollCountBeforeCollapse,
+      after: addressPollCandidates.length,
+      guemesHomonym: pickupIsGuemesHomonym,
+    });
+  }
 
   const topScoreGap =
     addressPollCandidates.length >= 2

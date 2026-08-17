@@ -7,7 +7,7 @@
 export const GUEMES_STREET_NAME_KEYS = [
   'dr adolfo guemes',
   'dr luis guemes',
-  'gral guemes',
+  'general guemes',
   'juan manuel guemes',
   'dr martin g guemes',
   'domingo guemes',
@@ -48,7 +48,10 @@ export function ambiguousGuemesSearchQuery(value) {
 }
 
 export function guemesStreetPriority(nameKey) {
-  const key = String(nameKey || '').trim().toLowerCase();
+  const key = String(nameKey || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\bgral\b/g, 'general');
   const idx = GUEMES_STREET_NAME_KEYS.indexOf(key);
   return idx >= 0 ? GUEMES_STREET_NAME_KEYS.length - idx : 0;
 }
