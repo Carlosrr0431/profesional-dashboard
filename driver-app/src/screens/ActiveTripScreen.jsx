@@ -1,5 +1,5 @@
-﻿import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { View, Text, Linking, Pressable, TouchableOpacity, StatusBar, StyleSheet, ScrollView, ActivityIndicator, Modal, TextInput, Keyboard, useWindowDimensions } from 'react-native';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { View, Text, Linking, Dimensions, Pressable, TouchableOpacity, StatusBar, StyleSheet, ScrollView, ActivityIndicator, Modal, BackHandler, Keyboard } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Extrapolation,
@@ -11,10 +11,10 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import BottomSheet, { BottomSheetScrollView, BottomSheetTextInput } from '@gorhom/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
-import BottomSheet, { BottomSheetScrollView, BottomSheetTextInput } from '@gorhom/bottom-sheet';
 import * as Haptics from 'expo-haptics';
 import { colors } from '../theme/colors';
 import { useTripStore } from '../stores/tripStore';
@@ -29,8 +29,9 @@ import { formatTimerMMSS, formatPrice, formatDistance, formatDuration } from '..
 import { fetchTariffForTrip, calculateTripCommission } from '../utils/tripTariff';
 import {
   autocompleteAddressSalta,
-  getPlaceDetails,
+  resolvePlaceFromSuggestion,
 } from '../services/nominatim';
+import { ACTIVE_TRIP_BACK, resolveActiveTripBackAction } from '../utils/activeTripNavigation';
 import { getDirections, getRouteSummary } from '../services/routing';
 import {
   computeNavigationSnapshot,
@@ -51,8 +52,11 @@ import {
   resolveTripWaypoints,
 } from '../../shared/trip-contract';
 import { TripRouteTimeline } from '../components/trip/TripRouteTimeline';
-import { useResponsive } from '../hooks/useResponsive';
+import TripChatModal from '../components/trip/TripChatModal';
+import { useTripChat } from '../hooks/useTripChat';
+import { isTripChatAvailable } from '../constants/tripChat';
 
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const NOTIFY_PASSENGER_URL = `${TRACKING_BASE_URL}/api/driver/notify-passenger`;
 
 // Local flow steps (independent from DB status)
@@ -163,7 +167,7 @@ function formatArrivalClock(secondsFromNow) {
   return arrival.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
 }
 
-function TripProgressSummary({ traveledKm, totalKm, etaSeconds, progressRatio, footnote }) {
+function TripProgressSummary({ traveledKm, totalKm, etaSeconds, progressRatio }) {
   const traveledText = Number.isFinite(traveledKm) && traveledKm >= 0
     ? formatDistance(traveledKm)
     : '—';
@@ -198,9 +202,6 @@ function TripProgressSummary({ traveledKm, totalKm, etaSeconds, progressRatio, f
       <View style={tripProgressS.track}>
         <View style={[tripProgressS.fill, { width: barWidth }]} />
       </View>
-      {footnote ? (
-        <Text style={tripProgressS.footnote}>{footnote}</Text>
-      ) : null}
     </View>
   );
 }
@@ -645,7 +646,7 @@ function snapOriginToRoute(lat, lng, routeCoords) {
 
 // ─── SliderButton ─────────────────────────────────────────────────────────────
 // Gesto horizontal en todo el track (RNGH + Reanimated) para evitar conflictos
-// con BottomSheetScrollView y lograr animaciones fluidas en el hilo de UI.
+// Slider con RNGH + Reanimated para animaciones fluidas en el hilo de UI.
 const SLIDER_THUMB = 52;
 const SLIDER_PAD   = 4;
 const SLIDER_SPRING_RESET = { damping: 22, stiffness: 320, mass: 0.7 };
@@ -830,10 +831,8 @@ const ActiveTripScreen = () => {
   const DEFAULT_TARIFF_PER_KM = 600;
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
-  const { isLandscape, isCompactHeight, s } = useResponsive();
-  const bottomSheetRef = useRef(null);
   const flowLockRef = useRef(null);
+  const bottomSheetRef = useRef(null);
   const timerRef = useRef(null);
   const sliderRef = useRef(null);
   const routeFetched = useRef(false);
@@ -848,6 +847,9 @@ const ActiveTripScreen = () => {
   const autocompleteTimerRef = useRef(null);
   const navProgressRef = useRef(createInitialNavigationProgressState());
   const finishTripInFlightRef = useRef(false);
+  const leaveTripAllowedRef = useRef(false);
+  const showSummaryRef = useRef(false);
+  const showCancelledModalRef = useRef(false);
   const freeRideTrackRef = useRef([]);
   const freeRideTrackSampleRef = useRef(null);
   const [freeRideTrackCoords, setFreeRideTrackCoords] = useState([]);
@@ -865,6 +867,21 @@ const ActiveTripScreen = () => {
     announceDestinationArrival,
     resetAnnouncements,
   } = useVoiceNavigation();
+  const tripChat = useTripChat({
+    tripId: activeTrip?.id,
+    tripStatus: activeTrip?.status,
+    enabled: Boolean(activeTrip?.id && isTripChatAvailable(activeTrip?.status)),
+  });
+  const pendingOpenChatTripId = useTripStore((s) => s.pendingOpenChatTripId);
+  const clearPendingOpenChat = useTripStore((s) => s.clearPendingOpenChat);
+
+  useEffect(() => {
+    if (!pendingOpenChatTripId || !activeTrip?.id) return;
+    if (String(pendingOpenChatTripId) !== String(activeTrip.id)) return;
+    tripChat.openChat();
+    clearPendingOpenChat();
+  }, [pendingOpenChatTripId, activeTrip?.id, tripChat.openChat, clearPendingOpenChat]);
+
   const currentLocation = useLocationStore((s) => s.currentLocation);
   const heading = useLocationStore((s) => s.heading);
   const speed = useLocationStore((s) => s.speed);
@@ -917,14 +934,21 @@ const ActiveTripScreen = () => {
   const [accumulatedLegs, setAccumulatedLegs] = useState([]);
   const [visitedWaypointCount, setVisitedWaypointCount] = useState(0);
 
-  const snapPoints = useMemo(() => (
-    isLandscape || isCompactHeight
-      ? ['34%', '78%', '95%']
-      : ['24%', '68%', '90%']
-  ), [isLandscape, isCompactHeight]);
+  showSummaryRef.current = showSummary;
+  showCancelledModalRef.current = showCancelledModal;
+
+  const exitDestinationSearch = useCallback(() => {
+    Keyboard.dismiss();
+    setDestinationOptions([]);
+    setTextDestInput('');
+    setFlowStep(FLOW_STEP.CHOOSE_DEST_MODE);
+  }, [setFlowStep]);
+
+  const snapPoints = useMemo(() => ['20%', '68%', '90%'], []);
+  // Sheet colapsado ≈ 20%: botones un poco por encima para que no choquen.
   const mapControlsBottomOffset = useMemo(
-    () => Math.max(s(112), Math.round(windowHeight * (isLandscape ? 0.22 : 0.16))),
-    [windowHeight, isLandscape, s],
+    () => Math.max(160, Math.round(SCREEN_HEIGHT * 0.22) + 16),
+    [],
   );
 
   // Derive initial flow step from DB status (solo al cambiar de viaje o status en BD)
@@ -976,7 +1000,6 @@ const ActiveTripScreen = () => {
   useEffect(() => {
     if (!bottomSheetRef.current) return;
     if (flowStep === FLOW_STEP.SET_DESTINATION && !destinationSet) {
-      // Abrir bien arriba para que el teclado no tape el input
       bottomSheetRef.current.snapToIndex(2);
     } else if (flowStep === FLOW_STEP.CHOOSE_DEST_MODE) {
       bottomSheetRef.current.snapToIndex(2);
@@ -1028,7 +1051,9 @@ const ActiveTripScreen = () => {
   // Start tracking
   useEffect(() => {
     if (!activeTrip) {
-      navigation.goBack();
+      if (!showSummaryRef.current && !showCancelledModalRef.current && !leaveTripAllowedRef.current) {
+        navigation.goBack();
+      }
       return;
     }
     startTracking(activeTrip.id);
@@ -1039,6 +1064,68 @@ const ActiveTripScreen = () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [activeTrip?.id]);
+
+  // Atrás nativo: no abandonar el viaje hasta completar o cancelar.
+  useEffect(() => {
+    const onHardwareBack = () => {
+      if (showFinishModal) {
+        if (!finishingTrip) {
+          setShowFinishModal(false);
+          sliderRef.current?.reset();
+        }
+        return true;
+      }
+
+      const action = resolveActiveTripBackAction({
+        hasActiveTrip: Boolean(useTripStore.getState().activeTrip),
+        tripStatus: useTripStore.getState().activeTrip?.status,
+        flowStep,
+        destinationSet,
+        allowLeave: leaveTripAllowedRef.current,
+        showingSummary: showSummaryRef.current,
+      });
+
+      if (action === ACTIVE_TRIP_BACK.CHOOSE_DEST_MODE) {
+        exitDestinationSearch();
+        return true;
+      }
+      if (action === ACTIVE_TRIP_BACK.STAY) {
+        return true;
+      }
+      return false;
+    };
+
+    const backSub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+    const removeBeforeRemove = navigation.addListener('beforeRemove', (e) => {
+      const action = resolveActiveTripBackAction({
+        hasActiveTrip: Boolean(useTripStore.getState().activeTrip),
+        tripStatus: useTripStore.getState().activeTrip?.status,
+        flowStep,
+        destinationSet,
+        allowLeave: leaveTripAllowedRef.current,
+        showingSummary: showSummaryRef.current,
+      });
+
+      if (action === ACTIVE_TRIP_BACK.LEAVE) return;
+
+      e.preventDefault();
+      if (action === ACTIVE_TRIP_BACK.CHOOSE_DEST_MODE) {
+        exitDestinationSearch();
+      }
+    });
+
+    return () => {
+      backSub.remove();
+      removeBeforeRemove();
+    };
+  }, [
+    navigation,
+    flowStep,
+    destinationSet,
+    showFinishModal,
+    finishingTrip,
+    exitDestinationSearch,
+  ]);
 
   // Reset route when routing-relevant trip data changes.
   // Voice announcements only reset when the navigation endpoints actually change
@@ -1943,7 +2030,7 @@ const ActiveTripScreen = () => {
     if (flowStep !== FLOW_STEP.SET_DESTINATION || destinationSet) return;
     const query = textDestInput.trim();
     if (autocompleteTimerRef.current) clearTimeout(autocompleteTimerRef.current);
-    if (query.length < 3) {
+    if (query.length < 2) {
       setDestinationOptions([]);
       setTextDestProcessing(false);
       return;
@@ -1951,8 +2038,8 @@ const ActiveTripScreen = () => {
     setTextDestProcessing(true);
     autocompleteTimerRef.current = setTimeout(async () => {
       try {
-        const results = await autocompleteAddressSalta(query, 4);
-        setDestinationOptions(results);
+        const results = await autocompleteAddressSalta(query, 8);
+        setDestinationOptions(Array.isArray(results) ? results : []);
       } catch {
         setDestinationOptions([]);
       } finally {
@@ -1987,25 +2074,20 @@ const ActiveTripScreen = () => {
   const selectDestination = useCallback(async (option) => {
     if (!activeTrip) return;
     try {
-      let lat = option.lat;
-      let lng = option.lng;
+      const resolved = await resolvePlaceFromSuggestion(option);
+      const lat = Number(resolved?.lat);
+      const lng = Number(resolved?.lng);
 
-      // Nominatim ya devuelve lat/lng; lookup solo si faltan coordenadas.
-      if ((!lat || !lng) && option.placeId) {
-        Toast.show({ type: 'info', text1: 'Confirmando...', visibilityTime: 1500 });
-        const details = await getPlaceDetails(option.placeId);
-        lat = details.lat;
-        lng = details.lng;
-      }
-
-      if (!lat || !lng) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
         throw new Error('No se pudo obtener la ubicación');
       }
+
+      const address = resolved.address || option.address;
 
       const { data: updatedTrip, error } = await supabase
         .from('trips')
         .update({
-          destination_address: option.address,
+          destination_address: address,
           destination_lat: lat,
           destination_lng: lng,
         })
@@ -2021,7 +2103,7 @@ const ActiveTripScreen = () => {
       setDestinationSet(true);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Toast.show({ type: 'success', text1: 'Destino confirmado', text2: option.address, visibilityTime: 3000 });
+      Toast.show({ type: 'success', text1: 'Destino confirmado', text2: address, visibilityTime: 3000 });
     } catch (err) {
       Toast.show({ type: 'error', text1: 'Error', text2: 'No se pudo guardar el destino' });
     }
@@ -2155,6 +2237,7 @@ const ActiveTripScreen = () => {
         commissionPercent: tariffInfo.commission,
       });
 
+      showSummaryRef.current = true;
       const result = await updateTripStatus(tripSnapshot.id, TRIP_STATUS.COMPLETED, {
         distance_km: distanceKm,
         price: totalPrice,
@@ -2194,6 +2277,8 @@ const ActiveTripScreen = () => {
             }),
           }).catch((err) => console.warn('Error enviando WhatsApp al pasajero:', err));
         }
+      } else {
+        showSummaryRef.current = false;
       }
     } finally {
       finishTripInFlightRef.current = false;
@@ -2251,87 +2336,87 @@ const ActiveTripScreen = () => {
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         <StatusBar barStyle="dark-content" />
         <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 20, paddingVertical: 30 }}>
-          <View style={s.successIconWrap}>
-            <View style={s.successIconCircle}>
+          <View style={styles.successIconWrap}>
+            <View style={styles.successIconCircle}>
               <MaterialCommunityIcons name="check-bold" size={40} color="#fff" />
             </View>
           </View>
-          <Text style={s.summaryTitle}>¡Viaje completado!</Text>
-          <Text style={s.summarySubtitle}>{completedTrip.passenger_name}</Text>
+          <Text style={styles.summaryTitle}>¡Viaje completado!</Text>
+          <Text style={styles.summarySubtitle}>{completedTrip.passenger_name}</Text>
 
-          <View style={s.summaryCard}>
-            <View style={s.summaryRoute}>
-              <View style={s.routeIconCol}>
-                <View style={[s.routeDot, { backgroundColor: colors.success }]} />
-                <View style={s.routeLine} />
-                <View style={[s.routeDot, { backgroundColor: colors.danger }]} />
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryRoute}>
+              <View style={styles.routeIconCol}>
+                <View style={[styles.routeDot, { backgroundColor: colors.success }]} />
+                <View style={styles.routeLine} />
+                <View style={[styles.routeDot, { backgroundColor: colors.danger }]} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={s.summaryAddressLabel}>Origen</Text>
-                <Text style={s.summaryRouteText} numberOfLines={2}>{completedTrip.origin_address}</Text>
+                <Text style={styles.summaryAddressLabel}>Origen</Text>
+                <Text style={styles.summaryRouteText} numberOfLines={2}>{completedTrip.origin_address}</Text>
                 <View style={{ height: 14 }} />
-                <Text style={s.summaryAddressLabel}>Destino</Text>
-                <Text style={s.summaryRouteText} numberOfLines={2}>{completedTrip.destination_address}</Text>
+                <Text style={styles.summaryAddressLabel}>Destino</Text>
+                <Text style={styles.summaryRouteText} numberOfLines={2}>{completedTrip.destination_address}</Text>
               </View>
             </View>
           </View>
 
-          <View style={s.summaryStatsRow}>
-            <View style={s.summaryStat}>
+          <View style={styles.summaryStatsRow}>
+            <View style={styles.summaryStat}>
               <MaterialCommunityIcons name="map-marker-distance" size={20} color={colors.info} />
-              <Text style={s.summaryStatValue}>{formatDistance(finalDistance)}</Text>
-              <Text style={s.summaryStatLabel}>Distancia</Text>
+              <Text style={styles.summaryStatValue}>{formatDistance(finalDistance)}</Text>
+              <Text style={styles.summaryStatLabel}>Distancia</Text>
             </View>
-            <View style={s.summaryStat}>
+            <View style={styles.summaryStat}>
               <MaterialCommunityIcons name="clock-outline" size={20} color={colors.warning} />
-              <Text style={s.summaryStatValue}>{formatDuration(finalDuration)}</Text>
-              <Text style={s.summaryStatLabel}>Duración</Text>
+              <Text style={styles.summaryStatValue}>{formatDuration(finalDuration)}</Text>
+              <Text style={styles.summaryStatLabel}>Duración</Text>
             </View>
-            <View style={s.summaryStat}>
+            <View style={styles.summaryStat}>
               <MaterialCommunityIcons name="speedometer" size={20} color={colors.primary} />
-              <Text style={s.summaryStatValue}>
+              <Text style={styles.summaryStatValue}>
                 {finalDuration > 0 ? (finalDistance / (finalDuration / 60)).toFixed(0) : '0'} km/h
               </Text>
-              <Text style={s.summaryStatLabel}>Promedio</Text>
+              <Text style={styles.summaryStatLabel}>Promedio</Text>
             </View>
           </View>
 
-          <View style={s.priceCard}>
-            <View style={s.priceCardHeader}>
+          <View style={styles.priceCard}>
+            <View style={styles.priceCardHeader}>
               <MaterialCommunityIcons name="receipt" size={18} color={colors.secondary} />
-              <Text style={s.priceCardHeaderText}>Detalle del viaje</Text>
+              <Text style={styles.priceCardHeaderText}>Detalle del viaje</Text>
             </View>
-            <View style={s.priceItemRow}>
-              <Text style={s.priceItemLabel}>Tarifa base</Text>
-              <Text style={s.priceItemValue}>{formatPrice(tariffInfo.base)}</Text>
+            <View style={styles.priceItemRow}>
+              <Text style={styles.priceItemLabel}>Tarifa base</Text>
+              <Text style={styles.priceItemValue}>{formatPrice(tariffInfo.base)}</Text>
             </View>
-            <View style={s.priceItemRow}>
-              <Text style={s.priceItemLabel}>{formatDistance(finalDistance)} x {formatPrice(tariffInfo.perKm)}/km</Text>
-              <Text style={s.priceItemValue}>{formatPrice(Math.round(tariffInfo.perKm * finalDistance))}</Text>
+            <View style={styles.priceItemRow}>
+              <Text style={styles.priceItemLabel}>{formatDistance(finalDistance)} x {formatPrice(tariffInfo.perKm)}/km</Text>
+              <Text style={styles.priceItemValue}>{formatPrice(Math.round(tariffInfo.perKm * finalDistance))}</Text>
             </View>
-            <View style={s.priceTotalDivider} />
-            <View style={s.priceTotalRow}>
-              <Text style={s.priceTotalLabel}>Total a pagar</Text>
-              <Text style={s.priceTotalValue}>{formatPrice(finalPrice)}</Text>
+            <View style={styles.priceTotalDivider} />
+            <View style={styles.priceTotalRow}>
+              <Text style={styles.priceTotalLabel}>Total a pagar</Text>
+              <Text style={styles.priceTotalValue}>{formatPrice(finalPrice)}</Text>
             </View>
           </View>
 
-          <View style={s.earningsCard}>
-            <View style={s.earningsRow}>
+          <View style={styles.earningsCard}>
+            <View style={styles.earningsRow}>
               <View>
-                <Text style={s.earningsLabel}>Tu ganancia</Text>
-                <Text style={s.earningsSubLabel}>Comisión {commissionPct}%: -{formatPrice(commissionAmount)}</Text>
+                <Text style={styles.earningsLabel}>Tu ganancia</Text>
+                <Text style={styles.earningsSubLabel}>Comisión {commissionPct}%: -{formatPrice(commissionAmount)}</Text>
               </View>
-              <Text style={s.earningsValue}>{formatPrice(driverEarnings)}</Text>
+              <Text style={styles.earningsValue}>{formatPrice(driverEarnings)}</Text>
             </View>
           </View>
 
           <TouchableOpacity
-            onPress={() => { setShowSummary(false); navigation.goBack(); }}
-            style={s.summaryBtn}
+            onPress={() => { setShowSummary(false); leaveTripAllowedRef.current = true; navigation.goBack(); }}
+            style={styles.summaryBtn}
           >
             <MaterialCommunityIcons name="home" size={20} color="#fff" />
-            <Text style={s.summaryBtnText}>Volver al inicio</Text>
+            <Text style={styles.summaryBtnText}>Volver al inicio</Text>
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -2408,7 +2493,7 @@ const ActiveTripScreen = () => {
     : (hasDestinationPoint ? destinationPoint : null);
 
   return (
-    <View style={s.root}>
+    <View style={styles.root}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
 
       {/* ── Passenger cancelled modal ── */}
@@ -2479,6 +2564,7 @@ const ActiveTripScreen = () => {
             <TouchableOpacity
               onPress={() => {
                 setShowCancelledModal(false);
+                leaveTripAllowedRef.current = true;
                 clearActiveTrip();
                 navigation.navigate('Home');
               }}
@@ -2506,48 +2592,48 @@ const ActiveTripScreen = () => {
         animationType="fade"
         onRequestClose={() => { if (!finishingTrip) { setShowFinishModal(false); sliderRef.current?.reset(); } }}
       >
-        <View style={s.finishModalBackdrop}>
-          <View style={s.finishModalCard}>
-            <View style={s.finishModalHeader}>
-              <View style={s.finishModalIconWrap}>
+        <View style={styles.finishModalBackdrop}>
+          <View style={styles.finishModalCard}>
+            <View style={styles.finishModalHeader}>
+              <View style={styles.finishModalIconWrap}>
                 <MaterialCommunityIcons name="cash-check" size={18} color={colors.success} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={s.finishModalTitle}>Confirmar cobro y finalizar</Text>
-                <Text style={s.finishModalSubtitle}>Verificá el pago antes de cerrar el viaje</Text>
+                <Text style={styles.finishModalTitle}>Confirmar cobro y finalizar</Text>
+                <Text style={styles.finishModalSubtitle}>Verificá el pago antes de cerrar el viaje</Text>
               </View>
             </View>
 
             {accumulatedLegs.length > 0 && (
-              <View style={s.finishModalLegsRow}>
+              <View style={styles.finishModalLegsRow}>
                 <MaterialCommunityIcons name="layers-triple-outline" size={14} color={colors.info} />
-                <Text style={s.finishModalLegsText}>
+                <Text style={styles.finishModalLegsText}>
                   {accumulatedLegs.length} tramo{accumulatedLegs.length !== 1 ? 's' : ''} acumulado{accumulatedLegs.length !== 1 ? 's' : ''} incluido{accumulatedLegs.length !== 1 ? 's' : ''}
                 </Text>
               </View>
             )}
 
-            <View style={s.finishModalInfoRow}>
-              <Text style={s.finishModalInfoLabel}>Distancia total</Text>
-              <Text style={s.finishModalInfoValue}>{formatDistance(grandTotalDistanceKm)}</Text>
+            <View style={styles.finishModalInfoRow}>
+              <Text style={styles.finishModalInfoLabel}>Distancia total</Text>
+              <Text style={styles.finishModalInfoValue}>{formatDistance(grandTotalDistanceKm)}</Text>
             </View>
 
-            <View style={s.finishModalTotalWrap}>
-              <Text style={s.finishModalTotalLabel}>Costo total del viaje</Text>
-              <Text style={s.finishModalTotalValue}>{formatPrice(grandTotalPrice)}</Text>
+            <View style={styles.finishModalTotalWrap}>
+              <Text style={styles.finishModalTotalLabel}>Costo total del viaje</Text>
+              <Text style={styles.finishModalTotalValue}>{formatPrice(grandTotalPrice)}</Text>
             </View>
 
-            <View style={s.finishModalActions}>
+            <View style={styles.finishModalActions}>
               <TouchableOpacity
-                style={[s.finishModalBtn, s.finishModalBtnGhost, finishingTrip && s.finishModalBtnDisabled]}
+                style={[styles.finishModalBtn, styles.finishModalBtnGhost, finishingTrip && styles.finishModalBtnDisabled]}
                 onPress={() => { if (!finishingTrip) { setShowFinishModal(false); sliderRef.current?.reset(); } }}
                 activeOpacity={0.8}
                 disabled={finishingTrip}
               >
-                <Text style={s.finishModalBtnGhostText}>Cancelar</Text>
+                <Text style={styles.finishModalBtnGhostText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[s.finishModalBtn, s.finishModalBtnPrimary, finishingTrip && s.finishModalBtnDisabled]}
+                style={[styles.finishModalBtn, styles.finishModalBtnPrimary, finishingTrip && styles.finishModalBtnDisabled]}
                 onPress={handleConfirmFinishTrip}
                 activeOpacity={0.85}
                 disabled={finishingTrip}
@@ -2555,7 +2641,7 @@ const ActiveTripScreen = () => {
                 {finishingTrip ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={s.finishModalBtnPrimaryText}>Confirmar pago</Text>
+                  <Text style={styles.finishModalBtnPrimaryText}>Confirmar pago</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -2563,7 +2649,7 @@ const ActiveTripScreen = () => {
         </View>
       </Modal>
 
-      {/* Map */}
+      {/* Map a pantalla completa; el sheet flota encima (patrón cb50fb7d + enableDynamicSizing=false). */}
       <TripMap
         driverLocation={currentLocation}
         origin={mapOrigin}
@@ -2588,14 +2674,14 @@ const ActiveTripScreen = () => {
       />
 
       <View style={[
-        s.navigationCard,
-        maneuverPresentation.isCritical ? s.navigationCardCritical : null,
+        styles.navigationCard,
+        maneuverPresentation.isCritical ? styles.navigationCardCritical : null,
         { top: insets.top + 8, borderColor: maneuverPresentation.border },
       ]}>
-        <View style={s.navTopRow}>
-          <View style={[s.navBadge, { backgroundColor: `${maneuverPresentation.tint}14` }]}>
+        <View style={styles.navTopRow}>
+          <View style={[styles.navBadge, { backgroundColor: `${maneuverPresentation.tint}14` }]}>
             <MaterialCommunityIcons name="navigation-variant" size={12} color={maneuverPresentation.tint} />
-            <Text style={[s.navBadgeText, { color: maneuverPresentation.tint }]}>
+            <Text style={[styles.navBadgeText, { color: maneuverPresentation.tint }]}>
               {isRerouting ? 'Recalculando' : (isFreeRideActive ? 'Sin destino' : maneuverPresentation.shortLabel)}
             </Text>
           </View>
@@ -2603,7 +2689,7 @@ const ActiveTripScreen = () => {
             {isRerouting && (
               <ActivityIndicator size="small" color={colors.primary} />
             )}
-            <Text style={s.navEtaText}>
+            <Text style={styles.navEtaText}>
               {isFreeRideActive
                 ? 'Tarifa por km'
                 : (isArriving ? 'Llegada' : `${etaText} · ${formatArrivalClock(remainingDurationSeconds)}`)}
@@ -2611,42 +2697,42 @@ const ActiveTripScreen = () => {
           </View>
         </View>
 
-        <View style={s.navMainRow}>
-          <View style={[s.navIconBox, { backgroundColor: maneuverPresentation.background, borderColor: maneuverPresentation.border }]}>
+        <View style={styles.navMainRow}>
+          <View style={[styles.navIconBox, { backgroundColor: maneuverPresentation.background, borderColor: maneuverPresentation.border }]}>
             <MaterialCommunityIcons name={maneuverIcon} size={26} color={maneuverPresentation.tint} />
           </View>
-          <View style={s.navDistanceCol}>
-            <Text style={[s.navDistanceText, { color: maneuverPresentation.tint }]} numberOfLines={1}>
+          <View style={styles.navDistanceCol}>
+            <Text style={[styles.navDistanceText, { color: maneuverPresentation.tint }]} numberOfLines={1}>
               {navigationDistanceText}
             </Text>
             {nextNextStepInfo ? (
-              <View style={s.navNextStepRow}>
+              <View style={styles.navNextStepRow}>
                 <MaterialCommunityIcons
                   name={getManeuverIcon(nextNextStepInfo.maneuver)}
                   size={13}
                   color={colors.textMuted}
                 />
-                <Text style={s.navNextStepText} numberOfLines={1}>
+                <Text style={styles.navNextStepText} numberOfLines={1}>
                   {nextNextStepInfo.instruction || 'Seguí la ruta'}
                 </Text>
               </View>
             ) : null}
           </View>
-          <View style={s.navRightCol}>
-            <Text style={s.navTotalText}>{remainingDistanceText}</Text>
+          <View style={styles.navRightCol}>
+            <Text style={styles.navTotalText}>{remainingDistanceText}</Text>
             {Number.isFinite(speed) && speed > 0.5 && (
-              <View style={s.navSpeedBadge}>
-                <Text style={s.navSpeedText}>{Math.round(speed * 3.6)}</Text>
-                <Text style={s.navSpeedUnit}>km/h</Text>
+              <View style={styles.navSpeedBadge}>
+                <Text style={styles.navSpeedText}>{Math.round(speed * 3.6)}</Text>
+                <Text style={styles.navSpeedUnit}>km/h</Text>
               </View>
             )}
           </View>
         </View>
 
-        <View style={s.navProgressTrack}>
+        <View style={styles.navProgressTrack}>
           <View
             style={[
-              s.navProgressFill,
+              styles.navProgressFill,
               {
                 width: `${Math.max(4, progressPercent)}%`,
                 backgroundColor: maneuverPresentation.tint,
@@ -2656,32 +2742,31 @@ const ActiveTripScreen = () => {
         </View>
       </View>
 
-      {/* Floating map toggle button */}
-
-      {/* Bottom Sheet */}
       <BottomSheet
         ref={bottomSheetRef}
         index={0}
         snapPoints={snapPoints}
-        backgroundStyle={s.sheetBg}
-        handleIndicatorStyle={s.handle}
+        enableDynamicSizing={false}
+        enablePanDownToClose={false}
+        backgroundStyle={styles.sheetBg}
+        handleIndicatorStyle={styles.handle}
         onChange={(index) => setSheetIndex(index)}
         keyboardBehavior="extend"
         keyboardBlurBehavior="restore"
       >
-        <BottomSheetScrollView contentContainerStyle={s.sheetContent} showsVerticalScrollIndicator={false}>
+        <BottomSheetScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
 
           {/* STEP 1: Going to pickup */}
           {flowStep === FLOW_STEP.GOING_TO_PICKUP && (
             <>
               {(canConfirmPickupNearby || canConfirmPickupArriving) ? (
                 <TouchableOpacity
-                  style={[s.actionBtn, { backgroundColor: colors.primary }]}
+                  style={[styles.actionBtn, { backgroundColor: colors.primary }]}
                   onPress={handleConfirmArrival}
                   activeOpacity={0.85}
                 >
                   <MaterialCommunityIcons name="map-marker-check" size={22} color="#fff" />
-                  <Text style={s.actionBtnText}>Llegué al punto de encuentro</Text>
+                  <Text style={styles.actionBtnText}>Llegué al punto de encuentro</Text>
                 </TouchableOpacity>
               ) : (
                 <TripProgressSummary
@@ -2689,7 +2774,6 @@ const ActiveTripScreen = () => {
                   totalKm={tripRouteProgress.totalKm}
                   etaSeconds={tripRouteProgress.etaSeconds}
                   progressRatio={tripRouteProgress.progressRatio}
-                  footnote={`Confirmá llegada a ${FINISH_TRIP_MAX_DISTANCE_METERS} m o menos del punto de recogida`}
                 />
               )}
 
@@ -2701,12 +2785,12 @@ const ActiveTripScreen = () => {
                   activeIndex={0}
                 />
               ) : (
-                <View style={s.addressCard}>
-                  <View style={s.addressRow}>
-                    <View style={[s.addressDot, { backgroundColor: colors.primary }]} />
+                <View style={styles.addressCard}>
+                  <View style={styles.addressRow}>
+                    <View style={[styles.addressDot, { backgroundColor: colors.primary }]} />
                     <View style={{ flex: 1, marginLeft: 10 }}>
-                      <Text style={s.addressLabel}>Buscá al pasajero en</Text>
-                      <Text style={s.addressText} numberOfLines={2}>{pickupPoint?.address || 'Ubicación pendiente de confirmar'}</Text>
+                      <Text style={styles.addressLabel}>Buscá al pasajero en</Text>
+                      <Text style={styles.addressText} numberOfLines={2}>{pickupPoint?.address || 'Ubicación pendiente de confirmar'}</Text>
                     </View>
                   </View>
                 </View>
@@ -2718,19 +2802,19 @@ const ActiveTripScreen = () => {
           {flowStep === FLOW_STEP.AT_PICKUP && (
             <>
               <TouchableOpacity
-                style={[s.actionBtn, { backgroundColor: colors.warning }]}
+                style={[styles.actionBtn, { backgroundColor: colors.warning }]}
                 onPress={handlePassengerAboard}
                 activeOpacity={0.85}
               >
                 <MaterialCommunityIcons name="account-check" size={22} color="#fff" />
-                <Text style={s.actionBtnText}>Pasajero a bordo</Text>
+                <Text style={styles.actionBtnText}>Pasajero a bordo</Text>
               </TouchableOpacity>
 
-              <View style={s.stepInfoCard}>
+              <View style={styles.stepInfoCard}>
                 <MaterialCommunityIcons name="account-check" size={28} color={colors.warning} />
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={s.stepInfoTitle}>¿El pasajero subió?</Text>
-                  <Text style={s.stepInfoSubtitle}>
+                  <Text style={styles.stepInfoTitle}>¿El pasajero subió?</Text>
+                  <Text style={styles.stepInfoSubtitle}>
                     {hasPlannedMultiStopRoute
                       ? `Hay ${tripWaypoints.length} parada${tripWaypoints.length !== 1 ? 's' : ''} antes del destino final`
                       : 'Confirmá que el pasajero está a bordo para continuar'}
@@ -2753,34 +2837,34 @@ const ActiveTripScreen = () => {
           {/* STEP CHOOSE_DEST_MODE: Elegir cómo ingresar el destino */}
           {flowStep === FLOW_STEP.CHOOSE_DEST_MODE && (
             <>
-              <Text style={s.chooseModeTitle}>¿Cómo ingresás el destino?</Text>
+              <Text style={styles.chooseModeTitle}>¿Cómo ingresás el destino?</Text>
 
               <TouchableOpacity
-                style={[s.chooseModeBtn, { borderColor: colors.primary }]}
+                style={[styles.chooseModeBtn, { borderColor: colors.primary }]}
                 onPress={() => setFlowStep(FLOW_STEP.SET_DESTINATION)}
                 activeOpacity={0.85}
               >
-                <View style={[s.chooseModeBtnIcon, { backgroundColor: `${colors.primary}15` }]}>
+                <View style={[styles.chooseModeBtnIcon, { backgroundColor: `${colors.primary}15` }]}>
                   <MaterialCommunityIcons name="map-search" size={24} color={colors.primary} />
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[s.chooseModeBtnTitle, { color: colors.primary }]}>Ingresar destino por texto</Text>
-                  <Text style={s.chooseModeBtnSubtitle}>Escribí la dirección y seleccioná</Text>
+                  <Text style={[styles.chooseModeBtnTitle, { color: colors.primary }]}>Ingresar destino por texto</Text>
+                  <Text style={styles.chooseModeBtnSubtitle}>Escribí la dirección y seleccioná</Text>
                 </View>
                 <MaterialCommunityIcons name="chevron-right" size={20} color={colors.primary} />
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[s.chooseModeBtn, { borderColor: colors.warning }]}
+                style={[styles.chooseModeBtn, { borderColor: colors.warning }]}
                 onPress={handleChooseFreeRide}
                 activeOpacity={0.85}
               >
-                <View style={[s.chooseModeBtnIcon, { backgroundColor: `${colors.warning}15` }]}>
+                <View style={[styles.chooseModeBtnIcon, { backgroundColor: `${colors.warning}15` }]}>
                   <MaterialCommunityIcons name="car-cruise-control" size={24} color={colors.warning} />
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[s.chooseModeBtnTitle, { color: colors.warning }]}>Ir sin destino</Text>
-                  <Text style={s.chooseModeBtnSubtitle}>La tarifa se calcula por km recorridos</Text>
+                  <Text style={[styles.chooseModeBtnTitle, { color: colors.warning }]}>Ir sin destino</Text>
+                  <Text style={styles.chooseModeBtnSubtitle}>La tarifa se calcula por km recorridos</Text>
                 </View>
                 <MaterialCommunityIcons name="chevron-right" size={20} color={colors.warning} />
               </TouchableOpacity>
@@ -2792,17 +2876,17 @@ const ActiveTripScreen = () => {
             <>
               {!destinationSet ? (
                 <>
-                  {/* Input con BottomSheetTextInput para que el sheet suba con el teclado */}
-                  <View style={s.textDestInputRow}>
-                    <View style={s.textDestInputWrap}>
+                  {/* Input de búsqueda de destino */}
+                  <View style={styles.textDestInputRow}>
+                    <View style={styles.textDestInputWrap}>
                       <MaterialCommunityIcons
                         name={textDestProcessing ? 'loading' : 'magnify'}
                         size={20}
                         color={colors.textMuted}
-                        style={s.textDestIcon}
+                        style={styles.textDestIcon}
                       />
                       <BottomSheetTextInput
-                        style={s.textDestInput}
+                        style={styles.textDestInput}
                         value={textDestInput}
                         onChangeText={setTextDestInput}
                         placeholder="Buscar dirección..."
@@ -2830,90 +2914,97 @@ const ActiveTripScreen = () => {
 
                   {/* Opciones de autocomplete — aparecen mientras el usuario escribe */}
                   {destinationOptions.length > 0 && (
-                    <View style={s.autocompleteList}>
+                    <View style={styles.autocompleteList}>
                       {destinationOptions.map((opt, idx) => (
                         <TouchableOpacity
                           key={opt.placeId || `opt-${idx}`}
                           style={[
-                            s.autocompleteItem,
-                            idx < destinationOptions.length - 1 && s.autocompleteItemBorder,
+                            styles.autocompleteItem,
+                            idx < destinationOptions.length - 1 && styles.autocompleteItemBorder,
                           ]}
                           onPress={() => selectDestination(opt)}
                           activeOpacity={0.7}
                         >
-                          <View style={s.autocompleteIcon}>
+                          <View style={styles.autocompleteIcon}>
                             <MaterialCommunityIcons name="map-marker-outline" size={18} color={colors.primary} />
                           </View>
-                          <Text style={s.autocompleteAddress} numberOfLines={2}>{opt.address}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.autocompleteAddress} numberOfLines={2}>
+                              {opt.title || opt.address}
+                            </Text>
+                            {opt.subtitle ? (
+                              <Text style={styles.autocompleteSubtitle} numberOfLines={1}>{opt.subtitle}</Text>
+                            ) : null}
+                          </View>
                         </TouchableOpacity>
                       ))}
                     </View>
                   )}
 
-                  {textDestInput.length >= 3 && !textDestProcessing && destinationOptions.length === 0 && (
-                    <Text style={s.autocompleteEmpty}>Sin resultados para "{textDestInput}"</Text>
+                  {textDestInput.length >= 2 && !textDestProcessing && destinationOptions.length === 0 && (
+                    <Text style={styles.autocompleteEmpty}>Sin resultados para "{textDestInput}"</Text>
                   )}
 
                   <TouchableOpacity
-                    style={s.backToChooseBtn}
-                    onPress={() => { setDestinationOptions([]); setTextDestInput(''); setFlowStep(FLOW_STEP.CHOOSE_DEST_MODE); }}
+                    style={styles.backToChooseBtn}
+                    onPress={exitDestinationSearch}
                     activeOpacity={0.7}
                   >
                     <MaterialCommunityIcons name="arrow-left" size={14} color={colors.textMuted} />
-                    <Text style={s.reRecordText}>Volver</Text>
+                    <Text style={styles.reRecordText}>Volver</Text>
                   </TouchableOpacity>
                 </>
               ) : (
                 <>
                   <TouchableOpacity
-                    style={[s.actionBtn, { backgroundColor: colors.success }]}
+                    style={[styles.actionBtn, { backgroundColor: colors.success }]}
                     onPress={handleStartTrip}
                     activeOpacity={0.85}
                   >
                     <MaterialCommunityIcons name="car" size={22} color="#fff" />
-                    <Text style={s.actionBtnText}>Empezar viaje</Text>
+                    <Text style={styles.actionBtnText}>Empezar viaje</Text>
                   </TouchableOpacity>
 
-                  <View style={s.addressCard}>
-                    <View style={s.addressRow}>
-                      <View style={[s.addressDot, { backgroundColor: colors.success }]} />
+                  <View style={styles.addressCard}>
+                    <View style={styles.addressRow}>
+                      <View style={[styles.addressDot, { backgroundColor: colors.success }]} />
                       <View style={{ flex: 1, marginLeft: 10 }}>
-                        <Text style={s.addressLabel}>Destino confirmado</Text>
-                        <Text style={s.addressText} numberOfLines={2}>{activeTrip.destination_address}</Text>
+                        <Text style={styles.addressLabel}>Destino confirmado</Text>
+                        <Text style={styles.addressText} numberOfLines={2}>{activeTrip.destination_address}</Text>
                       </View>
                     </View>
                   </View>
 
                   {routeInfo && (
-                    <View style={s.routeInfoCard}>
+                    <View style={styles.routeInfoCard}>
                       <MaterialCommunityIcons name="map-marker-distance" size={16} color={colors.info} />
-                      <Text style={s.routeInfoCardText}>{routeInfo.distance} · {routeInfo.duration}</Text>
+                      <Text style={styles.routeInfoCardText}>{routeInfo.distance} · {routeInfo.duration}</Text>
                     </View>
                   )}
 
-                  <View style={s.livePriceCard}>
+                  <View style={styles.livePriceCard}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                       <View>
-                        <Text style={s.livePriceLabel}>Costo estimado</Text>
-                        <Text style={s.livePriceSubLabel}>
+                        <Text style={styles.livePriceLabel}>Costo estimado</Text>
+                        <Text style={styles.livePriceSubLabel}>
                           {Number.isFinite(checkoutDistanceKm) && checkoutDistanceKm > 0
                             ? `${formatDistance(checkoutDistanceKm)} x ${formatPrice(effectiveTariffPerKm)}/km`
                             : 'Calculando costo...'}
                         </Text>
                       </View>
-                      <Text style={s.livePriceValue}>
+                      <Text style={styles.livePriceValue}>
                         {fixedRouteTotalPrice == null ? '...' : formatPrice(fixedRouteTotalPrice)}
                       </Text>
                     </View>
                   </View>
 
                   <TouchableOpacity
-                    style={s.reRecordBtn}
+                    style={styles.reRecordBtn}
                     onPress={() => { setDestinationSet(false); setDestinationOptions([]); setTextDestInput(''); }}
                     activeOpacity={0.7}
                   >
                     <MaterialCommunityIcons name="pencil" size={14} color={colors.textMuted} />
-                    <Text style={s.reRecordText}>Cambiar destino</Text>
+                    <Text style={styles.reRecordText}>Cambiar destino</Text>
                   </TouchableOpacity>
                 </>
               )}
@@ -2925,9 +3016,9 @@ const ActiveTripScreen = () => {
             <>
               {/* Resumen de tramos anteriores */}
               {accumulatedLegs.length > 0 && (
-                <View style={s.accumulatedCard}>
+                <View style={styles.accumulatedCard}>
                   <MaterialCommunityIcons name="layers-triple-outline" size={15} color={colors.info} />
-                  <Text style={s.accumulatedCardText}>
+                  <Text style={styles.accumulatedCardText}>
                     {accumulatedLegs.length} tramo{accumulatedLegs.length !== 1 ? 's' : ''} anterior{accumulatedLegs.length !== 1 ? 'es' : ''}{' '}
                     · {formatDistance(accumulatedLegs.reduce((s, l) => s + (l.distanceKm || 0), 0))}{' '}
                     · {formatPrice(accumulatedLegs.reduce((s, l) => s + (l.price || 0), 0))}
@@ -2937,12 +3028,12 @@ const ActiveTripScreen = () => {
 
               {canArriveAtWaypoint ? (
                 <TouchableOpacity
-                  style={[s.actionBtn, { backgroundColor: colors.warning }]}
+                  style={[styles.actionBtn, { backgroundColor: colors.warning }]}
                   onPress={handleConfirmWaypointArrival}
                   activeOpacity={0.85}
                 >
                   <MaterialCommunityIcons name="map-marker-check" size={22} color="#fff" />
-                  <Text style={s.actionBtnText}>
+                  <Text style={styles.actionBtnText}>
                     Llegué a parada {visitedWaypointCount + 1}
                   </Text>
                 </TouchableOpacity>
@@ -2960,25 +3051,20 @@ const ActiveTripScreen = () => {
                   totalKm={tripRouteProgress.totalKm}
                   etaSeconds={tripRouteProgress.etaSeconds}
                   progressRatio={tripRouteProgress.progressRatio}
-                  footnote={
-                    hasPlannedMultiStopRoute && !allPlannedWaypointsVisited
-                      ? `Próxima parada a ${FINISH_TRIP_MAX_DISTANCE_METERS} m o menos`
-                      : `Finalizá a ${FINISH_TRIP_MAX_DISTANCE_METERS} m o menos del destino final`
-                  }
                 />
               )}
 
               {!hasPlannedMultiStopRoute ? (
                 <TouchableOpacity
-                  style={s.addDestBtn}
+                  style={styles.addDestBtn}
                   onPress={handleAddAnotherDestination}
                   activeOpacity={0.85}
                 >
                   <MaterialCommunityIcons name="map-marker-plus" size={20} color={colors.primary} />
-                  <Text style={s.addDestBtnText}>Agregar otro destino</Text>
+                  <Text style={styles.addDestBtnText}>Agregar otro destino</Text>
                   {accumulatedLegs.length > 0 && (
-                    <View style={s.addDestBadge}>
-                      <Text style={s.addDestBadgeText}>{accumulatedLegs.length}</Text>
+                    <View style={styles.addDestBadge}>
+                      <Text style={styles.addDestBadgeText}>{accumulatedLegs.length}</Text>
                     </View>
                   )}
                 </TouchableOpacity>
@@ -3002,15 +3088,15 @@ const ActiveTripScreen = () => {
                 }
               />
 
-              <View style={s.livePriceCard}>
+              <View style={styles.livePriceCard}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                   <View>
-                    <Text style={s.livePriceLabel}>
+                    <Text style={styles.livePriceLabel}>
                       {confirmedPassengerFare
                         ? 'Precio del viaje'
                         : (accumulatedLegs.length > 0 ? 'Total acumulado' : 'Costo total')}
                     </Text>
-                    <Text style={s.livePriceSubLabel}>
+                    <Text style={styles.livePriceSubLabel}>
                       {confirmedPassengerFare?.distanceKm
                         ? `${formatDistance(confirmedPassengerFare.distanceKm)} · ruta completa`
                         : grandTotalDistanceKm > 0
@@ -3018,7 +3104,7 @@ const ActiveTripScreen = () => {
                           : 'Calculando costo...'}
                     </Text>
                   </View>
-                  <Text style={s.livePriceValue}>
+                  <Text style={styles.livePriceValue}>
                     {grandTotalPrice > 0 ? formatPrice(grandTotalPrice) : '...'}
                   </Text>
                 </View>
@@ -3027,44 +3113,77 @@ const ActiveTripScreen = () => {
           )}
 
           {/* Passenger row (moved to end to prioritize actions) */}
-          <View style={s.passengerRow}>
-            <View style={s.avatarCircle}>
-              <Text style={s.avatarText}>
+          <View style={styles.passengerRow}>
+            <View style={styles.avatarCircle}>
+              <Text style={styles.avatarText}>
                 {(activeTrip.passenger_name || '?').charAt(0).toUpperCase()}
               </Text>
             </View>
             <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={s.nameText}>{activeTrip.passenger_name}</Text>
+              <Text style={styles.nameText}>{activeTrip.passenger_name}</Text>
               {routeInfo && (
-                <Text style={s.routeInfoText}>{routeInfo.distance} · {routeInfo.duration}</Text>
+                <Text style={styles.routeInfoText}>{routeInfo.distance} · {routeInfo.duration}</Text>
               )}
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              {activeTrip.passenger_phone ? (
-                <TouchableOpacity style={s.iconBtn} onPress={() => Linking.openURL(`tel:${activeTrip.passenger_phone}`)}>
-                  <Ionicons name="call" size={18} color={colors.primary} />
+              {isTripChatAvailable(activeTrip.status) ? (
+                <TouchableOpacity
+                  style={styles.iconBtn}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    tripChat.openChat();
+                  }}
+                >
+                  <Ionicons name="chatbubble-ellipses" size={18} color={colors.primary} />
+                  {tripChat.unreadCount > 0 ? (
+                    <View style={styles.chatUnreadBadge}>
+                      <Text style={styles.chatUnreadText}>
+                        {tripChat.unreadCount > 9 ? '9+' : String(tripChat.unreadCount)}
+                      </Text>
+                    </View>
+                  ) : null}
                 </TouchableOpacity>
               ) : null}
-              <TouchableOpacity style={s.iconBtn} onPress={() => Linking.openURL(`tel:${DISPATCHER_PHONE}`)}>
+              <TouchableOpacity style={styles.iconBtn} onPress={() => Linking.openURL(`tel:${DISPATCHER_PHONE}`)}>
                 <MaterialCommunityIcons name="headset" size={18} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
           </View>
 
           {/* SOS */}
-          <TouchableOpacity style={s.sosBtn} onPress={() => Linking.openURL(`tel:${EMERGENCY_PHONE}`)}>
+          <TouchableOpacity style={styles.sosBtn} onPress={() => Linking.openURL(`tel:${EMERGENCY_PHONE}`)}>
             <Ionicons name="warning" size={14} color={colors.danger} />
-            <Text style={s.sosBtnText}>Emergencia</Text>
+            <Text style={styles.sosBtnText}>Emergencia</Text>
           </TouchableOpacity>
 
         </BottomSheetScrollView>
       </BottomSheet>
+
+      <TripChatModal
+        visible={tripChat.chatOpen}
+        onClose={tripChat.closeChat}
+        title={activeTrip.passenger_name || 'Pasajero'}
+        subtitle="Chat del viaje"
+        myRole="driver"
+        messages={tripChat.messages}
+        loading={tripChat.loading}
+        sending={tripChat.sending}
+        recording={tripChat.recording}
+        recordingTime={tripChat.recordingTime}
+        writable={tripChat.writable}
+        onSendText={tripChat.sendText}
+        onStartRecording={tripChat.startRecording}
+        onCancelRecording={tripChat.cancelRecording}
+        onSendRecording={tripChat.sendRecording}
+        onPlayAudio={tripChat.playAudio}
+        playingAudioUrl={tripChat.playingAudioUrl}
+      />
     </View>
   );
 };
 
-/* styles */
-const s = StyleSheet.create({
+/* styles — usar "styles", no "s": evita conflicto con useResponsive().s (escala) */
+const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   successIconWrap: { alignItems: 'center', marginBottom: 16 },
   successIconCircle: {
@@ -3282,8 +3401,11 @@ const s = StyleSheet.create({
   chipValue: { color: colors.text, fontSize: 18, fontFamily: 'Inter_700Bold' },
   chipLabel: { color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_500Medium', marginLeft: 4 },
   sheetBg: {
-    backgroundColor: colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22,
-    borderWidth: 1, borderColor: colors.border,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   handle: { backgroundColor: colors.textMuted, width: 32, height: 4, borderRadius: 2 },
   sheetContent: { paddingHorizontal: 20, paddingBottom: 100, paddingTop: 4 },
@@ -3292,7 +3414,24 @@ const s = StyleSheet.create({
   avatarText: { color: '#fff', fontSize: 18, fontFamily: 'Inter_700Bold' },
   nameText: { color: colors.text, fontSize: 15, fontFamily: 'Inter_600SemiBold' },
   routeInfoText: { color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium', marginTop: 2 },
-  iconBtn: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  iconBtn: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  chatUnreadBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatUnreadText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontFamily: 'Inter_700Bold',
+  },
   addressCard: { backgroundColor: colors.background, borderRadius: 14, padding: 14, marginBottom: 14 },
   addressRow: { flexDirection: 'row', alignItems: 'flex-start' },
   addressDot: { width: 10, height: 10, borderRadius: 5, marginTop: 4 },
@@ -3516,6 +3655,12 @@ const s = StyleSheet.create({
     fontFamily: 'Inter_500Medium',
     lineHeight: 18,
   },
+  autocompleteSubtitle: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 2,
+  },
   autocompleteEmpty: {
     color: colors.textMuted,
     fontSize: 13,
@@ -3607,9 +3752,9 @@ const tripProgressS = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderLight,
     paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 12,
-    marginBottom: 12,
+    paddingTop: 12,
+    paddingBottom: 10,
+    marginBottom: 10,
   },
   row: {
     flexDirection: 'row',
@@ -3646,21 +3791,13 @@ const tripProgressS = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.surfaceLight,
     overflow: 'hidden',
-    marginTop: 14,
-    marginBottom: 10,
+    marginTop: 12,
   },
   fill: {
     height: '100%',
     borderRadius: 999,
     backgroundColor: colors.primary,
     minWidth: 4,
-  },
-  footnote: {
-    fontSize: 11,
-    fontFamily: 'Inter_500Medium',
-    color: colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 15,
   },
 });
 
