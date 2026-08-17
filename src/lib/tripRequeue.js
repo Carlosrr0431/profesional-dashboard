@@ -111,6 +111,20 @@ export function resolvePickupCoordsForRequeue(trip = {}) {
   };
 }
 
+/**
+ * Espera al reencolar tras vencer el timeout de aceptación (15s).
+ * No modifica ese timeout: solo el hueco hasta ofertar al próximo chofer.
+ * 0s permite que el claim del mismo ciclo / el cron solapado tome el viaje;
+ * el backoff exponencial anterior (45–180s) perdía el cron de 60s.
+ */
+export const PENDING_ACCEPT_REQUEUE_DELAY_SECONDS = 0;
+
+export function getPendingAcceptRequeueAt(nowMs = Date.now()) {
+  const safeNow = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  const delayMs = Math.max(0, PENDING_ACCEPT_REQUEUE_DELAY_SECONDS) * 1000;
+  return new Date(safeNow + delayMs).toISOString();
+}
+
 /** El worker no debe reencolar viajes cancelados por el pasajero. */
 export function canRequeuePendingTrip(trip) {
   if (!trip) return false;

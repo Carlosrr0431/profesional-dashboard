@@ -73,6 +73,7 @@ import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 import {
   buildPendingToQueuedUpdate,
   canRequeuePendingTrip,
+  getPendingAcceptRequeueAt,
 } from '../../../src/lib/tripRequeue';
 import {
   isOperatorInitiatedCancellation,
@@ -8910,8 +8911,7 @@ async function requeueTimedOutPendingTripsSupabaseDispatchOnly() {
 
     const currentAttempts = Number(tripRow.dispatch_attempts || 0);
     const newAttempts = currentAttempts + 1;
-    const delaySec = Math.min(180, 30 * Math.pow(1.5, newAttempts));
-    const nextDispatchAt = new Date(Date.now() + delaySec * 1000).toISOString();
+    const nextDispatchAt = getPendingAcceptRequeueAt();
     const excludedDriverId = String(tripRow.driver_id || '').trim() || null;
     const updatedWaContext = excludedDriverId
       ? buildWaContextWithExcludedDriver(tripRow.wa_context, excludedDriverId, 'pending_accept_timeout')
@@ -8957,6 +8957,13 @@ async function requeueTimedOutPendingTripsSupabaseDispatchOnly() {
     expired,
     candidateCount: candidateIds.length,
   });
+
+  if (expired > 0) {
+    triggerDispatchWorker({
+      reason: 'pending_accept_timeout_requeue',
+      expired,
+    });
+  }
 
   if (expired < candidateIds.length) {
     logWebhook('expire_pending_db_first_partial', {

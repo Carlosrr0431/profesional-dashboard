@@ -1,4 +1,8 @@
-const { buildPendingToQueuedUpdate } = require('../../src/lib/tripRequeue');
+const {
+  buildPendingToQueuedUpdate,
+  getPendingAcceptRequeueAt,
+  PENDING_ACCEPT_REQUEUE_DELAY_SECONDS,
+} = require('../../src/lib/tripRequeue');
 
 describe('tripRequeue whatsapp APPROACH_ONLY', () => {
   const trip = {
@@ -46,5 +50,18 @@ En cola de espera. Retiro confirmado.
     expect(update.origin_lat).toBeNull();
     expect(update.origin_lng).toBeNull();
     expect(update.destination_lat).toBe(-24.787);
+  });
+});
+
+describe('getPendingAcceptRequeueAt', () => {
+  it('no agrega backoff extra: el timeout de 15s ya se cumplió', () => {
+    expect(PENDING_ACCEPT_REQUEUE_DELAY_SECONDS).toBe(0);
+    const nowMs = Date.parse('2026-08-17T18:10:07.077Z');
+    expect(getPendingAcceptRequeueAt(nowMs)).toBe('2026-08-17T18:10:07.077Z');
+  });
+
+  it('acepta nowMs inválido sin tirar error', () => {
+    const iso = getPendingAcceptRequeueAt('no-es-fecha');
+    expect(Number.isNaN(Date.parse(iso))).toBe(false);
   });
 });

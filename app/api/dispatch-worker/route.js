@@ -16,6 +16,8 @@ import {
 import {
   buildPendingToQueuedUpdate,
   canRequeuePendingTrip,
+  getPendingAcceptRequeueAt,
+  PENDING_ACCEPT_REQUEUE_DELAY_SECONDS,
   resolveDispatchPickupCoords,
 } from '../../../src/lib/tripRequeue';
 import { isPassengerInitiatedCancellation } from '../../../src/lib/passengerTripCancel';
@@ -530,8 +532,7 @@ async function expireTimedOutPendingTrips() {
 
     const currentAttempts = Number(t.dispatch_attempts || 0);
     const newAttempts = currentAttempts + 1;
-    const delaySec = Math.min(180, 30 * Math.pow(1.5, newAttempts));
-    const nextDispatchAt = new Date(Date.now() + delaySec * 1000).toISOString();
+    const nextDispatchAt = getPendingAcceptRequeueAt();
     const excludedDriverId = String(t.driver_id || '').trim() || null;
     const updatedWaContext = excludedDriverId
       ? buildWaContextWithExcludedDriver(t.wa_context, excludedDriverId, 'pending_accept_timeout')
@@ -565,6 +566,7 @@ async function expireTimedOutPendingTrips() {
           driverOfferCount: getDispatchDriverOfferCounts(updatedWaContext)[excludedDriverId] || null,
           maxDriverOfferAttempts: MAX_DRIVER_OFFER_ATTEMPTS,
           nextDispatchAt,
+          requeueDelaySeconds: PENDING_ACCEPT_REQUEUE_DELAY_SECONDS,
         });
       }
     }
