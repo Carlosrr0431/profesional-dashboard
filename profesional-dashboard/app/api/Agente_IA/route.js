@@ -1,4 +1,4 @@
-import OpenAI, { toFile } from 'openai';
+﻿import OpenAI, { toFile } from 'openai';
 import { createClient } from '@supabase/supabase-js';
 import { deepseekChatCompletion } from '../../../src/lib/deepseekClient';
 import { ADDRESS_NORMALIZE_SYSTEM_PROMPT } from '../../../src/lib/tripIntentSystemPrompt';
@@ -16,6 +16,7 @@ import { buildAddressPollPayload, formatAddressForWhatsAppPoll } from '../../../
 import {
   GUEMES_POLL_OPTION_LIMIT,
   CATEGORY_POI_POLL_OPTION_LIMIT,
+  ambiguousGuemesSearchQuery,
   isGuemesHomonymQuery,
   preferExactCatalogStreetMatches,
   sortGuemesStreetCandidates,
@@ -49,6 +50,7 @@ import {
 import { triggerDispatchWorker } from '../../../src/lib/triggerDispatchWorker';
 import { isPassengerAppTrip, resolveTripPickupCoords } from '../../../shared/trip-contract.js';
 import { isDriverEligibleForDispatch } from '../../../shared/driver-billing.js';
+import { selectDriversCompat } from '../../../src/lib/driversBillingSelect';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
 import {
   reverseGeocode as nominatimReverseGeocode,
@@ -72,7 +74,10 @@ import {
   buildPendingToQueuedUpdate,
   canRequeuePendingTrip,
 } from '../../../src/lib/tripRequeue';
-import { isPassengerInitiatedCancellation } from '../../../src/lib/passengerTripCancel';
+import {
+  isOperatorInitiatedCancellation,
+  isPassengerInitiatedCancellation,
+} from '../../../src/lib/passengerTripCancel';
 import { buildWaContextWithExcludedDriver } from '../../../src/lib/dispatchExclusions';
 import {
   extractFullTripByPattern,
@@ -89,6 +94,8 @@ import {
   getWasenderLinesHealth,
   hasAnyWasenderApiKey,
   injectWasenderLineIntoContext,
+  buildTripWhatsmeowLineContext,
+  resolveWhatsmeowLineForPassenger,
   resolveWasenderLine,
   resolveWhatsmeowLineByAgentCode,
   runWithWasenderLine,
@@ -99,6 +106,23 @@ import {
   sendWhatsmeowText,
 } from '../../../src/lib/whatsmeowClient';
 import { normalizeWhatsmeowWebhookBody } from '../../../src/lib/whatsmeowWebhook';
+import {
+  ASK_PICKUP_STREET_OR_GPS,
+  buildBettoWelcomeMessage,
+  isBettoGreetedContext,
+  mergeWhatsappSessionContext,
+  rewriteVaguePickupAsk,
+  shouldSendBettoWelcome,
+  stampBettoGreeted,
+  withBettoIntro,
+} from '../../../src/lib/bettoWelcome';
+import {
+  isAddressNoisePhrase,
+  isAvailabilityAskWithoutRoute,
+  isGreetingOnly,
+  isShortAck,
+  looksLikeTripRequest as messageLooksLikeTripRequest,
+} from '../../../src/lib/whatsappTripIntentPatterns';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -1742,6 +1766,9 @@ function normalizePhone(phone) {
   const raw = String(phone || '').trim();
   if (!raw) return '';
 
+  // @lid no es teléfono: el user-id numérico no debe usarse como E.164.
+  if (raw.includes('@lid')) return '';
+
   // Si llega en formato JID (ej: 549...@s.whatsapp.net), quedarnos con la parte local.
   const localPart = raw.includes('@') ? raw.split('@')[0] : raw;
   let digits = localPart.replace(/\D/g, '');
@@ -1751,6 +1778,9 @@ function normalizePhone(phone) {
     digits = digits.slice(2);
   }
 
+  // Evitar tratar un user-id de @lid (15+ dígitos) como teléfono AR.
+  if (digits.length > 13 && !digits.startsWith('54')) return '';
+
   return digits;
 }
 
@@ -1759,8 +1789,13 @@ function normalizePhoneForWhatsApp(phone) {
   if (!digits) return '';
 
   // Números locales con 0 inicial (trunk prefix) -> quitarlo.
-  if (digits.startsWith('0') && digits.length >= 11) {
+  if (digits.startsWith('0')) {
     digits = digits.replace(/^0+/, '');
+  }
+
+  // Local AR (8–11 dígitos sin país): anteponer 549 (mismo criterio que whatsmeowClient).
+  if (!digits.startsWith('54') && digits.length >= 8 && digits.length <= 11) {
+    digits = `549${digits}`;
   }
 
   // Heurística AR: 54 + móvil suele requerir 549 para WhatsApp.
@@ -2051,7 +2086,9 @@ function peekWebhookPhone(body) {
       const fromPn = normalizePhone(wmMsg.sender_pn || '');
       if (fromPn.length >= 8) return fromPn;
       for (const candidate of [wmMsg.chat_jid, wmMsg.from, wmMsg.to]) {
-        const digits = normalizePhone(String(candidate || '').split('@')[0]);
+        const s = String(candidate || '');
+        if (!s || s.includes('@lid') || s.includes('@g.us') || s.includes('@broadcast')) continue;
+        const digits = normalizePhone(s);
         if (digits.length >= 8) return digits;
       }
     }
@@ -3922,9 +3959,12 @@ function scheduleInfoFromWaContext(waContext) {
 
 function inferTripHeuristics(combinedText) {
   const text = String(combinedText || '').trim();
-  const normalized = normalizeForMatch(text);
 
-  const looksLikeTripRequest = /(remis|taxi|movil|m[oó]vil|\bauto\b|coche|viaje|pasame\s+a\s+buscar|busc[aá][sm]e?|me\s+busc[aá]s|llevame|llevarme|quiero\s+ir|mand[aá](?:me)?\s+(?:un|una|uno|el|la|m[oó]vil|movil|remis|taxi|auto)|ven[ií]\s+a\s+buscarme)/i.test(normalized);
+  if (isAvailabilityAskWithoutRoute(text)) {
+    return { pickup: null, destination: null, looksLikeTripRequest: false };
+  }
+
+  const looksLikeTripRequest = messageLooksLikeTripRequest(text);
 
   // Casos de ruta completa en una sola oración.
   // Ej: "un remis para belgrano al 200, voy para mitre al 300"
@@ -3984,7 +4024,7 @@ function inferTripHeuristics(combinedText) {
     const addressPart = text
       .replace(/(?:remis|m[oó]vil|movil|taxi|auto|viaje|quiero|pedir?|necesito|manda(?:me)?|un|una|por\s+favor)\s*/gi, '')
       .trim();
-    if (addressPart.length >= 4) {
+    if (addressPart.length >= 4 && !isAddressNoisePhrase(addressPart)) {
       pickup = normalizeAddressPhrase(addressPart);
     }
   }
@@ -4363,12 +4403,20 @@ function getOpenAI() {
 
 function extractPhoneFromMessage(messageData) {
   const key = messageData?.key || {};
-  return normalizePhone(
-    key.cleanedSenderPn ||
-      key.senderPn?.replace('@s.whatsapp.net', '').replace('@lid', '') ||
-      key.remoteJid?.replace('@s.whatsapp.net', '').replace('@lid', '') ||
-      ''
-  );
+  if (key.cleanedSenderPn) {
+    return normalizePhone(key.cleanedSenderPn) || '';
+  }
+
+  const senderPn = String(key.senderPn || '').trim();
+  if (senderPn && !senderPn.includes('@lid')) {
+    return normalizePhone(senderPn) || '';
+  }
+
+  const remoteJid = String(key.remoteJid || '').trim();
+  if (!remoteJid || remoteJid.includes('@lid') || remoteJid.includes('@g.us') || remoteJid.includes('@broadcast')) {
+    return '';
+  }
+  return normalizePhone(remoteJid) || '';
 }
 
 function detectMessageType(message = {}) {
@@ -4552,20 +4600,11 @@ async function stampConversationWasenderLine(conversationId) {
 }
 
 async function resolveWasenderLineForPassenger(phone, tripWaContext = null) {
-  const fromTrip = extractWasenderLineFromContext(tripWaContext);
-  if (fromTrip && resolveWasenderLine(fromTrip)) return fromTrip;
-
-  const normalized = normalizePhone(phone);
-  if (!normalized) return getActiveWasenderLinePhone();
-
-  try {
-    const conversation = await getLatestConversationByPhone(normalized);
-    const fromConv = extractWasenderLineFromContext(conversation?.context);
-    if (fromConv && resolveWasenderLine(fromConv)) return fromConv;
-  } catch (_) {
-    // fallback abajo
-  }
-
+  const line = await resolveWhatsmeowLineForPassenger(getSupabase(), {
+    passengerPhone: phone,
+    tripWaContext,
+  });
+  if (line?.phone && resolveWasenderLine(line.phone)) return line.phone;
   return getActiveWasenderLinePhone();
 }
 
@@ -5333,8 +5372,9 @@ function getTripPickupPoint(trip) {
 }
 
 function shouldReassignCancelledTrip(trip) {
-  // Cancelación del pasajero: nunca recrear viaje ni mandar "encontré otro chofer".
+  // Cancelación del pasajero u operador: nunca recrear viaje ni mandar "encontré otro chofer".
   if (isPassengerInitiatedCancellation(trip)) return false;
+  if (isOperatorInitiatedCancellation(trip)) return false;
 
   const reason = normalizeReason(trip?.cancel_reason || '');
   if (!reason) return true;
@@ -5824,8 +5864,6 @@ async function buildCatalogAmbiguityPollCandidates(query, maxResults = 4) {
       source: 'catalog_variant',
       street: item.street,
     });
-
-    if (candidates.length >= maxResults) break;
   }
 
   const queryTokens = tokenizeAddress(
@@ -5839,7 +5877,7 @@ async function buildCatalogAmbiguityPollCandidates(query, maxResults = 4) {
     return sortGuemesStreetCandidates(candidates).slice(0, maxResults);
   }
 
-  return candidates;
+  return candidates.slice(0, maxResults);
 }
 
 /**
@@ -6372,6 +6410,8 @@ async function refreshDispatchQueueForTrip(tripId) {
       enqueued_at: now,
       next_attempt_at: now,
       queue_status: 'queued',
+      attempts_count: 0,
+      selected_driver_id: null,
       lock_token: null,
       lock_owner: null,
       lock_acquired_at: null,
@@ -6414,7 +6454,7 @@ async function activateTripAfterPriceConfirmation(tripId, priceCtx, passengerPho
   ].filter(Boolean).join('\n');
 
   const updatePayload = {
-    wa_context: null,
+    wa_context: buildTripWhatsmeowLineContext(priceCtx),
     dispatch_status: 'queued',
     status: 'queued',
     assigned_at: null,
@@ -6619,61 +6659,21 @@ async function getBlockedDriverIds(driverIds) {
 
   logWebhook('db_blocked_drivers_start', { driverCandidates: driverIds.length });
 
-  const { data: trips, error: tripsError } = await getSupabase()
-    .from('trips')
-    .select('driver_id, commission_amount, completed_at')
-    .in('driver_id', driverIds)
-    .eq('status', 'completed')
-    .gt('commission_amount', 0)
-    .order('completed_at', { ascending: true });
-  if (tripsError) throw tripsError;
-
-  const { data: payments, error: paymentsError } = await getSupabase()
-    .from('commission_payments')
-    .select('driver_id, amount, created_at')
-    .in('driver_id', driverIds)
-    .order('created_at', { ascending: false });
-  if (paymentsError) throw paymentsError;
-
-  const paymentsByDriver = new Map();
-  for (const payment of payments || []) {
-    if (!paymentsByDriver.has(payment.driver_id)) paymentsByDriver.set(payment.driver_id, []);
-    paymentsByDriver.get(payment.driver_id).push(payment);
-  }
-
-  const tripsByDriver = new Map();
-  for (const trip of trips || []) {
-    if (!tripsByDriver.has(trip.driver_id)) tripsByDriver.set(trip.driver_id, []);
-    tripsByDriver.get(trip.driver_id).push(trip);
-  }
+  // Misma regla que el filtro primario: pending + debt_since (7+3) / semanal / bloqueo manual.
+  const { data: drivers, error } = await selectDriversCompat(
+    getSupabase(),
+    'id, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
+    (query) => query.in('id', driverIds),
+  );
+  if (error) throw error;
 
   const blocked = new Set();
-  const threeDaysAgo = new Date();
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-
-  for (const driverId of driverIds) {
-    const driverTrips = tripsByDriver.get(driverId) || [];
-    if (driverTrips.length === 0) continue;
-    const driverPayments = paymentsByDriver.get(driverId) || [];
-    const totalCommission = driverTrips.reduce((sum, item) => sum + (Number(item.commission_amount) || 0), 0);
-    const totalPaid = driverPayments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    const balance = totalCommission - totalPaid;
-    if (balance <= 0) continue;
-
-    const lastPaymentDate = driverPayments[0]?.created_at ? new Date(driverPayments[0].created_at) : null;
-    const unpaidTrips = lastPaymentDate
-      ? driverTrips.filter((trip) => new Date(trip.completed_at) > lastPaymentDate)
-      : driverTrips;
-    const oldestUnpaid = unpaidTrips[0];
-    if (oldestUnpaid && new Date(oldestUnpaid.completed_at) < threeDaysAgo) {
-      blocked.add(driverId);
-    }
+  for (const driver of drivers || []) {
+    if (!isDriverEligibleForDispatch(driver)) blocked.add(driver.id);
   }
 
   logWebhook('db_blocked_drivers_ok', {
     driverCandidates: driverIds.length,
-    tripsRows: (trips || []).length,
-    paymentsRows: (payments || []).length,
     blockedCount: blocked.size,
   });
   return blocked;
@@ -6756,13 +6756,14 @@ async function chooseDriver(
     allowExclusionRelaxation,
     passengerPhone: passengerPhoneNormalized ? maskPhone(passengerPhoneNormalized) : null,
   });
-  const { data: driversRaw, error } = await getSupabase()
-    .from('drivers')
-    .select('id, full_name, phone, push_token, current_lat, current_lng, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked')
-    .eq('is_available', true);
+  const { data: driversRaw, error } = await selectDriversCompat(
+    getSupabase(),
+    'id, full_name, phone, push_token, current_lat, current_lng, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
+    (query) => query.eq('is_available', true),
+  );
   if (error) throw error;
 
-  // Cobro por comisiones: gracia 3 días. Cobro semanal: solo bloqueo manual.
+  // Cobro por comisiones: 1 sem. trabajo + 3 días gracia. Semanal: solo bloqueo manual.
   const drivers = (driversRaw || []).filter((d) => isDriverEligibleForDispatch(d));
   const suspendedByCommission = (driversRaw || []).length - drivers.length;
   if (suspendedByCommission > 0) {
@@ -7459,7 +7460,7 @@ async function createScheduledTripRecord({
     origin_lat: null,
     origin_lng: null,
     assigned_at: null,
-    wa_context: null,
+    wa_context: buildTripWhatsmeowLineContext(),
     dispatch_status: 'idle',
   };
 
@@ -7533,6 +7534,7 @@ function buildPassengerTripDerivedReply({
   finalDestinationGeo,
   finalDestinationHint,
   destinationFollowupText,
+  includeBettoIntro = false,
 }) {
   const destinationConfirmLine = finalDestinationGeo
     ? `\nDestino: *${finalDestinationGeo.formattedAddress}*`
@@ -7544,7 +7546,8 @@ function buildPassengerTripDerivedReply({
     ? `\n${destinationFollowupText}`
     : '';
 
-  return `Tomé tu pedido y ya lo derivé. Apenas un chofer lo acepte, te paso por WhatsApp quién va a buscarte.\n\nRetiro: *${pickupLocation.formattedAddress}*${destinationConfirmLine}${destinationGpsLine}`;
+  const body = `Tomé tu pedido y ya lo derivé. Apenas un chofer lo acepte, te paso por WhatsApp quién va a buscarte.\n\nRetiro: *${pickupLocation.formattedAddress}*${destinationConfirmLine}${destinationGpsLine}`;
+  return includeBettoIntro ? withBettoIntro(body) : body;
 }
 
 function buildApproachOnlyQueuePayload({
@@ -7582,21 +7585,24 @@ async function persistQueuedApproachTrip({
   finalDestJson,
   logStage = 'trip_queued',
 }) {
-  const queuePayload = buildApproachOnlyQueuePayload({
-    conversation,
-    extracted,
-    pickupLocation,
-    passengerRouteFare,
-    finalDestinationGeo,
-    finalDestinationHint,
-    finalDestJson,
-  });
+  const queuePayload = {
+    ...buildApproachOnlyQueuePayload({
+      conversation,
+      extracted,
+      pickupLocation,
+      passengerRouteFare,
+      finalDestinationGeo,
+      finalDestinationHint,
+      finalDestJson,
+    }),
+    wa_context: buildTripWhatsmeowLineContext(),
+  };
 
   let queuedTrip;
   if (extracted._existingTripId) {
     const { data: updatedQueuedTrip, error: updateQueueErr } = await getSupabase()
       .from('trips')
-      .update({ ...queuePayload, wa_context: null })
+      .update(queuePayload)
       .eq('id', extracted._existingTripId)
       .select()
       .single();
@@ -7616,6 +7622,7 @@ async function persistQueuedApproachTrip({
     if (queueErr) throw queueErr;
     queuedTrip = newQueuedTrip;
     logWebhook(`${logStage}_insert_ok`, { tripId: queuedTrip?.id });
+    await refreshDispatchQueueForTrip(queuedTrip.id);
   }
 
   return queuedTrip;
@@ -7650,11 +7657,17 @@ async function maybeSendDestinationAddressPoll({
   if (!finalDestinationHint) return null;
 
   const destTokens = getAddressContentTokens(normalizeForMatch(finalDestinationHint));
-  const destIsGuemesHomonym = isGuemesHomonymQuery(finalDestinationHint, destTokens);
+  const destIsGuemesHomonym = isGuemesHomonymQuery(
+    finalDestinationHint,
+    destTokens,
+  ) || isGuemesHomonymQuery(extracted?._conversationText || '');
+  const destPollQuery = destIsGuemesHomonym
+    ? ambiguousGuemesSearchQuery(finalDestinationHint)
+    : finalDestinationHint;
 
   const [googleDestPoll, catalogDestPoll] = await Promise.all([
-    getAutocompletePollCandidates(finalDestinationHint, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
-    buildCatalogAmbiguityPollCandidates(finalDestinationHint, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
+    getAutocompletePollCandidates(destPollQuery, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
+    buildCatalogAmbiguityPollCandidates(destPollQuery, GUEMES_POLL_OPTION_LIMIT).catch(() => []),
   ]);
 
   const rawDestPollCandidates = destIsGuemesHomonym && catalogDestPoll.length >= 2
@@ -7789,7 +7802,7 @@ async function maybeSendDestinationAddressPoll({
   };
 }
 
-async function createTripFromConversation({ conversation, extracted }) {
+async function createTripFromConversation({ conversation, extracted, includeBettoIntro = false }) {
   logWebhook('trip_create_start', {
     conversationId: conversation?.id || null,
     phone: maskPhone(conversation?.phone || ''),
@@ -8135,6 +8148,7 @@ async function createTripFromConversation({ conversation, extracted }) {
         finalDestinationGeo,
         finalDestinationHint,
         destinationFollowupText,
+        includeBettoIntro,
       }),
       context: buildTripCreateSuccessContext({
         conversation,
@@ -8245,6 +8259,7 @@ async function createTripFromConversation({ conversation, extracted }) {
         ? `[INDICACIONES_PASAJERO] ${extracted._conversationText.replace(/\n+/g, ' | ').trim()}`
         : null,
     ].filter(Boolean).join('\n'),
+    wa_context: buildTripWhatsmeowLineContext(),
   };
 
   let trip;
@@ -8252,7 +8267,7 @@ async function createTripFromConversation({ conversation, extracted }) {
     // Actualizar el trip placeholder existente en vez de crear uno nuevo
     const { data: updatedTrip, error: updateErr } = await getSupabase()
       .from('trips')
-      .update({ ...tripPayload, wa_context: null })
+      .update(tripPayload)
       .eq('id', extracted._existingTripId)
       .select()
       .single();
@@ -8342,6 +8357,7 @@ async function createTripFromConversation({ conversation, extracted }) {
       finalDestinationGeo,
       finalDestinationHint,
       destinationFollowupText,
+      includeBettoIntro,
     }),
     context: buildTripCreateSuccessContext({
       conversation,
@@ -9037,6 +9053,7 @@ async function processTripLifecycleTransitions() {
           tripId: trip.id,
           cancelReason: trip.cancel_reason || null,
           passengerCancel: isPassengerInitiatedCancellation(trip),
+          operatorCancel: isOperatorInitiatedCancellation(trip),
         });
         continue;
       }
@@ -9255,12 +9272,14 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
       return { confirmed: 0, reassigned: 0, queued: 0 };
     }
 
-    if (!shouldReassignCancelledTrip(trip)) {
+    if (!trip.driver_id || !shouldReassignCancelledTrip(trip)) {
       logWebhook('trip_transition_trip_scan_done', {
         tripId,
         reason: 'no_reassign',
         cancelReason: trip.cancel_reason || null,
         passengerCancel: isPassengerInitiatedCancellation(trip),
+        operatorCancel: isOperatorInitiatedCancellation(trip),
+        hadDriver: Boolean(trip.driver_id),
       });
       const queueResult = await dispatchQueuedPassengers();
       return { confirmed: 0, reassigned: 0, queued: queueResult.dispatched };
@@ -9663,6 +9682,7 @@ async function processClaimedConversation(batch) {
 
   // If the previous trip is already closed, start the new request with a clean context/history.
   let shouldResetConversationState = Boolean(lastTripById && !isOpenTripStatus(lastTripById.status));
+  batch._sessionReset = shouldResetConversationState;
   if (shouldResetConversationState) {
     logWebhook('conversation_reset_closed_trip_context', {
       conversationId: batch?.id || null,
@@ -9701,6 +9721,8 @@ async function processClaimedConversation(batch) {
       }
     }
   }
+
+  batch._sessionReset = shouldResetConversationState;
 
   // ── Fast path: viaje activo/en cola/pendiente sin GPS/poll pendiente ──────────
   // Si el pasajero ya tiene un viaje abierto y bloqueante, skip full AI classification.
@@ -9865,9 +9887,43 @@ async function processClaimedConversation(batch) {
         ...(tripWaContext.awaiting_gps ? { awaiting_gps: true } : {}),
         ...(tripWaContext.awaiting_pickup_number ? { awaiting_pickup_number: true } : {}),
       };
-  const history = []; // siempre vacío — evita que mensajes previos contaminen la clasificación
 
-  const lastBotReply = null; // sin historial, no hay último reply del bot
+  const pendingContents = pendingMessages
+    .map((item) => String(item?.contenido || '').trim())
+    .filter(Boolean);
+  let history = [];
+  let lastBotReply = null;
+  const skipIntentHistory = isGreetingOnly(combinedText) || isShortAck(combinedText);
+  if (batch.id && !skipIntentHistory) {
+    try {
+      const recent = await getRecentConversationMessages(batch.id, 8);
+      const lastOutgoing = [...recent].reverse().find((row) => (
+        row.direction === 'outgoing' && (row.content || row.transcription)
+      ));
+      lastBotReply = String(lastOutgoing?.content || lastOutgoing?.transcription || '').slice(0, 240) || null;
+      if (!shouldResetConversationState) {
+        const pendingSet = new Set(pendingContents);
+        history = recent
+          .filter((row) => {
+            const text = String(row.transcription || row.content || '').trim();
+            if (!text) return false;
+            if (row.direction === 'incoming' && pendingSet.has(text)) return false;
+            return true;
+          })
+          .slice(-6)
+          .map((row) => ({
+            direction: row.direction,
+            content: row.content,
+            transcription: row.transcription,
+          }));
+      }
+    } catch (error) {
+      logWebhook('conversation_intent_history_error', {
+        conversationId: batch?.id || null,
+        error: error?.message || 'unknown',
+      });
+    }
+  }
 
   const extracted = await extractTripIntent({
     combinedText,
@@ -9880,14 +9936,15 @@ async function processClaimedConversation(batch) {
   });
 
   const heuristics = inferTripHeuristics(combinedText);
+  const llmOwnsIntent = extracted.source === 'deepseek-pro';
   const hasConcreteAddress = Boolean(
-    heuristics.pickup ||
-    heuristics.destination ||
     extracted.pickup_location ||
     extracted.origin ||
-    extracted.destination
+    extracted.destination ||
+    (!llmOwnsIntent && (heuristics.pickup || heuristics.destination))
   );
   if (
+    extracted.source !== 'deepseek-pro' &&
     extracted.intent === 'other' &&
     heuristics.looksLikeTripRequest &&
     hasConcreteAddress
@@ -9913,7 +9970,7 @@ async function processClaimedConversation(batch) {
   }
 
   const scheduleFromText = detectScheduledTripFromText(combinedText);
-  const scheduleIntentLocked = new Set(['cancel_trip', 'price_inquiry', 'status_query']);
+  const scheduleIntentLocked = new Set(['cancel_trip', 'price_inquiry', 'status_query', 'other', 'ask_human']);
   if (scheduleFromText && !scheduleIntentLocked.has(extracted.intent)) {
     if (extracted.intent !== 'schedule_trip') {
       logWebhook('conversation_override_to_schedule_trip', {
@@ -9967,11 +10024,12 @@ async function processClaimedConversation(batch) {
   const heuristicPickupRaw = sanitizeAddressInput(heuristics.pickup || '');
   const directPickupRaw = sanitizeAddressInput(extractDirectAddressCandidate(combinedText) || '');
 
-  let pickupLocation =
-    extractedPickupRaw ||
-    heuristicPickupRaw ||
-    directPickupRaw ||
-    null;
+  let pickupLocation = extractedPickupRaw || null;
+  if (!pickupLocation && !llmOwnsIntent) {
+    pickupLocation = heuristicPickupRaw || directPickupRaw || null;
+  } else if (!pickupLocation && isSpecificStreetAddress(directPickupRaw)) {
+    pickupLocation = directPickupRaw;
+  }
 
   const extractedIsLessSpecific =
     extractedPickupRaw &&
@@ -10034,7 +10092,7 @@ async function processClaimedConversation(batch) {
 
   const destinationHint = resolveDestinationHint({
     extractedDestination: extracted.destination,
-    heuristicDestination: heuristics.destination,
+    heuristicDestination: llmOwnsIntent ? null : heuristics.destination,
     contextDestination: context.destination,
     pickupLocation,
     combinedText,
@@ -10057,7 +10115,7 @@ async function processClaimedConversation(batch) {
     passenger_name: extracted.passenger_name || context.passenger_name || batch.push_name || null,
     // Pickup should map to passenger origin. Destination remains only as final-destination hint.
     pickup_location: sanitizeAddressInput(pickupLocation),
-    origin: sanitizeAddressInput(extracted.origin || heuristics.pickup || ''),
+    origin: sanitizeAddressInput(extracted.origin || (llmOwnsIntent ? pickupLocation : heuristics.pickup) || ''),
     destination: sanitizeAddressInput(destinationHint),
     notes: extracted.notes || context.notes || null,
     awaiting_destination_gps: Boolean(context.awaiting_destination_gps) && !sanitizeAddressInput(destinationHint),
@@ -10093,6 +10151,49 @@ async function processClaimedConversation(batch) {
 
   // AI-detected intent drives the guard bypass — no fragile regex needed.
   const passengerWantsToCancel = extracted.intent === 'cancel_trip';
+
+  const tripWaMidFlow = Boolean(
+    openTripByPhone ||
+    tripWaContext.awaiting_gps ||
+    tripWaContext.awaiting_pickup_number ||
+    tripWaContext.pending_poll ||
+    tripWaContext.pending_price_confirm ||
+    tripWaContext.pending_cancel_confirm ||
+    tripWaContext.price_inquiry
+  );
+  const alreadyBettoGreeted = isBettoGreetedContext(batch.context);
+
+  const greetingOrAvailability =
+    isGreetingOnly(combinedText) || isAvailabilityAskWithoutRoute(combinedText);
+  if (
+    !alreadyBettoGreeted &&
+    (!tripWaMidFlow || greetingOrAvailability) &&
+    !passengerWantsToCancel &&
+    !pickupLocation &&
+    !nextContext.pickup_location &&
+    shouldSendBettoWelcome({
+      text: combinedText,
+      intent: extracted.intent,
+      hasConcreteAddress,
+      looksLikeTripRequest: heuristics.looksLikeTripRequest,
+    })
+  ) {
+    await sendWhatsAppText(batch.phone, buildBettoWelcomeMessage());
+    logWebhook('conversation_betto_welcome', {
+      conversationId: batch?.id || null,
+      intent: extracted.intent || null,
+    });
+    return {
+      handled: true,
+      updates: {
+        status: 'open',
+        context: stampBettoGreeted(),
+        last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
 
   // --- Reasignación de dirección de retiro cuando el viaje está 'pending' (Caso 18) ---
   // Si el pasajero corrige la dirección antes de que el chofer acepte el viaje,
@@ -10445,9 +10546,27 @@ async function processClaimedConversation(batch) {
   }
 
   if (extracted.intent === 'other') {
-    // Sin interés en viajar y sin viaje activo → ignorar silenciosamente.
-    // No responder evita que el agente conteste mensajes de chat genéricos
-    // ("hola", "gracias", stickers, etc.) que no son pedidos de viaje.
+    const otherReply = rewriteVaguePickupAsk(String(extracted.reply || '').trim());
+    if (otherReply) {
+      const outbound = alreadyBettoGreeted ? otherReply : withBettoIntro(otherReply);
+      await sendWhatsAppText(batch.phone, outbound);
+      logWebhook('conversation_intent_other_replied', {
+        conversationId: batch?.id || null,
+        withBettoIntro: !alreadyBettoGreeted,
+      });
+      return {
+        handled: true,
+        updates: {
+          status: 'open',
+          context: alreadyBettoGreeted
+            ? nextContext
+            : { ...nextContext, ...stampBettoGreeted() },
+          last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
+      };
+    }
     logWebhook('conversation_intent_other_ignored', { conversationId: batch?.id || null });
     return {
       handled: true,
@@ -10528,10 +10647,10 @@ async function processClaimedConversation(batch) {
     const reply = alreadyAwaitingGps
       ? null
       : pendingScheduleInfo
-        ? (extracted.reply ||
-          `Perfecto, te anoto para el *${pendingScheduleInfo.displayText}*. ¿Desde qué dirección te paso a buscar? Podés mandar *calle y número* o tu *ubicación actual*.`)
-        : (extracted.reply ||
-          'Para derivarte un móvil necesito tu ubicación de retiro. Podés mandarme la dirección (calle y número) o compartir tu *ubicación actual* tocando el ícono de ubicación en WhatsApp.');
+        ? (rewriteVaguePickupAsk(extracted.reply) ||
+          `Perfecto, te anoto para el *${pendingScheduleInfo.displayText}*. ${ASK_PICKUP_STREET_OR_GPS}`)
+        : (rewriteVaguePickupAsk(extracted.reply) ||
+          `Para derivarte un móvil. ${ASK_PICKUP_STREET_OR_GPS}`);
     if (reply) await sendWhatsAppText(batch.phone, reply);
     logWebhook('conversation_missing_fields', {
       conversationId: batch?.id || null,
@@ -10832,19 +10951,24 @@ async function processClaimedConversation(batch) {
     resolveSaltaKnownPoi(nextContext.pickup_location) ||
     resolveSaltaKnownPoi(normalizedPickupForGeo);
 
+  const pickupQueryTokens = getAddressContentTokens(normalizeForMatch(normalizedPickupForGeo || ''));
+  const pickupIsGuemesHomonym =
+    isGuemesHomonymQuery(normalizedPickupForGeo, pickupQueryTokens)
+    || isGuemesHomonymQuery(tripExtracted?._conversationText || combinedText || '');
+  const pickupPollQuery = pickupIsGuemesHomonym
+    ? ambiguousGuemesSearchQuery(normalizedPickupForGeo)
+    : normalizedPickupForGeo;
+
   const [googlePollCandidates, catalogStreetPollCandidates, addressCandidatesResult] = await Promise.all([
     getAutocompletePollCandidates(
-      normalizedPickupForGeo,
+      pickupPollQuery,
       knownPoiMatch ? CATEGORY_POI_POLL_OPTION_LIMIT : GUEMES_POLL_OPTION_LIMIT,
     ).catch(() => []),
-    buildCatalogAmbiguityPollCandidates(normalizedPickupForGeo, 4)
+    buildCatalogAmbiguityPollCandidates(pickupPollQuery, GUEMES_POLL_OPTION_LIMIT)
       .then((items) => items.filter(isSaltaCapitalCandidate))
       .catch(() => []),
-    getAddressCandidates(normalizedPickupForGeo, 5).catch(() => []),
+    getAddressCandidates(pickupPollQuery, 5).catch(() => []),
   ]);
-
-  const pickupQueryTokens = getAddressContentTokens(normalizeForMatch(normalizedPickupForGeo || ''));
-  const pickupIsGuemesHomonym = isGuemesHomonymQuery(normalizedPickupForGeo, pickupQueryTokens);
 
   const pickupIsExactIntersection = isIntersectionAddress(normalizedPickupForGeo);
   if (
@@ -10996,13 +11120,18 @@ async function processClaimedConversation(batch) {
       streetHint: poiStreetHint || null,
       usedCapitalFilter: saltaCapitalCandidates.length >= 1,
     });
-  } else if (addressPollCandidates.length < 2 && catalogStreetPollCandidates.length >= 2) {
+  } else if (
+    (pickupIsGuemesHomonym || addressPollCandidates.length < 2)
+    && catalogStreetPollCandidates.length >= 2
+  ) {
     addressPollCandidates = catalogStreetPollCandidates;
     logWebhook('conversation_catalog_street_poll_fallback', {
       conversationId: batch?.id || null,
       pickup: normalizedPickupForGeo,
+      pollQuery: pickupPollQuery,
       googleCount: googlePollCandidates.length,
       optionCount: catalogStreetPollCandidates.length,
+      guemesHomonym: pickupIsGuemesHomonym,
     });
   } else {
     logWebhook('conversation_google_autocomplete_poll', {
@@ -11012,7 +11141,16 @@ async function processClaimedConversation(batch) {
     });
   }
 
+  const pollCountBeforeCollapse = addressPollCandidates.length;
   addressPollCandidates = collapseEquivalentPollCandidates(addressPollCandidates);
+  if (pollCountBeforeCollapse !== addressPollCandidates.length) {
+    logWebhook('conversation_address_poll_collapsed', {
+      conversationId: batch?.id || null,
+      before: pollCountBeforeCollapse,
+      after: addressPollCandidates.length,
+      guemesHomonym: pickupIsGuemesHomonym,
+    });
+  }
 
   const topScoreGap =
     addressPollCandidates.length >= 2
@@ -11054,7 +11192,7 @@ async function processClaimedConversation(batch) {
     }
   }
 
-  if (addressPollCandidates.length === 1 && !knownPoiMatch) {
+  if (addressPollCandidates.length === 1 && !knownPoiMatch && !pickupIsGuemesHomonym) {
     const onlyCandidate = addressPollCandidates[0];
     if (Number.isFinite(onlyCandidate?.lat) && Number.isFinite(onlyCandidate?.lng)) {
     tripExtracted._preGeocodedPickup = buildPreGeocodedPickup(
@@ -11319,7 +11457,11 @@ async function processClaimedConversation(batch) {
     }
   }
 
-  const tripResult = await createTripFromConversation({ conversation: batch, extracted: tripExtracted });
+  const tripResult = await createTripFromConversation({
+    conversation: batch,
+    extracted: tripExtracted,
+    includeBettoIntro: !alreadyBettoGreeted && !tripWaMidFlow,
+  });
   if (tripResult?.reply) {
     await sendWhatsAppText(batch.phone, tripResult.reply);
   }
@@ -11339,7 +11481,7 @@ async function processClaimedConversation(batch) {
     handled: true,
     updates: {
       status: 'open',
-      context: {},
+      context: alreadyBettoGreeted ? { betto_greeted: true } : stampBettoGreeted(),
       last_trip_id: tripResult.trip?.id || (shouldResetConversationState ? null : batch.last_trip_id || null),
       processing_started_at: null,
       last_processed_at: new Date().toISOString(),
@@ -11365,7 +11507,11 @@ async function processConversationById(conversationId) {
       claimedResult = await processClaimedConversation(batch);
       const updates = claimedResult.updates || {};
       if (updates.context != null) {
-        updates.context = injectWasenderLineIntoContext(updates.context);
+        updates.context = injectWasenderLineIntoContext(
+          mergeWhatsappSessionContext(batch.context, updates.context, {
+            sessionReset: Boolean(batch._sessionReset),
+          }),
+        );
       }
       await finalizeConversation(conversationId, updates);
       logWebhook('conversation_process_by_id_ok', {
@@ -11711,14 +11857,9 @@ async function processWebhookBody(body, requestMeta = {}) {
       const pollMsgId = String(payloadBody?.data?.key?.id || '').trim();
       const pollResult = Array.isArray(payloadBody?.data?.pollResult) ? payloadBody.data.pollResult : [];
 
-      if (!pollMsgId) {
-        logWebhook('poll_results_ignored', { reason: 'missing_poll_msg_id' });
-        return { status: 200, body: { success: true, ignored: true, reason: 'missing_poll_msg_id' } };
-      }
-
       const voted = pollResult.find((r) => Array.isArray(r.voters) && r.voters.length > 0);
       if (!voted) {
-        logWebhook('poll_results_ignored', { reason: 'no_votes_yet', pollMsgId });
+        logWebhook('poll_results_ignored', { reason: 'no_votes_yet', pollMsgId: pollMsgId || null });
         return { status: 200, body: { success: true, ignored: true, reason: 'no_votes_yet' } };
       }
 
@@ -11735,15 +11876,40 @@ async function processWebhookBody(body, requestMeta = {}) {
       logWebhook('poll_results_voter_phone', {
         voterJid,
         voterPhone: voterPhone ? maskPhone(voterPhone) : null,
-        pollMsgId,
+        pollMsgId: pollMsgId || null,
       });
 
       // ── Resolución del poll: fuente de verdad = trips.wa_context ────────
       // El pending_poll se guarda en trips.wa_context al enviar la encuesta.
+      // Sin poll_id (whatsmeow a veces no lo manda) se busca el viaje por teléfono.
 
       if (!voterPhone) {
-        logWebhook('poll_results_ignored', { reason: 'voter_phone_unresolvable', pollMsgId });
+        logWebhook('poll_results_ignored', { reason: 'voter_phone_unresolvable', pollMsgId: pollMsgId || null });
         return { status: 200, body: { success: true, ignored: true, reason: 'voter_phone_unresolvable' } };
+      }
+
+      // Deduplicación de votos: whatsmeow envía messages.poll + messages.upsert + messages.button
+      // para el mismo voto. Ambos llegan como poll.results. Clave: id del voto, o poll+tel+opción.
+      const votedNameEarly = String(
+        voted.poll_option || voted.name || voted.button_id || ''
+      ).trim();
+      const voteMsgId = voted._vote_msg_id
+        || `${pollMsgId || 'nopoll'}:${normalizePhone(voterPhone)}:${votedNameEarly}`;
+      try {
+        const dedupResult = await appendIncomingMessage({
+          phone: voterPhone,
+          pushName: null,
+          messageId: `poll_vote:${voteMsgId}`,
+          messageType: 'poll_vote',
+          content: votedNameEarly || null,
+          rawPayload: null,
+        });
+        if (!dedupResult?.inserted) {
+          logWebhook('poll_results_ignored', { reason: 'duplicate_vote', pollMsgId: pollMsgId || null, voteMsgId });
+          return { status: 200, body: { success: true, ignored: true, reason: 'duplicate_vote' } };
+        }
+      } catch {
+        // Si el RPC falla, continuar (mejor procesar doble que no procesar)
       }
 
       // 1️⃣ Buscar la conversación del votante (para datos básicos)
@@ -11838,14 +12004,14 @@ async function processWebhookBody(body, requestMeta = {}) {
       }
 
       if (!pollCandidates.length) {
-        logWebhook('poll_results_ignored', { reason: 'no_pending_poll_in_trip', pollMsgId, votedName: voted.name, tripId: pollTripRow?.id || null, convId: pollConv?.id || null });
+        logWebhook('poll_results_ignored', { reason: 'no_pending_poll_in_trip', pollMsgId, votedName, tripId: pollTripRow?.id || null, convId: pollConv?.id || null });
         return { status: 200, body: { success: true, ignored: true, reason: 'no_pending_poll_in_trip' } };
       }
 
-      const selectedCandidate = findPollCandidateByVote(pollCandidates, voted.name);
+      const selectedCandidate = findPollCandidateByVote(pollCandidates, votedName);
 
       if (!selectedCandidate) {
-        logWebhook('poll_results_ignored', { reason: 'voted_option_not_in_candidates', pollMsgId, votedName: voted.name });
+        logWebhook('poll_results_ignored', { reason: 'voted_option_not_in_candidates', pollMsgId, votedName });
         return { status: 200, body: { success: true, ignored: true, reason: 'voted_option_not_in_candidates' } };
       }
 
@@ -11853,7 +12019,7 @@ async function processWebhookBody(body, requestMeta = {}) {
       const pollPassengerName = pollExtracted.passenger_name || pollConv?.push_name || 'Pasajero WhatsApp';
 
       // "Ninguna de estas opciones" → pedir GPS/calle directamente
-      if (normalizeForMatch(voted.name || '').startsWith('ninguna')) {
+      if (normalizeForMatch(votedName || '').startsWith('ninguna')) {
         await clearPendingPollFromTrip(pollTripRow?.id);
         if (pollConv?.id) {
           try {
@@ -11875,23 +12041,23 @@ async function processWebhookBody(body, requestMeta = {}) {
               .eq('id', pollTripRow.id);
           } catch (_) {}
         }
-        logWebhook('poll_results_none_selected', { convId: pollConv?.id || null, votedName: voted.name });
+        logWebhook('poll_results_none_selected', { convId: pollConv?.id || null, votedName });
         return { status: 200, body: { success: true, event: 'poll.results', noneSelected: true } };
       }
 
       // Geocodificar si el candidato no tiene coordenadas (poll de catálogo / calles ambiguas)
       let confirmedCandidate = selectedCandidate;
       if (!confirmedCandidate.lat || !confirmedCandidate.lng) {
-        const geocoded = await geocodePollCandidate(selectedCandidate, voted.name);
+        const geocoded = await geocodePollCandidate(selectedCandidate, votedName);
         if (geocoded) {
           confirmedCandidate = { ...selectedCandidate, ...geocoded };
           logWebhook('poll_results_geocoded_candidate', {
-            votedName: voted.name,
+            votedName,
             formattedAddress: geocoded.formattedAddress,
           });
         } else {
           logWebhook('poll_results_geocode_fail', {
-            votedName: voted.name,
+            votedName,
             formattedAddress: selectedCandidate.formattedAddress || null,
           });
         }
@@ -11914,9 +12080,9 @@ async function processWebhookBody(body, requestMeta = {}) {
         }
         await sendWhatsAppText(
           pollPassengerPhone,
-          `No pude ubicar con precisión *${voted.name}*. Mandame la *calle y número exacto* o compartí tu *ubicación actual* desde WhatsApp.`
+          `No pude ubicar con precisión *${votedName}*. Mandame la *calle y número exacto* o compartí tu *ubicación actual* desde WhatsApp.`
         ).catch(() => {});
-        logWebhook('poll_results_ignored', { reason: 'candidate_no_coords', votedName: voted.name });
+        logWebhook('poll_results_ignored', { reason: 'candidate_no_coords', votedName });
         return { status: 200, body: { success: true, ignored: true, reason: 'candidate_no_coords' } };
       }
 

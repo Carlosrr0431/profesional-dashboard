@@ -74,6 +74,10 @@ function normalizePollStreetKey(value) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
+    // Intersecciones: "A & B" / "A esquina B" / "A x B" → misma identidad que "A y B".
+    .replace(/&+/g, ' y ')
+    .replace(/\b(?:esquina(?:\s+con)?|esq)\b/g, ' y ')
+    .replace(/\s+x\s+/g, ' y ')
     .replace(/\b(gral|general|calle|av(?:enida)?|avda|dr|doctor|prof|profesor|boulevard|bv|bvd)\b/g, ' ')
     .replace(/\bbartolome\b/g, ' ')
     .replace(/[^a-z0-9\s]/g, ' ')
@@ -82,15 +86,38 @@ function normalizePollStreetKey(value) {
 }
 
 function getAddressPollIdentityKey(candidate) {
-  const raw = candidate?.pollLabel || candidate?.title || candidate?.formattedAddress || '';
+  const title = String(candidate?.pollLabel || candidate?.title || '').trim();
+  const subtitle = String(candidate?.subtitle || '').trim();
+  // Incluir subtítulo para no colapsar "Hospital X · Boedo" con "Hospital X · Colón"
+  const raw = [title, subtitle, candidate?.formattedAddress]
+    .filter(Boolean)
+    .join(' | ');
   const normalized = normalizePollStreetKey(raw);
   const numMatch = normalized.match(/\b(\d{1,5})\b/);
   const number = numMatch ? numMatch[1] : '';
   const street = normalized.replace(/\b\d{1,5}\b/g, ' ').replace(/\s+/g, ' ').trim();
   if (candidate?.street?.nameKey) {
-    return `${candidate.street.nameKey}|${number}`;
+    const typeKey = String(candidate.street.type || '').trim().toLowerCase();
+    return `${typeKey}|${candidate.street.nameKey}|${number}|${normalizePollStreetKey(subtitle)}`;
   }
   return `${street}|${number}`;
+}
+
+function isFiniteCoord(value) {
+  // Number(null) === 0: no tratar "sin geocode" como Null Island.
+  if (value == null || value === '') return false;
+  return Number.isFinite(Number(value));
+}
+
+function candidatesAreNearDuplicate(a, b) {
+  const aLat = a?.lat;
+  const aLng = a?.lng;
+  const bLat = b?.lat;
+  const bLng = b?.lng;
+  if (![aLat, aLng, bLat, bLng].every(isFiniteCoord)) return false;
+  // ~80 m en Salta: misma esquina con labels distintos (y vs &).
+  return Math.abs(Number(aLat) - Number(bLat)) < 0.0008
+    && Math.abs(Number(aLng) - Number(bLng)) < 0.0008;
 }
 
 function collapseEquivalentPollCandidates(candidates) {
@@ -103,7 +130,21 @@ function collapseEquivalentPollCandidates(candidates) {
       seen.set(key, candidate);
     }
   }
-  return [...seen.values()].sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
+
+  const collapsed = [...seen.values()];
+  const out = [];
+  for (const candidate of collapsed) {
+    const nearIdx = out.findIndex((prev) => candidatesAreNearDuplicate(prev, candidate));
+    if (nearIdx < 0) {
+      out.push(candidate);
+      continue;
+    }
+    if (Number(candidate?.score || 0) > Number(out[nearIdx]?.score || 0)) {
+      out[nearIdx] = candidate;
+    }
+  }
+
+  return out.sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
 }
 
 module.exports = {
@@ -113,4 +154,5 @@ module.exports = {
   extractFullTripByPattern,
   collapseEquivalentPollCandidates,
   getAddressPollIdentityKey,
+  normalizePollStreetKey,
 };
