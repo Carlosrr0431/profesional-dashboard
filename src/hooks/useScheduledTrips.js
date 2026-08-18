@@ -108,9 +108,15 @@ export function useScheduledTrips() {
         fetchTrips();
       })
       .subscribe((status, err) => {
-        if (status === 'CHANNEL_ERROR') {
-          console.error('[useScheduledTrips] Realtime channel error:', err?.message || status);
+        if (status !== 'CHANNEL_ERROR') return;
+        const message = String(err?.message || status);
+        // 1006 = corte de red / idle; el cliente reconecta solo. console.error
+        // dispara el overlay rojo de Next aunque el dashboard siga andando.
+        if (/1006|socket closed/i.test(message)) {
+          fetchTrips();
+          return;
         }
+        console.error('[useScheduledTrips] Realtime channel error:', message);
       });
 
     channelRef.current = channel;
