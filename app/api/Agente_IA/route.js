@@ -1,4 +1,4 @@
-import OpenAI, { toFile } from 'openai';
+﻿import OpenAI, { toFile } from 'openai';
 import { createClient } from '@supabase/supabase-js';
 import { deepseekChatCompletion } from '../../../src/lib/deepseekClient';
 import { ADDRESS_NORMALIZE_SYSTEM_PROMPT } from '../../../src/lib/tripIntentSystemPrompt';
@@ -6333,15 +6333,23 @@ function buildTripPriceSummaryMessage({ pickupAddress, destAddress, distanceKm, 
   ].join('\n');
 }
 
-async function sendTripPriceConfirmationPoll(phone) {
-  return sendWhatsAppPoll(phone, '¿Confirmás el viaje?', TRIP_PRICE_CONFIRM_OPTIONS);
+function buildTripPriceConfirmPollQuestion(price) {
+  const priceFormatted = formatWhatsAppPrice(price);
+  if (price == null || priceFormatted === 'no disponible') {
+    return '¿Confirmás el viaje?';
+  }
+  return `¿Confirmás el viaje por ${priceFormatted}?`;
 }
 
-async function sendTripPriceSummaryAndConfirmPoll(phone, summaryMsg) {
+async function sendTripPriceConfirmationPoll(phone, price) {
+  return sendWhatsAppPoll(phone, buildTripPriceConfirmPollQuestion(price), TRIP_PRICE_CONFIRM_OPTIONS);
+}
+
+async function sendTripPriceSummaryAndConfirmPoll(phone, summaryMsg, price) {
   await sendWhatsAppText(phone, summaryMsg);
   // WhatsApp/WaSender pueden entregar la encuesta antes que el texto si no hay pausa.
   await new Promise((resolve) => setTimeout(resolve, 2500));
-  return sendTripPriceConfirmationPoll(phone);
+  return sendTripPriceConfirmationPoll(phone, price);
 }
 
 function isTripPriceConfirmYesVote(votedName) {
@@ -6551,7 +6559,7 @@ async function requestTripPriceConfirmation({
   });
   let pollSendResult = null;
   try {
-    pollSendResult = await sendTripPriceSummaryAndConfirmPoll(phone, priceMsg);
+    pollSendResult = await sendTripPriceSummaryAndConfirmPoll(phone, priceMsg, passengerRouteFare.price);
   } catch (err) {
     logWebhook('trip_price_confirm_poll_error', { error: err?.message || 'unknown' });
   }
@@ -10504,7 +10512,7 @@ async function processClaimedConversation(batch) {
     });
 
     try {
-      await sendTripPriceSummaryAndConfirmPoll(batch.phone, priceMsg);
+      await sendTripPriceSummaryAndConfirmPoll(batch.phone, priceMsg, pricing.price);
     } catch (pollErr) {
       logWebhook('price_inquiry_poll_error', { error: pollErr?.message });
     }
