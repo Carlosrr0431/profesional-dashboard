@@ -355,6 +355,9 @@ describe('geo autocomplete', () => {
     expect(autocompleteCall).toBeTruthy();
     const body = JSON.parse(autocompleteCall[1].body);
     expect(body.locationRestriction?.rectangle).toBeDefined();
+    expect(body.origin?.latitude).toBeCloseTo(-24.78, 2);
+    expect(body.origin?.longitude).toBeCloseTo(-65.42, 2);
+    expect(body.input).toMatch(/salta capital/i);
     expect(body.locationBias).toBeUndefined();
   });
 

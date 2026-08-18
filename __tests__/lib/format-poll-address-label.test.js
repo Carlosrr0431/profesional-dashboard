@@ -2,6 +2,7 @@ const {
   formatAddressForWhatsAppPoll,
   formatPollOptionLabel,
   extractStreetAddressForPoll,
+  extractMunicipalityHint,
   buildAddressPollPayload,
 } = require('../../src/lib/formatPollAddressLabel');
 
@@ -31,6 +32,44 @@ describe('formatAddressForWhatsAppPoll', () => {
   });
 });
 
+describe('extractMunicipalityHint', () => {
+  it('marca Salta Capital con A4400', () => {
+    expect(
+      extractMunicipalityHint({
+        formattedAddress: 'Belgrano 400, A4400 Salta, Argentina',
+      })
+    ).toBe('Salta Capital');
+  });
+
+  it('marca San Lorenzo desde el subtitle, no desde la calle', () => {
+    expect(
+      extractMunicipalityHint({
+        title: 'Avenida Gral Manuel Belgrano 400',
+        subtitle: 'San Lorenzo, Salta',
+        formattedAddress: 'Avenida Gral Manuel Belgrano 400, San Lorenzo, Salta, Argentina',
+      })
+    ).toBe('San Lorenzo');
+  });
+
+  it('no confunde Calle San Lorenzo de Capital con el municipio', () => {
+    expect(
+      extractMunicipalityHint({
+        title: 'Calle San Lorenzo 100',
+        formattedAddress: 'Calle San Lorenzo 100, A4400 Salta, Argentina',
+      })
+    ).toBe('Salta Capital');
+  });
+
+  it('asume Salta Capital en candidatos del catálogo local', () => {
+    expect(
+      extractMunicipalityHint({
+        pollLabel: 'Avenida Gral Manuel Belgrano 400',
+        source: 'catalog_variant',
+      })
+    ).toBe('Salta Capital');
+  });
+});
+
 describe('formatPollOptionLabel (POIs)', () => {
   it('no duplica Bartolomé si el texto ya dice Bartolomé Mitre', () => {
     expect(
@@ -38,7 +77,7 @@ describe('formatPollOptionLabel (POIs)', () => {
         title: 'Banco Macro',
         subtitle: 'Bartolomé Mitre 200, Salta',
       })
-    ).toBe('Banco Macro · Bartolomé Mitre 200');
+    ).toBe('Banco Macro · Bartolomé Mitre 200 · Salta Capital');
   });
 
   it('combina nombre del POI con calle y altura del subtitle', () => {
@@ -48,7 +87,7 @@ describe('formatPollOptionLabel (POIs)', () => {
         subtitle: 'Belgrano 700, Salta',
         formattedAddress: 'Banco Macro, Belgrano 700, Salta, Argentina',
       })
-    ).toBe('Banco Macro · Belgrano 700');
+    ).toBe('Banco Macro · Belgrano 700 · Salta Capital');
   });
 
   it('extrae calle con altura aunque el formatted empiece con el POI', () => {
@@ -66,7 +105,7 @@ describe('formatPollOptionLabel (POIs)', () => {
         title: 'Banco Macro',
         subtitle: 'España 500, Salta',
       })
-    ).toBe('Banco Macro · España 500');
+    ).toBe('Banco Macro · España 500 · Salta Capital');
   });
 
   it('no duplica si el título ya es calle con altura', () => {
@@ -76,7 +115,7 @@ describe('formatPollOptionLabel (POIs)', () => {
         subtitle: 'Belgrano 700, Salta',
         formattedAddress: 'Belgrano 700, A4400 Salta, Argentina',
       })
-    ).toBe('Belgrano 700');
+    ).toBe('Belgrano 700 · Salta Capital');
   });
 
   it('no duplica Nombre · Nombre cuando el subtitle es el mismo POI', () => {
@@ -86,7 +125,7 @@ describe('formatPollOptionLabel (POIs)', () => {
         subtitle: 'Plaza Palermo Salta',
         formattedAddress: 'Plaza Palermo Salta, Salta, Argentina',
       })
-    ).toBe('Plaza Palermo Salta');
+    ).toBe('Plaza Palermo Salta · Salta Capital');
   });
 
   it('no duplica Cerro San Bernardo · Cerro San Bernardo', () => {
@@ -96,7 +135,7 @@ describe('formatPollOptionLabel (POIs)', () => {
         subtitle: 'Cerro San Bernardo',
         formattedAddress: 'Cerro San Bernardo, Salta, Argentina',
       })
-    ).toBe('Cerro San Bernardo');
+    ).toBe('Cerro San Bernardo · Salta Capital');
   });
 
   it('normaliza intersección & a y en el label', () => {
@@ -105,7 +144,7 @@ describe('formatPollOptionLabel (POIs)', () => {
         title: 'Alvarado & Santa Fe',
         formattedAddress: 'Alvarado & Santa Fe, Salta, Argentina',
       })
-    ).toBe('Alvarado y Santa Fe');
+    ).toBe('Alvarado y Santa Fe · Salta Capital');
   });
 
   it('usa formattedAddress cuando no hay title de POI', () => {
@@ -113,7 +152,28 @@ describe('formatPollOptionLabel (POIs)', () => {
       formatPollOptionLabel({
         formattedAddress: 'Dr. A. Güemes 200, A4400 Salta, Argentina',
       })
-    ).toBe('Dr. Adolfo Güemes 200');
+    ).toBe('Dr. Adolfo Güemes 200 · Salta Capital');
+  });
+
+  it('muestra municipio en calles homónimas del catálogo', () => {
+    expect(
+      formatPollOptionLabel({
+        pollLabel: 'Avenida Gral Manuel Belgrano 400',
+        formattedAddress: 'Avenida Gral Manuel Belgrano 400, Salta Capital, Argentina',
+        subtitle: 'Salta Capital',
+        source: 'catalog_variant',
+      })
+    ).toBe('Avenida Gral Manuel Belgrano 400 · Salta Capital');
+  });
+
+  it('distingue el mismo nombre de calle en San Lorenzo', () => {
+    expect(
+      formatPollOptionLabel({
+        title: 'Avenida Gral Manuel Belgrano 400',
+        subtitle: 'San Lorenzo, Salta',
+        formattedAddress: 'Avenida Gral Manuel Belgrano 400, San Lorenzo, Salta, Argentina',
+      })
+    ).toBe('Avenida Gral Manuel Belgrano 400 · San Lorenzo');
   });
 });
 
@@ -127,7 +187,7 @@ describe('buildAddressPollPayload', () => {
       },
     ]);
 
-    expect(pollOptions[0]).toBe('Dr. Adolfo Güemes 200');
+    expect(pollOptions[0]).toBe('Dr. Adolfo Güemes 200 · Salta Capital');
     expect(pollCandidates[0].formattedAddress).toBe('Dr. A. Güemes 200, A4400 Salta, Argentina');
     expect(pollOptions[pollOptions.length - 1]).toBe('Ninguna de estas opciones');
   });
@@ -146,7 +206,7 @@ describe('buildAddressPollPayload', () => {
       },
     ]);
 
-    expect(pollOptions[0]).toBe('Banco Macro · Belgrano 700');
-    expect(pollOptions[1]).toBe('Cajero Automático Banco Macro · Bartolomé Mitre 200');
+    expect(pollOptions[0]).toBe('Banco Macro · Belgrano 700 · Salta Capital');
+    expect(pollOptions[1]).toBe('Cajero Automático Banco Macro · Bartolomé Mitre 200 · Salta Capital');
   });
 });

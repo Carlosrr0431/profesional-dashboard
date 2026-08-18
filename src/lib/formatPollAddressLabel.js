@@ -50,6 +50,20 @@ const GOOGLE_POLL_STREET_REPLACEMENTS = [
 const LOCALITY_ONLY_RE =
   /^(salta|capital|argentina|a4400|centro|macrocentro|barrio|bº|bo\.?)\b/i;
 
+/** Municipios vecinos que Google mezcla con Salta Capital. */
+const NEIGHBOR_MUNICIPALITIES = [
+  { re: /\b(?:villa\s+)?san\s+lorenzo\b/i, label: 'San Lorenzo' },
+  { re: /\bvaqueros\b/i, label: 'Vaqueros' },
+  { re: /\bcerrillos\b/i, label: 'Cerrillos' },
+  { re: /\brosario de lerma\b/i, label: 'Rosario de Lerma' },
+  { re: /\bcampo quijano\b/i, label: 'Campo Quijano' },
+  { re: /\bla caldera\b/i, label: 'La Caldera' },
+  { re: /\bla silleta\b/i, label: 'La Silleta' },
+  { re: /\bel carril\b/i, label: 'El Carril' },
+  { re: /\bchicoana\b/i, label: 'Chicoana' },
+  { re: /\blesser\b/i, label: 'Lesser' },
+];
+
 function applyStreetNameExpansions(text) {
   let result = String(text || '');
   const fold = (value) => String(value || '')
@@ -92,6 +106,42 @@ function truncatePollOption(text) {
   const raw = String(text || '').trim();
   if (raw.length <= WHATSAPP_POLL_OPTION_MAX_LEN) return raw;
   return `${raw.slice(0, WHATSAPP_POLL_OPTION_MAX_LEN - 1).trim()}…`;
+}
+
+function localityBlobFromCandidate(candidate = {}) {
+  const subtitle = String(candidate.subtitle || '').trim();
+  const formatted = String(candidate.formattedAddress || '').trim();
+  const afterComma = formatted.split(',').slice(1).join(', ');
+  return [subtitle, afterComma].filter(Boolean).join(', ');
+}
+
+/**
+ * Municipio/localidad corta para la encuesta: Salta Capital vs San Lorenzo, etc.
+ * No mira el primer segmento (la calle) para no confundir "Calle San Lorenzo".
+ */
+export function extractMunicipalityHint(candidate = {}) {
+  const blob = localityBlobFromCandidate(candidate);
+  if (blob) {
+    for (const item of NEIGHBOR_MUNICIPALITIES) {
+      if (item.re.test(blob)) return item.label;
+    }
+    if (/\bsalta\s*capital\b/i.test(blob) || /\ba4400\b/i.test(blob)) {
+      return 'Salta Capital';
+    }
+    if (/\bsalta\b/i.test(blob)) return 'Salta Capital';
+  }
+
+  if (String(candidate.source || '') === 'catalog_variant') return 'Salta Capital';
+  return '';
+}
+
+function appendMunicipalityHint(label, hint) {
+  const base = String(label || '').trim();
+  const municipality = String(hint || '').trim();
+  if (!base || !municipality) return base;
+  if (/^ninguna\b/i.test(base)) return base;
+  if (normalizeForCompare(base).includes(normalizeForCompare(municipality))) return base;
+  return `${base} · ${municipality}`;
 }
 
 /**
@@ -154,6 +204,7 @@ function titleAlreadyIncludesStreet(title, streetLine) {
 
 /**
  * Etiqueta de opción de poll: calle pura, o "POI · calle altura" para bancos/shoppings/etc.
+ * Agrega municipio (Salta Capital / San Lorenzo / …) para no confundir homónimos.
  */
 export function formatPollOptionLabel(candidate = {}) {
   const title = String(candidate.pollLabel || candidate.title || '').trim();
@@ -162,32 +213,24 @@ export function formatPollOptionLabel(candidate = {}) {
     candidate.formattedAddress,
   );
 
+  let base = '';
+
   // Título ya es la calle (o es idéntico al "street") → no duplicar "Nombre · Nombre"
   if (title && streetLine && titleAlreadyIncludesStreet(title, streetLine)) {
-    return truncatePollOption(formatStreetPartForPoll(title));
+    base = formatStreetPartForPoll(title);
+  } else if (title && streetLine && !/\b\d{1,5}\b/.test(title)) {
+    base = `${formatStreetPartForPoll(title)} · ${streetLine}`;
+  } else if (title && /\b\d{1,5}\b/.test(title)) {
+    base = formatStreetPartForPoll(title);
+  } else if (streetLine && !title) {
+    base = streetLine;
+  } else if (title && streetLine) {
+    base = `${formatStreetPartForPoll(title)} · ${streetLine}`;
+  } else {
+    base = formatAddressForWhatsAppPoll(candidate.formattedAddress) || title;
   }
 
-  if (title && streetLine && !/\b\d{1,5}\b/.test(title)) {
-    // POI sin altura en el título → agregar calle/altura
-    return truncatePollOption(`${formatStreetPartForPoll(title)} · ${streetLine}`);
-  }
-
-  if (title && /\b\d{1,5}\b/.test(title)) {
-    return truncatePollOption(formatStreetPartForPoll(title));
-  }
-
-  if (streetLine && !title) {
-    return truncatePollOption(streetLine);
-  }
-
-  if (title && streetLine) {
-    return truncatePollOption(`${formatStreetPartForPoll(title)} · ${streetLine}`);
-  }
-
-  const fromFormatted = formatAddressForWhatsAppPoll(candidate.formattedAddress);
-  if (fromFormatted) return truncatePollOption(fromFormatted);
-
-  return truncatePollOption(title);
+  return truncatePollOption(appendMunicipalityHint(base, extractMunicipalityHint(candidate)));
 }
 
 /**
@@ -219,6 +262,9 @@ export function toPollAddressCandidate(geoCandidate) {
     sessionToken: geoCandidate?.sessionToken || null,
     title: geoCandidate?.title || null,
     subtitle: geoCandidate?.subtitle || null,
+    source: geoCandidate?.source || null,
+    street: geoCandidate?.street || null,
+    pollLabel: geoCandidate?.pollLabel || null,
   };
 }
 

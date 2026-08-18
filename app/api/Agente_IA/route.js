@@ -12,7 +12,11 @@ import {
   normalizeFcmDataPayload,
   normalizeFirebaseSendError,
 } from '../../../src/lib/firebaseAdmin';
-import { buildAddressPollPayload, formatAddressForWhatsAppPoll } from '../../../src/lib/formatPollAddressLabel';
+import {
+  buildAddressPollPayload,
+  extractMunicipalityHint,
+  formatAddressForWhatsAppPoll,
+} from '../../../src/lib/formatPollAddressLabel';
 import {
   GUEMES_POLL_OPTION_LIMIT,
   CATEGORY_POI_POLL_OPTION_LIMIT,
@@ -2319,6 +2323,56 @@ function extractPostalCodeFromAddress(formattedAddress) {
   return match ? match[1].toUpperCase() : null;
 }
 
+const NEIGHBORING_MUNICIPALITY_RE =
+  /\b(jujuy|vaqueros|cerrillos|san lorenzo|rosario de lerma|campo quijano|la caldera|la silleta|el carril|chicoana|lesser)\b/i;
+
+function mentionsNeighboringMunicipality(value) {
+  return NEIGHBORING_MUNICIPALITY_RE.test(normalizeForMatch(value || ''));
+}
+
+/** San Lorenzo queda dentro del bbox amplio (west -65.55); el casco urbano no llega a -65.49. */
+function coordsLookLikeNeighboringMunicipality(lat, lng) {
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return false;
+  return parsedLng < -65.488;
+}
+
+function localityBlobFromGeoCandidate(candidate = {}, formattedAddress = '') {
+  const subtitle = String(candidate?.subtitle || '').trim();
+  const formatted = String(formattedAddress || candidate?.formattedAddress || '').trim();
+  const afterComma = formatted.split(',').slice(1).join(' ');
+  return [subtitle, afterComma].filter(Boolean).join(' ');
+}
+
+function biasAddressQueryToSaltaCapital(query) {
+  const raw = String(query || '').trim();
+  if (!raw) return '';
+  const withoutPollHint = raw.includes('·') ? raw.split('·')[0].trim() : raw;
+  if (/salta\s*capital/i.test(withoutPollHint)) return withoutPollHint;
+  if (/,\s*salta\s*,\s*argentina\s*$/i.test(withoutPollHint)) {
+    return withoutPollHint.replace(/,\s*salta\s*,\s*argentina\s*$/i, ', Salta Capital, Argentina');
+  }
+  if (/,\s*salta\s*$/i.test(withoutPollHint)) {
+    return withoutPollHint.replace(/,\s*salta\s*$/i, ', Salta Capital, Argentina');
+  }
+  if (!/argentina/i.test(withoutPollHint)) {
+    return `${withoutPollHint.replace(/,\s*salta\s*$/i, '').trim()}, Salta Capital, Argentina`;
+  }
+  return withoutPollHint;
+}
+
+function ensureMunicipalityInAddress(formattedAddress, candidate = {}) {
+  const raw = String(formattedAddress || '').trim();
+  if (!raw) return raw;
+  const hint = extractMunicipalityHint({
+    ...candidate,
+    formattedAddress: raw,
+  }) || 'Salta Capital';
+  if (new RegExp(hint.replace(/\s+/g, '\\s+'), 'i').test(raw)) return raw;
+  return `${raw}, ${hint}`;
+}
+
 function inferSaltaCapitalFromFormattedAddress(formattedAddress) {
   const clean = sanitizeAddressInput(formattedAddress || '');
   if (!clean) return null;
@@ -2358,14 +2412,21 @@ function inferSaltaCapitalFromFormattedAddress(formattedAddress) {
 
 function isSaltaCapitalCandidate(candidate) {
   const formatted = candidate?.formattedAddress || '';
+  const localityBlob = localityBlobFromGeoCandidate(candidate, formatted);
+  if (mentionsNeighboringMunicipality(localityBlob)) return false;
 
-  // Sugerencias de Google Autocomplete ya vienen restringidas a Salta Capital.
+  const lat = Number(candidate?.lat);
+  const lng = Number(candidate?.lng);
+  if (Number.isFinite(lat) && Number.isFinite(lng) && coordsLookLikeNeighboringMunicipality(lat, lng)) {
+    return false;
+  }
+
+  // Sugerencias de Google Autocomplete ya vienen restringidas al bbox, que
+  // incluye municipios vecinos (San Lorenzo). No aceptarlas a ciegas.
   if (
     candidate?.source === 'google_autocomplete'
     || String(candidate?.placeId || '').startsWith('google:')
   ) {
-    const subtitle = String(candidate?.subtitle || '').trim();
-    if (subtitle && /\b(jujuy|vaqueros|cerrillos)\b/i.test(subtitle)) return false;
     const byAddress = inferSaltaCapitalFromFormattedAddress(formatted);
     if (typeof byAddress === 'boolean') return byAddress;
     return true;
@@ -2379,8 +2440,6 @@ function isSaltaCapitalCandidate(candidate) {
   const byAddress = inferSaltaCapitalFromFormattedAddress(formatted);
   if (typeof byAddress === 'boolean') return byAddress;
 
-  const lat = Number(candidate?.lat);
-  const lng = Number(candidate?.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
 
   const distanceFromCenterKm = haversineKm(
@@ -5583,8 +5642,77 @@ async function geocodeAddress(address) {
   }
 }
 
+function catalogStreetMismatch(candidate, formattedAddress, query) {
+  const expectedStreetKey = String(candidate?.street?.nameKey || '').trim();
+  if (!expectedStreetKey) return false;
+
+  const resolvedKey = normalizeForMatch(formattedAddress || '');
+  const expectedTokens = expectedStreetKey.split(/\s+/).filter(Boolean);
+  const missing = expectedTokens.filter((token) => token.length >= 3 && !resolvedKey.includes(token));
+  if (missing.length > 0) {
+    logWebhook('poll_candidate_geocode_street_mismatch', {
+      query,
+      expectedStreetKey,
+      resolved: formattedAddress,
+    });
+    return true;
+  }
+  if (
+    expectedTokens.length === 1
+    && /\b(ministro|mtro|barbaran|general|gral)\b/.test(resolvedKey)
+    && !expectedTokens.includes('ministro')
+    && !expectedTokens.includes('mtro')
+    && !expectedTokens.includes('barbaran')
+    && !expectedTokens.includes('general')
+    && !expectedTokens.includes('gral')
+  ) {
+    logWebhook('poll_candidate_geocode_homonym_rejected', {
+      query,
+      expectedStreetKey,
+      resolved: formattedAddress,
+    });
+    return true;
+  }
+  return false;
+}
+
+function pollHitLooksOutsideCapital(hit) {
+  const blob = localityBlobFromGeoCandidate(hit, hit?.formattedAddress);
+  if (mentionsNeighboringMunicipality(blob)) return true;
+  return coordsLookLikeNeighboringMunicipality(hit?.lat, hit?.lng);
+}
+
+function pickClosestCapitalGeocodeHit(hits, candidate, query) {
+  const ranked = (hits || [])
+    .filter((hit) => Number.isFinite(hit?.lat) && Number.isFinite(hit?.lng))
+    .filter((hit) => !pollHitLooksOutsideCapital(hit))
+    .filter((hit) => !catalogStreetMismatch(candidate, hit.formattedAddress, query))
+    .sort((a, b) => (
+      haversineKm(a.lat, a.lng, SALTA_CAPITAL_CENTER.lat, SALTA_CAPITAL_CENTER.lng)
+      - haversineKm(b.lat, b.lng, SALTA_CAPITAL_CENTER.lat, SALTA_CAPITAL_CENTER.lng)
+    ));
+  return ranked[0] || null;
+}
+
+function buildPollGeocodeResult(candidate, votedLabel, geo, query) {
+  return {
+    label: candidate?.label || candidate?.pollLabel || votedLabel || query,
+    formattedAddress: ensureMunicipalityInAddress(
+      ensurePrecisePickupLabel(
+        geo.formattedAddress,
+        votedLabel || candidate?.formattedAddress || query,
+      ),
+      { ...candidate, formattedAddress: geo.formattedAddress, subtitle: geo.subtitle },
+    ),
+    lat: geo.lat,
+    lng: geo.lng,
+    placeId: geo.placeId || candidate?.placeId || null,
+  };
+}
+
 /**
  * Geocodifica un candidato de poll probando la dirección completa antes que la etiqueta corta.
+ * Sesga a Salta Capital y descarta hits de municipios vecinos (p. ej. San Lorenzo).
  */
 async function geocodePollCandidate(candidate, votedLabel = '') {
   const placeId = String(candidate?.placeId || '').trim();
@@ -5596,16 +5724,20 @@ async function geocodePollCandidate(candidate, votedLabel = '') {
         title: candidate?.title,
         subtitle: candidate?.subtitle,
       });
-      return {
-        label: candidate?.label || candidate?.pollLabel || votedLabel || candidate?.title,
-        formattedAddress: ensurePrecisePickupLabel(
-          details.formattedAddress || candidate?.formattedAddress,
-          votedLabel || candidate?.formattedAddress || candidate?.title,
-        ),
-        lat: details.lat,
-        lng: details.lng,
-        placeId: details.placeId || placeId,
+      const detailsHit = {
+        ...details,
+        subtitle: details.subtitle || candidate?.subtitle,
       };
+      if (pollHitLooksOutsideCapital(detailsHit)) {
+        logWebhook('poll_candidate_place_outside_capital', {
+          placeId,
+          formattedAddress: details.formattedAddress,
+          lat: details.lat,
+          lng: details.lng,
+        });
+      } else {
+        return buildPollGeocodeResult(candidate, votedLabel, detailsHit, votedLabel);
+      }
     } catch (err) {
       logWebhook('poll_candidate_place_details_fail', {
         placeId,
@@ -5620,7 +5752,7 @@ async function geocodePollCandidate(candidate, votedLabel = '') {
     candidate?.label,
     votedLabel,
   ]
-    .map((q) => sanitizeAddressInput(q || ''))
+    .map((q) => biasAddressQueryToSaltaCapital(sanitizeAddressInput(q || '')))
     .filter(Boolean);
 
   const seen = new Set();
@@ -5629,48 +5761,22 @@ async function geocodePollCandidate(candidate, votedLabel = '') {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     try {
-      const geo = await geocodeAddress(query);
-      const expectedStreetKey = String(candidate?.street?.nameKey || '').trim();
-      if (expectedStreetKey) {
-        const resolvedKey = normalizeForMatch(geo.formattedAddress || '');
-        const expectedTokens = expectedStreetKey.split(/\s+/).filter(Boolean);
-        const missing = expectedTokens.filter((token) => token.length >= 3 && !resolvedKey.includes(token));
-        // Si el catálogo dijo "Alvarado" y Google devolvió "Ministro Alvarado",
-        // exigir que no aparezcan tokens extra de otras calles del mismo apellido.
-        if (missing.length > 0) {
-          logWebhook('poll_candidate_geocode_street_mismatch', {
-            query,
-            expectedStreetKey,
-            resolved: geo.formattedAddress,
-          });
-          continue;
-        }
-        if (
-          expectedTokens.length === 1
-          && /\b(ministro|mtro|barbaran|general|gral)\b/.test(resolvedKey)
-          && !expectedTokens.includes('ministro')
-          && !expectedTokens.includes('mtro')
-          && !expectedTokens.includes('barbaran')
-          && !expectedTokens.includes('general')
-          && !expectedTokens.includes('gral')
-        ) {
-          logWebhook('poll_candidate_geocode_homonym_rejected', {
-            query,
-            expectedStreetKey,
-            resolved: geo.formattedAddress,
-          });
-          continue;
-        }
+      const hits = await autocompleteAndGeocodeAddress(query, 5);
+      const best = pickClosestCapitalGeocodeHit(hits, candidate, query);
+      if (best) {
+        logWebhook('poll_candidate_geocode_capital_pick', {
+          query,
+          formattedAddress: best.formattedAddress,
+          lat: best.lat,
+          lng: best.lng,
+          hitCount: hits.length,
+        });
+        return buildPollGeocodeResult(candidate, votedLabel, best, query);
       }
-      return {
-        label: candidate?.label || votedLabel || query,
-        formattedAddress: ensurePrecisePickupLabel(
-          geo.formattedAddress,
-          votedLabel || candidate?.formattedAddress || query,
-        ),
-        lat: geo.lat,
-        lng: geo.lng,
-      };
+      logWebhook('poll_candidate_geocode_no_capital_hit', {
+        query,
+        hitCount: hits.length,
+      });
     } catch (err) {
       logWebhook('poll_candidate_geocode_try_fail', {
         query,
@@ -5841,11 +5947,11 @@ async function buildCatalogAmbiguityPollCandidates(query, maxResults = 4) {
   for (const item of ranked) {
     const houseNumber = item.houseNumber;
     const variant = houseNumber
-      ? `${item.street.fullLabel} ${houseNumber}, Salta`
-      : `${item.street.fullLabel}, Salta`;
+      ? `${item.street.fullLabel} ${houseNumber}, Salta Capital`
+      : `${item.street.fullLabel}, Salta Capital`;
     const formattedAddress = /,\s*argentina\s*$/i.test(variant)
       ? variant
-      : `${variant.replace(/,\s*salta\s*$/i, '').trim()}, Salta, Argentina`;
+      : `${variant.replace(/,\s*salta(?:\s+capital)?\s*$/i, '').trim()}, Salta Capital, Argentina`;
     const pollLabel =
       formatAddressForWhatsAppPoll(formattedAddress) ||
       formatAddressForWhatsAppPoll(variant);
@@ -5856,6 +5962,7 @@ async function buildCatalogAmbiguityPollCandidates(query, maxResults = 4) {
     candidates.push({
       formattedAddress,
       pollLabel,
+      subtitle: 'Salta Capital',
       lat: null,
       lng: null,
       score: Math.max(
@@ -7657,6 +7764,27 @@ function buildTripCreateSuccessContext({
   };
 }
 
+function mergeGoogleFirstPollCandidates(googleHits, catalogHits) {
+  const google = googleHits || [];
+  const catalog = catalogHits || [];
+  if (!google.length) return catalog;
+  if (!catalog.length) return google;
+
+  const seen = new Set();
+  const merged = [];
+  const remember = (hit) => {
+    const key = normalizeForMatch(
+      hit?.pollLabel || hit?.title || String(hit?.formattedAddress || '').split(',')[0],
+    );
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push(hit);
+  };
+  google.forEach(remember);
+  catalog.forEach(remember);
+  return merged;
+}
+
 async function maybeSendDestinationAddressPoll({
   conversation,
   extracted,
@@ -7681,9 +7809,7 @@ async function maybeSendDestinationAddressPoll({
 
   const rawDestPollCandidates = destIsGuemesHomonym && catalogDestPoll.length >= 2
     ? catalogDestPoll
-    : catalogDestPoll.length >= 2
-      ? catalogDestPoll
-      : googleDestPoll;
+    : mergeGoogleFirstPollCandidates(googleDestPoll, catalogDestPoll);
 
   // Match exacto de catálogo (ej. "Alvarado" → solo Calle Alvarado): no abrir poll
   // con Barbarán/Gral/Mtro Alvarado ni con sugerencias Google ambiguas.
@@ -7735,6 +7861,7 @@ async function maybeSendDestinationAddressPoll({
     pollWasenderMsgId: destPollIds.wasender_msg_id,
     pollWaKeyId: destPollIds.wa_key_id,
     optionCount: destPollOptions.length,
+    optionLabels: destPollOptions,
     guemesHomonym: destIsGuemesHomonym,
     catalogOptions: catalogDestPoll.length,
     googleOptions: googleDestPoll.length,

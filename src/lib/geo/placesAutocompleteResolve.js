@@ -2,7 +2,7 @@
  * Resolución server-side de sugerencias de autocomplete — misma lógica que
  * AddressAutocomplete + GET /api/geo/geocode (Place Details Essentials + caché Supabase).
  */
-import { autocompleteAddressSalta, getPlaceDetails } from './index.js';
+import { autocompleteAddressSalta, getPlaceDetails, SALTA_CENTER_LAT, SALTA_CENTER_LNG } from './index.js';
 import {
   isGoogleConfigured,
   isGooglePlaceId,
@@ -18,6 +18,40 @@ function firstAddressLine(value) {
   const text = String(value || '').trim();
   if (!text) return '';
   return text.split(',')[0]?.trim() || '';
+}
+
+function neighborMunicipalityPenalty(hit) {
+  const blob = `${hit?.subtitle || ''} ${String(hit?.formattedAddress || '').split(',').slice(1).join(' ')}`;
+  if (/\b(san lorenzo|vaqueros|cerrillos|rosario de lerma|campo quijano|la caldera|la silleta|el carril|chicoana|lesser|jujuy)\b/i.test(blob)) {
+    return 1;
+  }
+  const lng = Number(hit?.lng);
+  if (Number.isFinite(lng) && lng < -65.488) return 1;
+  return 0;
+}
+
+function distanceToSaltaCenterKm(hit) {
+  const lat = Number(hit?.lat);
+  const lng = Number(hit?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return Number.POSITIVE_INFINITY;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat - SALTA_CENTER_LAT);
+  const dLng = toRad(lng - SALTA_CENTER_LNG);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(SALTA_CENTER_LAT)) * Math.cos(toRad(lat)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function pickPreferredSaltaCapitalHit(hits) {
+  const list = hits || [];
+  if (!list.length) return null;
+  const capitalHits = list.filter((hit) => neighborMunicipalityPenalty(hit) === 0);
+  const pool = capitalHits.length ? capitalHits : list;
+  return [...pool].sort((a, b) => {
+    const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
+    if (Math.abs(scoreDiff) > 0.15) return scoreDiff;
+    return distanceToSaltaCenterKm(a) - distanceToSaltaCenterKm(b);
+  })[0];
 }
 
 function buildSelectedAddressLabel({ title, line, fallback }) {
@@ -163,7 +197,13 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
 
   return resolved
     .filter((item) => item.score >= 0.10)
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => {
+      const penaltyDiff = neighborMunicipalityPenalty(a) - neighborMunicipalityPenalty(b);
+      if (penaltyDiff !== 0) return penaltyDiff;
+      const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
+      if (Math.abs(scoreDiff) > 0.15) return scoreDiff;
+      return distanceToSaltaCenterKm(a) - distanceToSaltaCenterKm(b);
+    })
     .slice(0, maxResults);
 }
 
@@ -218,7 +258,8 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
   }
 
   resolved.sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
-  const best = resolved.find((item) => Number(item.score || 0) >= 0.35) || resolved[0];
+  const scored = resolved.filter((item) => Number(item.score || 0) >= 0.35);
+  const best = pickPreferredSaltaCapitalHit(scored.length ? scored : resolved);
   if (!best) {
     throw new Error('No se encontró la dirección');
   }
