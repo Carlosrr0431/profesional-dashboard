@@ -38,6 +38,7 @@ import {
   getPoiSpecificSearchTokens,
   isCategoryPoiSearch,
   isSpecificNamedPoiQuery,
+  extractStreetHintAlongsidePoi,
   looksLikeSaltaKnownPoi,
   mergeDistinctAddressCandidates,
   resolveSaltaKnownPoi,
@@ -3339,61 +3340,6 @@ function extractAddressSnippetsFromText(text) {
   }
 
   return [...snippets].slice(0, 6);
-}
-
-function extractStreetHintAlongsidePoi(rawText, knownPoi) {
-  let text = normalizeForMatch(rawText || '');
-  if (!text || !knownPoi) return '';
-
-  // Typos frecuentes antes de sacar el POI (bernado → bernardo).
-  text = text
-    .replace(/\bbernado\b/g, 'bernardo')
-    .replace(/\bshoping\b/g, 'shopping')
-    .replace(/\bhospitak\b/g, 'hospital');
-
-  // Patrones más largos primero ("banco macro" antes que "macro") para no dejar residuos.
-  const patterns = [...(knownPoi.patterns || [])].sort(
-    (a, b) => String(b).length - String(a).length
-  );
-  for (const pattern of patterns) {
-    try {
-      text = text.replace(pattern, ' ');
-    } catch (_) {
-      // ignore invalid patterns
-    }
-  }
-
-  // Quitar también tokens del label del POI (evita "Banco Macro Macro").
-  for (const token of normalizeForMatch(knownPoi.label || '').split(/\s+/)) {
-    if (!token || token.length < 3) continue;
-    text = text.replace(new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), ' ');
-  }
-
-  // Ruido de pedido de viaje (no es calle): "mandame un móvil al hospital…"
-  text = text
-    .replace(/\b(banco|cajero|automatico|auto|autos|coche|movil|moviles|taxi|remis|chofer|mandas?|mandame|necesito|quiero|hola|pedido|viaje|ubicacion|sucursal|plaza)\b/g, ' ')
-    .replace(/\b(de|la|el|del|al|en|a|para|cerca|frente|sobre|altura|nro|numero|por|favor|me|un|una)\b/g, ' ')
-    .replace(/\b\d{1,5}[a-z]?\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  const labelTokenSet = new Set(
-    normalizeForMatch(knownPoi.label || '').split(/\s+/).filter(Boolean)
-  );
-
-  const tokens = text
-    .split(' ')
-    .filter((token) => (
-      token.length >= 4
-      && !GENERIC_ADDRESS_TOKENS.has(token)
-      && !labelTokenSet.has(token)
-    ));
-
-  if (tokens.length === 0) return '';
-  return tokens
-    .slice(0, 3)
-    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
-    .join(' ');
 }
 
 /** Descarta resultados irrelevantes (ej. Cerro cuando pidieron Hospital). */

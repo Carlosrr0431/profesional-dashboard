@@ -3,6 +3,12 @@
  * Compartido entre passenger-app y profesional-dashboard.
  */
 
+const {
+  PLACE_CATEGORY_TOKENS,
+  matchCatalogStreetPhrase,
+  isPlaceCategoryToken,
+} = require('./salta-street-lookup');
+
 function normalizePoiText(value) {
   return String(value || '')
     .toLowerCase()
@@ -23,6 +29,7 @@ function fixPoiTypoTokens(norm) {
     .replace(/\bshoping\b/g, 'shopping')
     .replace(/\bshopingk\b/g, 'shopping')
     .replace(/\bshopp?ingk\b/g, 'shopping')
+    .replace(/\bmadame\b/g, 'mandame')
     .replace(/\bhospitak\b/g, 'hospital')
     .replace(/\bbernado\b/g, 'bernardo')
     .replace(/\baeropuertok\b/g, 'aeropuerto')
@@ -869,14 +876,19 @@ function isCategoryPoiSearch(poi, streetHint = '', originalQuery = '') {
 }
 
 const POI_QUERY_STOP_WORDS = new Set([
-  'hola', 'me', 'un', 'una', 'al', 'el', 'la', 'los', 'las', 'del', 'de', 'en', 'a', 'para',
-  'por', 'favor', 'mandas', 'mandame', 'mandar', 'movil', 'moviles', 'auto', 'autos', 'taxi',
-  'remis', 'chofer', 'pedido', 'viaje', 'salta', 'capital', 'argentina', 'centro', 'comercial',
+  'hola', 'me', 'un', 'una', 'uno', 'al', 'el', 'la', 'los', 'las', 'del', 'de', 'en', 'a', 'para',
+  'por', 'favor', 'mandas', 'mandame', 'madame', 'manda', 'mandar', 'dame', 'envia', 'enviame',
+  'movil', 'moviles', 'auto', 'autos', 'coche', 'taxi', 'remis', 'chofer',
+  'necesito', 'quiero', 'buscame', 'buscarme', 'pido', 'pedime', 'traeme', 'manden', 'mandenme',
+  'pedido', 'viaje', 'salta', 'capital', 'argentina', 'centro', 'comercial',
+  'ubicacion', 'sucursal', 'cajero', 'automatico', 'numero', 'nro', 'cerca', 'frente', 'sobre',
+  'calle', 'avenida', 'avda', 'pasaje',
 ]);
 
 const GENERIC_POI_CATEGORY_TOKENS = new Set([
   'hospital', 'sanatorio', 'clinica', 'shopping', 'shoping', 'terminal', 'plaza', 'banco',
   'macro', 'feria', 'galeria', 'paseo', 'portal', 'hiper', 'supermercado', 'farmacia', 'museo',
+  ...PLACE_CATEGORY_TOKENS,
 ]);
 
 /** Tokens demasiado genéricos para exigir match (ej. "san" en "san bernardo"). */
@@ -884,26 +896,105 @@ const WEAK_POI_NAME_TOKENS = new Set([
   'san', 'santa', 'santo', 'nuevo', 'nueva', 'alto', 'alta', 'punto', 'paseo', 'plaza', 'privado',
 ]);
 
+function getKnownPoiIdentityTokens(knownPoi) {
+  const tokens = new Set();
+  const addFrom = (value) => {
+    for (const token of normalizePoiText(value || '').split(/\s+/)) {
+      if (
+        token.length >= 3
+        && !POI_QUERY_STOP_WORDS.has(token)
+        && !GENERIC_POI_CATEGORY_TOKENS.has(token)
+        && !WEAK_POI_NAME_TOKENS.has(token)
+      ) {
+        tokens.add(token);
+      }
+    }
+  };
+
+  addFrom(knownPoi?.label);
+  for (const seed of knownPoi?.pollSeeds || []) {
+    addFrom(seed.title);
+    for (const matchToken of seed.matchTokens || []) {
+      const norm = normalizePoiText(matchToken);
+      if (norm) tokens.add(norm);
+    }
+  }
+  return tokens;
+}
+
+function leftoverTokensBesidePoi(rawText, knownPoi) {
+  let text = fixPoiTypoTokens(normalizePoiText(rawText || ''));
+  if (!text || !knownPoi) return [];
+
+  const patterns = [...(knownPoi.patterns || [])].sort(
+    (a, b) => String(b).length - String(a).length
+  );
+  for (const pattern of patterns) {
+    try {
+      text = text.replace(pattern, ' ');
+    } catch (_) {
+      // ignore invalid patterns
+    }
+  }
+
+  for (const token of normalizePoiText(knownPoi.label || '').split(/\s+/)) {
+    if (!token || token.length < 3) continue;
+    text = text.replace(new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), ' ');
+  }
+
+  const labelTokenSet = new Set(
+    normalizePoiText(knownPoi.label || '').split(/\s+/).filter(Boolean)
+  );
+
+  return text
+    .split(/\s+/)
+    .filter((token) => (
+      Boolean(token)
+      && !POI_QUERY_STOP_WORDS.has(token)
+      && !GENERIC_POI_CATEGORY_TOKENS.has(token)
+      && !isPlaceCategoryToken(token)
+      && !labelTokenSet.has(token)
+    ));
+}
+
 /** Tokens del mensaje que identifican un POI con nombre propio (ej. "bernardo" en hospital). */
 function getPoiSpecificSearchTokens(originalQuery, knownPoi) {
   const text = fixPoiTypoTokens(normalizePoiText(originalQuery || ''));
   if (!text) return [];
 
-  const tokens = text
-    .split(/\s+/)
-    .filter(
-      (token) =>
-        token.length >= 3
-        && !POI_QUERY_STOP_WORDS.has(token)
-        && !GENERIC_POI_CATEGORY_TOKENS.has(token),
-    );
+  const identity = getKnownPoiIdentityTokens(knownPoi);
+  if (identity.size === 0) return [];
 
-  const strong = tokens.filter((token) => !WEAK_POI_NAME_TOKENS.has(token));
-  return strong.length > 0 ? strong : tokens;
+  const seen = new Set();
+  const matched = [];
+  for (const token of text.split(/\s+/)) {
+    if (!identity.has(token) || seen.has(token)) continue;
+    seen.add(token);
+    matched.push(token);
+  }
+  return matched;
 }
 
 function isSpecificNamedPoiQuery(originalQuery, knownPoi) {
   return getPoiSpecificSearchTokens(originalQuery, knownPoi).length >= 1;
+}
+
+/**
+ * Calle del catálogo de Salta junto a un POI ("macro de belgrano").
+ * Si el leftover nombra el lugar (hospital San Bernardo) o un comercio, no es calle.
+ */
+function extractStreetHintAlongsidePoi(rawText, knownPoi) {
+  const leftover = leftoverTokensBesidePoi(rawText, knownPoi);
+  const street = matchCatalogStreetPhrase(leftover);
+  if (!street?.name) return '';
+
+  const identity = getKnownPoiIdentityTokens(knownPoi);
+  const streetTokens = normalizePoiText(street.nameKey)
+    .split(/\s+/)
+    .filter((token) => token.length >= 4 && !WEAK_POI_NAME_TOKENS.has(token));
+  if (streetTokens.some((token) => identity.has(token))) return '';
+
+  return street.name;
 }
 
 function queryTextMatchesPoiTokens(queryText, specificTokens) {
@@ -1152,6 +1243,7 @@ module.exports = {
   buildPoiAutocompleteQueries,
   isCategoryPoiSearch,
   isSpecificNamedPoiQuery,
+  extractStreetHintAlongsidePoi,
   getPoiSpecificSearchTokens,
   normalizePoiText,
   fixPoiTypoTokens,

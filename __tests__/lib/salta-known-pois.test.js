@@ -8,6 +8,7 @@ const {
   isCategoryPoiSearch,
   isSpecificNamedPoiQuery,
   getPoiSpecificSearchTokens,
+  extractStreetHintAlongsidePoi,
   mergeDistinctAddressCandidates,
 } = require('../../src/lib/saltaKnownPois');
 
@@ -92,6 +93,43 @@ describe('saltaKnownPois', () => {
 
     const autoQueries = buildPoiAutocompleteQueries('shoping');
     expect(autoQueries.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('pedido genérico al shopping no usa Madame/Portal como calle ni nombre propio', () => {
+    const raw = 'Madame un auto al shoping';
+    const poi = resolveSaltaKnownPoi(raw);
+    expect(poi?.id).toBe('shopping');
+    expect(getPoiSpecificSearchTokens(raw, poi)).toEqual([]);
+    expect(extractStreetHintAlongsidePoi(raw, poi)).toBe('');
+    expect(isCategoryPoiSearch(poi, extractStreetHintAlongsidePoi(raw, poi), raw)).toBe(true);
+    expect(getKnownPoiPollSeeds(poi, raw).length).toBeGreaterThanOrEqual(4);
+
+    const rewritten = 'Shopping Salta Portal, Salta, Argentina';
+    expect(extractStreetHintAlongsidePoi(rewritten, poi)).toBe('');
+    expect(isCategoryPoiSearch(poi, extractStreetHintAlongsidePoi(rewritten, poi), rewritten)).toBe(true);
+  });
+
+  it('conserva una calle real del catálogo junto al POI', () => {
+    const poi = resolveSaltaKnownPoi('banco macro de la belgrano');
+    expect(poi?.id).toBe('macro');
+    expect(extractStreetHintAlongsidePoi('banco macro de la belgrano', poi)).toMatch(/belgrano/i);
+    expect(getPoiSpecificSearchTokens('banco macro de la belgrano', poi)).not.toContain('belgrano');
+  });
+
+  it('distingue calle de catálogo vs nombre del lugar vs ruido', () => {
+    const hospital = resolveSaltaKnownPoi('el hospital');
+    expect(extractStreetHintAlongsidePoi('hospital de belgrano', hospital)).toMatch(/belgrano/i);
+    expect(extractStreetHintAlongsidePoi('hospital de 20 de febrero', hospital)).toMatch(/20 de febrero/i);
+    expect(extractStreetHintAlongsidePoi('hospital san bernardo', hospital)).toBe('');
+    expect(extractStreetHintAlongsidePoi('hospital mostaza', hospital)).toBe('');
+    expect(isCategoryPoiSearch(
+      hospital,
+      extractStreetHintAlongsidePoi('hospital de belgrano', hospital),
+      'hospital de belgrano',
+    )).toBe(false);
+
+    const shopping = resolveSaltaKnownPoi('el shopping');
+    expect(extractStreetHintAlongsidePoi('mandame un auto al restaurante mostaza y al shopping', shopping)).toBe('');
   });
 
   it('hospital san bernardo es búsqueda específica, no categoría amplia', () => {
