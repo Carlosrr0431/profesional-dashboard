@@ -13,14 +13,14 @@ export const metadata = {
   metadataBase: new URL(SITE_URL),
   title: 'Descargar apps · Profesional',
   description:
-    'Descargá Profesional Pasajero o Profesional Conductor en Google Play o App Store. Viajes en Salta Capital.',
+    'Descargá las apps o pedí un viaje por WhatsApp al +54 9 3872 13-8777. Viajes en Salta Capital.',
   alternates: {
     canonical: `${SITE_URL}${PAGE_PATH}`,
   },
   openGraph: {
     title: 'Descargar apps · Profesional',
     description:
-      'Escaneá el QR y descargá Profesional Pasajero o Profesional Conductor en Google Play o App Store.',
+      'Descargá las apps o pedí un viaje por WhatsApp al +54 9 3872 13-8777.',
     url: `${SITE_URL}${PAGE_PATH}`,
     siteName: 'Profesional App',
     locale: 'es_AR',
@@ -30,7 +30,7 @@ export const metadata = {
     card: 'summary',
     title: 'Descargar apps · Profesional',
     description:
-      'Descargá Profesional Pasajero o Profesional Conductor en Google Play o App Store.',
+      'Descargá las apps o pedí un viaje por WhatsApp al +54 9 3872 13-8777.',
   },
   robots: {
     index: true,
