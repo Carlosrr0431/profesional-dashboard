@@ -5,6 +5,10 @@ export const PLAY_PASSENGER =
   'https://play.google.com/store/apps/details?id=com.remises.passengerapp';
 export const PLAY_DRIVER =
   'https://play.google.com/store/apps/details?id=com.remises.driverapp';
+export const APPLE_PASSENGER =
+  'https://apps.apple.com/ar/app/profesional-pasajero/id6788189673';
+export const APPLE_DRIVER =
+  'https://apps.apple.com/ar/app/profesional-conductor/id6792967642';
 
 function PlayMark({ className = 'h-5 w-5' }) {
   return (
@@ -14,77 +18,104 @@ function PlayMark({ className = 'h-5 w-5' }) {
   );
 }
 
-function ArrowIcon({ className = 'h-4 w-4' }) {
+function AppleMark({ className = 'h-5 w-5' }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M16.365 1.43c0 1.14-.463 2.2-1.207 2.993-.807.86-2.135 1.512-3.27 1.422-.146-1.095.422-2.227 1.148-3.016.79-.86 2.156-1.49 3.329-1.4zM20.52 17.14c-.54 1.24-.8 1.79-1.5 2.89-1.03 1.55-2.48 3.48-4.28 3.5-1.6.02-2.01-1.05-4.18-1.04-2.17.01-2.62 1.06-4.22 1.04-1.8-.02-3.18-1.76-4.21-3.31C.33 16.96-.84 12.3.9 9.17c.86-1.55 2.4-2.53 4.07-2.56 1.6-.03 3.11 1.08 4.17 1.08 1.05 0 3.02-1.33 5.1-1.13.87.04 3.31.35 4.88 2.64-4.13 2.26-3.47 8.15.4 7.94z" />
     </svg>
   );
 }
 
-function AppRow({
-  href,
-  title,
-  subtitle,
-  meta,
-  tone = 'light',
-  emphasized = false,
-}) {
-  const dark = tone === 'dark';
+function PhoneMark({ className = 'h-5 w-5' }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 3.75h8A2.25 2.25 0 0118.25 6v12A2.25 2.25 0 0116 20.25H8A2.25 2.25 0 015.75 18V6A2.25 2.25 0 018 3.75zM9.75 17.25h4.5" />
+    </svg>
+  );
+}
+
+function StoreButton({ href, store, dark, appName }) {
+  const apple = store === 'apple';
+  const storeName = apple ? 'App Store' : 'Play Store';
 
   return (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
+      aria-label={`Descargar ${appName} en ${storeName}`}
       className={[
-        'group relative flex min-h-[72px] items-center gap-3.5 rounded-2xl px-4 py-4 transition-all duration-300',
-        'sm:min-h-[80px] sm:gap-4 sm:rounded-[1.35rem] sm:px-5 sm:py-5',
-        'active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
-        emphasized ? 'ring-2 ring-accent/30 ring-offset-2 ring-offset-white' : '',
+        'inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-full px-3 text-xs font-bold transition sm:min-h-12 sm:px-4 sm:text-sm',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2',
         dark
-          ? 'bg-navy-900 text-white shadow-[0_16px_40px_-20px_rgba(15,23,42,0.55)] hover:bg-[#1f2558]'
-          : 'border border-black/[0.06] bg-white text-navy-900 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.28)] hover:border-accent/25 hover:shadow-[0_16px_40px_-18px_rgba(36,95,141,0.22)]',
+          ? apple
+            ? 'bg-white text-navy-900 hover:bg-light-50 focus-visible:ring-offset-navy-900'
+            : 'bg-white/12 text-white ring-1 ring-white/20 hover:bg-white/18 focus-visible:ring-offset-navy-900'
+          : apple
+            ? 'bg-navy-900 text-white hover:bg-[#1f2558] focus-visible:ring-offset-white'
+            : 'bg-accent text-white hover:bg-accent-light focus-visible:ring-offset-white',
       ].join(' ')}
     >
-      <span
-        className={[
-          'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12 sm:rounded-2xl',
-          dark ? 'bg-white/10 text-white' : 'bg-navy-900 text-white',
-        ].join(' ')}
-      >
-        <PlayMark className="h-5 w-5 sm:h-[1.35rem] sm:w-[1.35rem]" />
-      </span>
-
-      <span className="min-w-0 flex-1 text-left">
-        <span className={`block text-[10px] font-semibold uppercase tracking-[0.14em] sm:text-[11px] ${dark ? 'text-white/55' : 'text-slate-500'}`}>
-          {meta}
-        </span>
-        <span className="mt-0.5 block truncate text-[15px] font-bold leading-snug tracking-tight sm:text-base">
-          {title}
-        </span>
-        <span className={`mt-0.5 block text-[13px] leading-snug sm:text-sm ${dark ? 'text-white/65' : 'text-slate-500'}`}>
-          {subtitle}
-        </span>
-      </span>
-
-      <span
-        className={[
-          'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-xs font-bold transition sm:h-11 sm:px-4 sm:text-sm',
-          dark
-            ? 'bg-white text-navy-900 group-hover:bg-light-50'
-            : 'bg-accent text-white group-hover:bg-accent-light',
-        ].join(' ')}
-      >
-        Play
-        <ArrowIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-      </span>
+      {apple ? <AppleMark className="h-4 w-4 sm:h-[1.1rem] sm:w-[1.1rem]" /> : <PlayMark className="h-4 w-4 sm:h-[1.1rem] sm:w-[1.1rem]" />}
+      {storeName}
     </a>
   );
 }
 
+function AppCard({
+  title,
+  subtitle,
+  meta,
+  playHref,
+  appleHref,
+  tone = 'light',
+  emphasized = false,
+}) {
+  const dark = tone === 'dark';
+
+  return (
+    <article
+      className={[
+        'relative rounded-2xl px-4 py-4 sm:rounded-[1.35rem] sm:px-5 sm:py-5',
+        emphasized ? 'ring-2 ring-accent/30 ring-offset-2 ring-offset-white' : '',
+        dark
+          ? 'bg-navy-900 text-white shadow-[0_16px_40px_-20px_rgba(15,23,42,0.55)]'
+          : 'border border-black/[0.06] bg-white text-navy-900 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.28)]',
+      ].join(' ')}
+    >
+      <div className="flex items-center gap-3.5 sm:gap-4">
+        <span
+          className={[
+            'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12 sm:rounded-2xl',
+            dark ? 'bg-white/10 text-white' : 'bg-navy-900 text-white',
+          ].join(' ')}
+        >
+          <PhoneMark className="h-5 w-5 sm:h-[1.35rem] sm:w-[1.35rem]" />
+        </span>
+
+        <div className="min-w-0 flex-1 text-left">
+          <p className={`text-[10px] font-semibold uppercase tracking-[0.14em] sm:text-[11px] ${dark ? 'text-white/55' : 'text-slate-500'}`}>
+            {meta}
+          </p>
+          <h2 className="mt-0.5 truncate text-[15px] font-bold leading-snug tracking-tight sm:text-base">
+            {title}
+          </h2>
+          <p className={`mt-0.5 text-[13px] leading-snug sm:text-sm ${dark ? 'text-white/65' : 'text-slate-500'}`}>
+            {subtitle}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex gap-2 sm:gap-2.5">
+        <StoreButton href={playHref} store="play" dark={dark} appName={title} />
+        <StoreButton href={appleHref} store="apple" dark={dark} appName={title} />
+      </div>
+    </article>
+  );
+}
+
 /**
- * Ficha QR: descarga de apps en Play Store.
+ * Ficha QR: descarga de apps en Play Store y App Store.
  * @param {{ focus?: 'pasajero' | 'conductor' | null }} props
  */
 export default function AppsFichaPage({ focus = null }) {
@@ -114,15 +145,15 @@ export default function AppsFichaPage({ focus = null }) {
         <section className="flex flex-1 flex-col justify-center py-6 sm:py-10 lg:py-14">
           <div className="landing-hero-enter mx-auto w-full max-w-md text-center lg:max-w-lg">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent sm:text-xs">
-              Google Play
+              Play Store y App Store
             </p>
             <h1 className="landing-hero-enter landing-hero-enter-delay-1 mt-3 text-[clamp(1.85rem,6.5vw,2.75rem)] font-extrabold leading-[1.08] tracking-tight text-navy-900">
               Profesional
             </h1>
             <p className="landing-hero-enter landing-hero-enter-delay-2 mx-auto mt-3 max-w-[22rem] text-[14px] leading-relaxed text-slate-500 sm:mt-4 sm:max-w-sm sm:text-[15px]">
               {single
-                ? 'Tocá para abrir la app en Play Store.'
-                : 'Elegí tu app y descargala en un toque.'}
+                ? 'Tocá Play Store o App Store para descargar.'
+                : 'Elegí tu app y descargala en Android o iPhone.'}
             </p>
           </div>
 
@@ -133,8 +164,9 @@ export default function AppsFichaPage({ focus = null }) {
             ].join(' ')}
           >
             {showPassenger ? (
-              <AppRow
-                href={PLAY_PASSENGER}
+              <AppCard
+                playHref={PLAY_PASSENGER}
+                appleHref={APPLE_PASSENGER}
                 tone="light"
                 meta="Para viajar"
                 title="Pasajero"
@@ -144,8 +176,9 @@ export default function AppsFichaPage({ focus = null }) {
             ) : null}
 
             {showDriver ? (
-              <AppRow
-                href={PLAY_DRIVER}
+              <AppCard
+                playHref={PLAY_DRIVER}
+                appleHref={APPLE_DRIVER}
                 tone="dark"
                 meta="Para conducir"
                 title="Conductor"
@@ -164,7 +197,7 @@ export default function AppsFichaPage({ focus = null }) {
             </p>
           ) : (
             <p className="mt-7 text-center text-[12px] text-slate-400 sm:mt-8 sm:text-[13px]">
-              Gratis en Android · Google Play
+              Gratis en Android e iOS
             </p>
           )}
         </section>

@@ -13,14 +13,14 @@ export const metadata = {
   metadataBase: new URL(SITE_URL),
   title: 'Descargar apps · Profesional',
   description:
-    'Descargá Profesional Pasajero o Profesional Conductor desde Google Play. Viajes en Salta Capital.',
+    'Descargá Profesional Pasajero o Profesional Conductor en Google Play o App Store. Viajes en Salta Capital.',
   alternates: {
     canonical: `${SITE_URL}${PAGE_PATH}`,
   },
   openGraph: {
     title: 'Descargar apps · Profesional',
     description:
-      'Escaneá el QR y descargá Profesional Pasajero o Profesional Conductor en Google Play.',
+      'Escaneá el QR y descargá Profesional Pasajero o Profesional Conductor en Google Play o App Store.',
     url: `${SITE_URL}${PAGE_PATH}`,
     siteName: 'Profesional App',
     locale: 'es_AR',
@@ -30,7 +30,7 @@ export const metadata = {
     card: 'summary',
     title: 'Descargar apps · Profesional',
     description:
-      'Descargá Profesional Pasajero o Profesional Conductor desde Google Play.',
+      'Descargá Profesional Pasajero o Profesional Conductor en Google Play o App Store.',
   },
   robots: {
     index: true,
