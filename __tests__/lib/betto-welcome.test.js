@@ -1,6 +1,5 @@
 const {
   BETTO_INTRO,
-  BETTO_GREETING_TTL_MS,
   buildBettoWelcomeMessage,
   withBettoIntro,
   isBettoGreetedContext,
@@ -92,53 +91,38 @@ describe('bettoWelcome', () => {
     })).toBe(false);
   });
 
-  it('persiste el saludo 30 minutos aunque se resetee la sesión', () => {
+  it('el flag de saludo no caduca por el tiempo', () => {
     const now = Date.parse('2026-08-12T22:20:00-03:00');
     const stamped = stampBettoGreeted(new Date(now));
-    expect(isBettoGreetedContext(stamped, now)).toBe(true);
-    expect(isBettoGreetedContext(stamped, now + BETTO_GREETING_TTL_MS - 1000)).toBe(true);
-    expect(isBettoGreetedContext(stamped, now + BETTO_GREETING_TTL_MS + 1000)).toBe(false);
+    expect(isBettoGreetedContext(stamped)).toBe(true);
+    expect(isBettoGreetedContext({ betto_greeted: true })).toBe(true);
+    expect(isBettoGreetedContext({ betto_greeted: true, betto_greeted_at: null })).toBe(true);
+    expect(isBettoGreetedContext({})).toBe(false);
 
     const kept = mergeWhatsappSessionContext(
       { ...stamped, wasender_line: '5493872138777' },
       {},
-      { now },
+      { now: now + 3 * 60 * 60 * 1000 },
     );
     expect(kept.betto_greeted).toBe(true);
     expect(kept.betto_greeted_at).toBe(stamped.betto_greeted_at);
-
-    const resetWithinWindow = mergeWhatsappSessionContext(
-      stamped,
-      {},
-      { sessionReset: true, now: now + 60 * 1000 },
-    );
-    expect(resetWithinWindow.betto_greeted).toBe(true);
-    expect(resetWithinWindow.betto_greeted_at).toBe(stamped.betto_greeted_at);
-
-    const resetAfterTtl = mergeWhatsappSessionContext(
-      stamped,
-      {},
-      { sessionReset: true, now: now + BETTO_GREETING_TTL_MS + 1000 },
-    );
-    expect(resetAfterTtl.betto_greeted).toBeUndefined();
-    expect(resetAfterTtl.betto_greeted_at).toBeUndefined();
   });
 
-  it('no corre la ventana si este turno vuelve a marcar el saludo', () => {
+  it('un viaje nuevo limpia el saludo previo', () => {
     const now = Date.parse('2026-08-12T22:20:00-03:00');
-    const prev = stampBettoGreeted(new Date(now));
-    const merged = mergeWhatsappSessionContext(
-      prev,
-      stampBettoGreeted(new Date(now + 60 * 1000)),
-      { sessionReset: true, now: now + 60 * 1000 },
-    );
-    expect(merged.betto_greeted_at).toBe(prev.betto_greeted_at);
-  });
+    const stamped = stampBettoGreeted(new Date(now));
+    const cleared = mergeWhatsappSessionContext(stamped, {}, { sessionReset: true, now });
+    expect(cleared.betto_greeted).toBeUndefined();
+    expect(cleared.betto_greeted_at).toBeUndefined();
 
-  it('no trata betto_greeted sin timestamp como saludo eterno', () => {
-    const now = Date.parse('2026-08-13T22:31:00-03:00');
-    expect(isBettoGreetedContext({ betto_greeted: true }, now)).toBe(false);
-    expect(isBettoGreetedContext({ betto_greeted: true, betto_greeted_at: null }, now)).toBe(false);
+    const restampedAt = now + 60 * 1000;
+    const restamped = mergeWhatsappSessionContext(
+      stamped,
+      stampBettoGreeted(new Date(restampedAt)),
+      { sessionReset: true, now: restampedAt },
+    );
+    expect(restamped.betto_greeted).toBe(true);
+    expect(restamped.betto_greeted_at).toBe(new Date(restampedAt).toISOString());
   });
 
   it('reemplaza pedidos de retiro vagos por calle y altura o GPS', () => {

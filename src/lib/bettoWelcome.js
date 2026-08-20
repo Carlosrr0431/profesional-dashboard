@@ -1,7 +1,7 @@
 /**
  * Saludo de inicio de conversación WhatsApp (ambas líneas).
- * Una vez por ventana de 30 minutos: bienvenida sin ruta, o el
- * "Tomé tu pedido..." cuando el pasajero ya mandó la dirección.
+ * El flag betto_greeted vale mientras hay un viaje o cotización en curso.
+ * Se limpia cuando el pasajero pide un viaje nuevo, no por una ventana de tiempo.
  */
 import {
   isAvailabilityAskWithoutRoute,
@@ -13,7 +13,6 @@ import {
 export { isAvailabilityAskWithoutRoute };
 
 export const BETTO_INTRO = 'Hola, soy el Chat Bot Betto 👋';
-export const BETTO_GREETING_TTL_MS = 30 * 60 * 1000;
 export const ASK_PICKUP_STREET_OR_GPS =
   'Mandame *calle y altura* (por ejemplo Mitre 200) o tu *ubicación GPS* desde WhatsApp.';
 
@@ -62,11 +61,8 @@ export function getBettoGreetedAtMs(context) {
   return Number.isFinite(ms) && ms > 0 ? ms : null;
 }
 
-export function isBettoGreetedContext(context, now = Date.now()) {
-  const raw = parseSessionContext(context);
-  const at = getBettoGreetedAtMs(raw);
-  if (at == null) return false;
-  return now - at < BETTO_GREETING_TTL_MS;
+export function isBettoGreetedContext(context) {
+  return parseSessionContext(context).betto_greeted === true;
 }
 
 export function stampBettoGreeted(now = new Date()) {
@@ -115,8 +111,8 @@ export function shouldSendBettoWelcome({
   return false;
 }
 
-function resolveGreetedAtIso(prev, next, nowMs) {
-  if (isBettoGreetedContext(prev, nowMs) && prev.betto_greeted_at) {
+function resolveGreetedAtIso(prev, next, nowMs, sessionReset) {
+  if (!sessionReset && isBettoGreetedContext(prev) && prev.betto_greeted_at) {
     return prev.betto_greeted_at;
   }
   if (next.betto_greeted_at) return next.betto_greeted_at;
@@ -124,13 +120,12 @@ function resolveGreetedAtIso(prev, next, nowMs) {
 }
 
 export function mergeWhatsappSessionContext(prevRaw, nextContext, { sessionReset = false, now = Date.now() } = {}) {
-  void sessionReset;
   const prev = parseSessionContext(prevRaw);
   const next = nextContext && typeof nextContext === 'object' && !Array.isArray(nextContext)
     ? { ...nextContext }
     : {};
   const nowMs = typeof now === 'number' ? now : new Date(now).getTime();
-  const prevStillGreeted = isBettoGreetedContext(prev, nowMs);
+  const prevStillGreeted = !sessionReset && isBettoGreetedContext(prev);
   const nextClears = next.betto_greeted === false;
   const nextMarksGreeted = next.betto_greeted === true || Boolean(next.betto_greeted_at);
 
@@ -139,7 +134,7 @@ export function mergeWhatsappSessionContext(prevRaw, nextContext, { sessionReset
     delete next.betto_greeted_at;
   } else if (nextMarksGreeted || prevStillGreeted) {
     next.betto_greeted = true;
-    next.betto_greeted_at = resolveGreetedAtIso(prev, next, nowMs);
+    next.betto_greeted_at = resolveGreetedAtIso(prev, next, nowMs, sessionReset);
   } else {
     delete next.betto_greeted;
     delete next.betto_greeted_at;

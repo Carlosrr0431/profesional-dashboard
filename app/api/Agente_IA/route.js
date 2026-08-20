@@ -9775,9 +9775,10 @@ async function processClaimedConversation(batch) {
 
   const lastTripById = await getTripById(batch.last_trip_id);
 
-  // If the previous trip is already closed, start the new request with a clean context/history.
+  // Un viaje cerrado no borra el contexto: el historial se omite para DeepSeek
+  // y el contexto se limpia solo si el clasificador marca un viaje nuevo.
   let shouldResetConversationState = Boolean(lastTripById && !isOpenTripStatus(lastTripById.status));
-  batch._sessionReset = shouldResetConversationState;
+  batch._sessionReset = false;
   if (shouldResetConversationState) {
     logWebhook('conversation_reset_closed_trip_context', {
       conversationId: batch?.id || null,
@@ -9816,8 +9817,6 @@ async function processClaimedConversation(batch) {
       }
     }
   }
-
-  batch._sessionReset = shouldResetConversationState;
 
   // ── Fast path: viaje activo/en cola/pendiente sin GPS/poll pendiente ──────────
   // Si el pasajero ya tiene un viaje abierto y bloqueante, skip full AI classification.
@@ -9987,10 +9986,10 @@ async function processClaimedConversation(batch) {
   const tripContextSource = openTripByPhone
     ? safeJsonParse(openTripByPhone.wa_context, {})
     : {};
-  const convCtx = (shouldResetConversationState && !keepPriceQuote) ? {} : savedConvCtx;
-  const context = (shouldResetConversationState && !keepPriceQuote)
-    ? {}
-    : {
+  // Un viaje cerrado no borra cotización ni saludo: eso se limpia si el
+  // clasificador marca un viaje nuevo.
+  const convCtx = savedConvCtx;
+  let context = {
         ...(isPriceInquiryCollecting(convCtx)
           ? {
               price_inquiry: true,
@@ -10148,6 +10147,18 @@ async function processClaimedConversation(batch) {
     if (!extracted.schedule_time) {
       extracted.schedule_time = combinedText.slice(0, 120);
     }
+  }
+
+  if (extracted.intent === 'trip_request' && !openTripByPhone) {
+    const passengerName =
+      convCtx.passenger_name || context.passenger_name || extracted.passenger_name || null;
+    logWebhook('conversation_reset_new_trip_request', {
+      conversationId: batch?.id || null,
+      source: extracted.source || null,
+    });
+    batch._sessionReset = true;
+    shouldResetConversationState = true;
+    context = passengerName ? { passenger_name: passengerName } : {};
   }
 
   let pendingScheduleInfo = null;
@@ -10325,7 +10336,9 @@ async function processClaimedConversation(batch) {
     tripWaContext.pending_cancel_confirm ||
     tripWaContext.price_inquiry
   );
-  const alreadyBettoGreeted = isBettoGreetedContext(batch.context);
+  const alreadyBettoGreeted =
+    isBettoGreetedContext(batch.context)
+    && (tripWaMidFlow || isPriceInquiryCollecting(context));
 
   const greetingOrAvailability =
     isGreetingOnly(combinedText) || isAvailabilityAskWithoutRoute(combinedText);
@@ -10784,7 +10797,28 @@ async function processClaimedConversation(batch) {
         },
       };
     }
-    logWebhook('conversation_intent_other_ignored', { conversationId: batch?.id || null });
+    logWebhook('conversation_intent_other_ignored', {
+      conversationId: batch?.id || null,
+      greetingOrAvailability,
+    });
+    if (greetingOrAvailability) {
+      const fallbackReply = alreadyBettoGreeted
+        ? ASK_PICKUP_STREET_OR_GPS
+        : buildBettoWelcomeMessage();
+      await sendWhatsAppText(batch.phone, fallbackReply);
+      return {
+        handled: true,
+        updates: {
+          status: 'open',
+          context: alreadyBettoGreeted
+            ? { ...nextContext, ...stampBettoGreeted() }
+            : stampBettoGreeted(),
+          last_trip_id: shouldResetConversationState ? null : batch.last_trip_id || null,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
+      };
+    }
     return {
       handled: true,
       updates: {
@@ -10828,7 +10862,11 @@ async function processClaimedConversation(batch) {
   if (!nextContext.pickup_location) {
     // Si el contexto se acaba de resetear y no hay señal clara de pedido de viaje,
     // no crear placeholder ni pedir GPS — fue un mensaje casual mal clasificado.
-    if (shouldResetConversationState && !hasConcreteAddress) {
+    if (
+      shouldResetConversationState
+      && !hasConcreteAddress
+      && extracted.intent !== 'trip_request'
+    ) {
       logWebhook('conversation_no_trip_after_reset', {
         conversationId: batch?.id || null,
         reason: 'context_reset_no_address_no_placeholder',

@@ -93,6 +93,7 @@ function stripPatternSource(patternResult) {
 }
 
 function sanitizePatternFallback(patternFallback, combinedText, context = {}) {
+  void context;
   const rest = stripPatternSource(patternFallback);
   const reply = rest.reply ? rewriteVaguePickupAsk(rest.reply) : rest.reply;
   if (isAvailabilityAskWithoutRoute(combinedText)) {
@@ -105,14 +106,14 @@ function sanitizePatternFallback(patternFallback, combinedText, context = {}) {
       reply: reply || AVAILABILITY_REPLY,
     };
   }
-  if (isGreetingOnly(combinedText) && (context.awaiting_gps || context.awaiting_pickup_number)) {
+  if (isGreetingOnly(combinedText)) {
     return {
       ...rest,
       intent: 'other',
       pickup_location: null,
       origin: null,
       destination: null,
-      reply: ASK_PICKUP_STREET_OR_GPS,
+      reply: reply || ASK_PICKUP_STREET_OR_GPS,
     };
   }
   if (isAddressNoisePhrase(rest.pickup_location)) {
