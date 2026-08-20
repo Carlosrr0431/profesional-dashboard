@@ -129,6 +129,53 @@ export function buildPriceInquiryCollectingContext({
   };
 }
 
+function looksLikeTimeFragment(value) {
+  const n = normalizeForMatch(value);
+  return /^(?:a\s+)?las?\s+\d{1,2}(?::\d{2})?(?:\s*(?:hs|hrs|horas?))?$/.test(n);
+}
+
+export function parseOriginDestinationPair(text) {
+  const src = String(text || '').trim();
+  if (!src) return null;
+
+  const asPair = (left, right) => {
+    const pickup = String(left || '').trim().replace(/[.,;]+$/g, '');
+    const destination = String(right || '')
+      .trim()
+      .replace(/^[.,;]+/g, '')
+      .replace(/[?.,!]+$/g, '');
+    if (!looksLikeAddressText(pickup) || !looksLikeAddressText(destination)) return null;
+    if (looksLikeTimeFragment(pickup) || looksLikeTimeFragment(destination)) return null;
+    if (normalizeForMatch(pickup) === normalizeForMatch(destination)) return null;
+    return { pickup, destination };
+  };
+
+  const patterns = [
+    /(?:^|\s)(?:de|desde)\s+(.+?)\s+(?:a|hasta|hacia)\s+(.+)$/i,
+    /^(.+?)\s+(?:es\s+)?para\s+ir\s+(?:hasta|a)\s+(.+)$/i,
+    /^(.+?)\s+(?:me\s+)?voy\s+(?:para|hasta|a)\s+(.+)$/i,
+    /^(.+?)\s+(?:hasta|hacia)\s+(.+)$/i,
+    /(?:retiro|origen)\s*:?\s*(.+?)\s+(?:destino)\s*:?\s*(.+)$/i,
+    /^(.+?)\s+a\s+(.+)$/i,
+    /^(.+?)\s*[,/]\s*(.+)$/,
+  ];
+
+  for (const regex of patterns) {
+    const match = src.match(regex);
+    if (!match) continue;
+    const pair = asPair(match[1], match[2]);
+    if (pair) return pair;
+  }
+
+  const lines = src.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 2) {
+    const pair = asPair(lines[0], lines[1]);
+    if (pair) return pair;
+  }
+
+  return null;
+}
+
 function resolvePriceInquirySlot(context, lastBotReply) {
   if (context?.awaiting_price_destination) return 'destination';
   if (context?.awaiting_price_origin) return 'origin';
@@ -159,8 +206,12 @@ export function fillPriceInquiryAddresses({
 } = {}) {
   const prevPickup = context.pickup_location || context.origin || null;
   const prevDest = context.destination || null;
-  if (heuristics?.pickup && heuristics?.destination) {
-    return { pickup: heuristics.pickup, destination: heuristics.destination };
+  const pair = parseOriginDestinationPair(text)
+    || (heuristics?.pickup && heuristics?.destination
+      ? { pickup: heuristics.pickup, destination: heuristics.destination }
+      : null);
+  if (pair?.pickup && pair?.destination) {
+    return pair;
   }
   const slot = resolvePriceInquirySlot(context, lastBotReply);
   const lone = loneAddressFromText(text, heuristics);

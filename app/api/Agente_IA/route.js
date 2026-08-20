@@ -133,6 +133,7 @@ import {
   lastBotAskedForTripPrice,
   looksLikeExplicitVehicleDispatch,
   looksLikeTripRequest as messageLooksLikeTripRequest,
+  parseOriginDestinationPair,
 } from '../../../src/lib/whatsappTripIntentPatterns';
 
 export const maxDuration = 60;
@@ -10563,8 +10564,11 @@ async function processClaimedConversation(batch) {
       || context.pickup_location || context.origin || nextContext.pickup_location || null;
     let priceDestRaw = extracted.destination || context.destination || nextContext.destination || null;
 
-    // Fallback heurístico: si GPT no extrajo destino, intentar parsear del texto
-    if (priceOriginRaw && !priceDestRaw) {
+    const routePair = parseOriginDestinationPair(combinedText);
+    if (routePair?.pickup && routePair?.destination) {
+      priceOriginRaw = routePair.pickup;
+      priceDestRaw = routePair.destination;
+    } else if (priceOriginRaw && !priceDestRaw) {
       // "[DEST] desde [ORIGIN]" o "de [ORIGIN] a [DEST]"
       const fromToMatch = combinedText.match(/(?:de|desde)\s+(.+?)\s+(?:a|hasta|hacia)\s+(.+?)(?:\s*[?.,!]|$)/i);
       const destFromMatch = combinedText.match(/(.+?)\s+desde\s+(.+?)(?:\s*[?.,!]|$)/i);
@@ -10577,7 +10581,6 @@ async function processClaimedConversation(batch) {
         priceDestRaw = toFromMatch[1].trim();
         priceOriginRaw = toFromMatch[2].trim();
       } else if (destFromMatch) {
-        // "X desde Y" → X=dest, Y=origin (quitar palabras de precio al inicio)
         const destCandidate = destFromMatch[1].replace(/^.*?(?:saldr[ií]a|sale|cuesta|cobran|precio)\s*/i, '').trim();
         if (destCandidate && /\d/.test(destCandidate)) {
           priceDestRaw = destCandidate;

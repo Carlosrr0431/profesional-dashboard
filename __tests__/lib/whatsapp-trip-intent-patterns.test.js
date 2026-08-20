@@ -4,6 +4,7 @@ import {
   isAvailabilityAskWithoutRoute,
   looksLikePriceInquiry,
   looksLikeTripRequest,
+  parseOriginDestinationPair,
   shouldUsePatternExtraction,
 } from '../../src/lib/whatsappTripIntentPatterns';
 
@@ -121,6 +122,30 @@ describe('whatsappTripIntentPatterns', () => {
     expect(afterOrigin.pickup_location).toMatch(/mitre 200/i);
     expect(afterOrigin.destination).toBeNull();
     expect(afterOrigin.missing_fields).toContain('destination');
+  });
+
+  it('si en el origen mandan origen y destino juntos, cotiza sin volver a preguntar', () => {
+    expect(parseOriginDestinationPair('mitre 200 a guemes 400')).toEqual({
+      pickup: 'mitre 200',
+      destination: 'guemes 400',
+    });
+    expect(parseOriginDestinationPair('de mitre 200 a guemes 400')?.destination).toMatch(/guemes 400/i);
+    expect(parseOriginDestinationPair('mitre 200 para ir a guemes 400')?.destination).toMatch(/guemes 400/i);
+    expect(parseOriginDestinationPair('mitre 200')).toBeNull();
+    expect(parseOriginDestinationPair('mitre 200 a las 8')).toBeNull();
+
+    const extraction = buildPatternTripExtraction({
+      combinedText: 'mitre 200 a guemes 400',
+      context: {
+        price_inquiry: true,
+        awaiting_price_origin: true,
+      },
+      heuristics: { pickup: null, destination: null, looksLikeTripRequest: false },
+    });
+    expect(extraction.intent).toBe('price_inquiry');
+    expect(extraction.pickup_location).toMatch(/mitre 200/i);
+    expect(extraction.destination).toMatch(/guemes 400/i);
+    expect(extraction.missing_fields).toEqual([]);
   });
 
   it('completa el destino de una cotización si el bot acaba de pedirlo', () => {
