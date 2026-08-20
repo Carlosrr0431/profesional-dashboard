@@ -5,6 +5,7 @@ import {
   looksLikePriceInquiry,
   looksLikeTripRequest,
   parseOriginDestinationPair,
+  shouldPreservePriceQuoteAfterTripReset,
   shouldUsePatternExtraction,
 } from '../../src/lib/whatsappTripIntentPatterns';
 
@@ -175,5 +176,28 @@ describe('whatsappTripIntentPatterns', () => {
     expect(extraction.intent).not.toBe('trip_request');
     expect(extraction.pickup_location).toMatch(/mitre 200/i);
     expect(extraction.missing_fields).toContain('destination');
+  });
+
+  it('no toma el ejemplo Mitre 200 del saludo como origen de una cotización', () => {
+    const extraction = buildPatternTripExtraction({
+      combinedText: 'quiero saber el precio deu n viaje',
+      context: {
+        last_bot_reply: 'Contame el viaje que querés tomar. Necesito de dónde te buscamos. Ejemplo: Mitre 200 o buscame en Mitre 200 para ir a Güemes 400.',
+      },
+      heuristics: { pickup: 'Mitre 200', destination: null, looksLikeTripRequest: true },
+    });
+    expect(extraction.intent).toBe('price_inquiry');
+    expect(extraction.pickup_location).toBeNull();
+    expect(extraction.missing_fields).toEqual(expect.arrayContaining(['pickup_location', 'destination']));
+    expect(extraction.reply).toMatch(/origen/i);
+  });
+
+  it('conserva la cotización aunque el viaje anterior esté cerrado', () => {
+    expect(shouldPreservePriceQuoteAfterTripReset({
+      price_inquiry: true,
+      awaiting_price_origin: true,
+      last_bot_reply: 'Para darte el precio necesito las dos direcciones. ¿Cuál es el *origen* del viaje? (calle y número)',
+    })).toBe(true);
+    expect(shouldPreservePriceQuoteAfterTripReset({})).toBe(false);
   });
 });

@@ -134,6 +134,7 @@ import {
   looksLikeExplicitVehicleDispatch,
   looksLikeTripRequest as messageLooksLikeTripRequest,
   parseOriginDestinationPair,
+  shouldPreservePriceQuoteAfterTripReset,
 } from '../../../src/lib/whatsappTripIntentPatterns';
 
 export const maxDuration = 60;
@@ -9972,11 +9973,22 @@ async function processClaimedConversation(batch) {
   // La fuente de verdad de un viaje abierto es trips.wa_context.
   // La cotización de precio (origen/destino pendientes) vive en la conversación
   // hasta que hay ruta + poll, porque todavía no hay viaje en hold con coords.
+  // Un viaje anterior cerrado NO debe borrar esa cotización: los mensajes
+  // salientes no se persisten, así que el contexto es lo único que queda.
+  const savedConvCtx = safeJsonParse(batch.context, {});
+  const keepPriceQuote = shouldPreservePriceQuoteAfterTripReset(savedConvCtx);
+  if (shouldResetConversationState && keepPriceQuote) {
+    logWebhook('conversation_keep_price_quote_after_trip_reset', {
+      conversationId: batch?.id || null,
+      awaitingOrigin: Boolean(savedConvCtx.awaiting_price_origin),
+      awaitingDestination: Boolean(savedConvCtx.awaiting_price_destination),
+    });
+  }
   const tripContextSource = openTripByPhone
     ? safeJsonParse(openTripByPhone.wa_context, {})
     : {};
-  const convCtx = shouldResetConversationState ? {} : safeJsonParse(batch.context, {});
-  const context = shouldResetConversationState
+  const convCtx = (shouldResetConversationState && !keepPriceQuote) ? {} : savedConvCtx;
+  const context = (shouldResetConversationState && !keepPriceQuote)
     ? {}
     : {
         ...(isPriceInquiryCollecting(convCtx)
@@ -9987,6 +9999,7 @@ async function processClaimedConversation(batch) {
               pickup_location: convCtx.pickup_location || convCtx.origin || null,
               origin: convCtx.origin || convCtx.pickup_location || null,
               destination: convCtx.destination || null,
+              last_bot_reply: convCtx.last_bot_reply || null,
             }
           : {}),
         ...(tripContextSource.extracted || {}),
@@ -10026,8 +10039,10 @@ async function processClaimedConversation(batch) {
       const lastOutgoing = [...recent].reverse().find((row) => (
         row.direction === 'outgoing' && (row.content || row.transcription)
       ));
-      lastBotReply = String(lastOutgoing?.content || lastOutgoing?.transcription || '').slice(0, 240) || null;
-      if (!shouldResetConversationState) {
+      lastBotReply = String(lastOutgoing?.content || lastOutgoing?.transcription || '').slice(0, 240)
+        || savedConvCtx.last_bot_reply
+        || null;
+      if (!shouldResetConversationState || keepPriceQuote) {
         const pendingSet = new Set(pendingContents);
         history = recent
           .filter((row) => {
@@ -10049,6 +10064,10 @@ async function processClaimedConversation(batch) {
         error: error?.message || 'unknown',
       });
     }
+  }
+
+  if (!lastBotReply) {
+    lastBotReply = savedConvCtx.last_bot_reply || null;
   }
 
   const extracted = await extractTripIntent({
@@ -10596,6 +10615,7 @@ async function processClaimedConversation(batch) {
         origin: priceOriginRaw,
         destination: priceDestRaw,
         passengerName: nextContext.passenger_name,
+        lastBotReply: askReply,
       });
       await sendWhatsAppText(batch.phone, alreadyBettoGreeted ? askReply : withBettoIntro(askReply));
       logWebhook('price_inquiry_missing_address', { conversationId: batch?.id || null, missingPart });
@@ -10630,6 +10650,7 @@ async function processClaimedConversation(batch) {
         origin: normOrigin,
         destination: null,
         passengerName: nextContext.passenger_name,
+        lastBotReply: `No pude calcular la ruta entre "${normOrigin}" y "${normDest}". ¿Me pasás de nuevo el *destino* (calle y número en Salta Capital)?`,
       });
       await sendWhatsAppText(batch.phone, `No pude calcular la ruta entre "${normOrigin}" y "${normDest}". ¿Me pasás de nuevo el *destino* (calle y número en Salta Capital)?`);
       return {
@@ -11665,6 +11686,7 @@ async function processClaimedConversation(batch) {
       origin: nextContext.pickup_location,
       destination: nextContext.destination,
       passengerName: nextContext.passenger_name,
+      lastBotReply: askReply,
     });
     await sendWhatsAppText(batch.phone, alreadyBettoGreeted ? askReply : withBettoIntro(askReply));
     logWebhook('price_inquiry_blocked_dispatch', {

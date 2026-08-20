@@ -93,6 +93,11 @@ export function isPriceInquiryCollecting(context) {
   );
 }
 
+export function shouldPreservePriceQuoteAfterTripReset(savedContext) {
+  return isPriceInquiryCollecting(savedContext)
+    || lastBotAskedForTripPrice(savedContext?.last_bot_reply);
+}
+
 export function lastBotAskedForTripPrice(text) {
   const n = normalizeForMatch(text);
   if (!n) return false;
@@ -115,6 +120,7 @@ export function buildPriceInquiryCollectingContext({
   origin = null,
   destination = null,
   passengerName = null,
+  lastBotReply = null,
 } = {}) {
   const pickup = origin || null;
   const dest = destination || null;
@@ -126,6 +132,7 @@ export function buildPriceInquiryCollectingContext({
     pickup_location: pickup,
     origin: pickup,
     destination: dest,
+    last_bot_reply: lastBotReply || null,
   };
 }
 
@@ -206,6 +213,15 @@ export function fillPriceInquiryAddresses({
 } = {}) {
   const prevPickup = context.pickup_location || context.origin || null;
   const prevDest = context.destination || null;
+  const collecting = isPriceInquiryCollecting(context) || lastBotAskedForTripPrice(lastBotReply);
+  const priceAskWithoutAddress =
+    looksLikePriceInquiry(text)
+    && !collecting
+    && !parseOriginDestinationPair(text)
+    && !looksLikeAddressText(text);
+  if (priceAskWithoutAddress) {
+    return { pickup: prevPickup, destination: prevDest };
+  }
   const pair = parseOriginDestinationPair(text)
     || (heuristics?.pickup && heuristics?.destination
       ? { pickup: heuristics.pickup, destination: heuristics.destination }

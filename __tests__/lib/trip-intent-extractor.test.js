@@ -350,4 +350,22 @@ describe('extractTripIntentHybrid + DeepSeek Pro', () => {
     expect(result.destination).toMatch(/guemes 400/i);
     expect(result.missing_fields).toEqual([]);
   });
+
+  it('una cotización con typo no despacha y pide origen, no destino', async () => {
+    const result = await extractTripIntentHybrid({
+      combinedText: 'quiero saber el precio deu n viaje',
+      context: {},
+      pushName: 'Juan',
+      phone: '5493878630173',
+      lastBotReply: 'Contame el viaje que querés tomar. Ejemplo: Mitre 200 o buscame en Mitre 200 para ir a Güemes 400.',
+      inferHeuristics: inferTripHeuristics,
+    });
+
+    expect(deepseekChatCompletion).not.toHaveBeenCalled();
+    expect(result.intent).toBe('price_inquiry');
+    expect(result.pickup_location).toBeNull();
+    expect(result.missing_fields).toEqual(expect.arrayContaining(['pickup_location', 'destination']));
+    expect(result.reply).toMatch(/origen/i);
+    expect(result.reply).not.toMatch(/destino/i);
+  });
 });
