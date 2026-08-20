@@ -14,12 +14,18 @@ import {
 } from './tripIntentSystemPrompt';
 import {
   buildPatternTripExtraction,
+  fillPriceInquiryAddresses,
   isAddressNoisePhrase,
   isAvailabilityAskWithoutRoute,
   isGreetingOnly,
+  isPriceInquiryCollecting,
   isShortAck,
+  lastBotAskedForTripPrice,
+  looksLikeExplicitVehicleDispatch,
+  looksLikePriceInquiry,
   PATTERN_CONFIDENCE_THRESHOLD,
   shouldUsePatternExtraction,
+  buildPriceInquiryMissingAddressReply,
 } from './whatsappTripIntentPatterns';
 import {
   ASK_PICKUP_STREET_OR_GPS,
@@ -73,6 +79,9 @@ function shouldSkipLlmForPattern(patternResult, text, context = {}) {
   if (isAvailabilityAskWithoutRoute(text)) return false;
   const intent = String(patternResult?.intent || '');
   if (intent === 'cancel_trip' && shouldUsePatternExtraction(patternResult)) {
+    return true;
+  }
+  if (intent === 'price_inquiry' && shouldUsePatternExtraction(patternResult)) {
     return true;
   }
   return false;
@@ -168,6 +177,41 @@ export function parseTripIntentJson(raw, fallback = DEFAULT_EXTRACTION) {
  * @param {function} [params.inferHeuristics] — inferTripHeuristics del route
  * @param {function} [params.logFn]
  */
+function applyPriceInquiryContinuation(result, combinedText, context, lastBotReply, heuristics) {
+  if (!result) return result;
+  if (result.intent === 'cancel_trip' || result.intent === 'status_query') return result;
+  if (looksLikeExplicitVehicleDispatch(combinedText)) return result;
+
+  const collecting = isPriceInquiryCollecting(context) || lastBotAskedForTripPrice(lastBotReply);
+  if (!collecting && result.intent !== 'price_inquiry' && !looksLikePriceInquiry(combinedText)) {
+    return result;
+  }
+
+  const filled = fillPriceInquiryAddresses({
+    text: combinedText,
+    context,
+    heuristics: {
+      pickup: result.pickup_location || heuristics?.pickup || null,
+      destination: result.destination || heuristics?.destination || null,
+    },
+    lastBotReply,
+  });
+  const missing = [];
+  if (!filled.pickup) missing.push('pickup_location');
+  if (!filled.destination) missing.push('destination');
+  return {
+    ...result,
+    intent: 'price_inquiry',
+    pickup_location: filled.pickup,
+    origin: filled.pickup,
+    destination: filled.destination,
+    missing_fields: missing,
+    reply: missing.length
+      ? buildPriceInquiryMissingAddressReply(!filled.pickup ? 'origen' : 'destino')
+      : result.reply,
+  };
+}
+
 export async function extractTripIntentHybrid({
   combinedText,
   context,
@@ -180,10 +224,14 @@ export async function extractTripIntentHybrid({
   logFn,
 }) {
   const heuristics = typeof inferHeuristics === 'function' ? inferHeuristics(combinedText) : null;
+  const patternContext = {
+    ...(context || {}),
+    last_bot_reply: lastBotReply || context?.last_bot_reply || null,
+  };
 
   const patternResult = buildPatternTripExtraction({
     combinedText,
-    context,
+    context: patternContext,
     pushName,
     heuristics,
   });
@@ -197,7 +245,13 @@ export async function extractTripIntentHybrid({
         source: 'pattern',
       });
     }
-    return sanitizePatternFallback(patternResult, combinedText, context);
+    return applyPriceInquiryContinuation(
+      sanitizePatternFallback(patternResult, combinedText, context),
+      combinedText,
+      patternContext,
+      lastBotReply,
+      heuristics,
+    );
   }
 
   if (logFn) {
@@ -211,12 +265,13 @@ export async function extractTripIntentHybrid({
 
   return extractTripIntentWithDeepSeek({
     combinedText,
-    context,
+    context: patternContext,
     pushName,
     history,
     conversationStatus,
     lastBotReply,
     patternFallback: patternResult,
+    heuristics,
     logFn,
   });
 }
@@ -229,22 +284,28 @@ async function extractTripIntentWithDeepSeek({
   conversationStatus = 'open',
   lastBotReply = null,
   patternFallback = null,
+  heuristics = null,
   logFn,
 }) {
   const passengerName = context?.passenger_name || pushName || null;
   const awaitingGps = Boolean(context?.awaiting_gps);
   const awaitingPickupNumber = Boolean(context?.awaiting_pickup_number);
   const pendingCancelConfirm = Boolean(context?.pending_cancel_confirm);
-  const knownPickup = (awaitingPickupNumber || awaitingGps)
+  const collectingPrice = isPriceInquiryCollecting(context) || lastBotAskedForTripPrice(lastBotReply);
+  const knownPickup = (awaitingPickupNumber || awaitingGps || collectingPrice)
     ? (context?.pickup_location || context?.origin || null)
     : null;
 
   const stateDescription = {
-    open: awaitingPickupNumber
-      ? 'Esperando altura/número de calle de retiro.'
-      : awaitingGps
-        ? 'Esperando ubicación GPS o dirección de retiro.'
-        : 'Sin viaje activo.',
+    open: collectingPrice
+      ? (context?.awaiting_price_destination || knownPickup
+        ? 'Cotización de precio: esperando DESTINO (calle y número). No despaches el móvil.'
+        : 'Cotización de precio: esperando ORIGEN (calle y número). No despaches el móvil.')
+      : awaitingPickupNumber
+        ? 'Esperando altura/número de calle de retiro.'
+        : awaitingGps
+          ? 'Esperando ubicación GPS o dirección de retiro.'
+          : 'Sin viaje activo.',
     awaiting_address_selection: 'Esperando elección de dirección en encuesta.',
     paused: 'Conversación pausada.',
   }[conversationStatus] || 'Sin viaje activo.';
@@ -258,6 +319,9 @@ async function extractTripIntentWithDeepSeek({
     pendingCancelConfirm,
     lastBotReply,
     knownPickup,
+    collectingPrice,
+    awaitingPriceOrigin: Boolean(context?.awaiting_price_origin) || (collectingPrice && !knownPickup),
+    awaitingPriceDestination: Boolean(context?.awaiting_price_destination) || (collectingPrice && Boolean(knownPickup) && !context?.destination),
   });
 
   const historyMessages = history
@@ -323,7 +387,13 @@ async function extractTripIntentWithDeepSeek({
       });
     }
 
-    return parsed;
+    return applyPriceInquiryContinuation(
+      parsed,
+      combinedText,
+      context,
+      lastBotReply,
+      heuristics,
+    );
   } catch (error) {
     const status = Number(error?.status || 0);
     if (logFn) {
@@ -344,7 +414,13 @@ async function extractTripIntentWithDeepSeek({
         || patternIntent === 'trip_request'
         || patternConfidence > 0.5
       ) {
-        return sanitizePatternFallback(patternFallback, combinedText, context);
+        return applyPriceInquiryContinuation(
+          sanitizePatternFallback(patternFallback, combinedText, context),
+          combinedText,
+          context,
+          lastBotReply,
+          heuristics,
+        );
       }
     }
 

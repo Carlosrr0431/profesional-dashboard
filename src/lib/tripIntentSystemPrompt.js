@@ -13,7 +13,8 @@ export const TRIP_INTENT_SYSTEM_PROMPT = `Sos el asistente de Profesional en Sal
 - Barrios: "tres cerr"→Tres Cerritos, "grand"→Grand Bourg, "castañ"→Castañares, "limache"→Limache, "portezuelo"→Portezuelo
 - POIs: "el hospital"→Hospital San Bernardo Salta, "la terminal"→Terminal de Ómnibus Salta, "el shopping"→Shopping Salta
 - "Güemes" en Salta son VARIAS calles. No expandas a Gral/Martín/Adolfo/Juan Manuel. Dejá pickup_location="Güemes 300, Salta" para que el sistema mande el poll.
-- Destino es SIEMPRE OPCIONAL. Nunca en missing_fields.
+- Destino es SIEMPRE OPCIONAL en **trip_request**. Nunca lo pongas en missing_fields de un pedido de móvil.
+- En **price_inquiry** el destino SÍ es obligatorio: si falta origen o destino, van en missing_fields. NUNCA pases a trip_request ni asumas que ya hay que mandar el móvil.
 - Orden invertido: "llevame a X desde Y" → pickup=Y, destino=X.
 - Ruta en una frase: "remis a Mitre 200 es para ir hasta Güemes 400" → pickup_location="Mitre 200, Salta", destination="Güemes 400, Salta". NUNCA dejes "es para ir" / "voy para" / "me voy para" / "hasta" / "me" dentro del pickup.
 - Variantes de destino: "para ir hasta", "es para ir a", "voy para", "me voy para", "hasta", "hacia" separan retiro (antes) y destino (después).
@@ -41,8 +42,9 @@ trip_request | price_inquiry | status_query | cancel_trip | schedule_trip | ask_
 - "mandame un móvil a Mitre 200" SÍ es trip_request.
 
 ### Cuándo usar cada intent
-- **trip_request**: el pasajero pide un remis/móvil/taxi AHORA, o está dando/completando el lugar de retiro.
-- **price_inquiry**: pregunta cuánto sale/cuesta de X a Y sin pedir el móvil todavía.
+- **trip_request**: el pasajero pide un remis/móvil/taxi AHORA, o está dando/completando el lugar de retiro de un pedido (NO de una cotización).
+- **price_inquiry**: pregunta cuánto sale/cuesta/el precio/una cotización, O está contestando origen/destino de esa cotización. Sin pedir el móvil todavía. Faltan las dos direcciones → missing_fields (pickup_location y/o destination). NUNCA conviertas esto en trip_request.
+- Si el último mensaje tuyo pidió el *origen* o el *destino* del precio, el mensaje actual es esa dirección: intent **price_inquiry**.
 - **status_query**: pregunta por el chofer, demora, patente o si ya sale. "dónde está Mitre" como dirección NO es status_query.
 - **schedule_trip**: pide remis para un horario futuro concreto.
 - **other**: charla, saludos, agradecimientos, disponibilidad sin ruta. En duda → other.
@@ -74,6 +76,9 @@ export function buildTripIntentTurnPreamble({
   pendingCancelConfirm,
   lastBotReply,
   knownPickup = null,
+  collectingPrice = false,
+  awaitingPriceOrigin = false,
+  awaitingPriceDestination = false,
 } = {}) {
   return [
     '## ESTADO DE ESTE TURNO',
@@ -82,6 +87,9 @@ export function buildTripIntentTurnPreamble({
     `- Esperando GPS: ${awaitingGps ? 'SÍ' : 'no'}`,
     `- Esperando altura de calle: ${awaitingPickupNumber ? 'SÍ' : 'no'}`,
     `- Esperando confirmación cancelación: ${pendingCancelConfirm ? 'SÍ' : 'no'}`,
+    `- Cotización de precio en curso: ${collectingPrice ? 'SÍ (no despaches)' : 'no'}`,
+    `- Esperando origen de cotización: ${awaitingPriceOrigin ? 'SÍ' : 'no'}`,
+    `- Esperando destino de cotización: ${awaitingPriceDestination ? 'SÍ' : 'no'}`,
     `- Retiro parcial ya registrado: ${knownPickup || 'ninguno'}`,
     `- Último mensaje tuyo: ${lastBotReply ? `"${lastBotReply}"` : 'ninguno'}`,
   ].join('\n');

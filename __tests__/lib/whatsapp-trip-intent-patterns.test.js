@@ -2,6 +2,7 @@ import {
   buildPatternTripExtraction,
   classifyWhatsAppIncomingText,
   isAvailabilityAskWithoutRoute,
+  looksLikePriceInquiry,
   looksLikeTripRequest,
   shouldUsePatternExtraction,
 } from '../../src/lib/whatsappTripIntentPatterns';
@@ -87,5 +88,67 @@ describe('whatsappTripIntentPatterns', () => {
     });
     expect(extraction.intent).toBe('other');
     expect(extraction.pickup_location).toBeNull();
+  });
+
+  it('detecta cotización aunque no traiga de/hasta en la misma frase', () => {
+    expect(looksLikePriceInquiry('queria saber el precio de un viaje')).toBe(true);
+    expect(looksLikePriceInquiry('cuanto sale')).toBe(true);
+    expect(looksLikePriceInquiry('me das una cotizacion')).toBe(true);
+    expect(looksLikePriceInquiry('cuanto falta')).toBe(false);
+    expect(classifyWhatsAppIncomingText('queria saber el precio de un viaje').intentHint).toBe('price_inquiry');
+  });
+
+  it('pide origen y destino en una cotización, sin despachar', () => {
+    const first = buildPatternTripExtraction({
+      combinedText: 'queria saber el precio de un viaje',
+      heuristics: { pickup: null, destination: null, looksLikeTripRequest: true },
+    });
+    expect(first.intent).toBe('price_inquiry');
+    expect(first.missing_fields).toEqual(expect.arrayContaining(['pickup_location', 'destination']));
+    expect(shouldUsePatternExtraction(first)).toBe(true);
+
+    const afterOrigin = buildPatternTripExtraction({
+      combinedText: 'mitre 200',
+      context: {
+        price_inquiry: true,
+        awaiting_price_origin: true,
+        pickup_location: null,
+        origin: null,
+      },
+      heuristics: { pickup: null, destination: null, looksLikeTripRequest: false },
+    });
+    expect(afterOrigin.intent).toBe('price_inquiry');
+    expect(afterOrigin.pickup_location).toMatch(/mitre 200/i);
+    expect(afterOrigin.destination).toBeNull();
+    expect(afterOrigin.missing_fields).toContain('destination');
+  });
+
+  it('completa el destino de una cotización si el bot acaba de pedirlo', () => {
+    const extraction = buildPatternTripExtraction({
+      combinedText: 'guemes 400',
+      context: {
+        price_inquiry: true,
+        awaiting_price_destination: true,
+        pickup_location: 'Mitre 200',
+        origin: 'Mitre 200',
+      },
+      heuristics: { pickup: null, destination: null, looksLikeTripRequest: false },
+    });
+    expect(extraction.intent).toBe('price_inquiry');
+    expect(extraction.pickup_location).toBe('Mitre 200');
+    expect(extraction.destination).toMatch(/guemes 400/i);
+    expect(extraction.missing_fields).toEqual([]);
+  });
+
+  it('no trata una dirección de cotización como pedido de móvil', () => {
+    const extraction = buildPatternTripExtraction({
+      combinedText: 'mitre 200',
+      context: { last_bot_reply: 'Para darte el precio necesito las dos direcciones. ¿Cuál es el *origen* del viaje? (calle y número)' },
+      heuristics: { pickup: null, destination: null, looksLikeTripRequest: false },
+    });
+    expect(extraction.intent).toBe('price_inquiry');
+    expect(extraction.intent).not.toBe('trip_request');
+    expect(extraction.pickup_location).toMatch(/mitre 200/i);
+    expect(extraction.missing_fields).toContain('destination');
   });
 });

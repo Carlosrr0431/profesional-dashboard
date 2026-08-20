@@ -295,4 +295,39 @@ describe('extractTripIntentHybrid + DeepSeek Pro', () => {
     expect(deepseekChatCompletion).not.toHaveBeenCalled();
     expect(result.intent).toBe('other');
   });
+
+  it('cotización sin direcciones no llama a Pro y no es trip_request', async () => {
+    const result = await extractTripIntentHybrid({
+      combinedText: 'queria saber el precio de un viaje',
+      context: {},
+      pushName: 'Juan',
+      phone: '5493878630173',
+      inferHeuristics: inferTripHeuristics,
+    });
+
+    expect(deepseekChatCompletion).not.toHaveBeenCalled();
+    expect(result.intent).toBe('price_inquiry');
+    expect(result.missing_fields).toEqual(expect.arrayContaining(['pickup_location', 'destination']));
+    expect(result.reply).toMatch(/origen/i);
+  });
+
+  it('después de pedir el origen de una cotización, una dirección no despacha el viaje', async () => {
+    const result = await extractTripIntentHybrid({
+      combinedText: 'mitre 200',
+      context: {
+        price_inquiry: true,
+        awaiting_price_origin: true,
+      },
+      pushName: 'Juan',
+      phone: '5493878630173',
+      lastBotReply: 'Para darte el precio necesito las dos direcciones. ¿Cuál es el *origen* del viaje? (calle y número)',
+      inferHeuristics: inferTripHeuristics,
+    });
+
+    expect(deepseekChatCompletion).not.toHaveBeenCalled();
+    expect(result.intent).toBe('price_inquiry');
+    expect(result.pickup_location).toMatch(/mitre 200/i);
+    expect(result.destination).toBeNull();
+    expect(result.missing_fields).toContain('destination');
+  });
 });

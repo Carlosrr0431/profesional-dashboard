@@ -123,10 +123,15 @@ import {
   withBettoIntro,
 } from '../../../src/lib/bettoWelcome';
 import {
+  buildPriceInquiryCollectingContext,
+  buildPriceInquiryMissingAddressReply,
   isAddressNoisePhrase,
   isAvailabilityAskWithoutRoute,
   isGreetingOnly,
+  isPriceInquiryCollecting,
   isShortAck,
+  lastBotAskedForTripPrice,
+  looksLikeExplicitVehicleDispatch,
   looksLikeTripRequest as messageLooksLikeTripRequest,
 } from '../../../src/lib/whatsappTripIntentPatterns';
 
@@ -9963,17 +9968,49 @@ async function processClaimedConversation(batch) {
     .filter(Boolean)
     .join('\n');
 
-  // La fuente de verdad es trips.wa_context — no batch.context.
-  // Si hay un trip abierto con wa_context, usamos su extracted como contexto previo.
+  // La fuente de verdad de un viaje abierto es trips.wa_context.
+  // La cotización de precio (origen/destino pendientes) vive en la conversación
+  // hasta que hay ruta + poll, porque todavía no hay viaje en hold con coords.
   const tripContextSource = openTripByPhone
     ? safeJsonParse(openTripByPhone.wa_context, {})
     : {};
+  const convCtx = shouldResetConversationState ? {} : safeJsonParse(batch.context, {});
   const context = shouldResetConversationState
     ? {}
     : {
+        ...(isPriceInquiryCollecting(convCtx)
+          ? {
+              price_inquiry: true,
+              awaiting_price_origin: Boolean(convCtx.awaiting_price_origin),
+              awaiting_price_destination: Boolean(convCtx.awaiting_price_destination),
+              pickup_location: convCtx.pickup_location || convCtx.origin || null,
+              origin: convCtx.origin || convCtx.pickup_location || null,
+              destination: convCtx.destination || null,
+            }
+          : {}),
         ...(tripContextSource.extracted || {}),
         ...(tripWaContext.awaiting_gps ? { awaiting_gps: true } : {}),
         ...(tripWaContext.awaiting_pickup_number ? { awaiting_pickup_number: true } : {}),
+        ...(tripWaContext.price_inquiry && !tripWaContext.pending_price_confirm
+          ? {
+              price_inquiry: true,
+              pickup_location:
+                tripWaContext.origin?.address
+                || tripContextSource.extracted?.pickup_location
+                || convCtx.pickup_location
+                || null,
+              origin:
+                tripWaContext.origin?.address
+                || tripContextSource.extracted?.origin
+                || convCtx.origin
+                || null,
+              destination:
+                tripWaContext.destination?.address
+                || tripContextSource.extracted?.destination
+                || convCtx.destination
+                || null,
+            }
+          : {}),
       };
 
   const pendingContents = pendingMessages
@@ -10055,6 +10092,25 @@ async function processClaimedConversation(batch) {
       reason: shouldResetConversationState ? 'context_just_reset' : 'no_concrete_address',
       looksLikeTripRequest: true,
     });
+  }
+
+  if (
+    extracted.intent === 'trip_request'
+    && !looksLikeExplicitVehicleDispatch(combinedText)
+    && (isPriceInquiryCollecting(context) || lastBotAskedForTripPrice(lastBotReply))
+  ) {
+    logWebhook('conversation_override_trip_request_to_price_inquiry', {
+      conversationId: batch?.id || null,
+      reason: 'price_quote_in_progress',
+      lastBotReply: lastBotReply ? lastBotReply.slice(0, 80) : null,
+    });
+    extracted.intent = 'price_inquiry';
+    if (context.pickup_location && !extracted.pickup_location) {
+      extracted.pickup_location = context.pickup_location;
+    }
+    if (context.destination && !extracted.destination) {
+      extracted.destination = context.destination;
+    }
   }
 
   const scheduleFromText = detectScheduledTripFromText(combinedText);
@@ -10503,8 +10559,9 @@ async function processClaimedConversation(batch) {
 
   // --- Consulta de precio (cuánto cuesta/sale de X a Y) ---
   if (extracted.intent === 'price_inquiry') {
-    let priceOriginRaw = extracted.pickup_location || extracted.origin || null;
-    let priceDestRaw = extracted.destination || null;
+    let priceOriginRaw = extracted.pickup_location || extracted.origin
+      || context.pickup_location || context.origin || nextContext.pickup_location || null;
+    let priceDestRaw = extracted.destination || context.destination || nextContext.destination || null;
 
     // Fallback heurístico: si GPT no extrajo destino, intentar parsear del texto
     if (priceOriginRaw && !priceDestRaw) {
@@ -10531,12 +10588,25 @@ async function processClaimedConversation(batch) {
 
     if (!priceOriginRaw || !priceDestRaw) {
       const missingPart = !priceOriginRaw ? 'origen' : 'destino';
-      const askReply = `Para darte el precio necesito las dos direcciones. ¿Cuál es el *${missingPart}* del viaje? (calle y número)`;
-      await sendWhatsAppText(batch.phone, askReply);
+      const askReply = buildPriceInquiryMissingAddressReply(missingPart);
+      const collectingCtx = buildPriceInquiryCollectingContext({
+        origin: priceOriginRaw,
+        destination: priceDestRaw,
+        passengerName: nextContext.passenger_name,
+      });
+      await sendWhatsAppText(batch.phone, alreadyBettoGreeted ? askReply : withBettoIntro(askReply));
       logWebhook('price_inquiry_missing_address', { conversationId: batch?.id || null, missingPart });
       return {
         handled: true,
-        updates: { status: 'open', context: {}, last_trip_id: batch.last_trip_id || null, processing_started_at: null, last_processed_at: new Date().toISOString() },
+        updates: {
+          status: 'open',
+          context: alreadyBettoGreeted
+            ? collectingCtx
+            : { ...collectingCtx, ...stampBettoGreeted() },
+          last_trip_id: batch.last_trip_id || null,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
       };
     }
 
@@ -10553,10 +10623,23 @@ async function processClaimedConversation(batch) {
     const priceRoute = await getRouteMetricsByAddress(originQuery, destQuery);
 
     if (!priceRoute.distanceKm) {
-      await sendWhatsAppText(batch.phone, `No pude calcular la ruta entre "${normOrigin}" y "${normDest}". ¿Podés verificar que las direcciones estén en Salta Capital?`);
+      const collectingCtx = buildPriceInquiryCollectingContext({
+        origin: normOrigin,
+        destination: null,
+        passengerName: nextContext.passenger_name,
+      });
+      await sendWhatsAppText(batch.phone, `No pude calcular la ruta entre "${normOrigin}" y "${normDest}". ¿Me pasás de nuevo el *destino* (calle y número en Salta Capital)?`);
       return {
         handled: true,
-        updates: { status: 'open', context: {}, last_trip_id: batch.last_trip_id || null, processing_started_at: null, last_processed_at: new Date().toISOString() },
+        updates: {
+          status: 'open',
+          context: alreadyBettoGreeted
+            ? collectingCtx
+            : { ...collectingCtx, ...stampBettoGreeted() },
+          last_trip_id: batch.last_trip_id || null,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
       };
     }
 
@@ -10584,52 +10667,74 @@ async function processClaimedConversation(batch) {
       price: pricing.price,
     });
 
+    let pollSendResult = null;
     try {
-      await sendTripPriceSummaryAndConfirmPoll(batch.phone, priceMsg, pricing.price);
+      pollSendResult = await sendTripPriceSummaryAndConfirmPoll(batch.phone, priceMsg, pricing.price);
     } catch (pollErr) {
       logWebhook('price_inquiry_poll_error', { error: pollErr?.message });
     }
 
+    const pollIds = buildStoredPollMessageIds(pollSendResult);
+
     // Guardar datos en trips.wa_context para que si confirma, se use este pricing
-    const priceWaCtx = {
+    const priceWaCtx = injectWasenderLineIntoContext({
       price_inquiry: true,
       pending_price_confirm: true,
+      poll_msg_id: pollIds.wasender_msg_id || pollIds.msg_id,
+      poll_wa_key_id: pollIds.wa_key_id || pollIds.msg_id,
       origin: { address: resolvedOrigin, lat: priceRoute.originLat, lng: priceRoute.originLng },
       destination: { address: resolvedDest, lat: priceRoute.destLat, lng: priceRoute.destLng },
       route: { distanceKm: priceRoute.distanceKm, durationMinutes: priceRoute.durationMinutes },
       pricing,
       extracted: nextContext,
-    };
+    });
     const { data: existingPriceTrip } = await getSupabase()
       .from('trips')
       .select('id')
       .eq('passenger_phone', normalizePhone(batch.phone))
       .eq('status', 'queued')
+      .eq('dispatch_status', 'hold')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+    let priceTripId = existingPriceTrip?.id || null;
+    const priceTripPayload = {
+      passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
+      passenger_phone: normalizePhone(batch.phone),
+      status: 'queued',
+      origin_address: resolvedOrigin,
+      origin_lat: priceRoute.originLat ?? null,
+      origin_lng: priceRoute.originLng ?? null,
+      destination_address: resolvedDest,
+      destination_lat: priceRoute.destLat,
+      destination_lng: priceRoute.destLng,
+      distance_km: priceRoute.distanceKm,
+      duration_minutes: priceRoute.durationMinutes,
+      price: pricing.price,
+      notes: `[PRICE_INQUIRY] Consulta de precio. Esperando confirmación.\nOrigen: ${resolvedOrigin}\nDestino: ${resolvedDest}`,
+      wa_context: priceWaCtx,
+      dispatch_status: 'hold',
+    };
     if (existingPriceTrip) {
-      await getSupabase().from('trips').update({ wa_context: priceWaCtx }).eq('id', existingPriceTrip.id);
+      await getSupabase().from('trips').update(priceTripPayload).eq('id', existingPriceTrip.id);
     } else {
-      await getSupabase().from('trips').insert({
-        passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
-        passenger_phone: normalizePhone(batch.phone),
-        status: 'queued',
-        destination_address: resolvedDest,
-        destination_lat: priceRoute.destLat,
-        destination_lng: priceRoute.destLng,
-        distance_km: priceRoute.distanceKm,
-        duration_minutes: priceRoute.durationMinutes,
-        price: pricing.price,
-        notes: `[PRICE_INQUIRY] Consulta de precio. Esperando confirmación.\nOrigen: ${resolvedOrigin}\nDestino: ${resolvedDest}`,
-        wa_context: priceWaCtx,
-        dispatch_status: 'hold',
-      });
+      const { data: insertedPriceTrip } = await getSupabase()
+        .from('trips')
+        .insert(priceTripPayload)
+        .select('id')
+        .single();
+      priceTripId = insertedPriceTrip?.id || null;
     }
 
     return {
       handled: true,
-      updates: { status: 'open', context: {}, last_trip_id: existingPriceTrip?.id || null, processing_started_at: null, last_processed_at: new Date().toISOString() },
+      updates: {
+        status: 'open',
+        context: alreadyBettoGreeted ? { betto_greeted: true } : stampBettoGreeted(),
+        last_trip_id: priceTripId,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
     };
   }
 
@@ -11543,6 +11648,38 @@ async function processClaimedConversation(batch) {
         },
       };
     }
+  }
+
+  if (
+    extracted.intent !== 'cancel_trip'
+    && !looksLikeExplicitVehicleDispatch(combinedText)
+    && (isPriceInquiryCollecting(context) || lastBotAskedForTripPrice(lastBotReply))
+    && (!nextContext.pickup_location || !nextContext.destination)
+  ) {
+    const missingPart = !nextContext.pickup_location ? 'origen' : 'destino';
+    const askReply = buildPriceInquiryMissingAddressReply(missingPart);
+    const collectingCtx = buildPriceInquiryCollectingContext({
+      origin: nextContext.pickup_location,
+      destination: nextContext.destination,
+      passengerName: nextContext.passenger_name,
+    });
+    await sendWhatsAppText(batch.phone, alreadyBettoGreeted ? askReply : withBettoIntro(askReply));
+    logWebhook('price_inquiry_blocked_dispatch', {
+      conversationId: batch?.id || null,
+      missingPart,
+    });
+    return {
+      handled: true,
+      updates: {
+        status: 'open',
+        context: alreadyBettoGreeted
+          ? collectingCtx
+          : { ...collectingCtx, ...stampBettoGreeted() },
+        last_trip_id: batch.last_trip_id || null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
   }
 
   const tripResult = await createTripFromConversation({

@@ -70,7 +70,128 @@ export function looksLikeTripRequest(text) {
 
 export function looksLikePriceInquiry(text) {
   const n = normalizeForMatch(text);
-  return /\b(cuanto|cuánto|precio|tarifa|sale|cuesta|cobran|me\s+saldr)/i.test(n) && /\b(de|a|hasta|desde)\b/i.test(n);
+  if (!n) return false;
+  if (/\b(cotiz(?:ar|aci[oó]n)?)\b/.test(n)) return true;
+  if (/\b(precio|tarifa)\b/.test(n)) return true;
+  if (/\bcu[aá]nto\b/.test(n) && /\b(sale|cuesta|cobran|saldr)/.test(n)) return true;
+  if (/\bme\s+saldr/.test(n)) return true;
+  return false;
+}
+
+export function looksLikeExplicitVehicleDispatch(text) {
+  if (looksLikePriceInquiry(text)) return false;
+  const n = normalizeForMatch(text);
+  if (!n) return false;
+  return /(remis|taxi|m[oó]vil|movil|pasame\s+a\s+buscar|busc[aá]me|mand[aá](?:me|as|an)?\s+(?:un|una|el|la)?\s*(?:remis|movil|m[oó]vil|taxi|auto)|necesito\s+(?:un|una)?\s*(?:remis|movil|m[oó]vil|taxi|auto))/.test(n);
+}
+
+export function isPriceInquiryCollecting(context) {
+  return Boolean(
+    context?.price_inquiry
+    || context?.awaiting_price_origin
+    || context?.awaiting_price_destination
+  );
+}
+
+export function lastBotAskedForTripPrice(text) {
+  const n = normalizeForMatch(text);
+  if (!n) return false;
+  return (
+    n.includes('para darte el precio')
+    || n.includes('precio necesito las dos')
+    || (n.includes('origen del viaje') && n.includes('precio'))
+    || (n.includes('destino del viaje') && n.includes('precio'))
+    || n.includes('desde donde y hasta donde')
+    || n.includes('hasta donde queres saber el precio')
+  );
+}
+
+export function buildPriceInquiryMissingAddressReply(missingPart) {
+  const part = missingPart === 'destino' ? 'destino' : 'origen';
+  return `Para darte el precio necesito las dos direcciones. ¿Cuál es el *${part}* del viaje? (calle y número)`;
+}
+
+export function buildPriceInquiryCollectingContext({
+  origin = null,
+  destination = null,
+  passengerName = null,
+} = {}) {
+  const pickup = origin || null;
+  const dest = destination || null;
+  return {
+    passenger_name: passengerName || null,
+    price_inquiry: true,
+    awaiting_price_origin: !pickup,
+    awaiting_price_destination: Boolean(pickup && !dest),
+    pickup_location: pickup,
+    origin: pickup,
+    destination: dest,
+  };
+}
+
+function resolvePriceInquirySlot(context, lastBotReply) {
+  if (context?.awaiting_price_destination) return 'destination';
+  if (context?.awaiting_price_origin) return 'origin';
+  if (context?.pickup_location && !context?.destination) return 'destination';
+  const n = normalizeForMatch(lastBotReply);
+  if (/destino del viaje/.test(n)) return 'destination';
+  if (/origen del viaje/.test(n) || /desde donde/.test(n)) return 'origin';
+  if (lastBotAskedForTripPrice(lastBotReply) || context?.price_inquiry) {
+    return context?.pickup_location ? 'destination' : 'origin';
+  }
+  return null;
+}
+
+function loneAddressFromText(text, heuristics) {
+  if (heuristics?.pickup && heuristics?.destination) return null;
+  if (heuristics?.pickup) return heuristics.pickup;
+  if (heuristics?.destination) return heuristics.destination;
+  const raw = String(text || '').trim();
+  if (looksLikeAddressText(raw)) return raw;
+  return null;
+}
+
+export function fillPriceInquiryAddresses({
+  text,
+  context = {},
+  heuristics = null,
+  lastBotReply = null,
+} = {}) {
+  const prevPickup = context.pickup_location || context.origin || null;
+  const prevDest = context.destination || null;
+  if (heuristics?.pickup && heuristics?.destination) {
+    return { pickup: heuristics.pickup, destination: heuristics.destination };
+  }
+  const slot = resolvePriceInquirySlot(context, lastBotReply);
+  const lone = loneAddressFromText(text, heuristics);
+  if (slot === 'destination') {
+    return { pickup: prevPickup, destination: heuristics?.destination || lone || prevDest };
+  }
+  if (slot === 'origin') {
+    return { pickup: heuristics?.pickup || lone || prevPickup, destination: prevDest };
+  }
+  return {
+    pickup: heuristics?.pickup || prevPickup,
+    destination: heuristics?.destination || prevDest,
+  };
+}
+
+function buildPriceInquiryPatternResult(base, pickup, destination) {
+  const missing = [];
+  if (!pickup) missing.push('pickup_location');
+  if (!destination) missing.push('destination');
+  return {
+    ...base,
+    intent: 'price_inquiry',
+    pickup_location: pickup || null,
+    origin: pickup || null,
+    destination: destination || null,
+    confidence: pickup && destination ? 0.92 : 0.88,
+    missing_fields: missing,
+    reply: missing.length
+      ? buildPriceInquiryMissingAddressReply(!pickup ? 'origen' : 'destino')
+      : null,
+  };
 }
 
 export function looksLikeScheduleTrip(text) {
@@ -213,8 +334,24 @@ export function buildPatternTripExtraction({
   }
 
   const classified = classifyWhatsAppIncomingText(text);
+  const lastBotReply = context.last_bot_reply || null;
+  const collectingPrice = isPriceInquiryCollecting(context) || lastBotAskedForTripPrice(lastBotReply);
+  const stayOnPriceQuote =
+    collectingPrice
+    && !looksLikeExplicitVehicleDispatch(text)
+    && classified.intentHint !== 'cancel_trip'
+    && classified.intentHint !== 'status_query';
 
   if (classified.category === 'greeting' || classified.category === 'acknowledgment') {
+    if (stayOnPriceQuote) {
+      const filled = fillPriceInquiryAddresses({
+        text: '',
+        context,
+        heuristics: null,
+        lastBotReply,
+      });
+      return buildPriceInquiryPatternResult(base, filled.pickup, filled.destination);
+    }
     return { ...base, intent: 'other', confidence: 0.9 };
   }
 
@@ -231,23 +368,14 @@ export function buildPatternTripExtraction({
     };
   }
 
-  if (classified.intentHint === 'price_inquiry') {
-    const pickup = heuristics?.pickup || null;
-    const destination = heuristics?.destination || null;
-    const missing = [];
-    if (!pickup) missing.push('pickup_location');
-    if (!destination) missing.push('destination');
-    return {
-      ...base,
-      intent: 'price_inquiry',
-      pickup_location: pickup,
-      destination,
-      confidence: pickup && destination ? 0.9 : 0.78,
-      missing_fields: missing,
-      reply: missing.length
-        ? '¿Desde dónde y hasta dónde querés saber el precio?'
-        : null,
-    };
+  if (classified.intentHint === 'price_inquiry' || stayOnPriceQuote) {
+    const filled = fillPriceInquiryAddresses({
+      text,
+      context,
+      heuristics,
+      lastBotReply,
+    });
+    return buildPriceInquiryPatternResult(base, filled.pickup, filled.destination);
   }
 
   if (classified.intentHint === 'schedule_trip') {
