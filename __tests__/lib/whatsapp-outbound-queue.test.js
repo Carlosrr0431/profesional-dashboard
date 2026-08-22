@@ -282,3 +282,66 @@ describe('processWhatsappOutboundBatch por línea', () => {
     expect(batch.results[1].agentCode).toBe('Profesional_1');
   });
 });
+
+describe('processOneWhatsappOutbound circuit breaker', () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    jest.resetModules();
+    jest.clearAllMocks();
+  });
+
+  test('error de bloqueo pausa la línea y no reintenta el mensaje', async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.WHATSAPP_OUTBOUND_QUEUE_ENABLED = 'true';
+    process.env.SUPABASE_URL = 'https://example.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key';
+
+    const updateEq = jest.fn(async () => ({ error: null }));
+    const update = jest.fn(() => ({ eq: updateEq, gt: jest.fn(async () => ({ error: null })) }));
+    const upsert = jest.fn(async () => ({ error: null }));
+    const rpc = jest.fn(async (name) => {
+      if (name === 'release_stale_whatsapp_outbound') return { data: 0, error: null };
+      if (name === 'claim_whatsapp_outbound_message') {
+        return {
+          data: [{
+            id: 'q-ban',
+            agent_code: 'Agent',
+            dest: '5493878630173',
+            kind: 'text',
+            payload: { text: 'hola' },
+            attempts: 1,
+            max_attempts: 5,
+          }],
+          error: null,
+        };
+      }
+      return { data: null, error: { message: `unexpected rpc ${name}` } };
+    });
+
+    jest.doMock('@supabase/supabase-js', () => ({
+      createClient: () => ({ rpc, from: () => ({ update, upsert }) }),
+    }));
+
+    jest.doMock('../../src/lib/whatsmeowClient', () => ({
+      sendWhatsmeowTextDirect: jest.fn(async () => ({
+        success: false,
+        error: 'HTTP 403 Forbidden',
+      })),
+      sendWhatsmeowPollDirect: jest.fn(),
+      getWhatsmeowApiKey: () => 'k',
+    }));
+
+    const { processOneWhatsappOutbound } = require('../../src/lib/whatsappOutboundQueue');
+    const result = await processOneWhatsappOutbound({ claimer: 'test' });
+
+    expect(result).toMatchObject({
+      claimed: true,
+      sent: false,
+      permanentFailure: true,
+      error: 'HTTP 403 Forbidden',
+    });
+    expect(upsert).toHaveBeenCalled();
+  });
+});

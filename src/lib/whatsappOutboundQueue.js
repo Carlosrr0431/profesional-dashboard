@@ -10,6 +10,13 @@ import {
   sendWhatsmeowPollDirect,
   getWhatsmeowApiKey,
 } from './whatsmeowClient';
+import {
+  isWhatsappBanLikeError,
+  isWhatsappPermanentSendError,
+  isWhatsappTransientDisconnect,
+  WHATSAPP_BAN_PAUSE_MS,
+  WHATSAPP_DISCONNECT_PAUSE_MS,
+} from './whatsappAntiBan';
 
 export const WHATSAPP_OUTBOUND_INTERVAL_MS = Math.max(
   1000,
@@ -281,11 +288,13 @@ async function markSent(supabase, id, messageId) {
     .eq('id', id);
 }
 
-async function markRetryOrFailed(supabase, row, errorMessage) {
+async function markRetryOrFailed(supabase, row, errorMessage, { forceFailed = false, pauseMs = 0 } = {}) {
   const attempts = Number(row.attempts || 0);
   const maxAttempts = Number(row.max_attempts || 5);
-  const permanent = attempts >= maxAttempts;
-  const backoffMs = Math.min(5 * 60_000, WHATSAPP_OUTBOUND_INTERVAL_MS * Math.max(1, attempts));
+  const permanent = forceFailed || attempts >= maxAttempts;
+  const backoffMs = pauseMs > 0
+    ? pauseMs
+    : Math.min(5 * 60_000, WHATSAPP_OUTBOUND_INTERVAL_MS * Math.max(1, attempts));
 
   await supabase
     .from('whatsapp_outbound_queue')
@@ -301,6 +310,43 @@ async function markRetryOrFailed(supabase, row, errorMessage) {
     .eq('id', row.id);
 
   return { permanent };
+}
+
+async function pauseWhatsappLine(supabase, agentCode, pauseMs) {
+  const code = String(agentCode || '').trim();
+  if (!code || !supabase) return;
+  const nowIso = new Date().toISOString();
+  try {
+    await supabase.from('whatsapp_line_throttle').upsert({
+      agent_code: code,
+      last_sent_at: nowIso,
+      interval_ms: Math.max(60_000, Math.trunc(pauseMs) || WHATSAPP_BAN_PAUSE_MS),
+      updated_at: nowIso,
+    }, { onConflict: 'agent_code' });
+  } catch {
+    // no-op si la tabla no existe o el cliente mock no implementa upsert
+  }
+}
+
+async function restoreLineInterval(supabase, agentCode) {
+  const code = String(agentCode || '').trim();
+  if (!code || !supabase) return;
+  try {
+    const updated = supabase
+      .from('whatsapp_line_throttle')
+      .update({
+        interval_ms: WHATSAPP_OUTBOUND_INTERVAL_MS,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('agent_code', code);
+    if (typeof updated?.gt === 'function') {
+      await updated.gt('interval_ms', WHATSAPP_OUTBOUND_INTERVAL_MS + 2000);
+    } else if (updated && typeof updated.then === 'function') {
+      await updated;
+    }
+  } catch {
+    // no-op
+  }
 }
 
 async function sendClaimedRow(row, { apiKey } = {}) {
@@ -361,6 +407,7 @@ export async function processOneWhatsappOutbound({ claimer = 'worker', apiKey } 
 
   const result = await sendClaimedRow(row, { apiKey });
   if (result?.success) {
+    await restoreLineInterval(supabase, row.agent_code);
     await markSent(supabase, row.id, result.messageId);
     return {
       claimed: true,
@@ -371,7 +418,51 @@ export async function processOneWhatsappOutbound({ claimer = 'worker', apiKey } 
     };
   }
 
-  const fail = await markRetryOrFailed(supabase, row, result?.error);
+  const failError = result?.error || 'send_failed';
+  if (isWhatsappBanLikeError(failError)) {
+    await pauseWhatsappLine(supabase, row.agent_code, WHATSAPP_BAN_PAUSE_MS);
+    const fail = await markRetryOrFailed(supabase, row, failError, {
+      forceFailed: true,
+      pauseMs: WHATSAPP_BAN_PAUSE_MS,
+    });
+    return {
+      claimed: true,
+      sent: false,
+      queueId: row.id,
+      agentCode: row.agent_code || null,
+      error: failError,
+      permanentFailure: fail.permanent,
+      pausedMs: WHATSAPP_BAN_PAUSE_MS,
+    };
+  }
+  if (isWhatsappPermanentSendError(failError)) {
+    const fail = await markRetryOrFailed(supabase, row, failError, { forceFailed: true });
+    return {
+      claimed: true,
+      sent: false,
+      queueId: row.id,
+      agentCode: row.agent_code || null,
+      error: failError,
+      permanentFailure: fail.permanent,
+    };
+  }
+  if (isWhatsappTransientDisconnect(failError)) {
+    await pauseWhatsappLine(supabase, row.agent_code, WHATSAPP_DISCONNECT_PAUSE_MS);
+    const fail = await markRetryOrFailed(supabase, row, failError, {
+      pauseMs: WHATSAPP_DISCONNECT_PAUSE_MS,
+    });
+    return {
+      claimed: true,
+      sent: false,
+      queueId: row.id,
+      agentCode: row.agent_code || null,
+      error: failError,
+      permanentFailure: fail.permanent,
+      pausedMs: WHATSAPP_DISCONNECT_PAUSE_MS,
+    };
+  }
+
+  const fail = await markRetryOrFailed(supabase, row, failError);
   return {
     claimed: true,
     sent: false,

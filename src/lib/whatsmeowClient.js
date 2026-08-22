@@ -2,8 +2,8 @@
  * Cliente HTTP hacia whatsmeow-api (Railway).
  * Auth: header X-API-Key. Sesión: agent_code.
  *
- * Patrón alineado con remax-noa `whatsmeow-send-client.js`:
- * check-number antes de enviar, no normalizar JIDs (@lid).
+ * Envío: dígitos o JID tal cual. No llamar check-number (IsOnWhatsApp) en cada
+ * send: esa consulta es la que más bloqueos genera. El server resuelve JID con cache.
  */
 
 const DEFAULT_API_URL = 'https://whatsmeow-api-production.up.railway.app';
@@ -146,13 +146,14 @@ export async function sendWhatsmeowTextDirect(agentCode, to, text, { apiKey } = 
   }
 
   try {
-    const dest = await resolveWhatsmeowJid(agentCode, to, { apiKey });
-    if (!dest) {
-      return { success: false, error: 'number is not registered on WhatsApp' };
+    const rawTo = String(to || '').trim();
+    const phonePayload = isWhatsappJid(rawTo)
+      ? rawTo
+      : (normalizeWhatsmeowPhone(rawTo) || rawTo.replace(/\D/g, ''));
+    if (!phonePayload) {
+      return { success: false, error: 'destinatario inválido' };
     }
-    // Si `to` es teléfono → mandar dígitos (server resuelve JID + sender_pn).
-    // Si `to` ya es JID (@lid) → mandar el JID resuelto. NUNCA normalizePhone(JID).
-    const phonePayload = isWhatsappJid(to) ? dest : (normalizeWhatsmeowPhone(to) || dest);
+    const dest = phonePayload;
     const result = await whatsmeowFetch('/api/messages/send', {
       method: 'POST',
       apiKey,
@@ -192,11 +193,14 @@ export async function sendWhatsmeowPollDirect(agentCode, to, { name, options, ma
   }
 
   try {
-    const dest = await resolveWhatsmeowJid(agentCode, to, { apiKey });
-    if (!dest) {
-      return { success: false, error: 'number is not registered on WhatsApp' };
+    const rawTo = String(to || '').trim();
+    const numberPayload = isWhatsappJid(rawTo)
+      ? rawTo
+      : (normalizeWhatsmeowPhone(rawTo) || rawTo.replace(/\D/g, ''));
+    if (!numberPayload) {
+      return { success: false, error: 'destinatario inválido' };
     }
-    const numberPayload = isWhatsappJid(to) ? dest : (normalizeWhatsmeowPhone(to) || dest);
+    const dest = numberPayload;
     const result = await whatsmeowFetch(
       `/v2/message/sendPoll/${encodeURIComponent(agentCode)}`,
       {
@@ -279,7 +283,7 @@ export async function sendWhatsmeowText(agentCode, to, text, {
       }
       console.warn('[whatsmeow] cola ausente; envío directo', queued.error);
     } catch (err) {
-      console.warn('[whatsmeow] cola falló; envío directo', err?.message || err);
+      return { success: false, error: err?.message || 'enqueue_failed' };
     }
   }
 
@@ -333,7 +337,7 @@ export async function sendWhatsmeowPoll(agentCode, to, { name, options, maxSelec
       }
       console.warn('[whatsmeow] cola ausente; poll directo', queued.error);
     } catch (err) {
-      console.warn('[whatsmeow] cola falló; poll directo', err?.message || err);
+      return { success: false, error: err?.message || 'enqueue_failed' };
     }
   }
 

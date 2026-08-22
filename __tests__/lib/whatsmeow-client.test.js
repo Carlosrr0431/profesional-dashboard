@@ -58,23 +58,29 @@ describe('resolveWhatsmeowJid + send', () => {
     expect(calls[0]).toContain('phone=5493878630173');
   });
 
-  test('sendWhatsmeowText no envía si no está registrado', async () => {
-    global.fetch = jest.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({
-        success: true,
-        data: { registered: false },
-      }),
-      json: async () => ({ success: true, data: { registered: false } }),
-    }));
+  test('sendWhatsmeowText no llama check-number al enviar', async () => {
+    const urls = [];
+    global.fetch = jest.fn(async (url) => {
+      urls.push(String(url));
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          success: true,
+          data: { message_id: 'msg_direct_no_check' },
+        }),
+        json: async () => ({ success: true, data: { message_id: 'msg_direct_no_check' } }),
+      };
+    });
 
     const result = await sendWhatsmeowText('Test_Agent', '3878630173', 'hola', { apiKey: 'k' });
-    expect(result.success).toBe(false);
-    expect(result.error).toMatch(/not registered/i);
+    expect(result.success).toBe(true);
+    expect(result.messageId).toBe('msg_direct_no_check');
+    expect(urls.some((u) => u.includes('/api/check-number'))).toBe(false);
+    expect(urls.some((u) => u.includes('/api/messages/send'))).toBe(true);
   });
 
-  test('sendWhatsmeowPoll resuelve JID y envía number en dígitos', async () => {
+  test('sendWhatsmeowPoll envía number en dígitos sin check-number', async () => {
     const bodies = [];
     global.fetch = jest.fn(async (url, opts = {}) => {
       const urlStr = String(url);
@@ -111,6 +117,7 @@ describe('resolveWhatsmeowJid + send', () => {
     expect(result.messageId).toBe('POLL1');
     expect(bodies[0].number).toBe('5493878630173');
     expect(bodies[0].options).toEqual(['Sí', 'No']);
+    expect(global.fetch.mock.calls.every(([url]) => !String(url).includes('/api/check-number'))).toBe(true);
   });
 
   test('sendWhatsmeowText con @lid manda el JID sin normalizar a dígitos', async () => {
