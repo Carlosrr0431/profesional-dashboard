@@ -52,6 +52,7 @@ const DEFAULT_EXTRACTION = {
   missing_fields: [],
   cancel_confirmed: false,
   schedule_time: null,
+  new_trip: false,
 };
 
 const ALLOWED_INTENTS = new Set([
@@ -168,6 +169,7 @@ function normalizeProExtraction(parsed, passengerName, combinedText) {
     missing_fields: missing,
     confidence: Number(parsed.confidence) || 0,
     cancel_confirmed: Boolean(parsed.cancel_confirmed),
+    new_trip: parsed.new_trip === true || parsed.new_trip === 'true',
     source: 'deepseek-pro',
   };
 }
@@ -343,6 +345,8 @@ async function extractTripIntentWithDeepSeek({
     collectingPrice,
     awaitingPriceOrigin: Boolean(context?.awaiting_price_origin) || (collectingPrice && !knownPickup),
     awaitingPriceDestination: Boolean(context?.awaiting_price_destination) || (collectingPrice && Boolean(knownPickup) && !context?.destination),
+    lastTripStatus: context?.last_trip_status || null,
+    lastTripOrigin: context?.last_trip_origin || context?.pickup_location || context?.origin || null,
   });
 
   const historyMessages = history
@@ -355,7 +359,7 @@ async function extractTripIntentWithDeepSeek({
 
   const contextForModel = Object.fromEntries(
     Object.entries(context || {}).filter(
-      ([k]) => !['last_bot_reply', 'pending_poll', 'pickup_location', 'origin'].includes(k)
+      ([k]) => !['last_bot_reply', 'pending_poll'].includes(k)
     )
   );
 

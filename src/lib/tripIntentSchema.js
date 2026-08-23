@@ -17,6 +17,7 @@ export const TRIP_INTENT_JSON_SCHEMA = {
       'missing_fields',
       'cancel_confirmed',
       'schedule_time',
+      'new_trip',
     ],
     properties: {
       intent: {
@@ -41,6 +42,7 @@ export const TRIP_INTENT_JSON_SCHEMA = {
       missing_fields: { type: 'array', items: { type: 'string' } },
       cancel_confirmed: { type: 'boolean' },
       schedule_time: { type: ['string', 'null'] },
+      new_trip: { type: 'boolean' },
     },
   },
 };
@@ -96,7 +98,7 @@ export const TRIP_INTENT_TOOLS = [
     type: 'function',
     name: 'get_trip_status',
     description:
-      'Estado del viaje activo de este pasajero. Usala en status_query. No inventes chofer, demora ni patente.',
+      'Estado del viaje de este pasajero (abierto o el último cerrado). Usala en status_query. No inventes chofer, demora ni patente. Si found=false, no hay viaje.',
     strict: false,
     parameters: {
       type: 'object',

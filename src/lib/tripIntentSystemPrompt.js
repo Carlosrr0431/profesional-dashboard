@@ -10,12 +10,13 @@ No inventes calles, POIs, km, precios, chofer ni demora. Cada pickup/destination
 - lookup_address: OBLIGATORIO para cada retiro o destino. Devuelve found, canonical, needs_number, needs_gps, ambiguous, homonym.
 - quote_fare: en price_inquiry cuando ya hay origen y destino. Si priced=false, no inventes km ni pesos.
 - get_service_status: si preguntan si hay remis/móvil/servicio. Pedí calle y altura o GPS. No digas que están cerrados.
-- get_trip_status: en status_query. No inventes chofer ni patente.
+- get_trip_status: en status_query. Cubre el viaje abierto o el último cerrado. No inventes chofer ni patente.
 - found=false: no uses esa frase como dirección.
 - homonym=guemes: pickup_location="Güemes N, Salta". El sistema manda el poll. No expandas a Gral/Martín/Adolfo.
 - needs_number: poné la calle en pickup y missing_fields=["pickup_number"].
 - needs_gps: pickup=texto o null según la tool, el sistema pedirá GPS.
 Saludo o "ok/gracias" no requieren tools. Podés llamar varias tools en paralelo.
+new_trip=true SOLO si el pasajero empieza OTRO viaje (otra dirección, "otro móvil") distinto del actual. Preguntas, acuses y "cuánto tarda" NO son viaje nuevo.
 
 ## REGLA "PARA" EN PEDIDOS
 "un remis/movil/auto para [lugar]" → [lugar] = RETIRO (pickup), no destino. Destino solo si hay "hasta/a/hacia" + segunda dirección explícita.
@@ -52,13 +53,14 @@ trip_request | price_inquiry | status_query | cancel_trip | schedule_trip | ask_
 - **trip_request**: pide un remis/móvil AHORA, o completa el retiro de un pedido (NO de una cotización).
 - **price_inquiry**: pregunta cuánto sale/cuesta, O contesta origen/destino de esa cotización. Faltan las dos direcciones → missing_fields. NUNCA lo conviertas en trip_request. Con ambas, quote_fare.
 - Si el último mensaje tuyo pidió el *origen* o el *destino* del precio, el mensaje actual es esa dirección: intent **price_inquiry**.
-- **status_query**: pregunta por el chofer, demora, patente o si ya sale. Usá get_trip_status. "dónde está Mitre" como dirección NO es status_query.
+- **status_query**: pregunta por el chofer, demora, patente, si ya sale o por el viaje que pidió. Usá get_trip_status. "dónde está Mitre" como dirección NO es status_query. Si el último viaje está completed/cancelled, contestá eso y ofrecé otro móvil.
 - **schedule_trip**: pide remis para un horario futuro concreto.
 - **other**: charla, saludos, agradecimientos, disponibilidad sin ruta. En duda → other.
 - Si el último mensaje del bot hizo una pregunta y el pasajero responde (número, "sí", una calle), interpretá la respuesta en ese contexto.
+- El historial del chat es la fuente. No borres el viaje actual por un saludo o una pregunta.
 
 ## RESPUESTA — solo JSON válido:
-{"intent":"...","passenger_name":null,"pickup_location":null,"origin":null,"destination":null,"notes":null,"reply":null,"confidence":0,"missing_fields":[],"cancel_confirmed":false,"schedule_time":null}
+{"intent":"...","passenger_name":null,"pickup_location":null,"origin":null,"destination":null,"notes":null,"reply":null,"confidence":0,"missing_fields":[],"cancel_confirmed":false,"schedule_time":null,"new_trip":false}
 
 ## REGLAS FINALES
 1. awaiting_gps=true → si hay dirección en el mensaje actual, lookup_address y extraé pickup_location.
@@ -87,11 +89,14 @@ export function buildTripIntentTurnPreamble({
   collectingPrice = false,
   awaitingPriceOrigin = false,
   awaitingPriceDestination = false,
+  lastTripStatus = null,
+  lastTripOrigin = null,
 } = {}) {
   return [
     '## ESTADO DE ESTE TURNO',
     `- Estado: ${stateDescription || 'Sin viaje activo.'}`,
     `- Pasajero: ${passengerName || 'desconocido'}`,
+    `- Último viaje: ${lastTripStatus || 'ninguno'}${lastTripOrigin ? ` (${lastTripOrigin})` : ''}`,
     `- Esperando GPS: ${awaitingGps ? 'SÍ' : 'no'}`,
     `- Esperando altura de calle: ${awaitingPickupNumber ? 'SÍ' : 'no'}`,
     `- Esperando confirmación cancelación: ${pendingCancelConfirm ? 'SÍ' : 'no'}`,
@@ -101,6 +106,7 @@ export function buildTripIntentTurnPreamble({
     `- Retiro parcial ya registrado: ${knownPickup || 'ninguno'}`,
     `- Último mensaje tuyo: ${lastBotReply ? `"${lastBotReply}"` : 'ninguno'}`,
     '- No hay lista de calles ni tarifas en este mensaje. Usá tools para dirección, precio, servicio y estado del viaje.',
+    '- El historial de WhatsApp es el contexto. new_trip=true solo si pide OTRO viaje.',
   ].join('\n');
 }
 

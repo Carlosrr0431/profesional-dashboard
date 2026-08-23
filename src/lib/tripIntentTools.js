@@ -16,7 +16,7 @@ import {
 import { getRouteMetricsByAddress } from '../../shared/geo/osrm.js';
 
 const TARIFF_KEYS = ['platform_tariff_per_km', 'platform_tariff_base'];
-const OPEN_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
+const OPEN_TRIP_STATUSES = ['scheduled', 'queued', 'pending', 'accepted', 'going_to_pickup', 'in_progress'];
 
 const BARRIO_ALIASES = [
   { re: /\btres\s+cerr(?:itos?)?\b/, label: 'Barrio Tres Cerritos, Salta' },
@@ -275,7 +275,7 @@ async function getTripStatus(ctx = {}) {
   if (!phone) return { found: false, reason: 'no_phone' };
   try {
     const db = getSupabaseAdmin();
-    const { data, error } = await db
+    const { data: openTrip } = await db
       .from('trips')
       .select('id, status, origin_address, destination_address, created_at')
       .eq('passenger_phone', phone)
@@ -283,12 +283,20 @@ async function getTripStatus(ctx = {}) {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (error || !data) return { found: false };
+    const row = openTrip || (await db
+      .from('trips')
+      .select('id, status, origin_address, destination_address, created_at')
+      .eq('passenger_phone', phone)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()).data;
+    if (!row) return { found: false };
     return {
       found: true,
-      status: data.status,
-      origin: data.origin_address || null,
-      destination: data.destination_address || null,
+      open: OPEN_TRIP_STATUSES.includes(String(row.status || '').toLowerCase()),
+      status: row.status,
+      origin: row.origin_address || row.destination_address || null,
+      destination: row.destination_address || null,
     };
   } catch {
     return { found: false, reason: 'lookup_failed' };

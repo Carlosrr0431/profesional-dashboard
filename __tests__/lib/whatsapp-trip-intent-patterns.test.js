@@ -20,6 +20,17 @@ describe('whatsappTripIntentPatterns', () => {
     expect(result.intentHint).toBe('other');
   });
 
+  it('trata Weño y Cómo estás como charla, no como viaje', () => {
+    expect(classifyWhatsAppIncomingText('Weño').intentHint).toBe('other');
+    expect(classifyWhatsAppIncomingText('Cómo estás?').intentHint).toBe('other');
+  });
+
+  it('detecta demora y por dónde viene como status_query', () => {
+    expect(classifyWhatsAppIncomingText('Demora?').intentHint).toBe('status_query');
+    expect(classifyWhatsAppIncomingText('Por donde viene?').intentHint).toBe('status_query');
+    expect(classifyWhatsAppIncomingText('cuanto tarda el chofer?').intentHint).toBe('status_query');
+  });
+
   it('resuelve trip_request por patrón sin LLM', () => {
     const extraction = buildPatternTripExtraction({
       combinedText: 'mandame un movil para españa al 300',

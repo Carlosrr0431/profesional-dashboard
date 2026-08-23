@@ -136,6 +136,13 @@ import {
   parseOriginDestinationPair,
   shouldPreservePriceQuoteAfterTripReset,
 } from '../../../src/lib/whatsappTripIntentPatterns';
+import {
+  messagesToIntentHistory,
+  pickTripForStatus,
+  shouldStartNewTrip,
+  startFreshTripContext,
+  statusQueryReplyForTrip,
+} from '../../../src/lib/tripSession';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -9775,48 +9782,30 @@ async function processClaimedConversation(batch) {
 
   const lastTripById = await getTripById(batch.last_trip_id);
 
-  // Un viaje cerrado no borra el contexto: el historial se omite para DeepSeek
-  // y el contexto se limpia solo si el clasificador marca un viaje nuevo.
-  let shouldResetConversationState = Boolean(lastTripById && !isOpenTripStatus(lastTripById.status));
+  // El contexto se limpia SOLO con un viaje nuevo (como Multicarnes).
+  // Un viaje cerrado no borra historial: el pasajero puede preguntar por ese pedido.
+  let shouldResetConversationState = false;
   batch._sessionReset = false;
-  if (shouldResetConversationState) {
-    logWebhook('conversation_reset_closed_trip_context', {
-      conversationId: batch?.id || null,
-      tripId: lastTripById.id,
-      tripStatus: lastTripById.status,
-      completedAt: lastTripById.completed_at || null,
-    });
-  }
 
-  // Si last_trip_id es null (fue limpiado al completar un viaje previo), verificar si el
-  // último viaje del pasajero ya está cerrado para resetear el historial y evitar
-  // que GPT use contexto contaminado de sesiones anteriores.
-  // Idempotency guard: if the passenger already has an open trip, do not create another one.
   const openTripByLastId = lastTripById && isOpenTripStatus(lastTripById.status) ? lastTripById : null;
   const openTripByPhone = openTripByLastId || await getLatestOpenTripByPhone(batch.phone);
+  let lastClosedTrip = lastTripById && !isOpenTripStatus(lastTripById.status) ? lastTripById : null;
 
-  if (!shouldResetConversationState && !batch.last_trip_id) {
+  if (!lastClosedTrip && !openTripByPhone && !batch.last_trip_id) {
     const { data: latestTripByPhone } = await getSupabase()
       .from('trips')
-      .select('id, status, completed_at')
+      .select('id, status, completed_at, destination_address, origin_address')
       .eq('passenger_phone', normalizePhone(batch.phone))
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (latestTripByPhone && !isOpenTripStatus(latestTripByPhone.status)) {
-      const hasOpenTripAlready = Boolean(openTripByPhone);
-      if (!hasOpenTripAlready) {
-        shouldResetConversationState = true;
-        logWebhook('conversation_reset_last_trip_closed_by_phone', {
-          conversationId: batch?.id || null,
-          tripId: latestTripByPhone.id,
-          tripStatus: latestTripByPhone.status,
-          completedAt: latestTripByPhone.completed_at || null,
-        });
-      }
+      lastClosedTrip = latestTripByPhone;
     }
   }
+
+  const lastKnownTrip = openTripByPhone || lastClosedTrip || lastTripById || null;
 
   // ── Fast path: viaje activo/en cola/pendiente sin GPS/poll pendiente ──────────
   // Si el pasajero ya tiene un viaje abierto y bloqueante, skip full AI classification.
@@ -10001,6 +9990,16 @@ async function processClaimedConversation(batch) {
               last_bot_reply: convCtx.last_bot_reply || null,
             }
           : {}),
+        ...(lastKnownTrip
+          ? {
+              last_trip_status: lastKnownTrip.status || null,
+              last_trip_origin:
+                lastKnownTrip.destination_address
+                || lastKnownTrip.origin_address
+                || convCtx.pickup_location
+                || null,
+            }
+          : {}),
         ...(tripContextSource.extracted || {}),
         ...(tripWaContext.awaiting_gps ? { awaiting_gps: true } : {}),
         ...(tripWaContext.awaiting_pickup_number ? { awaiting_pickup_number: true } : {}),
@@ -10034,29 +10033,14 @@ async function processClaimedConversation(batch) {
   const skipIntentHistory = isGreetingOnly(combinedText) || isShortAck(combinedText);
   if (batch.id && !skipIntentHistory) {
     try {
-      const recent = await getRecentConversationMessages(batch.id, 8);
+      const recent = await getRecentConversationMessages(batch.id, 16);
       const lastOutgoing = [...recent].reverse().find((row) => (
         row.direction === 'outgoing' && (row.content || row.transcription)
       ));
       lastBotReply = String(lastOutgoing?.content || lastOutgoing?.transcription || '').slice(0, 240)
         || savedConvCtx.last_bot_reply
         || null;
-      if (!shouldResetConversationState || keepPriceQuote) {
-        const pendingSet = new Set(pendingContents);
-        history = recent
-          .filter((row) => {
-            const text = String(row.transcription || row.content || '').trim();
-            if (!text) return false;
-            if (row.direction === 'incoming' && pendingSet.has(text)) return false;
-            return true;
-          })
-          .slice(-6)
-          .map((row) => ({
-            direction: row.direction,
-            content: row.content,
-            transcription: row.transcription,
-          }));
-      }
+      history = messagesToIntentHistory(recent, { pendingContents, limit: 6 });
     } catch (error) {
       logWebhook('conversation_intent_history_error', {
         conversationId: batch?.id || null,
@@ -10149,16 +10133,26 @@ async function processClaimedConversation(batch) {
     }
   }
 
-  if (extracted.intent === 'trip_request' && !openTripByPhone) {
+  if (shouldStartNewTrip(
+    extracted,
+    openTripByPhone?.status || lastClosedTrip?.status || lastTripById?.status,
+    context,
+    { hasOpenTrip: Boolean(openTripByPhone && shouldBlockForOpenTrip(openTripByPhone)) },
+  )) {
     const passengerName =
       convCtx.passenger_name || context.passenger_name || extracted.passenger_name || null;
     logWebhook('conversation_reset_new_trip_request', {
       conversationId: batch?.id || null,
       source: extracted.source || null,
+      newTrip: Boolean(extracted.new_trip),
     });
     batch._sessionReset = true;
     shouldResetConversationState = true;
-    context = passengerName ? { passenger_name: passengerName } : {};
+    context = startFreshTripContext({
+      ...convCtx,
+      passenger_name: passengerName,
+      last_trip_id: batch.last_trip_id || lastClosedTrip?.id || null,
+    });
   }
 
   let pendingScheduleInfo = null;
@@ -10550,12 +10544,13 @@ async function processClaimedConversation(batch) {
 
   // --- Consulta de estado del viaje ---
   if (extracted.intent === 'status_query') {
-    const tripForStatus =
-      openTripByPhone && isOpenTripStatus(openTripByPhone.status) ? openTripByPhone : null;
+    const tripForStatus = pickTripForStatus({
+      openTrip: openTripByPhone,
+      lastTrip: lastTripById,
+      lastClosedTrip,
+    });
     let statusReply;
-    if (!tripForStatus) {
-      statusReply = extracted.reply || '¿Necesitás un móvil? Mandame desde dónde te busco.';
-    } else {
+    if (tripForStatus && isOpenTripStatus(tripForStatus.status)) {
       const ts = String(tripForStatus.status || '').toLowerCase();
       if (ts === 'scheduled') {
         statusReply = buildScheduledStatusQueryReply(tripForStatus, extracted.reply);
@@ -10572,6 +10567,8 @@ async function processClaimedConversation(batch) {
       } else {
         statusReply = extracted.reply || 'Tu viaje está activo.';
       }
+    } else {
+      statusReply = statusQueryReplyForTrip(tripForStatus, extracted.reply);
     }
     await sendWhatsAppText(batch.phone, statusReply);
     logWebhook('conversation_status_query', {

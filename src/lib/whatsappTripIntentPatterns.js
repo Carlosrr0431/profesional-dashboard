@@ -274,7 +274,7 @@ export function looksLikeScheduleTrip(text) {
 
 export function looksLikeStatusQuery(text) {
   const n = normalizeForMatch(text);
-  return /\b(donde\s+esta|donde\s+queda|cuanto\s+falta|ya\s+viene|llego\s+el|numero\s+del\s+chofer|patente|ya\s+salio|donde\s+anda)/i.test(n);
+  return /\b(donde\s+esta|donde\s+queda|cuanto\s+(?:falta|tarda|demora)|en\s+cuanto\s+llega|ya\s+viene|llego\s+el|numero\s+del\s+chofer|patente|ya\s+salio|donde\s+anda|quien\s+(?:es|era|viene)|el\s+chofer|ya\s+sale|por\s+donde\s+viene|demora)\b/i.test(n);
 }
 
 export function isShortAck(text) {
@@ -288,7 +288,7 @@ export function isShortAck(text) {
 
 export function isGreetingOnly(text) {
   const n = normalizeForMatch(text);
-  return /^(?:hola|buen[oa]s?(?:\s+dias?|\s+tardes?|\s+noches?)?|buenas)$/.test(n);
+  return /^(?:hola|buen[oa]s?(?:\s+dias?|\s+tardes?|\s+noches?)?|buenas|we[nñ]o|weno|bueno|como\s+estas|que\s+tal|todo\s+bien)$/.test(n);
 }
 
 export function classifyWhatsAppIncomingText(text, { messageType = 'text' } = {}) {

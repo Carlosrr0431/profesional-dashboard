@@ -34,6 +34,7 @@ function createOpenAIMock(extractedIntent = {}) {
     schedule_time: null,
     confidence: 0.9,
     reply: 'Perfecto, buscamos un remis para Belgrano 200.',
+    new_trip: false,
     ...extractedIntent,
   };
 

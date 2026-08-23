@@ -1,0 +1,317 @@
+{
+  "version": 1,
+  "sources": ["whatsapp_messages", "chats+messages propietario=Profesional_App"],
+  "table": "whatsapp_messages",
+  "purpose": "Tipos de pedido y seguimiento para alimentar el chatbot de Profesional Remis. Fuentes: whatsapp_messages (remis) y chats+messages con propietario Profesional_App. El contexto se limpia solo con un viaje nuevo.",
+  "message_shape": {
+    "id": "uuid",
+    "conversation_id": "uuid",
+    "external_message_id": "string",
+    "direction": "incoming|outgoing",
+    "message_type": "text|audio|location|poll|image",
+    "content": "string|null",
+    "transcription": "string|null",
+    "created_at": "timestamptz"
+  },
+  "session_rules": {
+    "reset_context_when": ["trip_request nuevo", "schedule_trip nuevo", "new_trip=true"],
+    "keep_context_when": ["status_query", "cancel_trip", "price_inquiry", "ack", "saludo", "pregunta sobre el viaje pedido"]
+  },
+  "types": [
+    {
+      "id": "greeting_typo",
+      "intent": "other",
+      "resets_context": false,
+      "title": "Saludo informal o typo (Weño, hola, buenas)",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "Weño"
+        },
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "Hola, soy el Chat Bot Betto. Contame el viaje: calle y altura o tu ubicación GPS."
+        }
+      ]
+    },
+    {
+      "id": "small_talk_how_are_you",
+      "intent": "other",
+      "resets_context": false,
+      "title": "Cómo estás / qué tal: charla, no limpia el viaje",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "Cómo estás?"
+        },
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "Todo bien. Si necesitás un móvil, mandame calle y altura o tu ubicación GPS."
+        }
+      ]
+    },
+    {
+      "id": "direct_street_number",
+      "intent": "trip_request",
+      "resets_context": true,
+      "title": "Pedido con calle y altura",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "Weño"
+        },
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "Hola, soy el Chat Bot Betto. Contame el viaje: calle y altura o tu ubicación GPS."
+        },
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "mandame un movil a Mitre 200"
+        }
+      ]
+    },
+    {
+      "id": "street_without_number",
+      "intent": "trip_request",
+      "resets_context": true,
+      "title": "Calle sin altura: se pide el número y se continúa el mismo viaje",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "necesito un remis en Belgrano"
+        },
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "¿Me pasás la altura de Belgrano? Por ejemplo Belgrano 200."
+        },
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "351"
+        }
+      ]
+    },
+    {
+      "id": "gps_pin",
+      "intent": "trip_request",
+      "resets_context": true,
+      "title": "Ubicación GPS de WhatsApp",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "buscame aca"
+        },
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "Mandame tu ubicación GPS de WhatsApp o calle y altura."
+        },
+        {
+          "direction": "incoming",
+          "message_type": "location",
+          "content": "Cherin Pizzeria Artesanal"
+        }
+      ]
+    },
+    {
+      "id": "origin_and_destination",
+      "intent": "trip_request",
+      "resets_context": true,
+      "title": "Retiro y destino en el mismo mensaje",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "remis a Juan Galvez 218, me voy para Tadeo Tadia 500"
+        }
+      ]
+    },
+    {
+      "id": "price_inquiry_two_addresses",
+      "intent": "price_inquiry",
+      "resets_context": false,
+      "title": "Cotización de precio; no despacha hasta confirmar",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "cuanto sale de Mitre 200 a Guemes 400"
+        },
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "De Mitre 200 a Güemes 400 son unos 4 km. ¿Confirmás el viaje?"
+        }
+      ]
+    },
+    {
+      "id": "guemes_poll",
+      "intent": "trip_request",
+      "resets_context": true,
+      "title": "Güemes ambiguo: poll de calle, el voto completa el mismo viaje",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "un movil a Guemes 300"
+        },
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "Hay varias calles Güemes. Elegí en la encuesta."
+        },
+        {
+          "direction": "incoming",
+          "message_type": "poll",
+          "content": "Gral. Martín Güemes 300"
+        }
+      ]
+    },
+    {
+      "id": "status_while_open",
+      "intent": "status_query",
+      "resets_context": false,
+      "title": "Pregunta por el viaje que acaba de pedir",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "mandame un movil a Mitre 200"
+        },
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "Listo, estamos buscando móvil en Mitre 200."
+        },
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "cuanto tarda el chofer?"
+        }
+      ]
+    },
+    {
+      "id": "status_after_completed",
+      "intent": "status_query",
+      "resets_context": false,
+      "title": "Pregunta después de un viaje cerrado: se conserva el contexto",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "ya llegue, gracias"
+        },
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "Gracias por viajar con Profesional."
+        },
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "quien era el chofer?"
+        }
+      ]
+    },
+    {
+      "id": "new_trip_after_completed",
+      "intent": "trip_request",
+      "resets_context": true,
+      "title": "Otro viaje después de uno cerrado: ahí sí se limpia el contexto",
+      "history": [
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "Viaje completado. Gracias por viajar con Profesional."
+        },
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "ahora buscame en Espana 300"
+        }
+      ]
+    },
+    {
+      "id": "cancel_open_trip",
+      "intent": "cancel_trip",
+      "resets_context": false,
+      "title": "Cancelar el viaje actual; pide confirmación",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "mandame un movil a Mitre 200"
+        },
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "Listo, estamos buscando móvil."
+        },
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "cancelalo"
+        }
+      ]
+    },
+    {
+      "id": "scheduled_trip",
+      "intent": "schedule_trip",
+      "resets_context": true,
+      "title": "Reserva para un horario futuro",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "para mañana a las 8 un remis en Belgrano 200"
+        }
+      ]
+    },
+    {
+      "id": "availability_without_address",
+      "intent": "other",
+      "resets_context": false,
+      "title": "Hay móvil / andan con servicio, sin calle: no es un viaje",
+      "history": [
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "tienen movil?"
+        },
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "Sí, estamos en servicio. Mandame calle y altura o tu ubicación GPS."
+        }
+      ]
+    },
+    {
+      "id": "ack_keep_context",
+      "intent": "other",
+      "resets_context": false,
+      "title": "Ok / gracias no limpia el viaje ni el historial",
+      "history": [
+        {
+          "direction": "outgoing",
+          "message_type": "text",
+          "content": "El chofer ya aceptó y está yendo a buscarte."
+        },
+        {
+          "direction": "incoming",
+          "message_type": "text",
+          "content": "ok gracias"
+        }
+      ]
+    }
+  ]
+}
