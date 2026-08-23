@@ -132,7 +132,15 @@ function buildSupabaseMock() {
     auth: {
       getUser: jest.fn().mockResolvedValue({ data: { user: null }, error: null }),
     },
-    rpc: jest.fn().mockResolvedValue({ data: null, error: null }),
+    rpc: jest.fn().mockImplementation((fnName) => {
+      if (fnName === 'append_whatsapp_message') {
+        return Promise.resolve({
+          data: [{ inserted: true, conversation_id: 'conv-poll-1' }],
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    }),
   };
 }
 

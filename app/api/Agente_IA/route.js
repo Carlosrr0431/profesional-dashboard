@@ -5549,7 +5549,7 @@ async function extractTripIntent({
     combinedText,
     context,
     pushName,
-    phone: maskPhone(phone),
+    phone,
     history,
     conversationStatus,
     lastBotReply,

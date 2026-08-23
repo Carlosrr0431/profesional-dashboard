@@ -4,14 +4,17 @@
  * con heurística. Disponibilidad sin calle no es un viaje.
  */
 import {
-  deepseekChatCompletion,
+  deepseekRespondWithTools,
   getDeepSeekProModel,
   isDeepSeekConfigured,
 } from './deepseekClient';
 import {
   buildTripIntentSystemPrompt,
   buildTripIntentTurnPreamble,
+  pickTripIntentReasoningEffort,
 } from './tripIntentSystemPrompt';
+import { TRIP_INTENT_JSON_SCHEMA, TRIP_INTENT_TOOLS } from './tripIntentSchema';
+import { loadTripIntentSettings, runTripIntentTool } from './tripIntentTools';
 import {
   buildPatternTripExtraction,
   fillPriceInquiryAddresses,
@@ -63,6 +66,12 @@ const ALLOWED_INTENTS = new Set([
 
 const AVAILABILITY_REPLY =
   `Sí, estamos en servicio. ${ASK_PICKUP_STREET_OR_GPS}`;
+
+function maskPhoneForLog(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return null;
+  return `*********${digits.slice(-4)}`;
+}
 
 function normalizeExtractedAddress(value) {
   const stripped = stripTrailingTripRouteTail(value);
@@ -164,10 +173,17 @@ function normalizeProExtraction(parsed, passengerName, combinedText) {
 }
 
 export function parseTripIntentJson(raw, fallback = DEFAULT_EXTRACTION) {
-  const match = String(raw || '').match(/\{[\s\S]*\}/);
+  const text = String(raw || '')
+    .replace(/```(?:json)?/gi, '')
+    .replace(/```/g, '')
+    .trim();
+  const match = text.match(/\{[\s\S]*\}/);
   if (!match) return { ...fallback };
+  const payload = match[0]
+    .replace(/,\s*([}\]])/g, '$1')
+    .replace(/:\s*undefined\b/g, ': null');
   try {
-    return { ...fallback, ...JSON.parse(match[0]) };
+    return { ...fallback, ...JSON.parse(payload) };
   } catch {
     return { ...fallback };
   }
@@ -240,7 +256,7 @@ export async function extractTripIntentHybrid({
   if (shouldSkipLlmForPattern(patternResult, combinedText, context) || !isDeepSeekConfigured()) {
     if (logFn) {
       logFn('ai_extract_intent_pattern_hit', {
-        phone,
+        phone: maskPhoneForLog(phone),
         intent: patternResult.intent,
         confidence: patternResult.confidence,
         source: 'pattern',
@@ -257,7 +273,7 @@ export async function extractTripIntentHybrid({
 
   if (logFn) {
     logFn('ai_extract_intent_deepseek_pro', {
-      phone,
+      phone: maskPhoneForLog(phone),
       patternIntent: patternResult.intent,
       patternConfidence: patternResult.confidence,
       patternPickup: patternResult.pickup_location ? '[set]' : null,
@@ -268,6 +284,7 @@ export async function extractTripIntentHybrid({
     combinedText,
     context: patternContext,
     pushName,
+    phone,
     history,
     conversationStatus,
     lastBotReply,
@@ -281,6 +298,7 @@ async function extractTripIntentWithDeepSeek({
   combinedText,
   context,
   pushName,
+  phone,
   history = [],
   conversationStatus = 'open',
   lastBotReply = null,
@@ -312,6 +330,8 @@ async function extractTripIntentWithDeepSeek({
   }[conversationStatus] || 'Sin viaje activo.';
 
   const systemPrompt = buildTripIntentSystemPrompt();
+  const reasoningEffort = pickTripIntentReasoningEffort({ text: combinedText, context });
+  const settingsPromise = loadTripIntentSettings();
   const turnPreamble = buildTripIntentTurnPreamble({
     stateDescription,
     passengerName,
@@ -356,19 +376,26 @@ async function extractTripIntentWithDeepSeek({
   const model = getDeepSeekProModel();
 
   try {
-    const { content } = await deepseekChatCompletion({
-      systemPrompt,
+    const result = await deepseekRespondWithTools({
+      instructions: systemPrompt,
       userContent,
       historyMessages,
-      maxTokens: 360,
-      jsonMode: true,
+      tools: TRIP_INTENT_TOOLS,
+      jsonSchema: TRIP_INTENT_JSON_SCHEMA,
+      runTool: async (name, args) => runTripIntentTool(name, args, {
+        phone,
+        settings: await settingsPromise,
+      }),
+      maxRounds: 4,
+      maxOutputTokens: reasoningEffort === 'none' ? 360 : 700,
+      reasoningEffort,
       logFn,
       purpose: 'trip_intent',
       model,
     });
 
     const parsed = normalizeProExtraction(
-      parseTripIntentJson(content, {
+      parseTripIntentJson(result.text, {
         ...DEFAULT_EXTRACTION,
         passenger_name: passengerName,
       }),
@@ -382,6 +409,8 @@ async function extractTripIntentWithDeepSeek({
         confidence: parsed.confidence,
         source: 'deepseek-pro',
         model,
+        api: result.api,
+        reasoningEffort,
         pickup: parsed.pickup_location ? '[set]' : null,
         destination: parsed.destination ? '[set]' : null,
         hasReply: Boolean(parsed.reply),

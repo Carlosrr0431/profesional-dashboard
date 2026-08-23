@@ -58,6 +58,22 @@ function createOpenAIMock(extractedIntent = {}) {
         }),
       },
     },
+    responses: {
+      create: jest.fn().mockResolvedValue({
+        output_text: JSON.stringify(defaultIntent),
+        output: [
+          {
+            type: 'message',
+            content: [{ type: 'output_text', text: JSON.stringify(defaultIntent) }],
+          },
+        ],
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          total_tokens: 150,
+        },
+      }),
+    },
     audio: {
       transcriptions: {
         create: jest.fn().mockResolvedValue({ text: 'Belgrano 200' }),
