@@ -113,21 +113,48 @@ function matchCatalogStreetPhrase(tokens) {
   }
 
   if (compact.length === 1) {
-    const token = compact[0];
-    const streets = STREET_INDEX.byLastToken.get(token) || [];
-    if (streets.length === 0) return null;
-    const exact = STREET_INDEX.byNameKey.get(token);
-    if (exact) {
-      return { name: exact.name, nameKey: exact.nameKey, ambiguous: streets.length > 1 };
-    }
-    return {
-      name: token.charAt(0).toUpperCase() + token.slice(1),
-      nameKey: token,
-      ambiguous: streets.length > 1,
-    };
+    return matchLastTokenStreet(compact[0]);
   }
 
   return null;
+}
+
+function matchLastTokenStreet(token) {
+  const streets = STREET_INDEX.byLastToken.get(token) || [];
+  if (streets.length === 0) return null;
+  const exact = STREET_INDEX.byNameKey.get(token);
+  if (exact) {
+    return { name: exact.name, nameKey: exact.nameKey, ambiguous: streets.length > 1 };
+  }
+  if (streets.length === 1) {
+    return { name: streets[0].name, nameKey: streets[0].nameKey, ambiguous: false };
+  }
+  return {
+    name: token.charAt(0).toUpperCase() + token.slice(1),
+    nameKey: token,
+    ambiguous: true,
+  };
+}
+
+/**
+ * Calle más cercana al final de la frase (la que está junto a la altura).
+ * Evita que "escuela Mitre O'Higgins 1550" se tome como Mitre.
+ */
+function matchCatalogStreetClosestToEnd(tokens) {
+  const compact = compactStreetTokens(tokens);
+  if (compact.length === 0) return null;
+
+  for (let len = 1; len <= Math.min(4, compact.length); len += 1) {
+    const window = compact.slice(-len);
+    for (const key of windowKeys(window)) {
+      const street = STREET_INDEX.byNameKey.get(key);
+      if (street) {
+        return { name: street.name, nameKey: street.nameKey, ambiguous: false };
+      }
+    }
+  }
+
+  return matchLastTokenStreet(compact[compact.length - 1]) || matchCatalogStreetPhrase(compact);
 }
 
 function isExactCatalogStreetNameKey(value) {
@@ -142,6 +169,7 @@ function isPlaceCategoryToken(token) {
 module.exports = {
   PLACE_CATEGORY_TOKENS,
   matchCatalogStreetPhrase,
+  matchCatalogStreetClosestToEnd,
   isExactCatalogStreetNameKey,
   isPlaceCategoryToken,
   normalizeStreetKey,

@@ -396,4 +396,31 @@ describe('geo autocomplete', () => {
     const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
     expect(nominatimCalls.length).toBe(0);
   });
+
+  it('para Monoblock Salta devuelve las sedes de Maps (Sarmiento y 25 de Mayo) y geocodifica Essentials', async () => {
+    const results = await autocompleteAddressSalta('Monoblock salta', 6, { sessionToken: 'test-monoblock-1' });
+    const blob = results.map((item) => `${item.title} ${item.subtitle}`).join(' | ');
+    expect(results.every((item) => String(item.placeId).startsWith('google:'))).toBe(true);
+    expect(blob).toMatch(/sarmiento/i);
+    expect(blob).toMatch(/25 de mayo/i);
+    expect(results.every((item) => !/jujuy/i.test(item.subtitle || ''))).toBe(true);
+
+    const sarmiento = results.find((item) => /sarmiento/i.test(`${item.title} ${item.subtitle}`));
+    expect(sarmiento).toBeTruthy();
+
+    const details = await getPlaceDetails(sarmiento.placeId, {
+      sessionToken: 'test-monoblock-1',
+      formattedAddress: sarmiento.address,
+      title: sarmiento.title,
+      subtitle: sarmiento.subtitle,
+    });
+
+    expect(details.lat).toBeCloseTo(-24.7811946, 3);
+    expect(details.lng).toBeCloseTo(-65.4180114, 3);
+    expect(/sarmiento/i.test(details.formattedAddress)).toBe(true);
+    assertAllowedGooglePlacesSkus(global.fetch);
+
+    const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
+    expect(nominatimCalls.length).toBe(0);
+  });
 });

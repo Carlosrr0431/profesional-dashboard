@@ -413,4 +413,32 @@ describe('extractTripIntentHybrid + DeepSeek Pro', () => {
     expect(result.cancel_confirmed).toBe(false);
     expect(Array.isArray(result.missing_fields)).toBe(true);
   });
+
+  it('rellena pickup con Places New si Pro deja null en un edificio de Maps', async () => {
+    deepseekRespondWithTools.mockResolvedValue({
+      text: JSON.stringify({
+        intent: 'trip_request',
+        pickup_location: null,
+        destination: null,
+        confidence: 0.55,
+        reply: 'Contame el viaje que querés tomar.',
+        missing_fields: ['pickup_location'],
+      }),
+      usage: {},
+    });
+
+    const result = await extractTripIntentHybrid({
+      combinedText: 'buenas me puede mandar un movil al monoblok salta? sobre sarmiento?',
+      context: {},
+      pushName: 'Carlos',
+      phone: '5493878630173',
+      inferHeuristics: inferTripHeuristics,
+    });
+
+    expect(result.source).toBe('deepseek-pro');
+    expect(result.intent).toBe('trip_request');
+    expect(result.pickup_location).toMatch(/sarmiento/i);
+    expect(result.pickup_location).not.toMatch(/25 de mayo/i);
+    expect(result.missing_fields).not.toEqual(expect.arrayContaining(['pickup_location']));
+  });
 });

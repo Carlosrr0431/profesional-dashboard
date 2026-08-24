@@ -193,7 +193,11 @@ function fixCommonPoiTypos(query) {
     .replace(/\bshopin\b/ig, 'shopping')
     .replace(/\bsho+p+i+n+g\b/ig, 'shopping')
     .replace(/\bjarava\b/ig, 'Jaraba')
-    .replace(/\bfransisca\b/ig, 'Francisca');
+    .replace(/\bfransisca\b/ig, 'Francisca')
+    .replace(/\bmonoblok\b/ig, 'monoblock')
+    .replace(/\bmonobloq\b/ig, 'monoblock')
+    .replace(/\bogigg?ins\b/ig, 'Higgins')
+    .replace(/\bo['’]?higgins\b/ig, 'O Higgins');
 }
 
 function assertAllowedUrl(url) {
@@ -840,6 +844,7 @@ module.exports = {
   registerAutocompleteSession,
   completeSession,
   lookupPlaceLabel,
+  fixCommonPoiTypos,
   PLACE_DETAILS_ESSENTIALS_MASK,
   PLACE_DETAILS_IDS_ONLY_MASK,
 };

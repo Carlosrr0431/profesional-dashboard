@@ -208,10 +208,13 @@ function googleAutocompleteResponse(query) {
     };
   }
 
-  if (lower.includes('unsa') || lower.includes('universidad nacional de salta')) {
+  if (lower.includes('monoblock') || lower.includes('monoblok')) {
     return {
       suggestions: [
-        makePred('google-unsa', 'Universidad Nacional de Salta', 'Av. Bolivia, Salta, Argentina', ['university']),
+        makePred('google-monoblock-25-mayo', 'Monoblock Salta', '25 de Mayo, Salta, Argentina', ['point_of_interest']),
+        makePred('google-monoblock-sarmiento', 'Monoblock salta', 'Avenida Sarmiento, Salta, Argentina', ['point_of_interest']),
+        makePred('google-monoblock-torre', 'Torre MONOBLOCK SALTA', 'General Balcarce, Salta, Argentina', ['point_of_interest']),
+        makePred('google-monoblock-jujuy', 'Monoblock', 'San Salvador de Jujuy, Jujuy, Argentina', ['point_of_interest']),
       ],
     };
   }
@@ -417,6 +420,21 @@ function googlePlaceDetailsEssentialsResponse(placeId) {
       formattedAddress: 'Universidad Nacional de Salta, Av. Bolivia, Salta, Argentina',
       location: { latitude: -24.735437, longitude: -65.386858 },
       types: ['university', 'point_of_interest'],
+    },
+    'google-monoblock-25-mayo': {
+      formattedAddress: 'Monoblock Salta, 25 de Mayo 675, Salta, Argentina',
+      location: { latitude: -24.7815, longitude: -65.4174 },
+      types: ['point_of_interest', 'establishment'],
+    },
+    'google-monoblock-sarmiento': {
+      formattedAddress: 'Monoblock salta, Avenida Sarmiento 674, Salta, Argentina',
+      location: { latitude: -24.7811946, longitude: -65.4180114 },
+      types: ['point_of_interest', 'establishment'],
+    },
+    'google-monoblock-torre': {
+      formattedAddress: 'Torre MONOBLOCK SALTA, General Balcarce, Salta, Argentina',
+      location: { latitude: -24.7808, longitude: -65.4165 },
+      types: ['point_of_interest', 'establishment'],
     },
     'google-jaraba-poi': {
       formattedAddress: 'Imagenes Jaraba, Pueyrredón, Salta, Argentina',

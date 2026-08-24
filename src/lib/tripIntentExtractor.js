@@ -14,7 +14,7 @@ import {
   pickTripIntentReasoningEffort,
 } from './tripIntentSystemPrompt';
 import { TRIP_INTENT_JSON_SCHEMA, TRIP_INTENT_TOOLS } from './tripIntentSchema';
-import { loadTripIntentSettings, runTripIntentTool } from './tripIntentTools';
+import { loadTripIntentSettings, resolveLookupAddress, runTripIntentTool } from './tripIntentTools';
 import {
   buildPatternTripExtraction,
   fillPriceInquiryAddresses,
@@ -130,6 +130,23 @@ function sanitizePatternFallback(patternFallback, combinedText, context = {}) {
     return { ...rest, pickup_location: null, reply };
   }
   return { ...rest, reply };
+}
+
+async function fillMissingPickupFromLookup(parsed, combinedText) {
+  if (!parsed || parsed.pickup_location) return parsed;
+  if (parsed.intent !== 'trip_request' && parsed.intent !== 'schedule_trip') return parsed;
+  const looked = await resolveLookupAddress(combinedText);
+  if (!looked?.found || !looked.canonical) return parsed;
+  const missing = (parsed.missing_fields || []).filter((field) => field !== 'pickup_location');
+  if (looked.needs_number && !missing.includes('pickup_number')) missing.push('pickup_number');
+  return {
+    ...parsed,
+    pickup_location: looked.canonical,
+    origin: parsed.origin || looked.canonical,
+    missing_fields: looked.needs_number
+      ? missing
+      : missing.filter((field) => field !== 'pickup_number'),
+  };
 }
 
 function normalizeProExtraction(parsed, passengerName, combinedText) {
@@ -398,12 +415,15 @@ async function extractTripIntentWithDeepSeek({
       model,
     });
 
-    const parsed = normalizeProExtraction(
-      parseTripIntentJson(result.text, {
-        ...DEFAULT_EXTRACTION,
-        passenger_name: passengerName,
-      }),
-      passengerName,
+    const parsed = await fillMissingPickupFromLookup(
+      normalizeProExtraction(
+        parseTripIntentJson(result.text, {
+          ...DEFAULT_EXTRACTION,
+          passenger_name: passengerName,
+        }),
+        passengerName,
+        combinedText,
+      ),
       combinedText,
     );
 

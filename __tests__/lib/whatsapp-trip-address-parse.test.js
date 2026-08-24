@@ -1,5 +1,6 @@
 const {
   extractFullTripByPattern,
+  extractTripPickupHeuristic,
   splitAddressFromIntentPhrase,
   stripTrailingTripRouteTail,
   collapseEquivalentPollCandidates,
@@ -20,7 +21,7 @@ describe('whatsappTripAddressParse', () => {
   it('corta el pickup antes de "es para ir hasta" en pedidos directos', () => {
     const pickup = splitAddressFromIntentPhrase(
       'me mandas un remis a mitre al 200 es para ir hasta guemes al 400',
-      /(?:remis|m[oó]vil|movil|taxi|auto)\s+(?:para|a|en)\s+/i,
+      /(?:remis|m[oó]vil|movil|taxi|auto)\s+(?:para|al|a|en)\s+/i,
     );
 
     expect(pickup).toBe('Mitre 200');
@@ -29,6 +30,41 @@ describe('whatsappTripAddressParse', () => {
   it('limpia restos de frase de ruta en el pickup', () => {
     expect(stripTrailingTripRouteTail('Mitre 200 es para ir')).toBe('Mitre 200');
     expect(stripTrailingTripRouteTail('Belgrano 300 voy para')).toBe('Belgrano 300');
+  });
+
+  it('no toma "Flavio Mendoza" como calle en un show', () => {
+    const trip = extractTripPickupHeuristic(
+      'Hola! te pido un remis para las 19:45 para la hab 105. Ellos se van al show de flavio mendoza. Y quieren que los busquen despues',
+    );
+    expect(trip.pickup).toBeNull();
+    expect(String(trip.pickup || '')).not.toMatch(/mendoza/i);
+  });
+
+  it('toma Belgrano 1557 y no la hora 22', () => {
+    const trip = extractTripPickupHeuristic(
+      'Buenas me puede mandar un móvil a las 22 hs en Belgrano 1557 4to H ?',
+    );
+    expect(trip.pickup).toMatch(/belgrano 1557/i);
+    expect(trip.pickup).not.toMatch(/\b22\b/);
+  });
+
+  it('separa retiro y destino con "llevame a X desde Y"', () => {
+    const trip = extractFullTripByPattern('llevame a Mitre 300 desde Belgrano 200');
+
+    expect(trip).toEqual({
+      pickup: 'Belgrano 200',
+      destination: 'Mitre 300',
+    });
+  });
+
+  it('corta el destino "van a la" y no toma la estación como retiro', () => {
+    const trip = extractFullTripByPattern(
+      'Le pido un auto para el Hotel Caseros, Caseros 230. para las 06:05 am por favor Van a la estacion del tren',
+    );
+
+    expect(trip.pickup).toMatch(/caseros 230/i);
+    expect(trip.pickup).not.toMatch(/estacion|tren/i);
+    expect(trip.destination).toMatch(/estaci[oó]n|tren/i);
   });
 
   it('separa retiro y destino con "me voy para" tras coma', () => {
@@ -45,7 +81,7 @@ describe('whatsappTripAddressParse', () => {
   it('no deja ", me" en el pickup cuando el destino empieza con "me voy para"', () => {
     const pickup = splitAddressFromIntentPhrase(
       'me mandas un remis a Juan Gálvez 218, me voy para Tadeo tadia al 500',
-      /(?:mand[aá](?:me|as|an|s)?|necesito|quiero|pedido)\s+(?:un|una|uno|el|la)?\s*(?:remis|m[oó]vil|movil|taxi|auto|coche|viaje)?\s*(?:para|a|en)\s+/i,
+      /(?:mand[aá](?:me|as|an|s)?|necesito|quiero|pedido)\s+(?:un|una|uno|el|la)?\s*(?:remis|m[oó]vil|movil|taxi|auto|coche|viaje)?\s*(?:para|al|a|en)\s+/i,
     );
 
     expect(pickup).toBe('Juan Gálvez 218');
