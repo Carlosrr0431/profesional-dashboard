@@ -997,6 +997,23 @@ function extractStreetHintAlongsidePoi(rawText, knownPoi) {
   return street.name;
 }
 
+function candidateMatchesPoiStreetHint(candidate, streetHint) {
+  const hintNorm = normalizePoiText(streetHint || '');
+  if (!hintNorm) return true;
+  const blob = normalizePoiText(
+    `${candidate?.subtitle || ''} ${candidate?.formattedAddress || ''} ${candidate?.title || ''}`
+  );
+  return blob.includes(hintNorm);
+}
+
+/** Si el pasajero dijo una calle, dejar solo sucursales de esa calle. */
+function preferPoiStreetHintCandidates(candidates, streetHint) {
+  const list = Array.isArray(candidates) ? candidates : [];
+  if (!String(streetHint || '').trim()) return list;
+  const matched = list.filter((candidate) => candidateMatchesPoiStreetHint(candidate, streetHint));
+  return matched.length > 0 ? matched : list;
+}
+
 function queryTextMatchesPoiTokens(queryText, specificTokens) {
   if (!specificTokens?.length) return true;
   const norm = normalizePoiText(queryText);
@@ -1244,6 +1261,7 @@ module.exports = {
   isCategoryPoiSearch,
   isSpecificNamedPoiQuery,
   extractStreetHintAlongsidePoi,
+  preferPoiStreetHintCandidates,
   getPoiSpecificSearchTokens,
   normalizePoiText,
   fixPoiTypoTokens,

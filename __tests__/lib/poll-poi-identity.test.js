@@ -25,4 +25,24 @@ describe('collapseEquivalentPollCandidates (POIs)', () => {
       getAddressPollIdentityKey(collapsed[1]),
     );
   });
+
+  it('colapsa el mismo POI con y sin altura y se queda con la numerada', () => {
+    const collapsed = collapseEquivalentPollCandidates([
+      {
+        title: 'Carrefour Hipermercado Salta Capital II',
+        subtitle: 'Avenida Entre Ríos 1816',
+        formattedAddress: 'Carrefour Hipermercado Salta Capital II, Avenida Entre Ríos 1816, Salta',
+        score: 0.88,
+      },
+      {
+        title: 'Carrefour Hipermercado Salta Capital II',
+        subtitle: 'Avenida Entre Ríos',
+        formattedAddress: 'Carrefour Hipermercado Salta Capital II, Avenida Entre Ríos, Salta',
+        score: 0.91,
+      },
+    ]);
+
+    expect(collapsed).toHaveLength(1);
+    expect(collapsed[0].subtitle).toMatch(/1816/);
+  });
 });

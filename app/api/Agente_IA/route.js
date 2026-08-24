@@ -39,6 +39,7 @@ import {
   isCategoryPoiSearch,
   isSpecificNamedPoiQuery,
   extractStreetHintAlongsidePoi,
+  preferPoiStreetHintCandidates,
   looksLikeSaltaKnownPoi,
   mergeDistinctAddressCandidates,
   resolveSaltaKnownPoi,
@@ -6181,6 +6182,7 @@ async function enrichCandidatesForKnownPoi(knownPoi, baseCandidates = [], origin
     return bScore - aScore;
   });
 
+  merged = preferPoiStreetHintCandidates(merged, streetHint);
   return merged.slice(0, maxResults);
 }
 
@@ -11352,7 +11354,9 @@ async function processClaimedConversation(batch) {
         scoreCandidateAgainstQuery(`${b.title || ''} ${b.subtitle || ''}`, queryForMatch),
       );
       return bScore - aScore;
-    }).slice(0, GUEMES_POLL_OPTION_LIMIT);
+    });
+    mergedPoiPoll = preferPoiStreetHintCandidates(mergedPoiPoll, poiStreetHint)
+      .slice(0, GUEMES_POLL_OPTION_LIMIT);
 
     addressPollCandidates = mergedPoiPoll.map((candidate) => ({
       ...candidate,

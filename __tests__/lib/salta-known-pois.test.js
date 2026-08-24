@@ -9,6 +9,7 @@ const {
   isSpecificNamedPoiQuery,
   getPoiSpecificSearchTokens,
   extractStreetHintAlongsidePoi,
+  preferPoiStreetHintCandidates,
   mergeDistinctAddressCandidates,
 } = require('../../src/lib/saltaKnownPois');
 
@@ -163,6 +164,28 @@ describe('saltaKnownPois', () => {
     const poi = resolveSaltaKnownPoi('hospital san bernado');
     expect(poi?.id).toBe('hospital');
     expect(poi?.patterns?.length).toBeGreaterThan(0);
+  });
+
+  it('con calle junto al POI deja solo sucursales de esa calle', () => {
+    const poi = resolveSaltaKnownPoi('carrefour entre rios y junin');
+    expect(poi?.id).toBe('carrefour');
+    expect(extractStreetHintAlongsidePoi('carrefour entre rios y junin', poi)).toMatch(/entre\s*r[ií]os/i);
+
+    const filtered = preferPoiStreetHintCandidates(
+      [
+        {
+          title: 'Carrefour Hipermercado Salta Capital II',
+          subtitle: 'Avenida Entre Ríos 1816',
+        },
+        {
+          title: 'Carrefour Express',
+          subtitle: 'Balcarce 401 · Salta Capital',
+        },
+      ],
+      'Entre Ríos',
+    );
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].subtitle).toMatch(/Entre Ríos/i);
   });
 
   it('mergeDistinctAddressCandidates conserva lugares distintos', () => {

@@ -100,13 +100,29 @@ function normalizePollStreetKey(value) {
     .trim();
 }
 
+function looksLikeStreetPollTitle(title) {
+  return /^(calle|avenida|avda|av\.?|pasaje|pje\.?|ruta|boulevard|bulevar|bv\.?)\b/i
+    .test(String(title || '').trim());
+}
+
+function stripPollHouseNumber(value) {
+  return normalizePollStreetKey(value)
+    .replace(/\b\d{1,5}\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function pollCandidateRichness(candidate) {
+  const blob = `${candidate?.subtitle || ''} ${candidate?.formattedAddress || ''} ${candidate?.title || ''}`;
+  const hasNum = /\b\d{1,5}[a-z]?\b/i.test(blob) ? 1 : 0;
+  return hasNum * 1000 + Number(candidate?.score || 0);
+}
+
 function getAddressPollIdentityKey(candidate) {
-  const title = String(candidate?.pollLabel || candidate?.title || '').trim();
+  const title = String(candidate?.title || '').trim();
   const subtitle = String(candidate?.subtitle || '').trim();
-  // Incluir subtítulo para no colapsar "Hospital X · Boedo" con "Hospital X · Colón"
-  const raw = [title, subtitle, candidate?.formattedAddress]
-    .filter(Boolean)
-    .join(' | ');
+  const formatted = String(candidate?.formattedAddress || '').trim();
+  const raw = [title, subtitle, formatted].filter(Boolean).join(' | ');
   const normalized = normalizePollStreetKey(raw);
   const numMatch = normalized.match(/\b(\d{1,5})\b/);
   const number = numMatch ? numMatch[1] : '';
@@ -114,6 +130,13 @@ function getAddressPollIdentityKey(candidate) {
   if (candidate?.street?.nameKey) {
     const typeKey = String(candidate.street.type || '').trim().toLowerCase();
     return `${typeKey}|${candidate.street.nameKey}|${number}|${normalizePollStreetKey(subtitle)}`;
+  }
+  // Mismo POI + misma calle, con o sin altura (Carrefour Entre Ríos vs Entre Ríos 1816).
+  // Calles distintas del mismo nombre (Hospital · Boedo vs · Colón) siguen aparte.
+  if (title && !looksLikeStreetPollTitle(title) && (subtitle || formatted)) {
+    const titleKey = stripPollHouseNumber(title);
+    const streetKey = stripPollHouseNumber(subtitle || formatted);
+    if (titleKey && streetKey) return `${titleKey}|${streetKey}`;
   }
   return `${street}|${number}`;
 }
@@ -141,7 +164,7 @@ function collapseEquivalentPollCandidates(candidates) {
     const key = getAddressPollIdentityKey(candidate);
     if (!key || key === '|') continue;
     const prev = seen.get(key);
-    if (!prev || Number(candidate?.score || 0) > Number(prev?.score || 0)) {
+    if (!prev || pollCandidateRichness(candidate) > pollCandidateRichness(prev)) {
       seen.set(key, candidate);
     }
   }
@@ -154,12 +177,12 @@ function collapseEquivalentPollCandidates(candidates) {
       out.push(candidate);
       continue;
     }
-    if (Number(candidate?.score || 0) > Number(out[nearIdx]?.score || 0)) {
+    if (pollCandidateRichness(candidate) > pollCandidateRichness(out[nearIdx])) {
       out[nearIdx] = candidate;
     }
   }
 
-  return out.sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
+  return out.sort((a, b) => pollCandidateRichness(b) - pollCandidateRichness(a));
 }
 
 const VEHICLE_WORD = '(?:remis|m[oó]vil|movil|taxi|auto|coche)';
