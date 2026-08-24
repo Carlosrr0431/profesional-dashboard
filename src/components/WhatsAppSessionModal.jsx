@@ -225,14 +225,21 @@ export default function WhatsAppSessionModal({
     );
     if (snapshot.config && !canConnect) return;
 
+    // Un corte de websocket no requiere QR ni Connect(): whatsmeow reconecta solo.
+    if (snapshot.status === 'disconnected') {
+      autoConnectRef.current = true;
+      return;
+    }
+
     // Si ya hay QR fresco en need_scan, no forzar otro connect.
     if (snapshot.qr && snapshot.status === 'need_scan') {
       autoConnectRef.current = true;
       return;
     }
 
-    const needsConnect = !snapshot.qr
-      || ['logged_out', 'disconnected', 'expired', 'unknown'].includes(snapshot.status);
+    const needsConnect = ['logged_out', 'expired'].includes(snapshot.status)
+      || (snapshot.status === 'need_scan' && !snapshot.qr)
+      || (snapshot.status === 'unknown' && !snapshot.qr && snapshot.connected !== true);
 
     if (!needsConnect) return;
 

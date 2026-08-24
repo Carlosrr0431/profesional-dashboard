@@ -74,7 +74,7 @@ export async function POST(request) {
     }
 
     const current = await getWasenderSessionSnapshot({ refreshLive: true });
-    if (current.connected && !body?.force) {
+    if (current.connected) {
       return NextResponse.json({
         ok: true,
         ...current,

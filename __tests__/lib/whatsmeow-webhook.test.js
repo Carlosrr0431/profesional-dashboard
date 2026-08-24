@@ -1,4 +1,7 @@
-const { normalizeWhatsmeowWebhookBody } = require('../../src/lib/whatsmeowWebhook');
+const {
+  isNoiseWhatsAppWebhookEvent,
+  normalizeWhatsmeowWebhookBody,
+} = require('../../src/lib/whatsmeowWebhook');
 
 describe('normalizeWhatsmeowWebhookBody', () => {
   test('convierte text upsert al formato Wasender-like', () => {
@@ -177,5 +180,13 @@ describe('normalizeWhatsmeowWebhookBody', () => {
     expect(loc.degreesLatitude).toBeCloseTo(-24.789012);
     expect(loc.degreesLongitude).toBeCloseTo(-65.412345);
     expect(loc.address).toBe('Plaza 9 de Julio');
+  });
+
+  test('marca recibos y edits como ruido (no van al agente)', () => {
+    expect(isNoiseWhatsAppWebhookEvent('messages.status')).toBe(true);
+    expect(isNoiseWhatsAppWebhookEvent('messages.reaction')).toBe(true);
+    expect(isNoiseWhatsAppWebhookEvent('messages.upsert')).toBe(false);
+    expect(isNoiseWhatsAppWebhookEvent('session.status')).toBe(false);
+    expect(isNoiseWhatsAppWebhookEvent('poll.results')).toBe(false);
   });
 });

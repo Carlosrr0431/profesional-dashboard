@@ -219,6 +219,19 @@ function toPollResults(msg, agentCode) {
   };
 }
 
+const NOISE_WEBHOOK_EVENTS = new Set([
+  'messages.status',
+  'messages.reaction',
+  'messages.undecryptable',
+  'messages.deleted',
+  'messages.edit',
+]);
+
+/** Recibos/edits que no disparan el agente. Ack 200 sin tocar BD ni IA. */
+export function isNoiseWhatsAppWebhookEvent(event) {
+  return NOISE_WEBHOOK_EVENTS.has(String(event || '').trim());
+}
+
 function isOutgoingWhatsmeowMsg(msg) {
   return msg?.is_from_me === true;
 }

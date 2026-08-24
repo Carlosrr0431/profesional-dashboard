@@ -111,7 +111,7 @@ import {
   sendWhatsmeowPoll,
   sendWhatsmeowText,
 } from '../../../src/lib/whatsmeowClient';
-import { normalizeWhatsmeowWebhookBody } from '../../../src/lib/whatsmeowWebhook';
+import { isNoiseWhatsAppWebhookEvent, normalizeWhatsmeowWebhookBody } from '../../../src/lib/whatsmeowWebhook';
 import {
   ASK_PICKUP_STREET_OR_GPS,
   buildBettoWelcomeMessage,
@@ -13026,6 +13026,15 @@ export async function POST(req, context = {}) {
 
   return runWithWasenderLine(line, async () => {
     const body = normalizedPreview;
+    if (isNoiseWhatsAppWebhookEvent(rawBody?.event) || isNoiseWhatsAppWebhookEvent(body?.event)) {
+      logWebhook('http_post_skipped', {
+        reason: 'noise_event',
+        event: rawBody?.event || body?.event || null,
+        wasenderLine: getActiveWasenderLinePhone(),
+      });
+      return Response.json({ success: true, ignored: true, reason: 'noise_event' }, { status: 200 });
+    }
+
     const agentEnabled = await isWhatsAppAgentEnabled();
     const peekedPhone = peekWebhookPhone(body);
     const lifecycleEvent = isLifecycleSystemEvent(body?.event);

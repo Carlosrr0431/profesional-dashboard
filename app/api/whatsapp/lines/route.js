@@ -196,14 +196,19 @@ export async function POST(request) {
     const webhookUrl = resolveWebhookUrl(line.phone, line.agentCode);
     const secret = process.env.WHATSMEOW_WEBHOOK_SECRET || '';
 
-    // refresh-qr: fuerza regeneración (disconnect → connect → poll)
-    // connect: inicia/reconecta sesión y espera QR
+    const live = await getLineSnapshot(line, { includeQr: false });
+    if (live.connected && action !== 'reset' && action !== 'logout' && action !== 'disconnect') {
+      return NextResponse.json({
+        ok: true,
+        ...live,
+        alreadyConnected: true,
+      });
+    }
+
     const forceNewQr = action === 'refresh-qr';
 
     if (forceNewQr) {
-      // Cierra el websocket/QR viejo para que Connect genere uno nuevo
       await disconnectWhatsmeowSession(line.agentCode).catch(() => null);
-      // Breve pausa para que whatsmeow libere el cliente
       await new Promise((r) => setTimeout(r, 400));
     }
 
