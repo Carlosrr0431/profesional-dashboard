@@ -1,7 +1,7 @@
 const {
   buildBettoWelcomeMessage,
+  buildTripTakenReply,
   conversationalGreeting,
-  extractMirroredGreeting,
   withBettoIntro,
   isBettoGreetedContext,
   isAvailabilityAskWithoutRoute,
@@ -24,20 +24,34 @@ describe('bettoWelcome', () => {
     expect(msg).not.toMatch(/referencia/i);
   });
 
-  it('espeja el saludo del pasajero en un pedido nuevo', () => {
-    expect(extractMirroredGreeting('Buen día me podría enviar un móvil')).toBe('Buen día');
+  it('el saludo sigue la hora de Salta, no el texto del pasajero', () => {
     expect(conversationalGreeting({
       text: 'Buen día me podría enviar un móvil con baulera al Vélez Sarfield 105',
       now: afternoon,
-    })).toBe('Buen día');
+    })).toBe('Buenas tardes');
     expect(conversationalGreeting({ text: 'me podría enviar un móvil', now: afternoon })).toBe('Buenas tardes');
-    expect(conversationalGreeting({ text: 'hola, tenes movil', now: night })).toBe('Hola');
+    expect(conversationalGreeting({ text: 'hola, tenes movil', now: night })).toBe('Buenas noches');
+    expect(conversationalGreeting({ now: morning })).toBe('Buen día');
+  });
+
+  it('al tomar un pedido responde como el teléfono de Profesional, sin repetir el retiro', () => {
+    expect(buildTripTakenReply({ includeGreeting: true, now: afternoon })).toBe(
+      'Buenas tardes, ya te mando el móvil.',
+    );
+    expect(buildTripTakenReply({ includeGreeting: true, now: morning })).toBe(
+      'Buen día, ya te mando el móvil.',
+    );
+    expect(buildTripTakenReply({ includeGreeting: true, now: night })).toBe(
+      'Buenas noches, ya te mando el móvil.',
+    );
+    expect(buildTripTakenReply({ includeGreeting: false })).toBe('Ya te mando el móvil.');
+    expect(buildTripTakenReply({ includeGreeting: true, now: afternoon })).not.toMatch(/retiro/i);
   });
 
   it('antepone el saludo una sola vez', () => {
-    const body = 'Dale, te tomo el móvil.';
+    const body = 'Ya te mando el móvil.';
     const once = withBettoIntro(body, { now: afternoon });
-    expect(once).toBe(`Buenas tardes 👋\n\n${body}`);
+    expect(once).toBe(`Buenas tardes\n\n${body}`);
     expect(withBettoIntro(once, { now: afternoon })).toBe(once);
   });
 
@@ -46,7 +60,7 @@ describe('bettoWelcome', () => {
       'Hola Carlos, ¿de dónde te buscamos? Pasame la calle y el número.',
       { now: morning },
     );
-    expect(once.startsWith('Buen día 👋')).toBe(true);
+    expect(once.startsWith('Buen día')).toBe(true);
     expect(once).not.toMatch(/Hola Carlos/i);
   });
 

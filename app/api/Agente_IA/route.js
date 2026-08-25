@@ -116,6 +116,7 @@ import { isNoiseWhatsAppWebhookEvent, normalizeWhatsmeowWebhookBody } from '../.
 import {
   ASK_PICKUP_STREET_OR_GPS,
   buildBettoWelcomeMessage,
+  buildTripTakenReply,
   isBettoGreetedContext,
   mergeWhatsappSessionContext,
   rewriteVaguePickupAsk,
@@ -7612,30 +7613,13 @@ async function finalizeScheduledTripWithPickup({
 }
 
 function buildPassengerTripDerivedReply({
-  pickupLocation,
-  finalDestinationGeo,
-  finalDestinationHint,
   destinationFollowupText,
   includeBettoIntro = false,
-  passengerText = null,
 }) {
-  const destinationConfirmLine = finalDestinationGeo
-    ? `\nDestino: *${finalDestinationGeo.formattedAddress}*`
-    : finalDestinationHint
-      ? `\nDestino indicado: *${finalDestinationHint}*`
-      : '';
-
-  const destinationGpsLine = destinationFollowupText
-    ? `\n${destinationFollowupText}`
-    : '';
-
-  const body = [
-    'Dale, te tomo el móvil.',
-    '',
-    `Retiro: *${pickupLocation.formattedAddress}*${destinationConfirmLine}${destinationGpsLine}`,
-    'En cuanto un chofer lo acepte te aviso por acá.',
-  ].join('\n');
-  return includeBettoIntro ? withBettoIntro(body, { text: passengerText }) : body;
+  return buildTripTakenReply({
+    includeGreeting: includeBettoIntro,
+    followup: destinationFollowupText,
+  });
 }
 
 function buildApproachOnlyQueuePayload({
@@ -7912,9 +7896,7 @@ async function maybeSendDestinationAddressPoll({
 
 async function createTripFromConversation({ conversation, extracted, includeBettoIntro = false }) {
   const wrapTripReply = (body) => (
-    includeBettoIntro
-      ? withBettoIntro(body, { text: extracted?._conversationText })
-      : body
+    includeBettoIntro ? withBettoIntro(body) : body
   );
   logWebhook('trip_create_start', {
     conversationId: conversation?.id || null,
@@ -8313,16 +8295,10 @@ async function createTripFromConversation({ conversation, extracted, includeBett
       queued: true,
       trip: queuedTrip,
       driver: null,
-      reply: wrapTripReply([
-        'Dale, te tomo el móvil y ya estás en la cola.',
-        finalDestinationGeo
-          ? `Destino: *${finalDestinationGeo.formattedAddress}*`
-          : finalDestinationHint
-            ? `Destino indicado: *${finalDestinationHint}*`
-            : null,
-        destinationFollowupText,
-        'Apenas se confirme un chofer te aviso por acá 🕐',
-      ].filter(Boolean).join('\n')),
+      reply: buildTripTakenReply({
+        includeGreeting: includeBettoIntro,
+        followup: destinationFollowupText,
+      }),
       context: {
         passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
         pickup_location: normalizedPickupQuery || pickupQuery,

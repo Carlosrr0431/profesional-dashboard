@@ -43,26 +43,16 @@ export function greetingForSaltaHour(hour) {
   return 'Buenas noches';
 }
 
-export function extractMirroredGreeting(text) {
-  const raw = String(text || '').trim();
-  if (!raw) return null;
-  if (/^(?:¡?\s*)?(?:buenos?\s+d[ií]as?|buen\s+d[ií]a)\b/i.test(raw)) return 'Buen día';
-  if (/^(?:¡?\s*)?buenas?\s+tardes?\b/i.test(raw)) return 'Buenas tardes';
-  if (/^(?:¡?\s*)?buenas?\s+noches?\b/i.test(raw)) return 'Buenas noches';
-  if (/^(?:¡?\s*)?(?:hola|we[nñ]o|weno)\b/i.test(raw)) return 'Hola';
-  if (/^(?:¡?\s*)?buenas\b/i.test(raw)) return 'Buenas';
-  return null;
-}
-
-export function conversationalGreeting({ text, now } = {}) {
-  return extractMirroredGreeting(text) || greetingForSaltaHour(saltaHour(now));
+export function conversationalGreeting({ now } = {}) {
+  return greetingForSaltaHour(saltaHour(now));
 }
 
 function isBettoIntroMessage(text) {
   const first = String(text || '').trim().split('\n', 1)[0] || '';
   if (!first) return false;
   if (first.startsWith('Hola, soy el Chat Bot Betto')) return true;
-  return /^(?:Buen d[ií]a|Buenas tardes|Buenas noches|Hola|Buenas) 👋\s*$/.test(first);
+  if (/^(?:Buen d[ií]a|Buenas tardes|Buenas noches)(?: 👋)?\s*$/.test(first)) return true;
+  return /^(?:Buen d[ií]a|Buenas tardes|Buenas noches), ya te mando el m[oó]vil\.?$/i.test(first);
 }
 
 function isPickupAskWithoutGps(text) {
@@ -113,8 +103,8 @@ export function stampBettoGreeted(now = new Date()) {
   };
 }
 
-export function buildBettoWelcomeMessage({ text, now } = {}) {
-  const hi = conversationalGreeting({ text, now });
+export function buildBettoWelcomeMessage({ now } = {}) {
+  const hi = conversationalGreeting({ now });
   return [
     `${hi} 👋`,
     'Soy Betto, de Profesional.',
@@ -126,8 +116,8 @@ export function buildBettoWelcomeMessage({ text, now } = {}) {
   ].join('\n');
 }
 
-export function withBettoIntro(message, { text, now } = {}) {
-  const intro = `${conversationalGreeting({ text, now })} 👋`;
+export function withBettoIntro(message, { now } = {}) {
+  const intro = conversationalGreeting({ now });
   const raw = String(message || '').trim();
   if (!raw) return intro;
   if (isBettoIntroMessage(raw)) return raw;
@@ -135,6 +125,18 @@ export function withBettoIntro(message, { text, now } = {}) {
   if (!body) return intro;
   if (isBettoIntroMessage(body)) return body;
   return `${intro}\n\n${body}`;
+}
+
+export function buildTripTakenReply({
+  includeGreeting = false,
+  now,
+  followup = null,
+} = {}) {
+  const line = includeGreeting
+    ? `${conversationalGreeting({ now })}, ya te mando el móvil.`
+    : 'Ya te mando el móvil.';
+  const extra = String(followup || '').trim();
+  return extra ? `${line}\n${extra}` : line;
 }
 
 export function shouldSendBettoWelcome({
