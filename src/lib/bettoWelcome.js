@@ -133,8 +133,8 @@ export function buildTripTakenReply({
   followup = null,
 } = {}) {
   const line = includeGreeting
-    ? `${conversationalGreeting({ now })}, ya te mando el móvil.`
-    : 'Ya te mando el móvil.';
+    ? `${conversationalGreeting({ now })}, ya te mando el móvil`
+    : 'Ya te mando el móvil';
   const extra = String(followup || '').trim();
   return extra ? `${line}\n${extra}` : line;
 }

@@ -36,20 +36,20 @@ describe('bettoWelcome', () => {
 
   it('al tomar un pedido responde como el teléfono de Profesional, sin repetir el retiro', () => {
     expect(buildTripTakenReply({ includeGreeting: true, now: afternoon })).toBe(
-      'Buenas tardes, ya te mando el móvil.',
+      'Buenas tardes, ya te mando el móvil',
     );
     expect(buildTripTakenReply({ includeGreeting: true, now: morning })).toBe(
-      'Buen día, ya te mando el móvil.',
+      'Buen día, ya te mando el móvil',
     );
     expect(buildTripTakenReply({ includeGreeting: true, now: night })).toBe(
-      'Buenas noches, ya te mando el móvil.',
+      'Buenas noches, ya te mando el móvil',
     );
-    expect(buildTripTakenReply({ includeGreeting: false })).toBe('Ya te mando el móvil.');
+    expect(buildTripTakenReply({ includeGreeting: false })).toBe('Ya te mando el móvil');
     expect(buildTripTakenReply({ includeGreeting: true, now: afternoon })).not.toMatch(/retiro/i);
   });
 
   it('antepone el saludo una sola vez', () => {
-    const body = 'Ya te mando el móvil.';
+    const body = 'Ya te mando el móvil';
     const once = withBettoIntro(body, { now: afternoon });
     expect(once).toBe(`Buenas tardes\n\n${body}`);
     expect(withBettoIntro(once, { now: afternoon })).toBe(once);
