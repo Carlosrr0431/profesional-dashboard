@@ -82,7 +82,21 @@ export function looksLikeExplicitVehicleDispatch(text) {
   if (looksLikePriceInquiry(text)) return false;
   const n = normalizeForMatch(text);
   if (!n) return false;
-  return /(remis|taxi|m[oó]vil|movil|pasame\s+a\s+buscar|busc[aá]me|mand[aá](?:me|as|an)?\s+(?:un|una|el|la)?\s*(?:remis|movil|m[oó]vil|taxi|auto)|necesito\s+(?:un|una)?\s*(?:remis|movil|m[oó]vil|taxi|auto))/.test(n);
+  return /(remis|taxi|m[oó]vil|movil|pasame\s+a\s+buscar|busc[aá]me|mand[aá](?:me|as|an)?\s+(?:un|una|el|la)?\s*(?:remis|movil|m[oó]vil|taxi|auto)|envi(?:ame|anos|ar)?\s+(?:un|una|el|la)?\s*(?:remis|movil|m[oó]vil|taxi|auto)|necesito\s+(?:un|una)?\s*(?:remis|movil|m[oó]vil|taxi|auto))/.test(n);
+}
+
+/**
+ * Pedido fresco de móvil (no saludo, no status, no "ok").
+ * Un "viaje" suelto no alcanza: hace falta móvil/remis o pedido + dirección.
+ */
+export function looksLikeFreshTripRequest(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return false;
+  if (isGreetingOnly(raw) || isShortAck(raw) || looksLikeStatusQuery(raw)) return false;
+  if (messageRequestsTripCancel(raw)) return false;
+  if (looksLikePriceInquiry(raw)) return false;
+  if (looksLikeExplicitVehicleDispatch(raw)) return true;
+  return looksLikeTripRequest(raw) && looksLikeAddressText(raw);
 }
 
 export function isPriceInquiryCollecting(context) {

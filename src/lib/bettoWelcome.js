@@ -16,13 +16,53 @@ export const BETTO_INTRO = 'Hola, soy el Chat Bot Betto 👋';
 export const ASK_PICKUP_STREET_OR_GPS =
   'Mandame *calle y altura* (por ejemplo Mitre 200) o tu *ubicación GPS* desde WhatsApp.';
 
-const HOLA_PREFIX_RE = /^(?:¡?hola(?:\s+[^,\n!]{1,40})?\s*[,!]?\s*)+/i;
+const SALTA_TZ = 'America/Argentina/Salta';
+const HOLA_PREFIX_RE =
+  /^(?:¡?\s*)?(?:hola(?:\s+[^,\n!]{1,40})?|buenos?\s+d[ií]as?|buen\s+d[ií]a|buenas?\s+tardes?|buenas?\s+noches?|buenas)\s*[,!]?\s*/i;
 const HAS_GPS_ASK_RE = /ubicaci[oó]n\s+GPS|\bGPS\b/i;
 const PICKUP_ASK_RE =
   /de d[oó]nde te buscamos|desde d[oó]nde|referencias?|punto de encuentro|calle y(?:\s+el)?\s+n[uú]mero|(?:pasame|pas[aá]s|mandame|decime).{0,40}calle/i;
 
 export function stripLeadingHolaGreeting(text) {
   return String(text || '').trim().replace(HOLA_PREFIX_RE, '').trim();
+}
+
+export function saltaHour(now = new Date()) {
+  const hourStr = new Intl.DateTimeFormat('en-GB', {
+    timeZone: SALTA_TZ,
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).format(now);
+  return Number.parseInt(hourStr, 10);
+}
+
+export function greetingForSaltaHour(hour) {
+  const h = Number(hour);
+  if (h >= 5 && h < 12) return 'Buen día';
+  if (h >= 12 && h < 20) return 'Buenas tardes';
+  return 'Buenas noches';
+}
+
+export function extractMirroredGreeting(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  if (/^(?:¡?\s*)?(?:buenos?\s+d[ií]as?|buen\s+d[ií]a)\b/i.test(raw)) return 'Buen día';
+  if (/^(?:¡?\s*)?buenas?\s+tardes?\b/i.test(raw)) return 'Buenas tardes';
+  if (/^(?:¡?\s*)?buenas?\s+noches?\b/i.test(raw)) return 'Buenas noches';
+  if (/^(?:¡?\s*)?(?:hola|we[nñ]o|weno)\b/i.test(raw)) return 'Hola';
+  if (/^(?:¡?\s*)?buenas\b/i.test(raw)) return 'Buenas';
+  return null;
+}
+
+export function conversationalGreeting({ text, now } = {}) {
+  return extractMirroredGreeting(text) || greetingForSaltaHour(saltaHour(now));
+}
+
+function isBettoIntroMessage(text) {
+  const first = String(text || '').trim().split('\n', 1)[0] || '';
+  if (!first) return false;
+  if (first.startsWith('Hola, soy el Chat Bot Betto')) return true;
+  return /^(?:Buen d[ií]a|Buenas tardes|Buenas noches|Hola|Buenas) 👋\s*$/.test(first);
 }
 
 function isPickupAskWithoutGps(text) {
@@ -73,25 +113,28 @@ export function stampBettoGreeted(now = new Date()) {
   };
 }
 
-export function buildBettoWelcomeMessage() {
+export function buildBettoWelcomeMessage({ text, now } = {}) {
+  const hi = conversationalGreeting({ text, now });
   return [
-    BETTO_INTRO,
+    `${hi} 👋`,
+    'Soy Betto, de Profesional.',
     '',
-    'Contame el viaje que querés tomar.',
+    'Decime el viaje que querés tomar.',
     'Necesito *de dónde te buscamos*: *calle y altura*, o tu *ubicación GPS*.',
     '',
     'Ejemplo: _Mitre 200_ o _buscame en Mitre 200 para ir a Güemes 400_.',
   ].join('\n');
 }
 
-export function withBettoIntro(message) {
+export function withBettoIntro(message, { text, now } = {}) {
+  const intro = `${conversationalGreeting({ text, now })} 👋`;
   const raw = String(message || '').trim();
-  if (!raw) return BETTO_INTRO;
-  if (raw.startsWith('Hola, soy el Chat Bot Betto')) return raw;
+  if (!raw) return intro;
+  if (isBettoIntroMessage(raw)) return raw;
   const body = stripLeadingHolaGreeting(raw);
-  if (!body) return BETTO_INTRO;
-  if (body.startsWith('Hola, soy el Chat Bot Betto')) return body;
-  return `${BETTO_INTRO}\n\n${body}`;
+  if (!body) return intro;
+  if (isBettoIntroMessage(body)) return body;
+  return `${intro}\n\n${body}`;
 }
 
 export function shouldSendBettoWelcome({

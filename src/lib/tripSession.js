@@ -33,10 +33,16 @@ export function isSessionOpenTripStatus(status) {
   return SESSION_OPEN_TRIP_STATUSES.includes(String(status || '').toLowerCase());
 }
 
+const REPLACEABLE_OPEN_TRIP_STATUSES = new Set(['queued', 'scheduled']);
+
+export function isReplaceableOpenTrip(trip) {
+  if (!trip) return false;
+  return REPLACEABLE_OPEN_TRIP_STATUSES.has(String(trip.status || '').toLowerCase());
+}
+
 export function startFreshTripContext(prev = {}) {
   const src = prev && typeof prev === 'object' ? prev : {};
   return {
-    already_greeted: Boolean(src.already_greeted),
     passenger_name: src.passenger_name || null,
     previous_trip_id: src.last_trip_id || src.previous_trip_id || null,
     last_activity_at: new Date().toISOString(),
@@ -51,10 +57,21 @@ export function shouldStartNewTrip(classified = {}, lastTripStatus = null, conte
   const intent = String(classified?.intent || '');
   if (FOLLOWUP_INTENTS.has(intent)) return false;
   if (isExactTrue(classified.new_trip)) return true;
-  if (opts.hasOpenTrip) return false;
-  if (context.awaiting_pickup_number || context.awaiting_gps) return false;
-  if (intent === 'trip_request' || intent === 'schedule_trip') return true;
-  return false;
+
+  const isTripIntent = intent === 'trip_request' || intent === 'schedule_trip';
+  if (!isTripIntent) return false;
+
+  const freshAsk = Boolean(opts.looksLikeFreshTripRequest);
+  const replaceable = Boolean(opts.replaceableOpenTrip);
+
+  // Completar altura/GPS del pedido actual no es un viaje nuevo.
+  if ((context.awaiting_pickup_number || context.awaiting_gps) && !freshAsk) return false;
+
+  if (opts.hasOpenTrip) {
+    return replaceable && freshAsk;
+  }
+
+  return true;
 }
 
 export function pickTripForStatus({ openTrip = null, lastTrip = null, lastClosedTrip = null } = {}) {

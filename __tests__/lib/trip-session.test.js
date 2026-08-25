@@ -1,4 +1,5 @@
 const {
+  isReplaceableOpenTrip,
   shouldStartNewTrip,
   startFreshTripContext,
   pickTripForStatus,
@@ -31,6 +32,36 @@ describe('tripSession (estilo Multicarnes)', () => {
     )).toBe(false);
   });
 
+  it('resetea un queued/scheduled si el pasajero pide otro móvil', () => {
+    expect(isReplaceableOpenTrip({ status: 'queued' })).toBe(true);
+    expect(isReplaceableOpenTrip({ status: 'scheduled' })).toBe(true);
+    expect(isReplaceableOpenTrip({ status: 'accepted' })).toBe(false);
+    expect(shouldStartNewTrip(
+      { intent: 'trip_request' },
+      'queued',
+      {},
+      { hasOpenTrip: true, replaceableOpenTrip: true, looksLikeFreshTripRequest: true },
+    )).toBe(true);
+    expect(shouldStartNewTrip(
+      { intent: 'trip_request' },
+      'accepted',
+      {},
+      { hasOpenTrip: true, replaceableOpenTrip: false, looksLikeFreshTripRequest: true },
+    )).toBe(false);
+    expect(shouldStartNewTrip(
+      { intent: 'trip_request' },
+      null,
+      { awaiting_gps: true },
+      { looksLikeFreshTripRequest: false },
+    )).toBe(false);
+    expect(shouldStartNewTrip(
+      { intent: 'trip_request' },
+      null,
+      { awaiting_gps: true },
+      { looksLikeFreshTripRequest: true },
+    )).toBe(true);
+  });
+
   it('conserva nombre y viaje anterior al empezar uno nuevo', () => {
     const next = startFreshTripContext({
       passenger_name: 'Carlos',
@@ -41,7 +72,7 @@ describe('tripSession (estilo Multicarnes)', () => {
     expect(next.passenger_name).toBe('Carlos');
     expect(next.previous_trip_id).toBe('trip-1');
     expect(next.pickup_location).toBeUndefined();
-    expect(next.already_greeted).toBe(true);
+    expect(next.already_greeted).toBeUndefined();
   });
 
   it('elige el viaje abierto para status, o el último cerrado', () => {

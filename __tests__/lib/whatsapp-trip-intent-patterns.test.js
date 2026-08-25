@@ -2,6 +2,7 @@ import {
   buildPatternTripExtraction,
   classifyWhatsAppIncomingText,
   isAvailabilityAskWithoutRoute,
+  looksLikeFreshTripRequest,
   looksLikePriceInquiry,
   looksLikeTripRequest,
   parseOriginDestinationPair,
@@ -201,6 +202,19 @@ describe('whatsappTripIntentPatterns', () => {
     expect(extraction.pickup_location).toBeNull();
     expect(extraction.missing_fields).toEqual(expect.arrayContaining(['pickup_location', 'destination']));
     expect(extraction.reply).toMatch(/origen/i);
+  });
+
+  it('detecta un pedido fresco de móvil aunque haya cola abierta', () => {
+    expect(looksLikeFreshTripRequest(
+      'Buen día me podría enviar un móvil con baulera al Vélez Sarfield 105',
+    )).toBe(true);
+    expect(looksLikeFreshTripRequest(
+      'me podría enviar un móvil con baulera al Vélez Sarfield 105',
+    )).toBe(true);
+    expect(looksLikeFreshTripRequest('ok')).toBe(false);
+    expect(looksLikeFreshTripRequest('donde esta el chofer')).toBe(false);
+    expect(looksLikeFreshTripRequest('Mitre 200')).toBe(false);
+    expect(looksLikeFreshTripRequest('hola')).toBe(false);
   });
 
   it('conserva la cotización aunque el viaje anterior esté cerrado', () => {

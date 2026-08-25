@@ -133,11 +133,13 @@ import {
   isShortAck,
   lastBotAskedForTripPrice,
   looksLikeExplicitVehicleDispatch,
+  looksLikeFreshTripRequest,
   looksLikeTripRequest as messageLooksLikeTripRequest,
   parseOriginDestinationPair,
   shouldPreservePriceQuoteAfterTripReset,
 } from '../../../src/lib/whatsappTripIntentPatterns';
 import {
+  isReplaceableOpenTrip,
   messagesToIntentHistory,
   pickTripForStatus,
   shouldStartNewTrip,
@@ -7615,6 +7617,7 @@ function buildPassengerTripDerivedReply({
   finalDestinationHint,
   destinationFollowupText,
   includeBettoIntro = false,
+  passengerText = null,
 }) {
   const destinationConfirmLine = finalDestinationGeo
     ? `\nDestino: *${finalDestinationGeo.formattedAddress}*`
@@ -7626,8 +7629,13 @@ function buildPassengerTripDerivedReply({
     ? `\n${destinationFollowupText}`
     : '';
 
-  const body = `Tomé tu pedido y ya lo derivé. Apenas un chofer lo acepte, te paso por WhatsApp quién va a buscarte.\n\nRetiro: *${pickupLocation.formattedAddress}*${destinationConfirmLine}${destinationGpsLine}`;
-  return includeBettoIntro ? withBettoIntro(body) : body;
+  const body = [
+    'Dale, te tomo el móvil.',
+    '',
+    `Retiro: *${pickupLocation.formattedAddress}*${destinationConfirmLine}${destinationGpsLine}`,
+    'En cuanto un chofer lo acepte te aviso por acá.',
+  ].join('\n');
+  return includeBettoIntro ? withBettoIntro(body, { text: passengerText }) : body;
 }
 
 function buildApproachOnlyQueuePayload({
@@ -7903,6 +7911,11 @@ async function maybeSendDestinationAddressPoll({
 }
 
 async function createTripFromConversation({ conversation, extracted, includeBettoIntro = false }) {
+  const wrapTripReply = (body) => (
+    includeBettoIntro
+      ? withBettoIntro(body, { text: extracted?._conversationText })
+      : body
+  );
   logWebhook('trip_create_start', {
     conversationId: conversation?.id || null,
     phone: maskPhone(conversation?.phone || ''),
@@ -7942,8 +7955,9 @@ async function createTripFromConversation({ conversation, extracted, includeBett
     return {
       ok: false,
       reason: 'missing_pickup_location',
-      reply:
+      reply: wrapTripReply(
         'Necesito la ubicación donde te pasamos a buscar (calle y número). Mandamela y te derivo el móvil.',
+      ),
       context: {
         passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
         pickup_location: extracted?.pickup_location || null,
@@ -7967,8 +7981,9 @@ async function createTripFromConversation({ conversation, extracted, includeBett
       return {
         ok: false,
         reason: 'invalid_address',
-        reply:
-          'No pude ubicar con precisión el punto de retiro. Mandame *calle y número exacto* (por ejemplo "Mitre 1234") o compartime tu *ubicación actual* desde WhatsApp.',
+        reply: wrapTripReply(
+          'No pude ubicar bien el retiro. Mandame *calle y altura* (por ejemplo Mitre 1234) o tu *ubicación* de WhatsApp y te derivo el móvil.',
+        ),
         context: {
           passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
           pickup_location: preQuery || null,
@@ -8019,7 +8034,9 @@ async function createTripFromConversation({ conversation, extracted, includeBett
         return {
           ok: false,
           reason: 'intersection_not_found',
-          reply: `No encontré la intersección *${intersectionMatch[1].trim()} y ${intersectionMatch[2].trim()}* en Salta. ¿Podés darme la *calle y número exacto* (por ejemplo "España 400") o compartirme tu *ubicación actual* desde WhatsApp?`,
+          reply: wrapTripReply(
+            `No encontré la intersección *${intersectionMatch[1].trim()} y ${intersectionMatch[2].trim()}* en Salta. ¿Me das *calle y altura* (por ejemplo España 400) o tu *ubicación* de WhatsApp?`,
+          ),
           context: {
             passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
             pickup_location: normalizedPickupQuery || pickupQuery,
@@ -8056,8 +8073,9 @@ async function createTripFromConversation({ conversation, extracted, includeBett
     return {
       ok: false,
       reason: 'invalid_address',
-      reply:
-        'No pude ubicar con precisión el punto de retiro. Mandame *calle y número exacto* (por ejemplo "Mitre 1234") o compartime tu *ubicación actual* desde WhatsApp para derivarte el chofer exacto.',
+      reply: wrapTripReply(
+        'No pude ubicar bien el retiro. Mandame *calle y altura* (por ejemplo Mitre 1234) o tu *ubicación* de WhatsApp y te derivo el móvil.',
+      ),
       context: {
         passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
         pickup_location: normalizedPickupQuery || pickupQuery,
@@ -8249,6 +8267,7 @@ async function createTripFromConversation({ conversation, extracted, includeBett
         finalDestinationHint,
         destinationFollowupText,
         includeBettoIntro,
+        passengerText: extracted?._conversationText,
       }),
       context: buildTripCreateSuccessContext({
         conversation,
@@ -8294,15 +8313,16 @@ async function createTripFromConversation({ conversation, extracted, includeBett
       queued: true,
       trip: queuedTrip,
       driver: null,
-      reply: [
-        'Estoy buscando un móvil para tu viaje y ya te sumé a la cola de prioridad. Apenas se confirme uno, te aviso automáticamente 🕐',
+      reply: wrapTripReply([
+        'Dale, te tomo el móvil y ya estás en la cola.',
         finalDestinationGeo
           ? `Destino: *${finalDestinationGeo.formattedAddress}*`
           : finalDestinationHint
             ? `Destino indicado: *${finalDestinationHint}*`
             : null,
         destinationFollowupText,
-      ].filter(Boolean).join('\n'),
+        'Apenas se confirme un chofer te aviso por acá 🕐',
+      ].filter(Boolean).join('\n')),
       context: {
         passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
         pickup_location: normalizedPickupQuery || pickupQuery,
@@ -8458,6 +8478,7 @@ async function createTripFromConversation({ conversation, extracted, includeBett
       finalDestinationHint,
       destinationFollowupText,
       includeBettoIntro,
+      passengerText: extracted?._conversationText,
     }),
     context: buildTripCreateSuccessContext({
       conversation,
@@ -9944,14 +9965,26 @@ async function processClaimedConversation(batch) {
       };
     }
 
-    // ─ Responder con estado actual del viaje ─────────────────────────────────
-    const fastStatusMsg = buildOpenTripFastStatusMessage(openTripByPhone);
-    await sendWhatsAppText(batch.phone, fastStatusMsg);
-    logWebhook('conversation_fast_path_status_sent', { conversationId: batch?.id || null, tripId: openTripByPhone.id, tripStatus: openTripByPhone.status });
-    return {
-      handled: true,
-      updates: { status: 'open', context: {}, last_trip_id: openTripByPhone.id, processing_started_at: null, last_processed_at: new Date().toISOString() },
-    };
+    // ─ Pedido fresco de móvil: no dump de "ya estás en cola", seguir al flujo completo ─
+    if (
+      looksLikeFreshTripRequest(fastText)
+      && isReplaceableOpenTrip(openTripByPhone)
+    ) {
+      skipOpenTripFastPath = true;
+      logWebhook('conversation_fast_path_skipped_new_trip', {
+        conversationId: batch?.id || null,
+        tripId: openTripByPhone.id,
+        tripStatus: openTripByPhone.status,
+      });
+    } else {
+      const fastStatusMsg = buildOpenTripFastStatusMessage(openTripByPhone);
+      await sendWhatsAppText(batch.phone, fastStatusMsg);
+      logWebhook('conversation_fast_path_status_sent', { conversationId: batch?.id || null, tripId: openTripByPhone.id, tripStatus: openTripByPhone.status });
+      return {
+        handled: true,
+        updates: { status: 'open', context: {}, last_trip_id: openTripByPhone.id, processing_started_at: null, last_processed_at: new Date().toISOString() },
+      };
+    }
   }
   // ── Fin fast path ─────────────────────────────────────────────────────────────
 
@@ -10005,7 +10038,7 @@ async function processClaimedConversation(batch) {
             }
           : {}),
         ...(tripContextSource.extracted || {}),
-        ...(tripWaContext.awaiting_gps ? { awaiting_gps: true } : {}),
+        ...((tripWaContext.awaiting_gps || convCtx.awaiting_gps) ? { awaiting_gps: true } : {}),
         ...(tripWaContext.awaiting_pickup_number ? { awaiting_pickup_number: true } : {}),
         ...(tripWaContext.price_inquiry && !tripWaContext.pending_price_confirm
           ? {
@@ -10137,11 +10170,16 @@ async function processClaimedConversation(batch) {
     }
   }
 
+  let reuseOpenTripId = null;
   if (shouldStartNewTrip(
     extracted,
     openTripByPhone?.status || lastClosedTrip?.status || lastTripById?.status,
     context,
-    { hasOpenTrip: Boolean(openTripByPhone && shouldBlockForOpenTrip(openTripByPhone)) },
+    {
+      hasOpenTrip: Boolean(openTripByPhone && shouldBlockForOpenTrip(openTripByPhone)),
+      replaceableOpenTrip: isReplaceableOpenTrip(openTripByPhone),
+      looksLikeFreshTripRequest: looksLikeFreshTripRequest(combinedText),
+    },
   )) {
     const passengerName =
       convCtx.passenger_name || context.passenger_name || extracted.passenger_name || null;
@@ -10149,6 +10187,7 @@ async function processClaimedConversation(batch) {
       conversationId: batch?.id || null,
       source: extracted.source || null,
       newTrip: Boolean(extracted.new_trip),
+      replaceableOpenTrip: isReplaceableOpenTrip(openTripByPhone),
     });
     batch._sessionReset = true;
     shouldResetConversationState = true;
@@ -10157,6 +10196,9 @@ async function processClaimedConversation(batch) {
       passenger_name: passengerName,
       last_trip_id: batch.last_trip_id || lastClosedTrip?.id || null,
     });
+    if (isReplaceableOpenTrip(openTripByPhone) && openTripByPhone?.id) {
+      reuseOpenTripId = openTripByPhone.id;
+    }
   }
 
   let pendingScheduleInfo = null;
@@ -10313,6 +10355,7 @@ async function processClaimedConversation(batch) {
     // Últimos mensajes del pasajero (hasta 500 caracteres) para incluirlos como
     // indicaciones del viaje visibles para el chofer.
     _conversationText: combinedText ? combinedText.slice(0, 500) : null,
+    ...(reuseOpenTripId ? { _existingTripId: reuseOpenTripId } : {}),
   };
 
   const withScheduleWaContext = (waContext, extractedCtx = nextContext) => {
@@ -10335,14 +10378,16 @@ async function processClaimedConversation(batch) {
     tripWaContext.price_inquiry
   );
   const alreadyBettoGreeted =
-    isBettoGreetedContext(batch.context)
+    !shouldResetConversationState
+    && isBettoGreetedContext(batch.context)
     && (tripWaMidFlow || isPriceInquiryCollecting(context));
 
+  const greetingOpts = { text: combinedText };
   const greetingOrAvailability =
     isGreetingOnly(combinedText) || isAvailabilityAskWithoutRoute(combinedText);
   if (
     !alreadyBettoGreeted &&
-    (!tripWaMidFlow || greetingOrAvailability) &&
+    (!tripWaMidFlow || greetingOrAvailability || shouldResetConversationState) &&
     !passengerWantsToCancel &&
     !pickupLocation &&
     !nextContext.pickup_location &&
@@ -10353,7 +10398,7 @@ async function processClaimedConversation(batch) {
       looksLikeTripRequest: heuristics.looksLikeTripRequest,
     })
   ) {
-    await sendWhatsAppText(batch.phone, buildBettoWelcomeMessage());
+    await sendWhatsAppText(batch.phone, buildBettoWelcomeMessage(greetingOpts));
     logWebhook('conversation_betto_welcome', {
       conversationId: batch?.id || null,
       intent: extracted.intent || null,
@@ -10631,7 +10676,7 @@ async function processClaimedConversation(batch) {
         passengerName: nextContext.passenger_name,
         lastBotReply: askReply,
       });
-      await sendWhatsAppText(batch.phone, alreadyBettoGreeted ? askReply : withBettoIntro(askReply));
+      await sendWhatsAppText(batch.phone, alreadyBettoGreeted ? askReply : withBettoIntro(askReply, greetingOpts));
       logWebhook('price_inquiry_missing_address', { conversationId: batch?.id || null, missingPart });
       return {
         handled: true,
@@ -10779,7 +10824,7 @@ async function processClaimedConversation(batch) {
   if (extracted.intent === 'other') {
     const otherReply = rewriteVaguePickupAsk(String(extracted.reply || '').trim());
     if (otherReply) {
-      const outbound = alreadyBettoGreeted ? otherReply : withBettoIntro(otherReply);
+      const outbound = alreadyBettoGreeted ? otherReply : withBettoIntro(otherReply, greetingOpts);
       await sendWhatsAppText(batch.phone, outbound);
       logWebhook('conversation_intent_other_replied', {
         conversationId: batch?.id || null,
@@ -10805,7 +10850,7 @@ async function processClaimedConversation(batch) {
     if (greetingOrAvailability) {
       const fallbackReply = alreadyBettoGreeted
         ? ASK_PICKUP_STREET_OR_GPS
-        : buildBettoWelcomeMessage();
+        : buildBettoWelcomeMessage(greetingOpts);
       await sendWhatsAppText(batch.phone, fallbackReply);
       return {
         handled: true,
@@ -10907,7 +10952,12 @@ async function processClaimedConversation(batch) {
           `Perfecto, te anoto para el *${pendingScheduleInfo.displayText}*. ${ASK_PICKUP_STREET_OR_GPS}`)
         : (rewriteVaguePickupAsk(extracted.reply) ||
           `Para derivarte un móvil. ${ASK_PICKUP_STREET_OR_GPS}`);
-    if (reply) await sendWhatsAppText(batch.phone, reply);
+    if (reply) {
+      await sendWhatsAppText(
+        batch.phone,
+        alreadyBettoGreeted ? reply : withBettoIntro(reply, greetingOpts),
+      );
+    }
     logWebhook('conversation_missing_fields', {
       conversationId: batch?.id || null,
       missingPickupLocation: true,
@@ -11729,7 +11779,7 @@ async function processClaimedConversation(batch) {
       passengerName: nextContext.passenger_name,
       lastBotReply: askReply,
     });
-    await sendWhatsAppText(batch.phone, alreadyBettoGreeted ? askReply : withBettoIntro(askReply));
+    await sendWhatsAppText(batch.phone, alreadyBettoGreeted ? askReply : withBettoIntro(askReply, greetingOpts));
     logWebhook('price_inquiry_blocked_dispatch', {
       conversationId: batch?.id || null,
       missingPart,
@@ -11751,7 +11801,7 @@ async function processClaimedConversation(batch) {
   const tripResult = await createTripFromConversation({
     conversation: batch,
     extracted: tripExtracted,
-    includeBettoIntro: !alreadyBettoGreeted && !tripWaMidFlow,
+    includeBettoIntro: !alreadyBettoGreeted,
   });
   if (tripResult?.reply) {
     await sendWhatsAppText(batch.phone, tripResult.reply);
@@ -11768,11 +11818,17 @@ async function processClaimedConversation(batch) {
     driverId: tripResult?.driver?.id || null,
   });
 
+  const greetStamp = alreadyBettoGreeted ? { betto_greeted: true } : stampBettoGreeted();
+  const failedTripCtx = tripResult?.context && !tripResult.ok ? tripResult.context : null;
+
   return {
     handled: true,
     updates: {
       status: 'open',
-      context: alreadyBettoGreeted ? { betto_greeted: true } : stampBettoGreeted(),
+      context: {
+        ...greetStamp,
+        ...(failedTripCtx || {}),
+      },
       last_trip_id: tripResult.trip?.id || (shouldResetConversationState ? null : batch.last_trip_id || null),
       processing_started_at: null,
       last_processed_at: new Date().toISOString(),

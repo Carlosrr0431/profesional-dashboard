@@ -1,6 +1,7 @@
 const {
-  BETTO_INTRO,
   buildBettoWelcomeMessage,
+  conversationalGreeting,
+  extractMirroredGreeting,
   withBettoIntro,
   isBettoGreetedContext,
   isAvailabilityAskWithoutRoute,
@@ -9,29 +10,44 @@ const {
   mergeWhatsappSessionContext,
 } = require('../../src/lib/bettoWelcome');
 
+const morning = new Date('2026-08-25T10:00:00-03:00');
+const afternoon = new Date('2026-08-25T15:41:00-03:00');
+const night = new Date('2026-08-25T21:30:00-03:00');
+
 describe('bettoWelcome', () => {
-  it('arma la bienvenida con el nombre del bot', () => {
-    const msg = buildBettoWelcomeMessage();
-    expect(msg.startsWith(BETTO_INTRO)).toBe(true);
+  it('arma la bienvenida con saludo según la hora de Salta', () => {
+    const msg = buildBettoWelcomeMessage({ now: morning });
+    expect(msg.startsWith('Buen día 👋')).toBe(true);
+    expect(msg).toMatch(/Soy Betto/i);
     expect(msg).toMatch(/calle y altura/i);
     expect(msg).toMatch(/ubicaci[oó]n GPS/i);
     expect(msg).not.toMatch(/referencia/i);
   });
 
+  it('espeja el saludo del pasajero en un pedido nuevo', () => {
+    expect(extractMirroredGreeting('Buen día me podría enviar un móvil')).toBe('Buen día');
+    expect(conversationalGreeting({
+      text: 'Buen día me podría enviar un móvil con baulera al Vélez Sarfield 105',
+      now: afternoon,
+    })).toBe('Buen día');
+    expect(conversationalGreeting({ text: 'me podría enviar un móvil', now: afternoon })).toBe('Buenas tardes');
+    expect(conversationalGreeting({ text: 'hola, tenes movil', now: night })).toBe('Hola');
+  });
+
   it('antepone el saludo una sola vez', () => {
-    const body = 'Tomé tu pedido y ya lo derivé.';
-    const once = withBettoIntro(body);
-    expect(once).toBe(`${BETTO_INTRO}\n\n${body}`);
-    expect(withBettoIntro(once)).toBe(once);
+    const body = 'Dale, te tomo el móvil.';
+    const once = withBettoIntro(body, { now: afternoon });
+    expect(once).toBe(`Buenas tardes 👋\n\n${body}`);
+    expect(withBettoIntro(once, { now: afternoon })).toBe(once);
   });
 
   it('no duplica un Hola del modelo si Betto ya saludó', () => {
     const once = withBettoIntro(
       'Hola Carlos, ¿de dónde te buscamos? Pasame la calle y el número.',
+      { now: morning },
     );
-    expect(once.startsWith(BETTO_INTRO)).toBe(true);
+    expect(once.startsWith('Buen día 👋')).toBe(true);
     expect(once).not.toMatch(/Hola Carlos/i);
-    expect(once.split(/hola/i).length - 1).toBe(1);
   });
 
   it('detecta "hola, tenes movil" sin dirección', () => {
