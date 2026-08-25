@@ -19,6 +19,11 @@ describe('salta-street-lookup', () => {
     expect(matchCatalogStreetPhrase(['febrero'])).toBeNull();
   });
 
+  it('reconoce Vélez Sarsfield aunque omitan el Dr del catálogo', () => {
+    expect(matchCatalogStreetPhrase(['velez', 'sarsfield'])?.name).toMatch(/velez\s+sarsfield/i);
+    expect(isExactCatalogStreetNameKey('velez sarsfield')).toBe(true);
+  });
+
   it('no trata ruido, comercios ni meses como calle', () => {
     expect(matchCatalogStreetPhrase(['madame'])).toBeNull();
     expect(matchCatalogStreetPhrase(['mostaza'])).toBeNull();

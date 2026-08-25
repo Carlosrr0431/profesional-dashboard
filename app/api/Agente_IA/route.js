@@ -2961,7 +2961,7 @@ async function loadSaltaStreetCatalog(force = false) {
 }
 
 function getCatalogRankedStreetMatches(address, maxResults = 4) {
-  const input = sanitizeAddressInput(address || '');
+  const input = sanitizeAddressInput(applyPhoneticCorrections(address || ''));
   if (!input) return [];
   if (!Array.isArray(saltaStreetCatalogCache.streets) || saltaStreetCatalogCache.streets.length === 0) {
     return [];
@@ -3096,6 +3096,7 @@ const SALTA_PHONETIC_CORRECTIONS = [
   [/\bpueired[oó]n\b/gi, 'Pueyrredón'],
   [/\bsarmient[ou]\b/gi, 'Sarmiento'],
   [/\bsarmento\b/gi, 'Sarmiento'],
+  [/\bsars?field\b/gi, 'Sarsfield'],
   [/\bjujuy\b/gi, 'Jujuy'],
   [/\bjujui\b/gi, 'Jujuy'],
 
@@ -3209,6 +3210,7 @@ const SALTA_STREET_EXPANSIONS = [
   [/\bpueyrred[oó]n\b/gi, 'Mariano Pueyrredón'],
   [/\bsarmiento\b/gi, 'Domingo F. Sarmiento'],
   [/\byrigoyen\b/gi, 'Hipólito Yrigoyen'],
+  [/\bvelez\s+sarsfield\b/gi, 'Dr Velez Sarsfield'],
 ];
 
 function applyStreetNameExpansions(text) {

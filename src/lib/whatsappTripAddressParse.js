@@ -194,7 +194,7 @@ const TRIP_PICKUP_CUES = [
     'i',
   ),
   new RegExp(
-    `(?:me\\s+env[ií]a(?:n|s)?|envi[aá]me|env[ií]en(?:me|nos)?)\\s+(?:un|una|uno|el|la)?\\s*${VEHICLE_WORD}?\\s*${PLACE_PREP}\\s+`,
+    `(?:me\\s+env[ií]a(?:n|s)?|envi[aá]me|env[ií]en(?:me|nos)?)\\s+(?:un|una|uno|el|la)?\\s*${VEHICLE_WORD}?\\s*(?:con\\s+baulera)?\\s*${PLACE_PREP}\\s+`,
     'i',
   ),
   new RegExp(

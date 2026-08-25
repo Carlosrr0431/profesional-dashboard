@@ -48,6 +48,28 @@ describe('whatsappTripAddressParse', () => {
     expect(trip.pickup).not.toMatch(/\b22\b/);
   });
 
+  it('toma Vélez Sarfield 105 pese al typo y a "con baulera"', () => {
+    const trip = extractTripPickupHeuristic(
+      'Buen día me podría enviar un móvil con baulera al Vélez Sarfield 105',
+    );
+    expect(trip.pickup).toMatch(/v[eé]lez/i);
+    expect(trip.pickup).toMatch(/sarsfield/i);
+    expect(trip.pickup).toMatch(/\b105\b/);
+    expect(trip.pickup).not.toMatch(/baulera/i);
+  });
+
+  it('normaliza Sarfield y genera la variante de catálogo de Salta', () => {
+    const {
+      normalizeAddressPhrase,
+      getCatalogAddressVariants,
+    } = require('../../shared/salta-address.js');
+
+    expect(normalizeAddressPhrase('Vélez Sarfield 105')).toMatch(/sarsfield/i);
+
+    const variants = getCatalogAddressVariants('Vélez Sarfield 105, Salta');
+    expect(variants.some((item) => /velez\s+sarsfield/i.test(item) && /\b105\b/.test(item))).toBe(true);
+  });
+
   it('separa retiro y destino con "llevame a X desde Y"', () => {
     const trip = extractFullTripByPattern('llevame a Mitre 300 desde Belgrano 200');
 

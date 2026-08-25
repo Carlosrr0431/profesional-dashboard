@@ -85,6 +85,17 @@ describe('lookup_address (remis)', () => {
     expect(result.found).toBe(false);
     expect(result.needs_gps).toBe(true);
   });
+
+  it('resuelve Vélez Sarfield 105 al catálogo de Salta', () => {
+    const result = lookupAddress('Vélez Sarfield 105');
+    expect(result.found).toBe(true);
+    expect(result.kind).toBe('street');
+    expect(result.needs_number).toBe(false);
+    expect(result.canonical).toMatch(/velez/i);
+    expect(result.canonical).toMatch(/sarsfield/i);
+    expect(result.canonical).toMatch(/\b105\b/);
+    expect(result.canonical).toMatch(/salta/i);
+  });
 });
 
 describe('lookup_address + Google Places New', () => {

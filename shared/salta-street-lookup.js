@@ -63,6 +63,15 @@ function buildStreetCatalogIndex() {
     const street = parseStreetLabel(label);
     if (!street) continue;
     if (!byNameKey.has(street.nameKey)) byNameKey.set(street.nameKey, street);
+    const strippedTitle = street.nameKey.replace(/^(?:dr|doctor)\s+/, '');
+    if (
+      strippedTitle
+      && strippedTitle !== street.nameKey
+      && strippedTitle.includes(' ')
+      && !byNameKey.has(strippedTitle)
+    ) {
+      byNameKey.set(strippedTitle, street);
+    }
 
     const last = street.tokens[street.tokens.length - 1];
     if (!last || last.length < 4 || WEAK_LAST_TOKENS.has(last)) continue;
