@@ -4,6 +4,7 @@ import {
   resolveTrackingRouteTarget,
   splitRouteAtPoint,
   haversineMeters,
+  getHeadingAlongRoute,
 } from '../../app/seguimiento/[token]/trackingUtils';
 
 describe('trackingUtils — pins y ruta restante', () => {
@@ -84,5 +85,36 @@ describe('trackingUtils — pins y ruta restante', () => {
     expect(remaining[remaining.length - 1].lng).toBeCloseTo(0.003, 5);
     expect(haversineMeters(remaining[0], remaining[remaining.length - 1]))
       .toBeLessThan(haversineMeters(route[0], route[route.length - 1]));
+  });
+
+  it('el rumbo del auto sigue el tramo este de la polilínea', () => {
+    const route = [
+      { lat: -24.78, lng: -65.42 },
+      { lat: -24.78, lng: -65.41 },
+    ];
+    const heading = getHeadingAlongRoute({ lat: -24.78, lng: -65.415 }, route, 30);
+    expect(heading).toBeGreaterThan(80);
+    expect(heading).toBeLessThan(100);
+  });
+
+  it('el rumbo del auto sigue el tramo sur de la polilínea', () => {
+    const route = [
+      { lat: -24.78, lng: -65.42 },
+      { lat: -24.79, lng: -65.42 },
+    ];
+    const heading = getHeadingAlongRoute({ lat: -24.785, lng: -65.42 }, route, 30);
+    expect(heading).toBeGreaterThan(170);
+    expect(heading).toBeLessThan(190);
+  });
+
+  it('en una esquina usa el tramo actual, no el siguiente', () => {
+    const route = [
+      { lat: -24.78, lng: -65.42 },
+      { lat: -24.78, lng: -65.41 },
+      { lat: -24.79, lng: -65.41 },
+    ];
+    const onEastLeg = getHeadingAlongRoute({ lat: -24.78, lng: -65.415 }, route, 25);
+    expect(onEastLeg).toBeGreaterThan(80);
+    expect(onEastLeg).toBeLessThan(100);
   });
 });

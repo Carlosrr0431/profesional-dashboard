@@ -8,10 +8,9 @@ import { MAP_STYLE } from '../../../src/lib/mapLibre';
 import {
   decodePolyline,
   haversineMeters,
-  getBearing,
   snapToRoute,
   splitRouteAtPoint,
-  getPointAheadOnRoute,
+  getHeadingAlongRoute,
   smoothAngle,
   formatEtaMinutes,
   formatDistanceKm,
@@ -103,16 +102,23 @@ function useAnimatedPosition(targetPos) {
 }
 
 function useSmoothHeading(targetHeading) {
-  const [heading, setHeading] = useState(0);
-  const currentRef = useRef(0);
+  const [heading, setHeading] = useState(() => (
+    Number.isFinite(targetHeading) ? targetHeading : 0
+  ));
+  const currentRef = useRef(Number.isFinite(targetHeading) ? targetHeading : null);
 
   useEffect(() => {
     if (!Number.isFinite(targetHeading)) return undefined;
+    if (currentRef.current == null) {
+      currentRef.current = targetHeading;
+      setHeading(targetHeading);
+      return undefined;
+    }
     let frame;
     const animate = () => {
       const diff = Math.abs(((targetHeading - currentRef.current + 540) % 360) - 180);
-      if (diff < 0.5) { currentRef.current = targetHeading; setHeading(targetHeading); return; }
-      const next = smoothAngle(currentRef.current, targetHeading, 0.22);
+      if (diff < 0.4) { currentRef.current = targetHeading; setHeading(targetHeading); return; }
+      const next = smoothAngle(currentRef.current, targetHeading, 0.28);
       currentRef.current = next;
       setHeading(next);
       frame = requestAnimationFrame(animate);
@@ -124,51 +130,47 @@ function useSmoothHeading(targetHeading) {
   return heading;
 }
 
-/* Vista superior tipo R8: nariz arriba (bearing 0 = norte). Azul cobalto para leerse sobre la ruta. */
-const CAR_BODY =
-  'M45 8C55.5 8 65 13 70.5 24C75.5 34 76.5 46 75.5 60C74.8 72 77 86 79 100C81.2 116 80.2 132 76.5 146C72.2 162 62 171 51 174C48.2 175 46.2 175.2 45 175.2C43.8 175.2 41.8 175 39 174C28 171 17.8 162 13.5 146C9.8 132 8.8 116 11 100C13 86 15.2 72 14.5 60C13.5 46 14.5 34 19.5 24C25 13 34.5 8 45 8Z';
-
-function CarSvg({ heading }) {
-  const rotation = Number.isFinite(heading) ? heading : 0;
+/* Vector vista superior: carbón + franjas doradas, nariz arriba (0° = norte). */
+function CarSvg() {
   return (
     <div style={{
-      width: 68,
-      height: 68,
+      width: 56,
+      height: 56,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      transform: `rotate(${rotation}deg)`,
-      filter: 'drop-shadow(0 4px 10px rgba(15,23,42,0.42))',
+      filter: 'drop-shadow(0 3px 8px rgba(15,23,42,0.45))',
       pointerEvents: 'none',
-      transition: 'transform 0.15s linear',
     }}>
-      <svg width="56" height="56" viewBox="0 0 90 196" aria-hidden>
+      <svg width="48" height="48" viewBox="0 0 100 180" aria-hidden>
         <defs>
-          <linearGradient id="trkCarPaint" x1="18" y1="8" x2="72" y2="176" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#7EB6FF" />
-            <stop offset="0.45" stopColor="#3B82F6" />
-            <stop offset="1" stopColor="#1D4ED8" />
-          </linearGradient>
+          <clipPath id="trkCarBodyClip">
+            <path d="M50 7C63 7 74 16 78 30C82 42 82 54 78 66C82 84 84 106 81 126C78 148 68 164 56 170C53 172 50 172.5 50 172.5C50 172.5 47 172 44 170C32 164 22 148 19 126C16 106 18 84 22 66C18 54 18 42 22 30C26 16 37 7 50 7Z" />
+          </clipPath>
         </defs>
-        <path d={CAR_BODY} fill="#FFFFFF" />
-        <rect x="5" y="40" width="11" height="30" rx="4.5" fill="#020617" />
-        <rect x="74" y="40" width="11" height="30" rx="4.5" fill="#020617" />
-        <rect x="5" y="124" width="11" height="30" rx="4.5" fill="#020617" />
-        <rect x="74" y="124" width="11" height="30" rx="4.5" fill="#020617" />
-        <path d={CAR_BODY} fill="url(#trkCarPaint)" stroke="#F8FAFC" strokeWidth="2.4" strokeLinejoin="round" />
-        <path d="M29 34L61 34L65.5 62L24.5 62Z" fill="#0B1220" />
-        <path d="M32 66L58 66L56 104L34 104Z" fill="#2563EB" opacity="0.55" />
-        <path d="M28 108L62 108L59.5 146L30.5 146Z" fill="#0B1220" />
-        <rect x="34" y="118" width="22" height="3.2" rx="1.4" fill="#64748B" />
-        <rect x="34" y="126" width="22" height="3.2" rx="1.4" fill="#64748B" />
-        <rect x="34" y="134" width="22" height="3.2" rx="1.4" fill="#64748B" />
-        <path d="M9 90L21 85L22.5 118L9 113Z" fill="#0B1220" />
-        <path d="M81 90L69 85L67.5 118L81 113Z" fill="#0B1220" />
-        <rect x="20" y="168" width="50" height="9" rx="2.5" fill="#0B1220" />
-        <ellipse cx="12" cy="58" rx="6.5" ry="4.2" fill="#0B1220" />
-        <ellipse cx="78" cy="58" rx="6.5" ry="4.2" fill="#0B1220" />
-        <rect x="32" y="14" width="9" height="5" rx="2" fill="#F8FAFC" />
-        <rect x="49" y="14" width="9" height="5" rx="2" fill="#F8FAFC" />
+        <path
+          d="M50 7C63 7 74 16 78 30C82 42 82 54 78 66C82 84 84 106 81 126C78 148 68 164 56 170C53 172 50 172.5 50 172.5C50 172.5 47 172 44 170C32 164 22 148 19 126C16 106 18 84 22 66C18 54 18 42 22 30C26 16 37 7 50 7Z"
+          fill="#FFFFFF"
+        />
+        <path
+          d="M50 7C63 7 74 16 78 30C82 42 82 54 78 66C82 84 84 106 81 126C78 148 68 164 56 170C53 172 50 172.5 50 172.5C50 172.5 47 172 44 170C32 164 22 148 19 126C16 106 18 84 22 66C18 54 18 42 22 30C26 16 37 7 50 7Z"
+          fill="#3D414A"
+          stroke="#F8FAFC"
+          strokeWidth="2.2"
+          strokeLinejoin="round"
+        />
+        <g clipPath="url(#trkCarBodyClip)">
+          <rect x="37.5" y="12" width="7.5" height="156" rx="2.4" fill="#FFC85D" />
+          <rect x="55" y="12" width="7.5" height="156" rx="2.4" fill="#FFC85D" />
+        </g>
+        <path d="M30 50C30 46 34 44 38 44H62C66 44 70 46 70 50L72 92C72 98 66 102 50 102C34 102 28 98 28 92Z" fill="#1F2A2C" />
+        <path d="M32 118C32 114 38 112 50 112C62 112 68 114 68 118L66 146C66 150 60 154 50 154C40 154 34 150 34 146Z" fill="#1F2A2C" />
+        <ellipse cx="18" cy="58" rx="7" ry="4.2" fill="#1F2A2C" />
+        <ellipse cx="82" cy="58" rx="7" ry="4.2" fill="#1F2A2C" />
+        <circle cx="36" cy="22" r="3.6" fill="#FFE08A" />
+        <circle cx="64" cy="22" r="3.6" fill="#FFE08A" />
+        <circle cx="36" cy="160" r="3.2" fill="#E8B45A" />
+        <circle cx="64" cy="160" r="3.2" fill="#E8B45A" />
       </svg>
     </div>
   );
@@ -417,15 +419,15 @@ export default function TrackingView({ token }) {
   }, [remainingPath, routeCoords]);
 
   const routeHeading = useMemo(() => {
-    if (!snappedPos || routeCoords.length < 2) return null;
-    const ahead = getPointAheadOnRoute(snappedPos, routeCoords, 65);
-    return ahead ? getBearing(snappedPos, ahead) : null;
-  }, [snappedPos, routeCoords]);
+    const path = remainingPath.length >= 2 ? remainingPath : routeCoords;
+    if (!snappedPos || path.length < 2) return null;
+    return getHeadingAlongRoute(snappedPos, path, 28);
+  }, [snappedPos, remainingPath, routeCoords]);
 
   const markerHeading = useSmoothHeading(
-    Number.isFinite(driverHeading) ? driverHeading
-      : Number.isFinite(headingRef.current) ? headingRef.current
-        : routeHeading ?? 0
+    Number.isFinite(routeHeading)
+      ? routeHeading
+      : Number.isFinite(driverHeading) ? driverHeading : 0
   );
 
   /* ── Actualizar cámara cuando llegan coordenadas / ruta ────────────────── */
@@ -575,8 +577,15 @@ export default function TrackingView({ token }) {
 
           {/* Marcador conductor */}
           {snappedPos && isLive && (
-            <Marker latitude={snappedPos.lat} longitude={snappedPos.lng} anchor="center">
-              <CarSvg heading={markerHeading} />
+            <Marker
+              latitude={snappedPos.lat}
+              longitude={snappedPos.lng}
+              anchor="center"
+              rotation={markerHeading}
+              rotationAlignment="map"
+              pitchAlignment="map"
+            >
+              <CarSvg />
             </Marker>
           )}
         </Map>

@@ -166,30 +166,40 @@ export function splitRouteAtPoint(point, route = []) {
 export function getPointAheadOnRoute(origin, route = [], metersAhead = 70) {
   if (!origin || route.length < 2) return null;
 
-  let nearestIdx = 0;
-  let nearestDist = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < route.length; i += 1) {
-    const d = haversineMeters(origin, route[i]);
-    if (d < nearestDist) {
-      nearestDist = d;
-      nearestIdx = i;
-    }
-  }
-
-  let remaining = metersAhead;
-  for (let i = nearestIdx; i < route.length - 1; i += 1) {
-    const segLen = haversineMeters(route[i], route[i + 1]);
-    if (remaining <= segLen) {
-      const frac = remaining / segLen;
+  const { remaining } = splitRouteAtPoint(origin, route);
+  const path = remaining.length >= 2 ? remaining : route;
+  let left = metersAhead;
+  let ahead = path[1];
+  for (let i = 0; i < path.length - 1; i += 1) {
+    const segLen = haversineMeters(path[i], path[i + 1]);
+    if (segLen < 0.8) continue;
+    if (left <= segLen) {
+      const frac = left / segLen;
       return {
-        lat: route[i].lat + frac * (route[i + 1].lat - route[i].lat),
-        lng: route[i].lng + frac * (route[i + 1].lng - route[i].lng),
+        lat: path[i].lat + frac * (path[i + 1].lat - path[i].lat),
+        lng: path[i].lng + frac * (path[i + 1].lng - path[i].lng),
       };
     }
-    remaining -= segLen;
+    left -= segLen;
+    ahead = path[i + 1];
   }
+  return ahead || path[path.length - 1];
+}
 
-  return route[route.length - 1];
+/** Rumbo en grados (0 = norte) a lo largo de la polilínea, no del GPS. */
+export function getHeadingAlongRoute(point, route = [], metersAhead = 28) {
+  if (!point || route.length < 2) return null;
+  const { remaining } = splitRouteAtPoint(point, route);
+  if (!remaining || remaining.length < 2) {
+    return getBearing(route[route.length - 2], route[route.length - 1]);
+  }
+  const origin = remaining[0];
+  const ahead = getPointAheadOnRoute(origin, remaining, metersAhead)
+    || remaining[remaining.length - 1];
+  if (haversineMeters(origin, ahead) < 1.2) {
+    return getBearing(remaining[0], remaining[remaining.length - 1]);
+  }
+  return getBearing(origin, ahead);
 }
 
 export function smoothAngle(current, target, factor = 0.25) {
