@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Map, { Marker, Source, Layer } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MAP_STYLE, DEFAULT_MAP_VIEW } from '../../lib/mapLibre';
-import { polylineHeading, remainingPolyline } from './nav';
+import { polylineHeading, remainingPolyline, snapToPolyline } from './nav';
 
 const OVERVIEW_ROUTE_BORDER = {
   id: 'spa-route-border',
@@ -34,9 +34,9 @@ const NAV_ROUTE_LINE = {
   paint: { 'line-color': '#4285F4', 'line-width': 10, 'line-opacity': 0.94 },
 };
 
-const NAV_PITCH = 52;
-const NAV_ZOOM = 17;
-const NAV_PADDING = { top: 80, bottom: 260, left: 40, right: 40 };
+const NAV_PITCH = 12;
+const NAV_ZOOM = 17.4;
+const NAV_PADDING = { top: 56, bottom: 220, left: 48, right: 48 };
 
 function DriverArrow({ heading = 0 }) {
   return (
@@ -65,17 +65,27 @@ export default function SpaMap({
   driverIcon = 'car',
 }) {
   const mapRef = useRef(null);
-  const lastCameraAt = useRef(0);
+  const navReadyRef = useRef(false);
   const view = center || DEFAULT_MAP_VIEW;
   const [failed, setFailed] = useState(false);
+  const [mapLoaded, setMapLoaded] = useState(false);
   const useArrow = driverIcon === 'arrow' || navigationMode;
 
+  const snapped = useMemo(() => {
+    if (!driver || driver.lat == null || driver.lng == null) return null;
+    if (!navigationMode || !Array.isArray(routeCoords) || routeCoords.length < 2) {
+      return { lat: driver.lat, lng: driver.lng };
+    }
+    const hit = snapToPolyline(routeCoords, driver.lat, driver.lng);
+    return hit ? { lat: hit.lat, lng: hit.lng } : { lat: driver.lat, lng: driver.lng };
+  }, [navigationMode, routeCoords, driver?.lat, driver?.lng]);
+
   const displayRoute = useMemo(() => {
-    if (navigationMode && driver?.lat != null && driver?.lng != null) {
-      return remainingPolyline(routeCoords, driver.lat, driver.lng);
+    if (navigationMode && snapped) {
+      return remainingPolyline(routeCoords, snapped.lat, snapped.lng);
     }
     return routeCoords;
-  }, [navigationMode, routeCoords, driver?.lat, driver?.lng]);
+  }, [navigationMode, routeCoords, snapped?.lat, snapped?.lng]);
 
   const routeGeo = useMemo(() => {
     if (!Array.isArray(displayRoute) || displayRoute.length < 2) return null;
@@ -85,34 +95,39 @@ export default function SpaMap({
     };
   }, [displayRoute]);
 
-  const cameraHeading = useMemo(() => {
-    if (!navigationMode) return 0;
-    const fromRoute = polylineHeading(displayRoute);
-    if (Number.isFinite(fromRoute) && displayRoute?.length >= 2) return fromRoute;
+  const arrowHeading = useMemo(() => {
+    if (navigationMode && displayRoute?.length >= 2) return polylineHeading(displayRoute);
     return Number.isFinite(driver?.heading) ? driver.heading : 0;
   }, [navigationMode, displayRoute, driver?.heading]);
 
   useEffect(() => {
     const map = mapRef.current?.getMap?.();
-    if (!map) return;
+    if (!map || !mapLoaded) return;
 
-    const now = Date.now();
-    if (navigationMode && now - lastCameraAt.current < 280) return;
-    lastCameraAt.current = now;
-
-    if (navigationMode && driver?.lat != null && driver?.lng != null) {
-      map.easeTo({
-        center: [driver.lng, driver.lat],
+    if (navigationMode && snapped) {
+      const camera = {
+        center: [snapped.lng, snapped.lat],
         zoom: NAV_ZOOM,
         pitch: NAV_PITCH,
-        bearing: cameraHeading,
-        duration: 650,
+        bearing: 0,
         padding: NAV_PADDING,
+      };
+      if (!navReadyRef.current) {
+        map.jumpTo(camera);
+        navReadyRef.current = true;
+        return;
+      }
+      map.easeTo({
+        center: camera.center,
+        bearing: 0,
+        pitch: NAV_PITCH,
+        duration: 280,
         essential: true,
       });
       return;
     }
 
+    navReadyRef.current = false;
     const target = followDriver && driver
       ? { lng: driver.lng, lat: driver.lat }
       : center
@@ -124,11 +139,10 @@ export default function SpaMap({
       zoom,
       pitch: 0,
       bearing: 0,
-      duration: 700,
+      duration: 400,
       padding: { top: 0, bottom: 0, left: 0, right: 0 },
     });
   }, [
-    cameraHeading,
     center?.latitude,
     center?.longitude,
     center?.lat,
@@ -137,7 +151,10 @@ export default function SpaMap({
     driver?.lng,
     followDriver,
     navigationMode,
+    snapped?.lat,
+    snapped?.lng,
     zoom,
+    mapLoaded,
   ]);
 
   if (failed) {
@@ -147,6 +164,7 @@ export default function SpaMap({
   const routeEnd = Array.isArray(displayRoute) && displayRoute.length > 0
     ? displayRoute[displayRoute.length - 1]
     : null;
+  const marker = snapped || driver;
 
   return (
     <Map
@@ -162,9 +180,10 @@ export default function SpaMap({
       maxPitch={60}
       attributionControl={false}
       reuseMaps
-      dragRotate={navigationMode}
-      pitchWithRotate={navigationMode}
-      touchPitch={navigationMode}
+      dragRotate={false}
+      pitchWithRotate={false}
+      touchPitch={false}
+      onLoad={() => setMapLoaded(true)}
       onError={() => setFailed(true)}
       style={{ width: '100%', height: '100%' }}
     >
@@ -201,17 +220,17 @@ export default function SpaMap({
         </Marker>
       ) : null}
 
-      {driver?.lat != null ? (
+      {marker?.lat != null ? (
         <Marker
-          longitude={driver.lng}
-          latitude={driver.lat}
+          longitude={marker.lng}
+          latitude={marker.lat}
           anchor="center"
-          rotation={useArrow ? 0 : (Number.isFinite(driver.heading) ? driver.heading : 0)}
-          rotationAlignment={navigationMode ? 'viewport' : 'map'}
-          pitchAlignment={navigationMode ? 'viewport' : 'map'}
+          rotation={useArrow ? arrowHeading : 0}
+          rotationAlignment="map"
+          pitchAlignment="map"
         >
           {useArrow ? (
-            <DriverArrow heading={navigationMode ? 0 : (Number.isFinite(driver.heading) ? driver.heading : 0)} />
+            <DriverArrow heading={0} />
           ) : (
             <img
               src="/tracking-car.png"

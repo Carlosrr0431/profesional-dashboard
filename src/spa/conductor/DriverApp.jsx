@@ -208,7 +208,7 @@ export default function DriverApp() {
     };
 
     load();
-    const id = setInterval(load, 14000);
+    const id = setInterval(load, 60000);
     return () => {
       cancelled = true;
       clearInterval(id);

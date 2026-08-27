@@ -53,7 +53,7 @@ describe('SPA trip helpers', () => {
 });
 
 const { tripPickupPoint, tripNavTarget } = require('../../src/spa/shared/tripPoints');
-const { remainingPolyline, polylineHeading, bearingDegrees } = require('../../src/spa/shared/nav');
+const { remainingPolyline, polylineHeading, bearingDegrees, snapToPolyline } = require('../../src/spa/shared/nav');
 
 describe('SPA driver navigation', () => {
   it('usa origin como retiro en viajes de la app de pasajeros', () => {
@@ -99,6 +99,16 @@ describe('SPA driver navigation', () => {
     expect(remaining.length).toBeGreaterThanOrEqual(2);
     expect(polylineHeading([[-65.42, -24.78], [-65.42, -24.79]])).toBeGreaterThan(0);
     expect(bearingDegrees({ lat: -24.78, lng: -65.42 }, { lat: -24.79, lng: -65.42 })).toBeGreaterThan(0);
+  });
+
+  it('pega el puck al segmento más cercano de la polilínea', () => {
+    const line = [
+      [-65.42, -24.78],
+      [-65.41, -24.78],
+    ];
+    const snapped = snapToPolyline(line, -24.7804, -65.415);
+    expect(snapped.lat).toBeCloseTo(-24.78, 5);
+    expect(snapped.lng).toBeCloseTo(-65.415, 4);
   });
 });
 

@@ -8,6 +8,7 @@ export function useGeoPermission({ watch = false, enabled = true } = {}) {
   const watchRef = useRef(null);
 
   const lastPosRef = useRef(null);
+  const pollRef = useRef(null);
 
   const applyPosition = useCallback((pos) => {
     const lat = pos.coords.latitude;
@@ -32,6 +33,14 @@ export function useGeoPermission({ watch = false, enabled = true } = {}) {
       heading,
       speed: Number(pos.coords.speed) > 0 ? Number(pos.coords.speed) : 0,
     };
+    if (
+      prev
+      && Math.abs(prev.lat - next.lat) < 0.0000008
+      && Math.abs(prev.lng - next.lng) < 0.0000008
+      && Math.abs((prev.heading || 0) - next.heading) < 1
+    ) {
+      return;
+    }
     lastPosRef.current = next;
     setStatus('granted');
     setCoords(next);
@@ -54,6 +63,7 @@ export function useGeoPermission({ watch = false, enabled = true } = {}) {
     navigator.geolocation.getCurrentPosition(applyPosition, applyError, {
       enableHighAccuracy: true,
       timeout: 12000,
+      maximumAge: 0,
     });
   }, [applyPosition, applyError]);
 
@@ -63,10 +73,17 @@ export function useGeoPermission({ watch = false, enabled = true } = {}) {
       return;
     }
     if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current);
-    watchRef.current = navigator.geolocation.watchPosition(applyPosition, applyError, {
+    if (pollRef.current != null) clearInterval(pollRef.current);
+    const options = {
       enableHighAccuracy: true,
-      maximumAge: 4000,
-    });
+      maximumAge: 0,
+      timeout: 8000,
+    };
+    watchRef.current = navigator.geolocation.watchPosition(applyPosition, applyError, options);
+    navigator.geolocation.getCurrentPosition(applyPosition, applyError, options);
+    pollRef.current = setInterval(() => {
+      navigator.geolocation.getCurrentPosition(applyPosition, () => {}, options);
+    }, 1000);
   }, [applyPosition, applyError]);
 
   useEffect(() => {
@@ -111,6 +128,7 @@ export function useGeoPermission({ watch = false, enabled = true } = {}) {
     return () => {
       if (permission) permission.onchange = null;
       if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current);
+      if (pollRef.current != null) clearInterval(pollRef.current);
     };
   }, [request, startWatch, watch, enabled]);
 
