@@ -124,26 +124,51 @@ function useSmoothHeading(targetHeading) {
   return heading;
 }
 
-/* ── SVG del auto (vista lateral Material, igual que passenger-app) ─────── */
-const CAR_ICON_PATH =
-  'M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z';
+/* Vista superior tipo R8: nariz arriba (bearing 0 = norte). Azul cobalto para leerse sobre la ruta. */
+const CAR_BODY =
+  'M45 8C55.5 8 65 13 70.5 24C75.5 34 76.5 46 75.5 60C74.8 72 77 86 79 100C81.2 116 80.2 132 76.5 146C72.2 162 62 171 51 174C48.2 175 46.2 175.2 45 175.2C43.8 175.2 41.8 175 39 174C28 171 17.8 162 13.5 146C9.8 132 8.8 116 11 100C13 86 15.2 72 14.5 60C13.5 46 14.5 34 19.5 24C25 13 34.5 8 45 8Z';
 
 function CarSvg({ heading }) {
-  const rotation = (Number.isFinite(heading) ? heading : 0) - 90;
+  const rotation = Number.isFinite(heading) ? heading : 0;
   return (
     <div style={{
-      width: 40,
-      height: 40,
+      width: 68,
+      height: 68,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       transform: `rotate(${rotation}deg)`,
-      filter: 'drop-shadow(0 2px 6px rgba(15,23,42,0.40))',
+      filter: 'drop-shadow(0 4px 10px rgba(15,23,42,0.42))',
+      pointerEvents: 'none',
       transition: 'transform 0.15s linear',
     }}>
-      <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden>
-        <path d={CAR_ICON_PATH} fill="#FFFFFF" stroke="#FFFFFF" strokeWidth="0.8" />
-        <path d={CAR_ICON_PATH} fill="#0F172A" />
+      <svg width="56" height="56" viewBox="0 0 90 196" aria-hidden>
+        <defs>
+          <linearGradient id="trkCarPaint" x1="18" y1="8" x2="72" y2="176" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#7EB6FF" />
+            <stop offset="0.45" stopColor="#3B82F6" />
+            <stop offset="1" stopColor="#1D4ED8" />
+          </linearGradient>
+        </defs>
+        <path d={CAR_BODY} fill="#FFFFFF" />
+        <rect x="5" y="40" width="11" height="30" rx="4.5" fill="#020617" />
+        <rect x="74" y="40" width="11" height="30" rx="4.5" fill="#020617" />
+        <rect x="5" y="124" width="11" height="30" rx="4.5" fill="#020617" />
+        <rect x="74" y="124" width="11" height="30" rx="4.5" fill="#020617" />
+        <path d={CAR_BODY} fill="url(#trkCarPaint)" stroke="#F8FAFC" strokeWidth="2.4" strokeLinejoin="round" />
+        <path d="M29 34L61 34L65.5 62L24.5 62Z" fill="#0B1220" />
+        <path d="M32 66L58 66L56 104L34 104Z" fill="#2563EB" opacity="0.55" />
+        <path d="M28 108L62 108L59.5 146L30.5 146Z" fill="#0B1220" />
+        <rect x="34" y="118" width="22" height="3.2" rx="1.4" fill="#64748B" />
+        <rect x="34" y="126" width="22" height="3.2" rx="1.4" fill="#64748B" />
+        <rect x="34" y="134" width="22" height="3.2" rx="1.4" fill="#64748B" />
+        <path d="M9 90L21 85L22.5 118L9 113Z" fill="#0B1220" />
+        <path d="M81 90L69 85L67.5 118L81 113Z" fill="#0B1220" />
+        <rect x="20" y="168" width="50" height="9" rx="2.5" fill="#0B1220" />
+        <ellipse cx="12" cy="58" rx="6.5" ry="4.2" fill="#0B1220" />
+        <ellipse cx="78" cy="58" rx="6.5" ry="4.2" fill="#0B1220" />
+        <rect x="32" y="14" width="9" height="5" rx="2" fill="#F8FAFC" />
+        <rect x="49" y="14" width="9" height="5" rx="2" fill="#F8FAFC" />
       </svg>
     </div>
   );
