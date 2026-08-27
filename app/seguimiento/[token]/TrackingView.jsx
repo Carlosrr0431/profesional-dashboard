@@ -130,48 +130,29 @@ function useSmoothHeading(targetHeading) {
   return heading;
 }
 
-/* Vista aérea del set Vecteezy: hatchback azul y blanco, nariz arriba (0° = norte). */
+/* Vista aérea rectangular (sedán), azul y blanco, nariz arriba (0° = norte). */
 function CarSvg() {
   return (
     <div style={{
-      width: 56,
-      height: 56,
+      width: 58,
+      height: 58,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       filter: 'drop-shadow(0 3px 8px rgba(15,23,42,0.42))',
       pointerEvents: 'none',
     }}>
-      <svg width="48" height="48" viewBox="0 0 88 176" aria-hidden>
-        <defs>
-          <clipPath id="trkCarBodyClip">
-            <path d="M44 6C56 6 66 13 70 26C74 38 74.5 52 73 66L74 104C75 124 73 144 66 156C59 167 50 170.5 44 170.5C38 170.5 29 167 22 156C15 144 13 124 14 104L15 66C13.5 52 14 38 18 26C22 13 32 6 44 6Z" />
-          </clipPath>
-        </defs>
-        <path
-          d="M44 6C56 6 66 13 70 26C74 38 74.5 52 73 66L74 104C75 124 73 144 66 156C59 167 50 170.5 44 170.5C38 170.5 29 167 22 156C15 144 13 124 14 104L15 66C13.5 52 14 38 18 26C22 13 32 6 44 6Z"
-          fill="#FFFFFF"
-        />
-        <path
-          d="M44 6C56 6 66 13 70 26C74 38 74.5 52 73 66L74 104C75 124 73 144 66 156C59 167 50 170.5 44 170.5C38 170.5 29 167 22 156C15 144 13 124 14 104L15 66C13.5 52 14 38 18 26C22 13 32 6 44 6Z"
-          fill="#2563EB"
-          stroke="#F8FAFC"
-          strokeWidth="2.4"
-          strokeLinejoin="round"
-        />
-        <g clipPath="url(#trkCarBodyClip)">
-          <rect x="24" y="16" width="40" height="28" rx="5" fill="#3B82F6" />
-          <rect x="24" y="16" width="40" height="28" rx="5" fill="none" stroke="#FFFFFF" strokeWidth="1.6" />
-          <path d="M26 46L62 46L67 82L21 82Z" fill="#FFFFFF" />
-          <rect x="23" y="118" width="42" height="42" rx="7" fill="none" stroke="#FFFFFF" strokeWidth="1.6" />
-          <path d="M27 126L61 126L58 156L30 156Z" fill="#FFFFFF" />
-        </g>
-        <ellipse cx="11" cy="54" rx="7.2" ry="4.4" fill="#1E3A8A" />
-        <ellipse cx="77" cy="54" rx="7.2" ry="4.4" fill="#1E3A8A" />
-        <rect x="12.5" y="72" width="4.2" height="7" rx="2" fill="#1E40AF" />
-        <rect x="71.3" y="72" width="4.2" height="7" rx="2" fill="#1E40AF" />
-        <rect x="12.5" y="102" width="4.2" height="7" rx="2" fill="#1E40AF" />
-        <rect x="71.3" y="102" width="4.2" height="7" rx="2" fill="#1E40AF" />
+      <svg width="50" height="50" viewBox="0 0 80 168" aria-hidden>
+        <rect x="18" y="8" width="44" height="152" rx="7" fill="#FFFFFF" />
+        <rect x="18" y="8" width="44" height="152" rx="7" fill="#2563EB" stroke="#F8FAFC" strokeWidth="2.2" />
+        <rect x="24" y="14" width="32" height="24" rx="2.5" fill="#3B82F6" />
+        <rect x="24" y="14" width="32" height="24" rx="2.5" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
+        <path d="M23 40H57L58 74H22Z" fill="#FFFFFF" />
+        <rect x="22" y="80" width="36" height="36" rx="1.5" fill="#1D4ED8" />
+        <path d="M24 122H56L55 150H25Z" fill="#FFFFFF" />
+        <rect x="22" y="118" width="36" height="36" rx="2.5" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
+        <rect x="6" y="44" width="13" height="7" rx="1.5" fill="#1E3A8A" />
+        <rect x="61" y="44" width="13" height="7" rx="1.5" fill="#1E3A8A" />
       </svg>
     </div>
   );
