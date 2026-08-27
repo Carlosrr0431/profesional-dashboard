@@ -18,11 +18,15 @@ const OTP_MAX_PER_HOUR = 5;
 const OTP_MAX_ATTEMPTS = 5;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** Solo para pruebas Metro/APK mientras WhatsApp esté desconectado. Otros números: OTP normal. */
-const OTP_BYPASS_LOCAL = '3878630173';
+function configuredOtpBypassLocal() {
+  return extractLocalArMobileDigits(process.env.PASSENGER_OTP_BYPASS_PHONE || '');
+}
 
+/** Bypass opcional vía PASSENGER_OTP_BYPASS_PHONE. En producción no se define: siempre se envía OTP. */
 export function isPassengerOtpBypassPhone(rawPhone) {
-  return extractLocalArMobileDigits(rawPhone) === OTP_BYPASS_LOCAL;
+  const configured = configuredOtpBypassLocal();
+  if (!configured) return false;
+  return extractLocalArMobileDigits(rawPhone) === configured;
 }
 
 function isMissingOtpTableError(error) {
@@ -88,6 +92,7 @@ export async function sendWhatsAppOtp(phone, code) {
 
   const result = await sendWhatsmeowText(line.agentCode, phone, text, {
     apiKey,
+    bypassQueue: true,
     priority: OTP_OUTBOUND_PRIORITY,
     meta: { source: 'passenger_otp' },
   });
@@ -166,7 +171,7 @@ export async function createAndSendOtp(rawPhone) {
     return { ok: false, status: 400, message: 'Ingresá un número de teléfono válido.' };
   }
 
-  // Bypass de prueba: crea sesión al instante sin enviar WhatsApp (solo 3878630173).
+  // Bypass de prueba solo si PASSENGER_OTP_BYPASS_PHONE está configurado.
   if (isPassengerOtpBypassPhone(phone)) {
     const bypass = await createBypassPassengerSession(phone);
     if (!bypass.ok) return bypass;
@@ -269,7 +274,7 @@ async function createPassengerSession(supabase, phone) {
   };
 }
 
-/** Login de prueba sin WhatsApp/OTP — solo 3878630173. */
+/** Login de prueba sin WhatsApp/OTP — solo el número de PASSENGER_OTP_BYPASS_PHONE. */
 export async function createBypassPassengerSession(rawPhone) {
   const phone = normalizePassengerPhoneForDb(rawPhone);
   if (!phone || !isPassengerOtpBypassPhone(phone)) {

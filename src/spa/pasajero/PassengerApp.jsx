@@ -233,8 +233,17 @@ export default function PassengerApp() {
       setError(data?.message || 'No pudimos enviar el código.');
       return;
     }
+    if (data.bypass && data.sessionToken) {
+      persistSession({
+        phone: data.phone,
+        sessionToken: data.sessionToken,
+        sessionExpiresAt: data.sessionExpiresAt,
+        name: loginName.trim() || data.name || '',
+      });
+      return;
+    }
     setOtpStep('code');
-    setInfo(data.message || 'Te enviamos un código por WhatsApp.');
+    setInfo(data.message || 'Te enviamos un código de 4 dígitos por WhatsApp.');
   };
 
   const verifyOtp = async (event) => {
@@ -422,10 +431,11 @@ export default function PassengerApp() {
                   Código
                   <input
                     value={otp}
-                    onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 4))}
                     inputMode="numeric"
+                    autoComplete="one-time-code"
                     className="h-12 rounded-2xl border border-light-300 px-4 text-center text-lg font-bold tracking-[0.4em] text-navy-900"
-                    placeholder="••••••"
+                    placeholder="••••"
                   />
                 </label>
               ) : null}
