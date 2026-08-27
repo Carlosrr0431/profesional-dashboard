@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import AddressSearch from '../shared/AddressSearch';
 import { spaJson, passengerHeaders, PASSENGER_CLIENT } from '../shared/api';
@@ -18,8 +18,10 @@ import { normalizePassengerPhone } from '../shared/phone';
 import { clearPassengerSession, readPassengerSession, writePassengerSession } from '../shared/storage';
 import { isOpenTripStatus, passengerStatusMeta } from '../shared/tripStatus';
 import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../shared/coverage';
-import { SpaBackHome, SpaBrand, SpaButton, SpaNotice, SpaTabs } from '../shared/ui';
+import { SpaBackHome, SpaBrand, SpaButton, SpaNotice, SpaSheet, SpaTabs, spaFieldClass } from '../shared/ui';
 import InstallAppButton from '../shared/InstallAppButton';
+import LocationBanner from '../shared/LocationBanner';
+import { useGeoPermission } from '../shared/geoPermission';
 import { initInstallPrompt, registerSpaServiceWorker } from '../shared/pwa';
 
 const SpaMap = dynamic(() => import('../shared/SpaMap'), { ssr: false });
@@ -61,7 +63,11 @@ export default function PassengerApp() {
   const [active, setActive] = useState(null);
   const [driver, setDriver] = useState(null);
   const [history, setHistory] = useState([]);
+  const [originOpen, setOriginOpen] = useState(false);
+  const [destOpen, setDestOpen] = useState(false);
   const sessionTokenPlaces = useRef(newPlacesSessionToken());
+  const geo = useGeoPermission({ enabled: Boolean(session) });
+  const searching = originOpen || destOpen;
 
   const persistSession = useCallback((next) => {
     writePassengerSession(next);
@@ -135,21 +141,21 @@ export default function PassengerApp() {
   }, [loadTrips, persistSession]);
 
   useEffect(() => {
-    if (!navigator.geolocation) return undefined;
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        const resolved = await reverseGeocode(lat, lng);
-        const point = resolved || { address: 'Mi ubicación', lat, lng };
-        setPickup(point);
-        setPickupText(point.address || 'Mi ubicación');
-      },
-      () => {},
-      { enableHighAccuracy: true, timeout: 8000 },
-    );
-    return undefined;
-  }, []);
+    if (!geo.coords || pickup) return undefined;
+    let cancelled = false;
+    (async () => {
+      const resolved = await reverseGeocode(geo.coords.lat, geo.coords.lng);
+      if (cancelled) return;
+      const point = resolved || {
+        address: 'Mi ubicación',
+        lat: geo.coords.lat,
+        lng: geo.coords.lng,
+      };
+      setPickup(point);
+      setPickupText(point.address || 'Mi ubicación');
+    })();
+    return () => { cancelled = true; };
+  }, [geo.coords, pickup]);
 
   useEffect(() => {
     if (!pickup || !destination) {
@@ -393,7 +399,7 @@ export default function PassengerApp() {
   if (booting) {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-[#F4F7FC] text-sm text-slate-500">
-        Cargando Profesional…
+        Cargando Profesional⬦
       </div>
     );
   }
@@ -412,7 +418,7 @@ export default function PassengerApp() {
                 <input
                   value={loginName}
                   onChange={(event) => setLoginName(event.target.value)}
-                  className="h-12 rounded-2xl border border-light-300 px-4 text-sm font-medium text-navy-900"
+                  className={spaFieldClass}
                   placeholder="Cómo te llamás"
                 />
               </label>
@@ -422,7 +428,7 @@ export default function PassengerApp() {
                   value={loginPhone}
                   onChange={(event) => setLoginPhone(event.target.value)}
                   inputMode="tel"
-                  className="h-12 rounded-2xl border border-light-300 px-4 text-sm font-medium text-navy-900"
+                  className={spaFieldClass}
                   placeholder="387 123 4567"
                 />
               </label>
@@ -434,15 +440,15 @@ export default function PassengerApp() {
                     onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 4))}
                     inputMode="numeric"
                     autoComplete="one-time-code"
-                    className="h-12 rounded-2xl border border-light-300 px-4 text-center text-lg font-bold tracking-[0.4em] text-navy-900"
-                    placeholder="••••"
+                    className={`${spaFieldClass} text-center text-lg font-bold tracking-[0.4em]`}
+                    placeholder="⬢⬢⬢⬢"
                   />
                 </label>
               ) : null}
               {error ? <SpaNotice tone="error">{error}</SpaNotice> : null}
               {info ? <SpaNotice>{info}</SpaNotice> : null}
               <SpaButton type="submit" disabled={busy}>
-                {busy ? 'Enviando…' : otpStep === 'phone' ? 'Enviar código' : 'Ingresar'}
+                {busy ? 'Enviando⬦' : otpStep === 'phone' ? 'Enviar código' : 'Ingresar'}
               </SpaButton>
               {otpStep === 'code' ? (
                 <button type="button" className="text-sm font-medium text-accent" onClick={() => setOtpStep('phone')}>
@@ -458,8 +464,14 @@ export default function PassengerApp() {
     );
   }
 
+  const locationCopy = geo.status === 'unavailable'
+    ? 'Este navegador no comparte ubicación. Escribí el origen a mano.'
+    : geo.status === 'denied'
+      ? 'Sin ubicación el origen queda a mano. Activá el permiso en la configuración del sitio o tocá Permitir otra vez.'
+      : 'Activá la ubicación para completar el origen y pedir un móvil.';
+
   return (
-    <div className="relative h-[100dvh] overflow-hidden bg-[#E8EEF4]">
+    <div className="relative h-[100dvh] overflow-hidden bg-[#D9E2EC]">
       <div className="absolute inset-0">
         <SpaMap
           center={mapCenter}
@@ -471,23 +483,32 @@ export default function PassengerApp() {
         />
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 p-4 pt-[max(1rem,env(safe-area-inset-top))]">
-        <div className="pointer-events-auto mx-auto flex max-w-lg items-center justify-between rounded-2xl bg-white/90 px-3 py-2 shadow-lg backdrop-blur">
-          <SpaBrand subtitle={session.name || 'Pasajero'} />
-          <SpaBackHome />
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 p-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <div className="pointer-events-auto mx-auto flex max-w-lg flex-col gap-2">
+          <div className="flex items-center justify-between rounded-2xl bg-white/95 px-3 py-2 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.45)] ring-1 ring-black/[0.04] backdrop-blur">
+            <SpaBrand subtitle={session.name || 'Pasajero'} />
+            <SpaBackHome />
+          </div>
+          {geo.showBanner ? (
+            <LocationBanner
+              title="Ubicación desactivada"
+              body={locationCopy}
+              onAllow={geo.status === 'unavailable' ? undefined : geo.request}
+            />
+          ) : null}
         </div>
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="mx-auto grid max-w-lg gap-3">
-          <div className="max-h-[58vh] overflow-y-auto rounded-[1.6rem] bg-white/95 p-4 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.45)] ring-1 ring-black/[0.05] backdrop-blur">
+      <div className={`absolute inset-x-0 bottom-0 z-20 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] ${searching ? (geo.showBanner ? 'top-52' : 'top-28') : ''}`}>
+        <div className={`mx-auto flex max-w-lg flex-col gap-2 ${searching ? 'h-full' : ''}`}>
+          <SpaSheet expanded={searching}>
             {error ? <div className="mb-3"><SpaNotice tone="error">{error}</SpaNotice></div> : null}
 
             {tab === 'viaje' && active && isOpenTripStatus(active.status) ? (
               <div className="grid gap-3">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-accent">{status.label}</p>
-                  <h2 className="text-lg font-bold text-navy-900">{status.desc}</h2>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">{status.label}</p>
+                  <h2 className="text-xl font-semibold tracking-tight text-navy-900">{status.desc}</h2>
                 </div>
                 {driver?.full_name ? (
                   <p className="text-sm text-slate-600">
@@ -496,9 +517,9 @@ export default function PassengerApp() {
                     {driver.vehicle_model ? ` · ${driver.vehicle_model}` : ''}
                   </p>
                 ) : null}
-                <p className="text-sm text-slate-600">
+                <p className="text-sm leading-relaxed text-slate-600">
                   {active.origin_address}
-                  {active.destination_address ? ` → ${active.destination_address}` : ''}
+                  {active.destination_address ? ` �  ${active.destination_address}` : ''}
                 </p>
                 {status.canCancel ? (
                   <SpaButton variant="danger" disabled={busy} onClick={cancelTrip}>
@@ -510,7 +531,7 @@ export default function PassengerApp() {
 
             {tab === 'viaje' && (!active || !isOpenTripStatus(active.status)) ? (
               <div className="grid gap-3">
-                <h2 className="text-lg font-bold text-navy-900">¿A dónde vas?</h2>
+                <h2 className="text-xl font-semibold tracking-tight text-navy-900">¿A dónde vas?</h2>
                 <AddressSearch
                   label="Origen"
                   placeholder="Tu ubicación o una dirección"
@@ -518,6 +539,7 @@ export default function PassengerApp() {
                   onChangeText={setPickupText}
                   onSelect={selectPickup}
                   sessionToken={sessionTokenPlaces.current}
+                  onOpenChange={setOriginOpen}
                 />
                 <AddressSearch
                   label="Destino"
@@ -526,10 +548,11 @@ export default function PassengerApp() {
                   onChangeText={setDestText}
                   onSelect={selectDestination}
                   sessionToken={sessionTokenPlaces.current}
+                  onOpenChange={setDestOpen}
                 />
                 {quote?.price ? (
                   <div className="rounded-2xl bg-light-100 px-4 py-3">
-                    <p className="text-2xl font-extrabold text-navy-900">{formatArs(quote.price)}</p>
+                    <p className="text-2xl font-semibold tracking-tight text-navy-900">{formatArs(quote.price)}</p>
                     <p className="text-xs text-slate-500">
                       {quote.distanceKm ? `${quote.distanceKm} km` : ''}
                       {quote.durationMinutes ? ` · ${quote.durationMinutes} min` : ''}
@@ -537,24 +560,24 @@ export default function PassengerApp() {
                   </div>
                 ) : null}
                 <SpaButton disabled={busy || !pickup || !destination} onClick={requestTrip}>
-                  {busy ? 'Confirmando…' : 'Pedir móvil'}
+                  {busy ? 'Confirmando⬦' : 'Pedir móvil'}
                 </SpaButton>
               </div>
             ) : null}
 
             {tab === 'historial' ? (
               <div className="grid gap-2">
-                <h2 className="text-lg font-bold text-navy-900">Tus viajes</h2>
+                <h2 className="text-xl font-semibold tracking-tight text-navy-900">Tus viajes</h2>
                 {history.length === 0 ? (
                   <p className="text-sm text-slate-500">Todavía no tenés viajes.</p>
                 ) : history.map((trip) => {
                   const meta = passengerStatusMeta(trip.status);
                   return (
-                    <article key={trip.id} className="rounded-2xl border border-light-300 px-3 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{meta.label}</p>
+                    <article key={trip.id} className="rounded-2xl bg-light-100 px-3 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{meta.label}</p>
                       <p className="text-sm font-semibold text-navy-900">{trip.origin_address}</p>
                       <p className="text-sm text-slate-500">{trip.destination_address}</p>
-                      {trip.price ? <p className="mt-1 text-sm font-bold">{formatArs(trip.price)}</p> : null}
+                      {trip.price ? <p className="mt-1 text-sm font-semibold">{formatArs(trip.price)}</p> : null}
                     </article>
                   );
                 })}
@@ -563,21 +586,21 @@ export default function PassengerApp() {
 
             {tab === 'cuenta' ? (
               <div className="grid gap-3">
-                <h2 className="text-lg font-bold text-navy-900">Tu cuenta</h2>
+                <h2 className="text-xl font-semibold tracking-tight text-navy-900">Tu cuenta</h2>
                 <p className="text-sm text-slate-600">{session.phone}</p>
-                <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <label className="grid gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                   Nombre
                   <input
                     value={session.name || ''}
                     onChange={(event) => persistSession({ ...session, name: event.target.value })}
-                    className="h-12 rounded-2xl border border-light-300 px-4 text-sm font-medium text-navy-900"
+                    className={spaFieldClass}
                   />
                 </label>
                 <SpaButton variant="ghost" onClick={logout}>Cerrar sesión</SpaButton>
                 <InstallAppButton label="Instalar Profesional Pasajero" />
               </div>
             ) : null}
-          </div>
+          </SpaSheet>
           <SpaTabs items={TABS} value={tab} onChange={setTab} />
         </div>
       </div>

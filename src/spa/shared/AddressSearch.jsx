@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { fetchAutocomplete, suggestionLabel, suggestionSub } from './geo';
+import { spaFieldClass } from './ui';
 
 export default function AddressSearch({
   label,
@@ -11,12 +12,19 @@ export default function AddressSearch({
   onSelect,
   sessionToken,
   disabled = false,
+  onOpenChange,
 }) {
   const [hits, setHits] = useState([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const timerRef = useRef(null);
   const wrapRef = useRef(null);
+
+  const visible = open && hits.length > 0;
+
+  useEffect(() => {
+    onOpenChange?.(visible);
+  }, [visible, onOpenChange]);
 
   useEffect(() => {
     const onDoc = (event) => {
@@ -31,6 +39,7 @@ export default function AddressSearch({
     if (timerRef.current) clearTimeout(timerRef.current);
     if (query.length < 2) {
       setHits([]);
+      setOpen(false);
       setLoading(false);
       return undefined;
     }
@@ -40,7 +49,7 @@ export default function AddressSearch({
       setHits(results);
       setOpen(results.length > 0);
       setLoading(false);
-    }, 280);
+    }, 240);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
@@ -48,41 +57,58 @@ export default function AddressSearch({
 
   return (
     <div ref={wrapRef} className="relative">
-      <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
         {label}
       </label>
-      <input
-        type="text"
-        autoComplete="off"
-        disabled={disabled}
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChangeText(event.target.value)}
-        onFocus={() => hits.length > 0 && setOpen(true)}
-        className="h-12 w-full rounded-2xl border border-light-300 bg-white px-4 text-sm text-navy-900 outline-none ring-accent/20 placeholder:text-slate-400 focus:border-accent focus:ring-4 disabled:bg-light-100"
-      />
-      {loading ? (
-        <span className="absolute right-3 top-9 text-[11px] text-slate-400">Buscando…</span>
-      ) : null}
-      {open && hits.length > 0 ? (
-        <ul className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-2xl border border-light-300 bg-white py-1 shadow-xl">
-          {hits.map((hit, index) => (
-            <li key={`${hit.placeId || hit.title || 'h'}-${index}`}>
-              <button
-                type="button"
-                className="flex w-full flex-col items-start px-4 py-2.5 text-left hover:bg-light-100"
-                onClick={() => {
-                  onSelect(hit);
-                  setOpen(false);
-                }}
-              >
-                <span className="text-sm font-semibold text-navy-900">{suggestionLabel(hit)}</span>
-                {suggestionSub(hit) ? (
-                  <span className="text-[12px] text-slate-500">{suggestionSub(hit)}</span>
-                ) : null}
-              </button>
-            </li>
-          ))}
+      <div className="relative">
+        <input
+          type="text"
+          autoComplete="off"
+          disabled={disabled}
+          value={value}
+          placeholder={placeholder}
+          onChange={(event) => onChangeText(event.target.value)}
+          onFocus={() => hits.length > 0 && setOpen(true)}
+          className={spaFieldClass}
+        />
+        {loading ? (
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">
+            Buscando…
+          </span>
+        ) : null}
+      </div>
+      {visible ? (
+        <ul className="mt-2 max-h-[min(46vh,360px)] overflow-y-auto overscroll-contain rounded-2xl bg-light-100 p-1">
+          {hits.map((hit, index) => {
+            const sub = suggestionSub(hit);
+            const title = suggestionLabel(hit);
+            return (
+              <li key={`${hit.placeId || title || 'h'}-${index}`}>
+                <button
+                  type="button"
+                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white"
+                  onClick={() => {
+                    onSelect(hit);
+                    setOpen(false);
+                    setHits([]);
+                  }}
+                >
+                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-navy-900 ring-1 ring-light-300">
+                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+                      <path d="M12 21s7-6.2 7-11.2A7 7 0 1 0 5 9.8C5 14.8 12 21 12 21Z" stroke="currentColor" strokeWidth="1.8" />
+                      <circle cx="12" cy="9.8" r="2.2" fill="currentColor" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-navy-900">{title}</span>
+                    {sub && sub !== title ? (
+                      <span className="mt-0.5 block text-[12px] leading-snug text-slate-500">{sub}</span>
+                    ) : null}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </div>

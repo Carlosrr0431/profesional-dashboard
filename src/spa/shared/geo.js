@@ -8,7 +8,7 @@ const ZONES_TTL_MS = 5 * 60 * 1000;
 export async function fetchAutocomplete(query, sessionToken) {
   const q = String(query || '').trim();
   if (q.length < 2) return [];
-  const params = new URLSearchParams({ q, limit: '6' });
+  const params = new URLSearchParams({ q, limit: '8' });
   if (sessionToken) params.set('sessionToken', sessionToken);
   const { ok, data } = await spaJson(`/api/geo/autocomplete?${params}`);
   if (!ok || !data?.ok) return [];

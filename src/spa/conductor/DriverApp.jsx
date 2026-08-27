@@ -1,14 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { getDriverSupabase } from './driverSupabase';
 import { spaJson } from '../shared/api';
 import { formatArs } from '../shared/money';
 import { normalizeDriverPhone } from '../shared/phone';
 import { DRIVER_STATUS, isOpenTripStatus } from '../shared/tripStatus';
-import { SpaBackHome, SpaBrand, SpaButton, SpaNotice, SpaTabs } from '../shared/ui';
+import { SpaBackHome, SpaBrand, SpaButton, SpaNotice, SpaSheet, SpaTabs, spaFieldClass } from '../shared/ui';
 import InstallAppButton from '../shared/InstallAppButton';
+import LocationBanner from '../shared/LocationBanner';
+import { useGeoPermission } from '../shared/geoPermission';
 import { initInstallPrompt, registerSpaServiceWorker } from '../shared/pwa';
 
 const SpaMap = dynamic(() => import('../shared/SpaMap'), { ssr: false });
@@ -45,11 +47,11 @@ export default function DriverApp() {
   const [choices, setChoices] = useState([]);
 
   const [online, setOnline] = useState(false);
-  const [location, setLocation] = useState(null);
   const [pendingTrip, setPendingTrip] = useState(null);
   const [activeTrip, setActiveTrip] = useState(null);
   const [history, setHistory] = useState([]);
-  const watchRef = useRef(null);
+  const geo = useGeoPermission({ watch: Boolean(driver), enabled: Boolean(driver) });
+  const location = geo.coords;
 
   const fetchProfile = useCallback(async (userId) => {
     const supabase = getDriverSupabase();
@@ -145,26 +147,9 @@ export default function DriverApp() {
   }, [driver?.id]);
 
   useEffect(() => {
-    if (!driver || !navigator.geolocation) return undefined;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {},
-      { enableHighAccuracy: true, timeout: 8000 },
-    );
-    if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current);
-    watchRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setLocation(next);
-        if (online) syncLocation(next, true);
-      },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 4000 },
-    );
-    return () => {
-      if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current);
-    };
-  }, [driver, online, syncLocation]);
+    if (!online || !location) return;
+    syncLocation(location, true);
+  }, [online, location, syncLocation]);
 
   useEffect(() => {
     if (!driver?.id) return undefined;
@@ -310,6 +295,10 @@ export default function DriverApp() {
   const toggleOnline = async () => {
     if (!driver?.id) return;
     const next = !online;
+    if (next && !location) {
+      geo.request();
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -482,7 +471,7 @@ export default function DriverApp() {
                   onChange={(event) => setPhone(event.target.value)}
                   inputMode="tel"
                   disabled={step !== 'phone'}
-                  className="h-12 rounded-2xl border border-light-300 px-4 text-sm font-medium text-navy-900 disabled:bg-light-100"
+                  className={spaFieldClass}
                   placeholder="387 123 4567"
                 />
               </label>
@@ -492,7 +481,7 @@ export default function DriverApp() {
                   <select
                     value={driverNumber}
                     onChange={(event) => setDriverNumber(event.target.value)}
-                    className="h-12 rounded-2xl border border-light-300 px-4 text-sm font-medium text-navy-900"
+                    className={spaFieldClass}
                   >
                     <option value="">Elegí tu móvil</option>
                     {choices.map((choice) => (
@@ -510,7 +499,7 @@ export default function DriverApp() {
                     type="password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    className="h-12 rounded-2xl border border-light-300 px-4 text-sm font-medium text-navy-900"
+                    className={spaFieldClass}
                   />
                 </label>
               ) : null}
@@ -521,7 +510,7 @@ export default function DriverApp() {
                     type="password"
                     value={confirmPassword}
                     onChange={(event) => setConfirmPassword(event.target.value)}
-                    className="h-12 rounded-2xl border border-light-300 px-4 text-sm font-medium text-navy-900"
+                    className={spaFieldClass}
                   />
                 </label>
               ) : null}
@@ -556,9 +545,14 @@ export default function DriverApp() {
     ? { latitude: location.lat, longitude: location.lng }
     : DEFAULT_CENTER;
   const driverMeta = DRIVER_STATUS[activeTrip?.status] || DRIVER_STATUS.pending;
+  const locationCopy = geo.status === 'unavailable'
+    ? 'Este navegador no comparte ubicación. Sin GPS no podés trabajar en línea.'
+    : geo.status === 'denied'
+      ? 'Sin ubicación no podés ponerte en línea. Activá el permiso en la configuración del sitio o tocá Permitir otra vez.'
+      : 'Activá la ubicación para ponerte en línea y recibir viajes.';
 
   return (
-    <div className="relative h-[100dvh] overflow-hidden bg-[#E8EEF4]">
+    <div className="relative h-[100dvh] overflow-hidden bg-[#D9E2EC]">
       <div className="absolute inset-0">
         <SpaMap
           center={mapCenter}
@@ -568,31 +562,40 @@ export default function DriverApp() {
         />
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 p-4 pt-[max(1rem,env(safe-area-inset-top))]">
-        <div className="pointer-events-auto mx-auto flex max-w-lg items-center justify-between rounded-2xl bg-white/90 px-3 py-2 shadow-lg backdrop-blur">
-          <SpaBrand subtitle={driver.full_name || 'Conductor'} />
-          <button
-            type="button"
-            onClick={toggleOnline}
-            disabled={busy}
-            className={`rounded-full px-3 py-1.5 text-xs font-bold ${
-              online ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'
-            }`}
-          >
-            {online ? 'En línea' : 'Desconectado'}
-          </button>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 p-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <div className="pointer-events-auto mx-auto flex max-w-lg flex-col gap-2">
+          <div className="flex items-center justify-between gap-3 rounded-2xl bg-white/95 px-3 py-2 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.45)] ring-1 ring-black/[0.04] backdrop-blur">
+            <SpaBrand subtitle={driver.full_name || 'Conductor'} />
+            <button
+              type="button"
+              onClick={toggleOnline}
+              disabled={busy}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${
+                online ? 'bg-emerald-500 text-white' : 'bg-light-200 text-slate-600'
+              }`}
+            >
+              {online ? 'En línea' : 'Desconectado'}
+            </button>
+          </div>
+          {geo.showBanner ? (
+            <LocationBanner
+              title="Ubicación desactivada"
+              body={locationCopy}
+              onAllow={geo.status === 'unavailable' ? undefined : geo.request}
+            />
+          ) : null}
         </div>
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="mx-auto grid max-w-lg gap-3">
-          <div className="max-h-[58vh] overflow-y-auto rounded-[1.6rem] bg-white/95 p-4 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.45)] ring-1 ring-black/[0.05] backdrop-blur">
+      <div className="absolute inset-x-0 bottom-0 z-20 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="mx-auto flex max-w-lg flex-col gap-2">
+          <SpaSheet>
             {error ? <div className="mb-3"><SpaNotice tone="error">{error}</SpaNotice></div> : null}
 
             {tab === 'inicio' && pendingTrip && !activeTrip ? (
               <div className="grid gap-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-accent">Nuevo viaje</p>
-                <h2 className="text-lg font-bold text-navy-900">{pendingTrip.passenger_name || 'Pasajero'}</h2>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">Nuevo viaje</p>
+                <h2 className="text-xl font-semibold tracking-tight text-navy-900">{pendingTrip.passenger_name || 'Pasajero'}</h2>
                 <p className="text-sm text-slate-600">{pendingTrip.destination_address}</p>
                 <div className="grid grid-cols-2 gap-2">
                   <SpaButton variant="ghost" disabled={busy} onClick={rejectTrip}>Rechazar</SpaButton>
@@ -603,8 +606,8 @@ export default function DriverApp() {
 
             {tab === 'inicio' && activeTrip ? (
               <div className="grid gap-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-accent">{driverMeta.label}</p>
-                <h2 className="text-lg font-bold text-navy-900">{activeTrip.passenger_name || 'Pasajero'}</h2>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">{driverMeta.label}</p>
+                <h2 className="text-xl font-semibold tracking-tight text-navy-900">{activeTrip.passenger_name || 'Pasajero'}</h2>
                 <p className="text-sm text-slate-600">{activeTrip.destination_address}</p>
                 {activeTrip.status === 'going_to_pickup' || activeTrip.status === 'accepted' ? (
                   <SpaButton disabled={busy} onClick={() => updateTripStatus('in_progress', { pickup_at: new Date().toISOString() })}>
@@ -621,7 +624,7 @@ export default function DriverApp() {
 
             {tab === 'inicio' && !pendingTrip && !activeTrip ? (
               <div className="grid gap-2">
-                <h2 className="text-lg font-bold text-navy-900">
+                <h2 className="text-xl font-semibold tracking-tight text-navy-900">
                   {online ? 'Esperando viajes' : 'Estás desconectado'}
                 </h2>
                 <p className="text-sm text-slate-500">
@@ -634,17 +637,17 @@ export default function DriverApp() {
 
             {tab === 'historial' ? (
               <div className="grid gap-2">
-                <h2 className="text-lg font-bold text-navy-900">Hoy y anteriores</h2>
+                <h2 className="text-xl font-semibold tracking-tight text-navy-900">Hoy y anteriores</h2>
                 {history.length === 0 ? (
                   <p className="text-sm text-slate-500">Todavía no hay viajes en esta cuenta.</p>
                 ) : history.map((trip) => (
-                  <article key={trip.id} className="rounded-2xl border border-light-300 px-3 py-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  <article key={trip.id} className="rounded-2xl bg-light-100 px-3 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                       {DRIVER_STATUS[trip.status]?.label || trip.status}
                     </p>
                     <p className="text-sm font-semibold text-navy-900">{trip.passenger_name || 'Pasajero'}</p>
                     <p className="text-sm text-slate-500">{trip.destination_address}</p>
-                    {trip.price ? <p className="mt-1 text-sm font-bold">{formatArs(trip.price)}</p> : null}
+                    {trip.price ? <p className="mt-1 text-sm font-semibold">{formatArs(trip.price)}</p> : null}
                   </article>
                 ))}
               </div>
@@ -652,7 +655,7 @@ export default function DriverApp() {
 
             {tab === 'cuenta' ? (
               <div className="grid gap-3">
-                <h2 className="text-lg font-bold text-navy-900">{driver.full_name}</h2>
+                <h2 className="text-xl font-semibold tracking-tight text-navy-900">{driver.full_name}</h2>
                 <p className="text-sm text-slate-600">{driver.phone}</p>
                 {driver.vehicle_plate ? (
                   <p className="text-sm text-slate-600">
@@ -664,7 +667,7 @@ export default function DriverApp() {
                 <SpaBackHome />
               </div>
             ) : null}
-          </div>
+          </SpaSheet>
           <SpaTabs items={TABS} value={tab} onChange={setTab} />
         </div>
       </div>
