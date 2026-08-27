@@ -1,0 +1,32 @@
+export const PICKUP_OUTSIDE_COVERAGE_MESSAGE =
+  'No hay cobertura para su zona por el momento. No podemos tomar viajes con origen en esta dirección.';
+
+export function isPointInPolygon(lat, lng, coordinates) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (!Array.isArray(coordinates) || coordinates.length < 3) return false;
+
+  let inside = false;
+  const n = coordinates.length;
+
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const yi = Number(coordinates[i].lat);
+    const xi = Number(coordinates[i].lng);
+    const yj = Number(coordinates[j].lat);
+    const xj = Number(coordinates[j].lng);
+    if (![yi, xi, yj, xj].every(Number.isFinite)) continue;
+    if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
+export function isPickupInActiveZones(zones, lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return true;
+  const activeZones = (zones || []).filter(
+    (zone) => zone?.is_active !== false && Array.isArray(zone.coordinates) && zone.coordinates.length >= 3,
+  );
+  if (activeZones.length === 0) return true;
+  return activeZones.some((zone) => isPointInPolygon(lat, lng, zone.coordinates));
+}

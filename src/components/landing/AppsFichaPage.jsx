@@ -86,6 +86,8 @@ function AppCard({
   meta,
   playHref,
   appleHref,
+  webHref,
+  webLabel,
   icon,
   iconClass,
   emphasized = false,
@@ -104,7 +106,15 @@ function AppCard({
           </p>
         </div>
       </div>
-      <div className="mt-3.5 flex gap-2">
+      {webHref ? (
+        <Link
+          href={webHref}
+          className="mt-3.5 inline-flex min-h-11 w-full items-center justify-center rounded-full bg-navy-900 px-3 text-[12px] font-semibold text-white sm:text-[13px]"
+        >
+          {webLabel || 'Usar en el navegador'}
+        </Link>
+      ) : null}
+      <div className="mt-2 flex gap-2">
         <StoreButton href={playHref} store="play" appName={title} />
         <StoreButton href={appleHref} store="apple" appName={title} />
       </div>
@@ -185,7 +195,7 @@ export default function AppsFichaPage({ focus = null }) {
               Viajes en Salta
             </h1>
             <p className="landing-hero-enter landing-hero-enter-delay-1 mx-auto mt-1.5 max-w-[22rem] text-pretty text-[13px] leading-relaxed text-slate-500 sm:max-w-md sm:text-[14px]">
-              Descargá la app o pedí por WhatsApp. Precios, seguimiento y reservas.
+              Usá la web, descargá la app o pedí por WhatsApp. Precios, seguimiento y reservas.
             </p>
           </div>
 
@@ -201,6 +211,8 @@ export default function AppsFichaPage({ focus = null }) {
               <AppCard
                 playHref={PLAY_PASSENGER}
                 appleHref={APPLE_PASSENGER}
+                webHref="/pasajero"
+                webLabel="Pedir viaje en el navegador"
                 meta="Para viajar"
                 title="Pasajero"
                 subtitle="Pedí tu auto y seguí el viaje en vivo"
@@ -214,6 +226,8 @@ export default function AppsFichaPage({ focus = null }) {
               <AppCard
                 playHref={PLAY_DRIVER}
                 appleHref={APPLE_DRIVER}
+                webHref="/conductor"
+                webLabel="Entrar como conductor"
                 meta="Para conducir"
                 title="Conductor"
                 subtitle="Recibí viajes y gestioná tu jornada"

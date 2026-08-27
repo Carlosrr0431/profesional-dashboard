@@ -5,6 +5,8 @@ import Link from 'next/link';
 import LandingLogo from './LandingLogo';
 
 const LINKS = [
+  { href: '/pasajero', label: 'App web pasajero', isRoute: true },
+  { href: '/conductor', label: 'App web conductor', isRoute: true },
   { href: '#app-pasajero', label: 'Pasajeros' },
   { href: '#app-conductor', label: 'Conductores' },
   { href: '#features', label: 'Funciones' },
@@ -66,12 +68,12 @@ export default function LandingNav({ open, onOpenChange }) {
             >
               Operadores
             </Link>
-            <a
-              href="#apps"
+            <Link
+              href="/pasajero"
               className="hidden rounded-xl bg-accent px-4 py-2 text-sm font-bold text-white shadow-lg shadow-accent/20 transition hover:bg-accent-light sm:inline-flex"
             >
-              Descargar
-            </a>
+              Pedir viaje
+            </Link>
 
             <button
               type="button"

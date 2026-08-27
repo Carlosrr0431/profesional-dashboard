@@ -183,11 +183,23 @@ export default function LandingPage() {
               </h1>
 
               <p className="landing-hero-enter landing-hero-enter-delay-2 mt-4 max-w-2xl text-[15px] leading-relaxed text-slate-600 sm:mt-6 sm:text-lg lg:text-xl">
-                Descargá la app de pasajero para pedir un auto al instante, o unite como conductor a la flota Profesional.
-                Todo conectado en tiempo real.
+                Pedí un auto desde el navegador o descargá la app. Si sos conductor, también podés trabajar desde la web.
+                Todo conectado en tiempo real en Salta Capital.
               </p>
 
               <div className="landing-hero-enter landing-hero-enter-delay-3 mt-6 grid grid-cols-1 gap-3 sm:mt-8 sm:grid-cols-2 lg:flex lg:flex-wrap">
+                <Link
+                  href="/pasajero"
+                  className="inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-accent px-4 py-3.5 text-sm font-bold text-white shadow-[0_8px_30px_-8px_rgba(36,95,141,0.35)] transition hover:bg-accent-light sm:w-auto"
+                >
+                  Pedir viaje en el navegador
+                </Link>
+                <Link
+                  href="/conductor"
+                  className="inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-navy-700/10 bg-navy-900 px-4 py-3.5 text-sm font-bold text-white shadow-[0_8px_30px_-8px_rgba(15,23,42,0.25)] transition hover:bg-navy-800 sm:w-auto"
+                >
+                  Entrar como conductor
+                </Link>
                 <HeroStoreButton href={PLAY_PASSENGER} sublabel="App para pasajeros" label="Profesional Pasajero" variant="passenger" />
                 <HeroStoreButton href={PLAY_DRIVER} sublabel="App para conductores" label="Profesional Conductor" variant="driver" />
               </div>
