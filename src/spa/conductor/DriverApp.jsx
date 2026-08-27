@@ -1,13 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { getDriverSupabase } from './driverSupabase';
 import { spaJson } from '../shared/api';
 import { formatArs } from '../shared/money';
 import { normalizeDriverPhone } from '../shared/phone';
 import { DRIVER_STATUS, isOpenTripStatus } from '../shared/tripStatus';
-import { SpaBackHome, SpaBrand, SpaButton, SpaNotice, SpaSheet, SpaTabs, spaFieldClass } from '../shared/ui';
+import { SpaBackHome, SpaBrand, SpaButton, SpaEmpty, SpaKicker, SpaNotice, SpaPanel, SpaSheet, SpaSwitch, SpaTabs, SpaTripRow, haptic, spaFieldClass } from '../shared/ui';
 import { SpaAuthScreen, SpaBootScreen, SpaMapScreen } from '../shared/SpaShell';
 import InstallAppButton from '../shared/InstallAppButton';
 import LocationBanner from '../shared/LocationBanner';
@@ -17,9 +17,9 @@ import { initInstallPrompt, registerSpaServiceWorker } from '../shared/pwa';
 const SpaMap = dynamic(() => import('../shared/SpaMap'), { ssr: false });
 
 const TABS = [
-  { id: 'inicio', label: 'Inicio' },
-  { id: 'historial', label: 'Historial' },
-  { id: 'cuenta', label: 'Cuenta' },
+  { id: 'inicio', label: 'Inicio', icon: 'home' },
+  { id: 'historial', label: 'Viajes', icon: 'clock' },
+  { id: 'cuenta', label: 'Cuenta', icon: 'user' },
 ];
 
 const DEFAULT_CENTER = { latitude: -24.78, longitude: -65.42 };
@@ -51,6 +51,7 @@ export default function DriverApp() {
   const [pendingTrip, setPendingTrip] = useState(null);
   const [activeTrip, setActiveTrip] = useState(null);
   const [history, setHistory] = useState([]);
+  const readyHaptic = useRef(false);
   const geo = useGeoPermission({ watch: Boolean(driver), enabled: Boolean(driver) });
   const location = geo.coords;
 
@@ -151,6 +152,14 @@ export default function DriverApp() {
     if (!online || !location) return;
     syncLocation(location, true);
   }, [online, location, syncLocation]);
+
+  useEffect(() => {
+    if (!readyHaptic.current) {
+      readyHaptic.current = true;
+      return;
+    }
+    if (pendingTrip?.id && !activeTrip) haptic(40);
+  }, [pendingTrip?.id, activeTrip]);
 
   useEffect(() => {
     if (!driver?.id) return undefined;
@@ -446,12 +455,12 @@ export default function DriverApp() {
   if (!driver) {
     return (
       <SpaAuthScreen>
-          <SpaBrand subtitle="App web de conductores · Salta Capital" />
-          <div className="rounded-[1.6rem] bg-white p-5 shadow-[0_20px_50px_-28px_rgba(15,23,42,0.35)] ring-1 ring-black/[0.04]">
-            <h1 className="text-xl font-bold text-navy-900">Ingresá a tu móvil</h1>
-            <p className="mt-1 text-sm text-slate-500">Usá el mismo teléfono y contraseña de la app. Podés instalarla en el teléfono.</p>
+          <SpaBrand subtitle="Conductor · Salta" />
+          <div className="spa-auth-card">
+            <h1>Ingresá a tu móvil</h1>
+            <p className="lead">Usá el mismo teléfono y contraseña de la app. Podés instalarla en el teléfono.</p>
             <form
-              className="mt-5 grid gap-3"
+              className="mt-6 grid gap-3"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (step === 'phone') runLookup(phone);
@@ -460,7 +469,7 @@ export default function DriverApp() {
                 else submitPassword(event);
               }}
             >
-              <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
                 Teléfono
                 <input
                   value={phone}
@@ -473,7 +482,7 @@ export default function DriverApp() {
                 />
               </label>
               {step === 'driver_number' ? (
-                <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
                   Número de móvil
                   <select
                     value={driverNumber}
@@ -490,7 +499,7 @@ export default function DriverApp() {
                 </label>
               ) : null}
               {step === 'password' || step === 'setup_password' ? (
-                <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
                   Contraseña
                   <input
                     type="password"
@@ -502,7 +511,7 @@ export default function DriverApp() {
                 </label>
               ) : null}
               {step === 'setup_password' ? (
-                <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
                   Repetir contraseña
                   <input
                     type="password"
@@ -562,16 +571,7 @@ export default function DriverApp() {
       header={(
         <div className="spa-card-bar">
           <SpaBrand subtitle={driver.full_name || 'Conductor'} />
-          <button
-            type="button"
-            onClick={toggleOnline}
-            disabled={busy}
-            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${
-              online ? 'bg-emerald-500 text-white' : 'bg-light-200 text-slate-600'
-            }`}
-          >
-            {online ? 'En línea' : 'Desconectado'}
-          </button>
+          <SpaSwitch compact on={online} disabled={busy} onClick={toggleOnline} />
         </div>
       )}
       banner={geo.showBanner ? (
@@ -584,25 +584,39 @@ export default function DriverApp() {
       sheet={(
         <>
           <SpaSheet>
-            {error ? <div className="mb-3"><SpaNotice tone="error">{error}</SpaNotice></div> : null}
+            {error ? <SpaNotice tone="error">{error}</SpaNotice> : null}
 
             {tab === 'inicio' && pendingTrip && !activeTrip ? (
-              <div className="grid gap-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">Nuevo viaje</p>
-                <h2 className="text-xl font-semibold tracking-tight text-navy-900">{pendingTrip.passenger_name || 'Pasajero'}</h2>
-                <p className="text-sm text-slate-600">{pendingTrip.destination_address}</p>
+              <SpaPanel key="oferta">
+                <div>
+                  <SpaKicker live>Nuevo viaje</SpaKicker>
+                  <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">{pendingTrip.passenger_name || 'Pasajero'}</h2>
+                </div>
+                <div className="spa-route">
+                  <p className="spa-route-line text-[14px] text-navy-900">
+                    <span className="spa-route-dot spa-route-dot--dest" />
+                    <span className="min-w-0">{pendingTrip.destination_address}</span>
+                  </p>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <SpaButton variant="ghost" disabled={busy} onClick={rejectTrip}>Rechazar</SpaButton>
                   <SpaButton variant="success" disabled={busy} onClick={acceptTrip}>Aceptar</SpaButton>
                 </div>
-              </div>
+              </SpaPanel>
             ) : null}
 
             {tab === 'inicio' && activeTrip ? (
-              <div className="grid gap-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">{driverMeta.label}</p>
-                <h2 className="text-xl font-semibold tracking-tight text-navy-900">{activeTrip.passenger_name || 'Pasajero'}</h2>
-                <p className="text-sm text-slate-600">{activeTrip.destination_address}</p>
+              <SpaPanel key="activo">
+                <div>
+                  <SpaKicker live>{driverMeta.label}</SpaKicker>
+                  <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">{activeTrip.passenger_name || 'Pasajero'}</h2>
+                </div>
+                <div className="spa-route">
+                  <p className="spa-route-line text-[14px] text-navy-900">
+                    <span className="spa-route-dot spa-route-dot--dest" />
+                    <span className="min-w-0">{activeTrip.destination_address}</span>
+                  </p>
+                </div>
                 {activeTrip.status === 'going_to_pickup' || activeTrip.status === 'accepted' ? (
                   <SpaButton disabled={busy} onClick={() => updateTripStatus('in_progress', { pickup_at: new Date().toISOString() })}>
                     Pasajero a bordo
@@ -613,53 +627,60 @@ export default function DriverApp() {
                     Finalizar viaje
                   </SpaButton>
                 ) : null}
-              </div>
+              </SpaPanel>
             ) : null}
 
             {tab === 'inicio' && !pendingTrip && !activeTrip ? (
-              <div className="grid gap-2">
-                <h2 className="text-xl font-semibold tracking-tight text-navy-900">
-                  {online ? 'Esperando viajes' : 'Estás desconectado'}
-                </h2>
-                <p className="text-sm text-slate-500">
-                  {online
-                    ? 'Cuando te asignen un móvil va a aparecer acá.'
-                    : 'Ponete en línea para recibir viajes en Salta.'}
-                </p>
-              </div>
+              <SpaPanel key="espera">
+                <div className="py-2 text-center">
+                  <SpaKicker live={online}>{online ? 'En línea' : 'Fuera de línea'}</SpaKicker>
+                  <h2 className="mt-1 text-[22px] font-semibold tracking-tight text-navy-900">
+                    {online ? 'Esperando viajes' : 'Estás desconectado'}
+                  </h2>
+                  <p className="mx-auto mt-1 max-w-[16rem] text-[14px] leading-relaxed text-slate-500">
+                    {online
+                      ? 'Cuando te asignen un móvil va a aparecer acá.'
+                      : 'Ponete en línea para recibir viajes en Salta.'}
+                  </p>
+                </div>
+              </SpaPanel>
             ) : null}
 
             {tab === 'historial' ? (
-              <div className="grid gap-2">
-                <h2 className="text-xl font-semibold tracking-tight text-navy-900">Hoy y anteriores</h2>
+              <SpaPanel key="historial">
+                <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">Tus viajes</h2>
                 {history.length === 0 ? (
-                  <p className="text-sm text-slate-500">Todavía no hay viajes en esta cuenta.</p>
-                ) : history.map((trip) => (
-                  <article key={trip.id} className="rounded-2xl bg-light-100 px-3 py-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                      {DRIVER_STATUS[trip.status]?.label || trip.status}
-                    </p>
-                    <p className="text-sm font-semibold text-navy-900">{trip.passenger_name || 'Pasajero'}</p>
-                    <p className="text-sm text-slate-500">{trip.destination_address}</p>
-                    {trip.price ? <p className="mt-1 text-sm font-semibold">{formatArs(trip.price)}</p> : null}
-                  </article>
-                ))}
-              </div>
+                  <SpaEmpty>Todavía no hay viajes en esta cuenta.</SpaEmpty>
+                ) : (
+                  <div>
+                    {history.map((trip) => (
+                      <SpaTripRow
+                        key={trip.id}
+                        kicker={DRIVER_STATUS[trip.status]?.label || trip.status}
+                        title={trip.passenger_name || 'Pasajero'}
+                        subtitle={trip.destination_address}
+                        meta={trip.price ? formatArs(trip.price) : null}
+                      />
+                    ))}
+                  </div>
+                )}
+              </SpaPanel>
             ) : null}
 
             {tab === 'cuenta' ? (
-              <div className="grid gap-3">
-                <h2 className="text-xl font-semibold tracking-tight text-navy-900">{driver.full_name}</h2>
-                <p className="text-sm text-slate-600">{driver.phone}</p>
+              <SpaPanel key="cuenta">
+                <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">{driver.full_name}</h2>
+                <p className="text-[15px] text-slate-500">{driver.phone}</p>
                 {driver.vehicle_plate ? (
-                  <p className="text-sm text-slate-600">
-                    {driver.vehicle_model || 'Móvil'} · {driver.vehicle_plate}
-                  </p>
+                  <div className="rounded-2xl bg-light-100 px-4 py-3">
+                    <p className="text-[15px] font-semibold text-navy-900">{driver.vehicle_model || 'Móvil'}</p>
+                    <p className="mt-0.5 text-[13px] text-slate-500">{driver.vehicle_plate}</p>
+                  </div>
                 ) : null}
                 <SpaButton variant="ghost" onClick={logout}>Cerrar sesión</SpaButton>
                 <InstallAppButton label="Instalar Profesional Conductor" />
                 <SpaBackHome />
-              </div>
+              </SpaPanel>
             ) : null}
           </SpaSheet>
           <SpaTabs items={TABS} value={tab} onChange={setTab} />

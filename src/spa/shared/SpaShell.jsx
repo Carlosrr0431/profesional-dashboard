@@ -28,7 +28,12 @@ export function useKeyboardInset() {
 }
 
 export function SpaBootScreen({ children }) {
-  return <div className="spa-boot">{children}</div>;
+  return (
+    <div className="spa-boot">
+      <div className="spa-boot-mark">P</div>
+      <p>{children}</p>
+    </div>
+  );
 }
 
 export function SpaAuthScreen({ children }) {

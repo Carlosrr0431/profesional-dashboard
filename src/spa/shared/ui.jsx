@@ -3,16 +3,60 @@
 import Link from 'next/link';
 
 export const spaFieldClass =
-  'h-12 w-full rounded-2xl border border-light-300 bg-light-100 px-4 text-base font-medium text-navy-900 outline-none placeholder:text-slate-400 focus:border-navy-900 focus:bg-white focus:ring-4 focus:ring-navy-900/10 disabled:bg-light-200 disabled:text-slate-500';
+  'spa-field h-12 w-full rounded-2xl border-0 bg-light-100 px-4 text-base font-medium text-navy-900 outline-none placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-navy-900/15 disabled:bg-light-200 disabled:text-slate-500';
+
+export function haptic(ms = 12) {
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(ms);
+    }
+  } catch {
+    // Safari iOS antiguo y escritorio no soportan vibrate.
+  }
+}
+
+function Icon({ name, className = 'h-[18px] w-[18px]' }) {
+  const common = { viewBox: '0 0 24 24', className, fill: 'none', 'aria-hidden': true };
+  if (name === 'map') {
+    return (
+      <svg {...common}>
+        <path d="M9 4.5 3.8 6.4A1 1 0 0 0 3 7.35v11.2a1 1 0 0 0 1.32.95L9 17.8l6 1.7 5.2-1.9A1 1 0 0 0 21 16.65V5.45a1 1 0 0 0-1.32-.95L15 6.2 9 4.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M9 4.5v13.3M15 6.2v13.3" stroke="currentColor" strokeWidth="1.8" />
+      </svg>
+    );
+  }
+  if (name === 'clock') {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="8.2" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M12 8v4.2l2.6 1.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (name === 'user') {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="8.2" r="3.1" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M5.4 18.6c1.4-2.7 3.7-4 6.6-4s5.2 1.3 6.6 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (name === 'home') {
+    return (
+      <svg {...common}>
+        <path d="M4.5 11.2 12 5l7.5 6.2V19a1 1 0 0 1-1 1h-4.2v-5.2h-4.6V20H5.5a1 1 0 0 1-1-1v-7.8Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return null;
+}
 
 export function SpaBrand({ subtitle }) {
   return (
-    <div className="flex min-w-0 items-center gap-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy-900 text-white">
-        <span className="text-[13px] font-extrabold tracking-tight">P</span>
-      </div>
+    <div className="flex min-w-0 items-center gap-2.5">
+      <div className="spa-mark">P</div>
       <div className="min-w-0">
-        <p className="text-sm font-semibold leading-tight text-navy-900">Profesional</p>
+        <p className="text-[13px] font-semibold leading-tight tracking-tight text-navy-900">Profesional</p>
         <p className="truncate text-[11px] font-medium text-slate-500">{subtitle}</p>
       </div>
     </div>
@@ -27,7 +71,7 @@ export function SpaNotice({ tone = 'info', children }) {
     warn: 'bg-amber-50 text-amber-800',
   };
   return (
-    <p className={`rounded-2xl px-3.5 py-2.5 text-sm ${tones[tone] || tones.info}`}>
+    <p className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${tones[tone] || tones.info}`}>
       {children}
     </p>
   );
@@ -35,18 +79,22 @@ export function SpaNotice({ tone = 'info', children }) {
 
 export function SpaButton({ children, onClick, disabled, variant = 'primary', type = 'button', className = '' }) {
   const variants = {
-    primary: 'bg-navy-900 text-white hover:bg-navy-800',
-    accent: 'bg-accent text-white hover:bg-accent-light',
-    ghost: 'bg-white text-navy-900 ring-1 ring-light-300 hover:bg-light-100',
-    danger: 'bg-danger text-white hover:bg-red-600',
-    success: 'bg-emerald-600 text-white hover:bg-emerald-700',
+    primary: 'bg-navy-900 text-white',
+    accent: 'bg-accent text-white',
+    ghost: 'bg-light-100 text-navy-900',
+    danger: 'bg-red-50 text-red-700',
+    success: 'bg-emerald-600 text-white',
   };
   return (
     <button
       type={type}
       disabled={disabled}
-      onClick={onClick}
-      className={`inline-flex min-h-12 w-full items-center justify-center rounded-2xl px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${className}`}
+      onClick={(event) => {
+        if (disabled) return;
+        haptic(8);
+        onClick?.(event);
+      }}
+      className={`spa-press inline-flex min-h-12 w-full items-center justify-center rounded-2xl px-4 text-[15px] font-semibold disabled:cursor-not-allowed disabled:opacity-45 ${variants[variant]} ${className}`}
     >
       {children}
     </button>
@@ -55,19 +103,23 @@ export function SpaButton({ children, onClick, disabled, variant = 'primary', ty
 
 export function SpaTabs({ items, value, onChange }) {
   return (
-    <nav className="grid grid-cols-3 gap-1 rounded-full bg-white p-1 shadow-[0_10px_28px_-18px_rgba(15,23,42,0.5)] ring-1 ring-black/[0.05]">
+    <nav className="spa-tabs" aria-label="Secciones">
       {items.map((item) => {
         const active = item.id === value;
         return (
           <button
             key={item.id}
             type="button"
-            onClick={() => onChange(item.id)}
-            className={`min-h-11 rounded-full px-2 py-2.5 text-[11px] font-semibold transition sm:text-[12px] ${
-              active ? 'bg-navy-900 text-white' : 'text-slate-500 hover:text-navy-900'
-            }`}
+            onClick={() => {
+              if (item.id === value) return;
+              haptic(8);
+              onChange(item.id);
+            }}
+            className={`spa-tab ${active ? 'is-active' : ''}`}
+            aria-current={active ? 'page' : undefined}
           >
-            {item.label}
+            {item.icon ? <Icon name={item.icon} /> : null}
+            <span>{item.label}</span>
           </button>
         );
       })}
@@ -88,8 +140,65 @@ export function SpaSheet({ children, expanded = false }) {
 
 export function SpaBackHome() {
   return (
-    <Link href="/" className="shrink-0 text-[12px] font-medium text-slate-400 hover:text-navy-900">
+    <Link href="/" className="spa-icon-btn">
       Inicio
     </Link>
   );
+}
+
+export function SpaSwitch({ on, onClick, disabled, labelOn = 'En línea', labelOff = 'Desconectado', compact = false }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={on ? labelOn : labelOff}
+      disabled={disabled}
+      onClick={() => {
+        if (disabled) return;
+        haptic(on ? 8 : 16);
+        onClick?.();
+      }}
+      className={`spa-switch ${on ? 'is-on' : ''} ${compact ? 'is-compact' : ''}`}
+    >
+      <span className="spa-switch-track">
+        <span className="spa-switch-knob" />
+      </span>
+      {compact ? null : <span className="spa-switch-label">{on ? labelOn : labelOff}</span>}
+    </button>
+  );
+}
+
+export function SpaKicker({ live = false, children }) {
+  return (
+    <p className="spa-kicker">
+      {live ? <span className="spa-pulse" aria-hidden="true" /> : null}
+      {children}
+    </p>
+  );
+}
+
+export function SpaPanel({ children, className = '' }) {
+  return (
+    <div className={`spa-panel ${className}`.trim()}>
+      {children}
+    </div>
+  );
+}
+
+export function SpaTripRow({ kicker, title, subtitle, meta }) {
+  return (
+    <article className="spa-row">
+      <div className="min-w-0 flex-1">
+        {kicker ? <p className="spa-kicker">{kicker}</p> : null}
+        <p className="truncate text-[15px] font-semibold text-navy-900">{title}</p>
+        {subtitle ? <p className="mt-0.5 truncate text-[13px] text-slate-500">{subtitle}</p> : null}
+      </div>
+      {meta ? <p className="shrink-0 pl-3 text-[13px] font-semibold text-navy-900">{meta}</p> : null}
+    </article>
+  );
+}
+
+export function SpaEmpty({ children }) {
+  return <p className="px-1 py-6 text-center text-sm text-slate-500">{children}</p>;
 }

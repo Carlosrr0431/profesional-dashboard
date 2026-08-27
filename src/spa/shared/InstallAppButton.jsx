@@ -24,10 +24,8 @@ export default function InstallAppButton({ label = 'Instalar app' }) {
 
   if (ios) {
     return (
-      <p className="rounded-2xl bg-light-100 px-3.5 py-3 text-center text-[13px] leading-relaxed text-slate-600">
-        Para instalarla en iPhone: tocá <strong>Compartir</strong> y después
-        {' '}
-        <strong>Agregar a pantalla de inicio</strong>.
+      <p className="spa-install-hint">
+        En iPhone: tocá <strong>Compartir</strong> y después <strong>Agregar a pantalla de inicio</strong>.
       </p>
     );
   }
@@ -49,10 +47,8 @@ export default function InstallAppButton({ label = 'Instalar app' }) {
   }
 
   return (
-    <p className="text-center text-[12px] leading-relaxed text-slate-500">
-      En Chrome: menú ⋮ → <strong>Instalar Profesional…</strong>
-      <br />
-      En el teléfono también aparece el ícono de instalar en la barra.
+    <p className="spa-install-hint">
+      En Chrome: menú ⋮ → <strong>Instalar app</strong>
     </p>
   );
 }

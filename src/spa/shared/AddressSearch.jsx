@@ -13,6 +13,8 @@ export default function AddressSearch({
   sessionToken,
   disabled = false,
   onOpenChange,
+  tone = 'origin',
+  stacked = false,
 }) {
   const [hits, setHits] = useState([]);
   const [open, setOpen] = useState(false);
@@ -62,31 +64,38 @@ export default function AddressSearch({
   }, [value, sessionToken]);
 
   return (
-    <div ref={wrapRef} className="relative">
-      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-        {label}
-      </label>
-      <div className="relative">
-        <input
-          type="text"
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          enterKeyHint="search"
-          inputMode="search"
-          disabled={disabled}
-          value={value}
-          placeholder={placeholder}
-          onChange={(event) => onChangeText(event.target.value)}
-          onFocus={() => hits.length > 0 && setOpen(true)}
-          className={spaFieldClass}
-        />
-        {loading ? (
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">
-            Buscando…
-          </span>
-        ) : null}
+    <div ref={wrapRef} className={stacked ? 'spa-route-stop' : 'relative'}>
+      <div className={stacked ? 'spa-route-line' : undefined}>
+        {stacked ? (
+          <span className={`spa-route-dot spa-route-dot--${tone}`} aria-hidden="true" />
+        ) : (
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+            {label}
+          </label>
+        )}
+        <div className="relative min-w-0 flex-1">
+          <input
+            type="text"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            enterKeyHint="search"
+            inputMode="search"
+            aria-label={label}
+            disabled={disabled}
+            value={value}
+            placeholder={placeholder}
+            onChange={(event) => onChangeText(event.target.value)}
+            onFocus={() => hits.length > 0 && setOpen(true)}
+            className={`${spaFieldClass} ${stacked ? 'bg-transparent px-0 focus:ring-0' : ''}`}
+          />
+          {loading ? (
+            <span className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">
+              Buscando…
+            </span>
+          ) : null}
+        </div>
       </div>
       {visible ? (
         <ul className="spa-poi-list">
@@ -97,7 +106,7 @@ export default function AddressSearch({
               <li key={`${hit.placeId || title || 'h'}-${index}`}>
                 <button
                   type="button"
-                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white"
+                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left active:bg-white"
                   onClick={() => {
                     onSelect(hit);
                     setOpen(false);

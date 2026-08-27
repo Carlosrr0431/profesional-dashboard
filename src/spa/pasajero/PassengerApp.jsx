@@ -18,7 +18,7 @@ import { normalizePassengerPhone } from '../shared/phone';
 import { clearPassengerSession, readPassengerSession, writePassengerSession } from '../shared/storage';
 import { isOpenTripStatus, passengerStatusMeta } from '../shared/tripStatus';
 import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../shared/coverage';
-import { SpaBackHome, SpaBrand, SpaButton, SpaNotice, SpaSheet, SpaTabs, spaFieldClass } from '../shared/ui';
+import { SpaBackHome, SpaBrand, SpaButton, SpaEmpty, SpaKicker, SpaNotice, SpaPanel, SpaSheet, SpaTabs, SpaTripRow, spaFieldClass } from '../shared/ui';
 import { SpaAuthScreen, SpaBootScreen, SpaMapScreen } from '../shared/SpaShell';
 import InstallAppButton from '../shared/InstallAppButton';
 import LocationBanner from '../shared/LocationBanner';
@@ -29,9 +29,9 @@ const SpaMap = dynamic(() => import('../shared/SpaMap'), { ssr: false });
 
 const DEFAULT_CENTER = { longitude: -65.42, latitude: -24.78 };
 const TABS = [
-  { id: 'viaje', label: 'Viaje' },
-  { id: 'historial', label: 'Historial' },
-  { id: 'cuenta', label: 'Cuenta' },
+  { id: 'viaje', label: 'Viaje', icon: 'map' },
+  { id: 'historial', label: 'Viajes', icon: 'clock' },
+  { id: 'cuenta', label: 'Cuenta', icon: 'user' },
 ];
 
 function asMapCenter(point) {
@@ -404,13 +404,13 @@ export default function PassengerApp() {
   if (!session) {
     return (
       <SpaAuthScreen>
-          <SpaBrand subtitle="App web de pasajeros · Salta Capital" />
-          <div className="rounded-[1.6rem] bg-white p-5 shadow-[0_20px_50px_-28px_rgba(15,23,42,0.35)] ring-1 ring-black/[0.04]">
-            <h1 className="text-xl font-bold text-navy-900">Pedí tu viaje</h1>
-            <p className="mt-1 text-sm text-slate-500">Te enviamos un código por WhatsApp. Podés instalar esta app en el teléfono.</p>
-            <form className="mt-5 grid gap-3" onSubmit={otpStep === 'phone' ? sendOtp : verifyOtp}>
-              <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Nombre (opcional)
+          <SpaBrand subtitle="Pasajero · Salta" />
+          <div className="spa-auth-card">
+            <h1>Pedí tu viaje</h1>
+            <p className="lead">Te enviamos un código por WhatsApp. Podés instalar esta app en el teléfono.</p>
+            <form className="mt-6 grid gap-3" onSubmit={otpStep === 'phone' ? sendOtp : verifyOtp}>
+              <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
+                Nombre
                 <input
                   value={loginName}
                   onChange={(event) => setLoginName(event.target.value)}
@@ -419,7 +419,7 @@ export default function PassengerApp() {
                   placeholder="Cómo te llamás"
                 />
               </label>
-              <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
                 Teléfono
                 <input
                   value={loginPhone}
@@ -431,15 +431,15 @@ export default function PassengerApp() {
                 />
               </label>
               {otpStep === 'code' ? (
-                <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Código
+                <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
+                  Código de WhatsApp
                   <input
                     value={otp}
                     onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 4))}
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     enterKeyHint="done"
-                    className={`${spaFieldClass} text-center text-lg font-bold tracking-[0.4em]`}
+                    className={`${spaFieldClass} text-center text-lg font-semibold tracking-[0.45em]`}
                     placeholder="••••"
                   />
                 </label>
@@ -497,58 +497,76 @@ export default function PassengerApp() {
       sheet={(
         <>
           <SpaSheet expanded={searching}>
-            {error ? <div className="mb-3"><SpaNotice tone="error">{error}</SpaNotice></div> : null}
+            {error ? <SpaNotice tone="error">{error}</SpaNotice> : null}
 
             {tab === 'viaje' && active && isOpenTripStatus(active.status) ? (
-              <div className="grid gap-3">
+              <SpaPanel key="viaje-activo">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">{status.label}</p>
-                  <h2 className="text-xl font-semibold tracking-tight text-navy-900">{status.desc}</h2>
+                  <SpaKicker live>{status.label}</SpaKicker>
+                  <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">{status.desc}</h2>
                 </div>
                 {driver?.full_name ? (
-                  <p className="text-sm text-slate-600">
-                    {driver.full_name}
-                    {driver.vehicle_plate ? ` · ${driver.vehicle_plate}` : ''}
-                    {driver.vehicle_model ? ` · ${driver.vehicle_model}` : ''}
-                  </p>
+                  <div className="rounded-2xl bg-light-100 px-4 py-3">
+                    <p className="text-[15px] font-semibold text-navy-900">{driver.full_name}</p>
+                    <p className="mt-0.5 text-[13px] text-slate-500">
+                      {[driver.vehicle_model, driver.vehicle_plate].filter(Boolean).join(' · ') || 'Conductor asignado'}
+                    </p>
+                  </div>
                 ) : null}
-                <p className="text-sm leading-relaxed text-slate-600">
-                  {active.origin_address}
-                  {active.destination_address ? ` → ${active.destination_address}` : ''}
-                </p>
+                <div className="spa-route">
+                  <p className="spa-route-line text-[14px] text-navy-900">
+                    <span className="spa-route-dot" />
+                    <span className="min-w-0 truncate">{active.origin_address}</span>
+                  </p>
+                  {active.destination_address ? (
+                    <p className="spa-route-line text-[14px] text-navy-900">
+                      <span className="spa-route-dot spa-route-dot--dest" />
+                      <span className="min-w-0 truncate">{active.destination_address}</span>
+                    </p>
+                  ) : null}
+                </div>
                 {status.canCancel ? (
                   <SpaButton variant="danger" disabled={busy} onClick={cancelTrip}>
                     Cancelar viaje
                   </SpaButton>
                 ) : null}
-              </div>
+              </SpaPanel>
             ) : null}
 
             {tab === 'viaje' && (!active || !isOpenTripStatus(active.status)) ? (
-              <div className="grid gap-3">
-                <h2 className="text-xl font-semibold tracking-tight text-navy-900">¿A dónde vas?</h2>
-                <AddressSearch
-                  label="Origen"
-                  placeholder="Tu ubicación o una dirección"
-                  value={pickupText}
-                  onChangeText={setPickupText}
-                  onSelect={selectPickup}
-                  sessionToken={sessionTokenPlaces.current}
-                  onOpenChange={setOriginOpen}
-                />
-                <AddressSearch
-                  label="Destino"
-                  placeholder="Elegí una sugerencia de Salta"
-                  value={destText}
-                  onChangeText={setDestText}
-                  onSelect={selectDestination}
-                  sessionToken={sessionTokenPlaces.current}
-                  onOpenChange={setDestOpen}
-                />
+              <SpaPanel key="viaje-pedido">
+                <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">¿A dónde vas?</h2>
+                <div className="spa-route">
+                  <AddressSearch
+                    stacked
+                    tone="origin"
+                    label="Origen"
+                    placeholder="Punto de origen"
+                    value={pickupText}
+                    onChangeText={setPickupText}
+                    onSelect={selectPickup}
+                    sessionToken={sessionTokenPlaces.current}
+                    onOpenChange={setOriginOpen}
+                  />
+                  <AddressSearch
+                    stacked
+                    tone="dest"
+                    label="Destino"
+                    placeholder="¿A dónde vas?"
+                    value={destText}
+                    onChangeText={setDestText}
+                    onSelect={selectDestination}
+                    sessionToken={sessionTokenPlaces.current}
+                    onOpenChange={setDestOpen}
+                  />
+                </div>
                 {quote?.price ? (
-                  <div className="rounded-2xl bg-light-100 px-4 py-3">
-                    <p className="text-2xl font-semibold tracking-tight text-navy-900">{formatArs(quote.price)}</p>
-                    <p className="text-xs text-slate-500">
+                  <div className="flex items-end justify-between px-1">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Estimado</p>
+                      <p className="text-[28px] font-semibold tracking-tight text-navy-900">{formatArs(quote.price)}</p>
+                    </div>
+                    <p className="pb-1 text-[13px] text-slate-500">
                       {quote.distanceKm ? `${quote.distanceKm} km` : ''}
                       {quote.durationMinutes ? ` · ${quote.durationMinutes} min` : ''}
                     </p>
@@ -557,33 +575,38 @@ export default function PassengerApp() {
                 <SpaButton disabled={busy || !pickup || !destination} onClick={requestTrip}>
                   {busy ? 'Confirmando…' : 'Pedir móvil'}
                 </SpaButton>
-              </div>
+              </SpaPanel>
             ) : null}
 
             {tab === 'historial' ? (
-              <div className="grid gap-2">
-                <h2 className="text-xl font-semibold tracking-tight text-navy-900">Tus viajes</h2>
+              <SpaPanel key="historial">
+                <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">Tus viajes</h2>
                 {history.length === 0 ? (
-                  <p className="text-sm text-slate-500">Todavía no tenés viajes.</p>
-                ) : history.map((trip) => {
-                  const meta = passengerStatusMeta(trip.status);
-                  return (
-                    <article key={trip.id} className="rounded-2xl bg-light-100 px-3 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{meta.label}</p>
-                      <p className="text-sm font-semibold text-navy-900">{trip.origin_address}</p>
-                      <p className="text-sm text-slate-500">{trip.destination_address}</p>
-                      {trip.price ? <p className="mt-1 text-sm font-semibold">{formatArs(trip.price)}</p> : null}
-                    </article>
-                  );
-                })}
-              </div>
+                  <SpaEmpty>Todavía no tenés viajes.</SpaEmpty>
+                ) : (
+                  <div>
+                    {history.map((trip) => {
+                      const meta = passengerStatusMeta(trip.status);
+                      return (
+                        <SpaTripRow
+                          key={trip.id}
+                          kicker={meta.label}
+                          title={trip.origin_address}
+                          subtitle={trip.destination_address}
+                          meta={trip.price ? formatArs(trip.price) : null}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </SpaPanel>
             ) : null}
 
             {tab === 'cuenta' ? (
-              <div className="grid gap-3">
-                <h2 className="text-xl font-semibold tracking-tight text-navy-900">Tu cuenta</h2>
-                <p className="text-sm text-slate-600">{session.phone}</p>
-                <label className="grid gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+              <SpaPanel key="cuenta">
+                <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">Tu cuenta</h2>
+                <p className="text-[15px] text-slate-500">{session.phone}</p>
+                <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
                   Nombre
                   <input
                     value={session.name || ''}
@@ -594,7 +617,7 @@ export default function PassengerApp() {
                 </label>
                 <SpaButton variant="ghost" onClick={logout}>Cerrar sesión</SpaButton>
                 <InstallAppButton label="Instalar Profesional Pasajero" />
-              </div>
+              </SpaPanel>
             ) : null}
           </SpaSheet>
           <SpaTabs items={TABS} value={tab} onChange={setTab} />

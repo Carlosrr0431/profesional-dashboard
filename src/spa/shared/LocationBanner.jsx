@@ -19,19 +19,15 @@ export default function LocationBanner({
   onAllow,
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-2xl bg-navy-900 px-3.5 py-3 text-white shadow-[0_12px_32px_-18px_rgba(15,23,42,0.7)]">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-white">
+    <div className="spa-banner">
+      <div className="spa-banner-icon">
         <PinIcon />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold tracking-tight">{title}</p>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-white/70">{body}</p>
+        <p className="text-[13px] font-semibold tracking-tight text-navy-900">{title}</p>
+        <p className="mt-0.5 text-[12px] leading-relaxed text-slate-500">{body}</p>
         {onAllow ? (
-          <button
-            type="button"
-            onClick={onAllow}
-            className="mt-2.5 inline-flex min-h-9 items-center rounded-full bg-white px-3.5 text-[12px] font-semibold text-navy-900"
-          >
+          <button type="button" onClick={onAllow} className="spa-banner-btn">
             Permitir ubicación
           </button>
         ) : null}
