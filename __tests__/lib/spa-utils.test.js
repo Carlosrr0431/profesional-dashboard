@@ -112,3 +112,25 @@ describe('SPA driver navigation', () => {
   });
 });
 
+const { isTripChatAvailable, buildTripTrackingUrl, mergeChatMessage } = require('../../src/spa/shared/tripChat');
+
+describe('SPA trip chat helpers', () => {
+  it('habilita el chat solo con viaje aceptado o en curso', () => {
+    expect(isTripChatAvailable('going_to_pickup')).toBe(true);
+    expect(isTripChatAvailable('in_progress')).toBe(true);
+    expect(isTripChatAvailable('pending')).toBe(false);
+    expect(isTripChatAvailable('completed')).toBe(false);
+  });
+
+  it('arma el enlace público de seguimiento', () => {
+    expect(buildTripTrackingUrl('abc-123')).toMatch(/\/seguimiento\/abc-123$/);
+  });
+
+  it('fusiona mensajes del chat por id o client_id', () => {
+    const first = mergeChatMessage([], { id: '1', client_id: 'p-1', body: 'hola', created_at: '2026-01-01T10:00:00Z' });
+    const next = mergeChatMessage(first, { id: '1', client_id: 'p-1', body: 'hola', seen_at: '2026-01-01T10:01:00Z', created_at: '2026-01-01T10:00:00Z' });
+    expect(next).toHaveLength(1);
+    expect(next[0].seen_at).toBeTruthy();
+  });
+});
+

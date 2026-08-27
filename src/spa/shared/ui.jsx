@@ -48,7 +48,51 @@ function Icon({ name, className = 'h-[18px] w-[18px]' }) {
       </svg>
     );
   }
+  if (name === 'chat') {
+    return (
+      <svg {...common}>
+        <path d="M6 17.5 4.6 20.4A.6.6 0 0 0 5.5 21h9.7A4.8 4.8 0 0 0 20 16.2V9.8A4.8 4.8 0 0 0 15.2 5H8.8A4.8 4.8 0 0 0 4 9.8v5.2" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (name === 'share') {
+    return (
+      <svg {...common}>
+        <circle cx="18" cy="6" r="2.2" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="6" cy="12" r="2.2" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="18" cy="18" r="2.2" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M8 11.2 16 7.2M8 12.8 16 16.8" stroke="currentColor" strokeWidth="1.8" />
+      </svg>
+    );
+  }
+  if (name === 'close') {
+    return (
+      <svg {...common}>
+        <path d="M7 7l10 10M17 7 7 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (name === 'phone') {
+    return (
+      <svg {...common}>
+        <path d="M8.2 4.8c.5-.5 1.4-.4 1.8.2l1.3 2.1c.3.5.2 1.2-.3 1.6l-1 1a12.4 12.4 0 0 0 4.5 4.5l1-1c.4-.5 1.1-.6 1.6-.3l2.1 1.3c.6.4.7 1.3.2 1.8l-1.3 1.4c-.5.5-1.3.7-2 .4C10.5 16.4 7.6 13.5 5.2 8.2c-.3-.7-.1-1.5.4-2L8.2 4.8Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (name === 'sos') {
+    return (
+      <svg {...common}>
+        <path d="M12 4.8 20.2 19H3.8L12 4.8Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M12 10v4.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <circle cx="12" cy="16.6" r=".8" fill="currentColor" />
+      </svg>
+    );
+  }
   return null;
+}
+
+export function SpaIcon({ name, className = 'h-[18px] w-[18px]' }) {
+  return <Icon name={name} className={className} />;
 }
 
 export function SpaBrand({ subtitle }) {
@@ -101,9 +145,9 @@ export function SpaButton({ children, onClick, disabled, variant = 'primary', ty
   );
 }
 
-export function SpaTabs({ items, value, onChange }) {
+export function SpaTabs({ items, value, onChange, compact = false }) {
   return (
-    <nav className="spa-tabs" aria-label="Secciones">
+    <nav className={compact ? 'spa-tabs spa-tabs--compact' : 'spa-tabs'} aria-label="Secciones">
       {items.map((item) => {
         const active = item.id === value;
         return (
@@ -127,9 +171,12 @@ export function SpaTabs({ items, value, onChange }) {
   );
 }
 
-export function SpaSheet({ children, expanded = false }) {
+export function SpaSheet({ children, expanded = false, compact = false }) {
+  const cls = ['spa-sheet'];
+  if (expanded) cls.push('spa-sheet--expanded');
+  if (compact) cls.push('spa-sheet--compact');
   return (
-    <div className={expanded ? 'spa-sheet spa-sheet--expanded' : 'spa-sheet'}>
+    <div className={cls.join(' ')}>
       <div className="spa-sheet-handle" />
       <div className="spa-sheet-body">
         {children}

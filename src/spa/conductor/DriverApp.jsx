@@ -15,6 +15,10 @@ import InstallAppButton from '../shared/InstallAppButton';
 import LocationBanner from '../shared/LocationBanner';
 import { useGeoPermission } from '../shared/geoPermission';
 import { initInstallPrompt, registerSpaServiceWorker } from '../shared/pwa';
+import TripLiveSheet from '../shared/TripLiveSheet';
+import TripChatModal from '../shared/TripChatModal';
+import { useSpaTripChat } from '../shared/useSpaTripChat';
+import { isTripChatAvailable } from '../shared/tripChat';
 
 const SpaMap = dynamic(() => import('../shared/SpaMap'), { ssr: false });
 
@@ -52,6 +56,13 @@ export default function DriverApp() {
   const location = geo.coords;
   locationRef.current = location;
   const hasFix = Boolean(location);
+  const tripChat = useSpaTripChat({
+    role: 'driver',
+    tripId: activeTrip?.id,
+    tripStatus: activeTrip?.status,
+    enabled: Boolean(driver && activeTrip?.id && isTripChatAvailable(activeTrip?.status)),
+    getSupabase: getDriverSupabase,
+  });
 
   const fetchProfile = useCallback(async (userId) => {
     const supabase = getDriverSupabase();
@@ -421,6 +432,9 @@ export default function DriverApp() {
 
   const updateTripStatus = async (status, extra = {}) => {
     if (!activeTrip?.id) return;
+    if (status === 'completed' && typeof window !== 'undefined' && !window.confirm('¿Finalizar este viaje?')) {
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -575,12 +589,13 @@ export default function DriverApp() {
 
   const pickup = tripPickupPoint(activeTrip || pendingTrip);
   const dropoff = tripDropoffPoint(activeTrip || pendingTrip);
-  const navTarget = tripNavTarget(activeTrip);
   const navigating = Boolean(activeTrip && isOpenTripStatus(activeTrip.status) && activeTrip.status !== 'pending');
   const mapCenter = location
     ? { latitude: location.lat, longitude: location.lng }
     : DEFAULT_CENTER;
   const driverMeta = DRIVER_STATUS[activeTrip?.status] || DRIVER_STATUS.pending;
+  const liveSheet = Boolean(tab === 'inicio' && (activeTrip || pendingTrip));
+  const chatReady = Boolean(activeTrip && isTripChatAvailable(activeTrip.status));
   const locationCopy = geo.status === 'unavailable'
     ? 'Este navegador no comparte ubicación. Sin GPS no podés trabajar en línea.'
     : geo.status === 'denied'
@@ -589,6 +604,20 @@ export default function DriverApp() {
 
   return (
     <SpaMapScreen
+      overlay={(
+        <TripChatModal
+          open={tripChat.chatOpen}
+          title={activeTrip?.passenger_name || 'Pasajero'}
+          subtitle="Chat del viaje"
+          myRole={tripChat.myRole}
+          messages={tripChat.messages}
+          loading={tripChat.loading}
+          sending={tripChat.sending}
+          writable={tripChat.writable}
+          onClose={tripChat.closeChat}
+          onSendText={tripChat.sendText}
+        />
+      )}
       map={(
         <SpaMap
           center={mapCenter}
@@ -616,51 +645,62 @@ export default function DriverApp() {
       ) : null}
       sheet={(
         <>
-          <SpaSheet>
+          <SpaSheet compact={liveSheet}>
             {error ? <SpaNotice tone="error">{error}</SpaNotice> : null}
 
             {tab === 'inicio' && pendingTrip && !activeTrip ? (
-              <SpaPanel key="oferta">
+              <SpaPanel key="oferta" className="spa-panel--compact">
                 <div>
                   <SpaKicker live>Nuevo viaje</SpaKicker>
-                  <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">{pendingTrip.passenger_name || 'Pasajero'}</h2>
+                  <h2 className="text-[18px] font-semibold tracking-tight text-navy-900">{pendingTrip.passenger_name || 'Pasajero'}</h2>
                 </div>
                 <div className="spa-route">
-                  <p className="spa-route-line text-[14px] text-navy-900">
+                  {pendingTrip.origin_address ? (
+                    <p className="spa-route-line text-[13px] text-navy-900">
+                      <span className="spa-route-dot" />
+                      <span className="min-w-0 truncate">{pendingTrip.origin_address}</span>
+                    </p>
+                  ) : null}
+                  <p className="spa-route-line text-[13px] text-navy-900">
                     <span className="spa-route-dot spa-route-dot--dest" />
-                    <span className="min-w-0">{pendingTrip.destination_address || pendingTrip.origin_address}</span>
+                    <span className="min-w-0 truncate">{pendingTrip.destination_address || pendingTrip.origin_address}</span>
                   </p>
                 </div>
+                {pendingTrip.price ? (
+                  <p className="text-[15px] font-semibold text-navy-900">{formatArs(pendingTrip.price)}</p>
+                ) : null}
                 <div className="grid grid-cols-2 gap-2">
-                  <SpaButton variant="ghost" disabled={busy} onClick={rejectTrip}>Rechazar</SpaButton>
-                  <SpaButton variant="success" disabled={busy} onClick={acceptTrip}>Aceptar</SpaButton>
+                  <SpaButton variant="ghost" disabled={busy} onClick={rejectTrip} className="!min-h-11">Rechazar</SpaButton>
+                  <SpaButton variant="success" disabled={busy} onClick={acceptTrip} className="!min-h-11">Aceptar</SpaButton>
                 </div>
               </SpaPanel>
             ) : null}
 
             {tab === 'inicio' && activeTrip ? (
-              <SpaPanel key="activo">
-                <div>
-                  <SpaKicker live>{driverMeta.label}</SpaKicker>
-                  <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">{activeTrip.passenger_name || 'Pasajero'}</h2>
-                </div>
-                <div className="spa-route">
-                  <p className="spa-route-line text-[14px] text-navy-900">
-                    <span className="spa-route-dot spa-route-dot--dest" />
-                    <span className="min-w-0">{navTarget?.address || activeTrip.destination_address || activeTrip.origin_address}</span>
-                  </p>
-                </div>
-                {activeTrip.status === 'going_to_pickup' || activeTrip.status === 'accepted' ? (
-                  <SpaButton disabled={busy} onClick={() => updateTripStatus('in_progress', { pickup_at: new Date().toISOString() })}>
-                    Pasajero a bordo
-                  </SpaButton>
-                ) : null}
-                {activeTrip.status === 'in_progress' ? (
-                  <SpaButton variant="success" disabled={busy} onClick={() => updateTripStatus('completed')}>
-                    Finalizar viaje
-                  </SpaButton>
-                ) : null}
-              </SpaPanel>
+              <TripLiveSheet
+                statusLabel={driverMeta.label}
+                statusDesc={activeTrip.status === 'in_progress' ? 'Hacia el destino' : 'Se dirige al origen'}
+                progress={activeTrip.status === 'in_progress' ? 1 : 0.72}
+                personName={activeTrip.passenger_name || 'Pasajero'}
+                personMeta={activeTrip.passenger_phone || null}
+                pickup={pickup?.address || activeTrip.origin_address}
+                destination={dropoff?.address || activeTrip.destination_address}
+                priceLabel={activeTrip.price ? formatArs(activeTrip.price) : null}
+                chatAvailable={chatReady}
+                chatUnread={tripChat.unreadCount}
+                onChat={chatReady ? tripChat.openChat : undefined}
+                onSos={() => {
+                  if (typeof window !== 'undefined') window.location.href = 'tel:911';
+                }}
+                primaryAction={driverMeta.action}
+                primaryVariant={activeTrip.status === 'in_progress' ? 'success' : 'primary'}
+                onPrimary={
+                  activeTrip.status === 'in_progress'
+                    ? () => updateTripStatus('completed')
+                    : () => updateTripStatus('in_progress', { pickup_at: new Date().toISOString() })
+                }
+                busy={busy}
+              />
             ) : null}
 
             {tab === 'inicio' && !pendingTrip && !activeTrip ? (
@@ -716,7 +756,7 @@ export default function DriverApp() {
               </SpaPanel>
             ) : null}
           </SpaSheet>
-          <SpaTabs items={TABS} value={tab} onChange={setTab} />
+          <SpaTabs items={TABS} value={tab} onChange={setTab} compact={liveSheet} />
         </>
       )}
     />

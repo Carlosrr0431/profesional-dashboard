@@ -36,7 +36,7 @@ const NAV_ROUTE_LINE = {
 
 const NAV_PITCH = 12;
 const NAV_ZOOM = 17.4;
-const NAV_PADDING = { top: 56, bottom: 220, left: 48, right: 48 };
+const NAV_PADDING = { top: 56, bottom: 168, left: 48, right: 48 };
 
 function DriverArrow({ heading = 0 }) {
   return (

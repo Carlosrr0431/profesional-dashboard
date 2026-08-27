@@ -44,7 +44,7 @@ export function SpaAuthScreen({ children }) {
   );
 }
 
-export function SpaMapScreen({ map, header, banner, sheet, expanded = false }) {
+export function SpaMapScreen({ map, header, banner, sheet, expanded = false, overlay = null }) {
   const keyboard = useKeyboardInset();
   return (
     <div
@@ -61,6 +61,7 @@ export function SpaMapScreen({ map, header, banner, sheet, expanded = false }) {
           {sheet}
         </div>
       </div>
+      {overlay}
     </div>
   );
 }

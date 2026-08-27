@@ -18,12 +18,16 @@ import { normalizePassengerPhone } from '../shared/phone';
 import { clearPassengerSession, readPassengerSession, writePassengerSession } from '../shared/storage';
 import { isOpenTripStatus, passengerStatusMeta } from '../shared/tripStatus';
 import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../shared/coverage';
-import { SpaBackHome, SpaBrand, SpaButton, SpaEmpty, SpaKicker, SpaNotice, SpaPanel, SpaSheet, SpaTabs, SpaTripRow, spaFieldClass } from '../shared/ui';
+import { SpaBackHome, SpaBrand, SpaButton, SpaEmpty, SpaNotice, SpaPanel, SpaSheet, SpaTabs, SpaTripRow, spaFieldClass } from '../shared/ui';
 import { SpaAuthScreen, SpaBootScreen, SpaMapScreen } from '../shared/SpaShell';
 import InstallAppButton from '../shared/InstallAppButton';
 import LocationBanner from '../shared/LocationBanner';
 import { useGeoPermission } from '../shared/geoPermission';
 import { initInstallPrompt, registerSpaServiceWorker } from '../shared/pwa';
+import TripLiveSheet from '../shared/TripLiveSheet';
+import TripChatModal from '../shared/TripChatModal';
+import { useSpaTripChat } from '../shared/useSpaTripChat';
+import { buildTripTrackingUrl, isTripChatAvailable } from '../shared/tripChat';
 
 const SpaMap = dynamic(() => import('../shared/SpaMap'), { ssr: false });
 
@@ -69,6 +73,15 @@ export default function PassengerApp() {
   const sessionTokenPlaces = useRef(newPlacesSessionToken());
   const geo = useGeoPermission({ enabled: Boolean(session) });
   const searching = originOpen || destOpen;
+  const tripChat = useSpaTripChat({
+    role: 'passenger',
+    tripId: active?.id,
+    tripStatus: active?.status,
+    enabled: Boolean(session && active?.id && isTripChatAvailable(active?.status)),
+    passengerAuth: session
+      ? { phone: session.phone, sessionToken: session.sessionToken }
+      : null,
+  });
 
   const persistSession = useCallback((next) => {
     writePassengerSession(next);
@@ -369,6 +382,11 @@ export default function PassengerApp() {
 
   const cancelTrip = async () => {
     if (!active?.id) return;
+    const searching = active.status === 'queued' || active.status === 'pending';
+    const okConfirm = typeof window === 'undefined'
+      ? true
+      : window.confirm(searching ? '¿Cancelar la solicitud?' : '¿Cancelar este viaje?');
+    if (!okConfirm) return;
     setBusy(true);
     const { ok, data } = await spaJson('/api/trips/cancel-passenger', {
       method: 'POST',
@@ -384,6 +402,27 @@ export default function PassengerApp() {
     if (session) loadTrips(session);
   };
 
+  const shareTrip = async () => {
+    const url = buildTripTrackingUrl(active?.tracking_token || active?.id);
+    if (!url) {
+      setError('Falta el enlace de seguimiento del viaje.');
+      return;
+    }
+    const message = `Seguí mi viaje en tiempo real:\n${url}`;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({ title: 'Compartir viaje', text: message, url });
+        return;
+      }
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setInfo('Enlace de seguimiento copiado.');
+      }
+    } catch {
+      // El usuario canceló el share nativo.
+    }
+  };
+
   const logout = () => {
     clearPassengerSession();
     setSession(null);
@@ -393,6 +432,15 @@ export default function PassengerApp() {
   };
 
   const status = passengerStatusMeta(active?.status);
+  const liveTrip = Boolean(active && isOpenTripStatus(active.status) && tab === 'viaje');
+  const chatReady = Boolean((active?.driver_id || driver?.id || driver?.full_name) && isTripChatAvailable(active?.status));
+  const progressByStatus = {
+    queued: 0.12,
+    pending: 0.28,
+    accepted: 0.5,
+    going_to_pickup: 0.72,
+    in_progress: 1,
+  };
   const mapCenter = asMapCenter(
     driver?.lat != null ? driver : pickup || { lat: DEFAULT_CENTER.latitude, lng: DEFAULT_CENTER.longitude },
   );
@@ -471,6 +519,20 @@ export default function PassengerApp() {
   return (
     <SpaMapScreen
       expanded={searching}
+      overlay={(
+        <TripChatModal
+          open={tripChat.chatOpen}
+          title={driver?.full_name || 'Tu conductor'}
+          subtitle="Chat del viaje"
+          myRole={tripChat.myRole}
+          messages={tripChat.messages}
+          loading={tripChat.loading}
+          sending={tripChat.sending}
+          writable={tripChat.writable}
+          onClose={tripChat.closeChat}
+          onSendText={tripChat.sendText}
+        />
+      )}
       map={(
         <SpaMap
           center={mapCenter}
@@ -496,41 +558,29 @@ export default function PassengerApp() {
       ) : null}
       sheet={(
         <>
-          <SpaSheet expanded={searching}>
+          <SpaSheet expanded={searching} compact={liveTrip}>
             {error ? <SpaNotice tone="error">{error}</SpaNotice> : null}
+            {info && liveTrip ? <SpaNotice>{info}</SpaNotice> : null}
 
             {tab === 'viaje' && active && isOpenTripStatus(active.status) ? (
-              <SpaPanel key="viaje-activo">
-                <div>
-                  <SpaKicker live>{status.label}</SpaKicker>
-                  <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">{status.desc}</h2>
-                </div>
-                {driver?.full_name ? (
-                  <div className="rounded-2xl bg-light-100 px-4 py-3">
-                    <p className="text-[15px] font-semibold text-navy-900">{driver.full_name}</p>
-                    <p className="mt-0.5 text-[13px] text-slate-500">
-                      {[driver.vehicle_model, driver.vehicle_plate].filter(Boolean).join(' · ') || 'Conductor asignado'}
-                    </p>
-                  </div>
-                ) : null}
-                <div className="spa-route">
-                  <p className="spa-route-line text-[14px] text-navy-900">
-                    <span className="spa-route-dot" />
-                    <span className="min-w-0 truncate">{active.origin_address}</span>
-                  </p>
-                  {active.destination_address ? (
-                    <p className="spa-route-line text-[14px] text-navy-900">
-                      <span className="spa-route-dot spa-route-dot--dest" />
-                      <span className="min-w-0 truncate">{active.destination_address}</span>
-                    </p>
-                  ) : null}
-                </div>
-                {status.canCancel ? (
-                  <SpaButton variant="danger" disabled={busy} onClick={cancelTrip}>
-                    Cancelar viaje
-                  </SpaButton>
-                ) : null}
-              </SpaPanel>
+              <TripLiveSheet
+                statusLabel={status.label}
+                statusDesc={status.desc}
+                progress={progressByStatus[active.status] || 0.5}
+                personName={driver?.full_name || null}
+                personMeta={[driver?.vehicle_model, driver?.vehicle_plate].filter(Boolean).join(' · ') || (driver?.full_name ? 'Conductor asignado' : null)}
+                plate={driver?.vehicle_plate || null}
+                pickup={active.origin_address}
+                destination={active.destination_address}
+                canCancel={status.canCancel}
+                cancelLabel={active.status === 'queued' || active.status === 'pending' ? 'Cancelar solicitud' : 'Cancelar viaje'}
+                chatAvailable={chatReady}
+                chatUnread={tripChat.unreadCount}
+                onChat={chatReady ? tripChat.openChat : undefined}
+                onShare={shareTrip}
+                onCancel={status.canCancel ? cancelTrip : undefined}
+                busy={busy}
+              />
             ) : null}
 
             {tab === 'viaje' && (!active || !isOpenTripStatus(active.status)) ? (
@@ -620,7 +670,7 @@ export default function PassengerApp() {
               </SpaPanel>
             ) : null}
           </SpaSheet>
-          <SpaTabs items={TABS} value={tab} onChange={setTab} />
+          <SpaTabs items={TABS} value={tab} onChange={setTab} compact={liveTrip} />
         </>
       )}
     />
