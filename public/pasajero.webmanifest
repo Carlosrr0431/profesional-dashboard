@@ -1,0 +1,36 @@
+{
+  "id": "/pasajero",
+  "name": "Profesional Pasajero",
+  "short_name": "Pasajero",
+  "description": "Pedí un viaje en Salta Capital desde el teléfono, sin descargar la app de las tiendas.",
+  "start_url": "/pasajero",
+  "scope": "/pasajero",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "portrait",
+  "background_color": "#F4F7FC",
+  "theme_color": "#282e69",
+  "lang": "es-AR",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/pwa/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

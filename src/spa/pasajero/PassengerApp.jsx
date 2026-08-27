@@ -19,6 +19,8 @@ import { clearPassengerSession, readPassengerSession, writePassengerSession } fr
 import { isOpenTripStatus, passengerStatusMeta } from '../shared/tripStatus';
 import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../shared/coverage';
 import { SpaBackHome, SpaBrand, SpaButton, SpaNotice, SpaTabs } from '../shared/ui';
+import InstallAppButton from '../shared/InstallAppButton';
+import { initInstallPrompt, registerSpaServiceWorker } from '../shared/pwa';
 
 const SpaMap = dynamic(() => import('../shared/SpaMap'), { ssr: false });
 
@@ -64,6 +66,11 @@ export default function PassengerApp() {
   const persistSession = useCallback((next) => {
     writePassengerSession(next);
     setSession(next);
+  }, []);
+
+  useEffect(() => {
+    initInstallPrompt();
+    registerSpaServiceWorker('/pasajero');
   }, []);
 
   const loadTrips = useCallback(async (auth) => {
@@ -389,7 +396,7 @@ export default function PassengerApp() {
           <SpaBrand subtitle="App web de pasajeros · Salta Capital" />
           <div className="rounded-[1.6rem] bg-white p-5 shadow-[0_20px_50px_-28px_rgba(15,23,42,0.35)] ring-1 ring-black/[0.04]">
             <h1 className="text-xl font-bold text-navy-900">Pedí tu viaje</h1>
-            <p className="mt-1 text-sm text-slate-500">Te enviamos un código por WhatsApp. Sin descargar la app.</p>
+            <p className="mt-1 text-sm text-slate-500">Te enviamos un código por WhatsApp. Podés instalar esta app en el teléfono.</p>
             <form className="mt-5 grid gap-3" onSubmit={otpStep === 'phone' ? sendOtp : verifyOtp}>
               <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 Nombre (opcional)
@@ -434,6 +441,7 @@ export default function PassengerApp() {
               ) : null}
             </form>
           </div>
+          <InstallAppButton label="Instalar Profesional Pasajero" />
           <SpaBackHome />
         </div>
       </div>
@@ -556,6 +564,7 @@ export default function PassengerApp() {
                   />
                 </label>
                 <SpaButton variant="ghost" onClick={logout}>Cerrar sesión</SpaButton>
+                <InstallAppButton label="Instalar Profesional Pasajero" />
               </div>
             ) : null}
           </div>

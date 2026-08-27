@@ -9,13 +9,6 @@ export const metadata = {
   robots: { index: true, follow: true },
 };
 
-export const viewport = {
-  width: 'device-width',
-  initialScale: 1,
-  viewportFit: 'cover',
-  themeColor: '#F4F7FC',
-};
-
 export default function PasajeroPage() {
   return <PassengerApp />;
 }
