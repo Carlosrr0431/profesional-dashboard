@@ -130,7 +130,7 @@ function useSmoothHeading(targetHeading) {
   return heading;
 }
 
-/* Vector vista superior: carbón + franjas doradas, nariz arriba (0° = norte). */
+/* Vista aérea del set Vecteezy: hatchback azul y blanco, nariz arriba (0° = norte). */
 function CarSvg() {
   return (
     <div style={{
@@ -139,38 +139,39 @@ function CarSvg() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      filter: 'drop-shadow(0 3px 8px rgba(15,23,42,0.45))',
+      filter: 'drop-shadow(0 3px 8px rgba(15,23,42,0.42))',
       pointerEvents: 'none',
     }}>
-      <svg width="48" height="48" viewBox="0 0 100 180" aria-hidden>
+      <svg width="48" height="48" viewBox="0 0 88 176" aria-hidden>
         <defs>
           <clipPath id="trkCarBodyClip">
-            <path d="M50 7C63 7 74 16 78 30C82 42 82 54 78 66C82 84 84 106 81 126C78 148 68 164 56 170C53 172 50 172.5 50 172.5C50 172.5 47 172 44 170C32 164 22 148 19 126C16 106 18 84 22 66C18 54 18 42 22 30C26 16 37 7 50 7Z" />
+            <path d="M44 6C56 6 66 13 70 26C74 38 74.5 52 73 66L74 104C75 124 73 144 66 156C59 167 50 170.5 44 170.5C38 170.5 29 167 22 156C15 144 13 124 14 104L15 66C13.5 52 14 38 18 26C22 13 32 6 44 6Z" />
           </clipPath>
         </defs>
         <path
-          d="M50 7C63 7 74 16 78 30C82 42 82 54 78 66C82 84 84 106 81 126C78 148 68 164 56 170C53 172 50 172.5 50 172.5C50 172.5 47 172 44 170C32 164 22 148 19 126C16 106 18 84 22 66C18 54 18 42 22 30C26 16 37 7 50 7Z"
+          d="M44 6C56 6 66 13 70 26C74 38 74.5 52 73 66L74 104C75 124 73 144 66 156C59 167 50 170.5 44 170.5C38 170.5 29 167 22 156C15 144 13 124 14 104L15 66C13.5 52 14 38 18 26C22 13 32 6 44 6Z"
           fill="#FFFFFF"
         />
         <path
-          d="M50 7C63 7 74 16 78 30C82 42 82 54 78 66C82 84 84 106 81 126C78 148 68 164 56 170C53 172 50 172.5 50 172.5C50 172.5 47 172 44 170C32 164 22 148 19 126C16 106 18 84 22 66C18 54 18 42 22 30C26 16 37 7 50 7Z"
-          fill="#3D414A"
+          d="M44 6C56 6 66 13 70 26C74 38 74.5 52 73 66L74 104C75 124 73 144 66 156C59 167 50 170.5 44 170.5C38 170.5 29 167 22 156C15 144 13 124 14 104L15 66C13.5 52 14 38 18 26C22 13 32 6 44 6Z"
+          fill="#2563EB"
           stroke="#F8FAFC"
-          strokeWidth="2.2"
+          strokeWidth="2.4"
           strokeLinejoin="round"
         />
         <g clipPath="url(#trkCarBodyClip)">
-          <rect x="37.5" y="12" width="7.5" height="156" rx="2.4" fill="#FFC85D" />
-          <rect x="55" y="12" width="7.5" height="156" rx="2.4" fill="#FFC85D" />
+          <rect x="24" y="16" width="40" height="28" rx="5" fill="#3B82F6" />
+          <rect x="24" y="16" width="40" height="28" rx="5" fill="none" stroke="#FFFFFF" strokeWidth="1.6" />
+          <path d="M26 46L62 46L67 82L21 82Z" fill="#FFFFFF" />
+          <rect x="23" y="118" width="42" height="42" rx="7" fill="none" stroke="#FFFFFF" strokeWidth="1.6" />
+          <path d="M27 126L61 126L58 156L30 156Z" fill="#FFFFFF" />
         </g>
-        <path d="M30 50C30 46 34 44 38 44H62C66 44 70 46 70 50L72 92C72 98 66 102 50 102C34 102 28 98 28 92Z" fill="#1F2A2C" />
-        <path d="M32 118C32 114 38 112 50 112C62 112 68 114 68 118L66 146C66 150 60 154 50 154C40 154 34 150 34 146Z" fill="#1F2A2C" />
-        <ellipse cx="18" cy="58" rx="7" ry="4.2" fill="#1F2A2C" />
-        <ellipse cx="82" cy="58" rx="7" ry="4.2" fill="#1F2A2C" />
-        <circle cx="36" cy="22" r="3.6" fill="#FFE08A" />
-        <circle cx="64" cy="22" r="3.6" fill="#FFE08A" />
-        <circle cx="36" cy="160" r="3.2" fill="#E8B45A" />
-        <circle cx="64" cy="160" r="3.2" fill="#E8B45A" />
+        <ellipse cx="11" cy="54" rx="7.2" ry="4.4" fill="#1E3A8A" />
+        <ellipse cx="77" cy="54" rx="7.2" ry="4.4" fill="#1E3A8A" />
+        <rect x="12.5" y="72" width="4.2" height="7" rx="2" fill="#1E40AF" />
+        <rect x="71.3" y="72" width="4.2" height="7" rx="2" fill="#1E40AF" />
+        <rect x="12.5" y="102" width="4.2" height="7" rx="2" fill="#1E40AF" />
+        <rect x="71.3" y="102" width="4.2" height="7" rx="2" fill="#1E40AF" />
       </svg>
     </div>
   );
