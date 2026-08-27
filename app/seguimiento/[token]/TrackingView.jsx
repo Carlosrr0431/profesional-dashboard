@@ -130,30 +130,26 @@ function useSmoothHeading(targetHeading) {
   return heading;
 }
 
-/* Vista aérea rectangular (sedán), azul y blanco, nariz arriba (0° = norte). */
+/* Vector original (vista aérea, nariz arriba = 0° norte). */
 function CarSvg() {
   return (
     <div style={{
-      width: 58,
-      height: 58,
+      width: 64,
+      height: 64,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      filter: 'drop-shadow(0 3px 8px rgba(15,23,42,0.42))',
+      filter: 'drop-shadow(0 3px 8px rgba(15,23,42,0.40))',
       pointerEvents: 'none',
     }}>
-      <svg width="50" height="50" viewBox="0 0 80 168" aria-hidden>
-        <rect x="18" y="8" width="44" height="152" rx="7" fill="#FFFFFF" />
-        <rect x="18" y="8" width="44" height="152" rx="7" fill="#2563EB" stroke="#F8FAFC" strokeWidth="2.2" />
-        <rect x="24" y="14" width="32" height="24" rx="2.5" fill="#3B82F6" />
-        <rect x="24" y="14" width="32" height="24" rx="2.5" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
-        <path d="M23 40H57L58 74H22Z" fill="#FFFFFF" />
-        <rect x="22" y="80" width="36" height="36" rx="1.5" fill="#1D4ED8" />
-        <path d="M24 122H56L55 150H25Z" fill="#FFFFFF" />
-        <rect x="22" y="118" width="36" height="36" rx="2.5" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
-        <rect x="6" y="44" width="13" height="7" rx="1.5" fill="#1E3A8A" />
-        <rect x="61" y="44" width="13" height="7" rx="1.5" fill="#1E3A8A" />
-      </svg>
+      <img
+        src="/tracking-car.png"
+        alt=""
+        width={38}
+        height={70}
+        draggable={false}
+        style={{ display: 'block' }}
+      />
     </div>
   );
 }
