@@ -3,7 +3,7 @@
 import Link from 'next/link';
 
 export const spaFieldClass =
-  'h-12 w-full rounded-2xl border border-light-300 bg-light-100 px-4 text-sm font-medium text-navy-900 outline-none placeholder:text-slate-400 focus:border-navy-900 focus:bg-white focus:ring-4 focus:ring-navy-900/10 disabled:bg-light-200 disabled:text-slate-500';
+  'h-12 w-full rounded-2xl border border-light-300 bg-light-100 px-4 text-base font-medium text-navy-900 outline-none placeholder:text-slate-400 focus:border-navy-900 focus:bg-white focus:ring-4 focus:ring-navy-900/10 disabled:bg-light-200 disabled:text-slate-500';
 
 export function SpaBrand({ subtitle }) {
   return (
@@ -63,7 +63,7 @@ export function SpaTabs({ items, value, onChange }) {
             key={item.id}
             type="button"
             onClick={() => onChange(item.id)}
-            className={`rounded-full px-2 py-2.5 text-[12px] font-semibold transition ${
+            className={`min-h-11 rounded-full px-2 py-2.5 text-[11px] font-semibold transition sm:text-[12px] ${
               active ? 'bg-navy-900 text-white' : 'text-slate-500 hover:text-navy-900'
             }`}
           >
@@ -77,13 +77,9 @@ export function SpaTabs({ items, value, onChange }) {
 
 export function SpaSheet({ children, expanded = false }) {
   return (
-    <div
-      className={`flex min-h-0 flex-col overflow-hidden rounded-[1.7rem] bg-white shadow-[0_18px_50px_-24px_rgba(15,23,42,0.42)] ring-1 ring-black/[0.04] ${
-        expanded ? 'h-full' : 'max-h-[58vh]'
-      }`}
-    >
-      <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-light-400" />
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-3">
+    <div className={expanded ? 'spa-sheet spa-sheet--expanded' : 'spa-sheet'}>
+      <div className="spa-sheet-handle" />
+      <div className="spa-sheet-body">
         {children}
       </div>
     </div>

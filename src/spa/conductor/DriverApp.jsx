@@ -8,6 +8,7 @@ import { formatArs } from '../shared/money';
 import { normalizeDriverPhone } from '../shared/phone';
 import { DRIVER_STATUS, isOpenTripStatus } from '../shared/tripStatus';
 import { SpaBackHome, SpaBrand, SpaButton, SpaNotice, SpaSheet, SpaTabs, spaFieldClass } from '../shared/ui';
+import { SpaAuthScreen, SpaBootScreen, SpaMapScreen } from '../shared/SpaShell';
 import InstallAppButton from '../shared/InstallAppButton';
 import LocationBanner from '../shared/LocationBanner';
 import { useGeoPermission } from '../shared/geoPermission';
@@ -439,17 +440,12 @@ export default function DriverApp() {
   };
 
   if (booting) {
-    return (
-      <div className="flex h-[100dvh] items-center justify-center bg-[#F4F7FC] text-sm text-slate-500">
-        Cargando Profesional…
-      </div>
-    );
+    return <SpaBootScreen>Cargando Profesional…</SpaBootScreen>;
   }
 
   if (!driver) {
     return (
-      <div className="min-h-[100dvh] bg-[#F4F7FC] px-4 py-6">
-        <div className="mx-auto flex min-h-[100dvh] max-w-md flex-col justify-center gap-6">
+      <SpaAuthScreen>
           <SpaBrand subtitle="App web de conductores · Salta Capital" />
           <div className="rounded-[1.6rem] bg-white p-5 shadow-[0_20px_50px_-28px_rgba(15,23,42,0.35)] ring-1 ring-black/[0.04]">
             <h1 className="text-xl font-bold text-navy-900">Ingresá a tu móvil</h1>
@@ -470,6 +466,7 @@ export default function DriverApp() {
                   value={phone}
                   onChange={(event) => setPhone(event.target.value)}
                   inputMode="tel"
+                  autoComplete="tel"
                   disabled={step !== 'phone'}
                   className={spaFieldClass}
                   placeholder="387 123 4567"
@@ -499,6 +496,7 @@ export default function DriverApp() {
                     type="password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
+                    autoComplete={step === 'setup_password' ? 'new-password' : 'current-password'}
                     className={spaFieldClass}
                   />
                 </label>
@@ -510,6 +508,7 @@ export default function DriverApp() {
                     type="password"
                     value={confirmPassword}
                     onChange={(event) => setConfirmPassword(event.target.value)}
+                    autoComplete="new-password"
                     className={spaFieldClass}
                   />
                 </label>
@@ -535,8 +534,7 @@ export default function DriverApp() {
           </div>
           <InstallAppButton label="Instalar Profesional Conductor" />
           <SpaBackHome />
-        </div>
-      </div>
+      </SpaAuthScreen>
     );
   }
 
@@ -552,43 +550,39 @@ export default function DriverApp() {
       : 'Activá la ubicación para ponerte en línea y recibir viajes.';
 
   return (
-    <div className="relative h-[100dvh] overflow-hidden bg-[#D9E2EC]">
-      <div className="absolute inset-0">
+    <SpaMapScreen
+      map={(
         <SpaMap
           center={mapCenter}
           pickup={pickup?.lat ? pickup : null}
           driver={location ? { ...location, heading: 0 } : null}
           followDriver={online}
         />
-      </div>
-
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 p-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <div className="pointer-events-auto mx-auto flex max-w-lg flex-col gap-2">
-          <div className="flex items-center justify-between gap-3 rounded-2xl bg-white/95 px-3 py-2 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.45)] ring-1 ring-black/[0.04] backdrop-blur">
-            <SpaBrand subtitle={driver.full_name || 'Conductor'} />
-            <button
-              type="button"
-              onClick={toggleOnline}
-              disabled={busy}
-              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${
-                online ? 'bg-emerald-500 text-white' : 'bg-light-200 text-slate-600'
-              }`}
-            >
-              {online ? 'En línea' : 'Desconectado'}
-            </button>
-          </div>
-          {geo.showBanner ? (
-            <LocationBanner
-              title="Ubicación desactivada"
-              body={locationCopy}
-              onAllow={geo.status === 'unavailable' ? undefined : geo.request}
-            />
-          ) : null}
+      )}
+      header={(
+        <div className="spa-card-bar">
+          <SpaBrand subtitle={driver.full_name || 'Conductor'} />
+          <button
+            type="button"
+            onClick={toggleOnline}
+            disabled={busy}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${
+              online ? 'bg-emerald-500 text-white' : 'bg-light-200 text-slate-600'
+            }`}
+          >
+            {online ? 'En línea' : 'Desconectado'}
+          </button>
         </div>
-      </div>
-
-      <div className="absolute inset-x-0 bottom-0 z-20 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="mx-auto flex max-w-lg flex-col gap-2">
+      )}
+      banner={geo.showBanner ? (
+        <LocationBanner
+          title="Ubicación desactivada"
+          body={locationCopy}
+          onAllow={geo.status === 'unavailable' ? undefined : geo.request}
+        />
+      ) : null}
+      sheet={(
+        <>
           <SpaSheet>
             {error ? <div className="mb-3"><SpaNotice tone="error">{error}</SpaNotice></div> : null}
 
@@ -669,8 +663,8 @@ export default function DriverApp() {
             ) : null}
           </SpaSheet>
           <SpaTabs items={TABS} value={tab} onChange={setTab} />
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    />
   );
 }

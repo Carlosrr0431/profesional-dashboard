@@ -22,3 +22,15 @@ describe('PWA manifests', () => {
     expect(manifest.icons.every((icon) => icon.type === 'image/png')).toBe(true);
   });
 });
+
+describe('SPA shell CSS', () => {
+  it('usa layout a pantalla completa sin offsets fijos', () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../app/globals.css'), 'utf8');
+    expect(css).toContain('.spa-screen');
+    expect(css).toContain('.spa-auth');
+    expect(css).toContain('.spa-poi-list');
+    expect(css).toContain('100dvh');
+    expect(css).toContain('env(safe-area-inset-top');
+    expect(css).toContain('font-size: 16px');
+  });
+});

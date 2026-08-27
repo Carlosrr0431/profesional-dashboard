@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Map, { Marker, Source, Layer } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MAP_STYLE, DEFAULT_MAP_VIEW } from '../../lib/mapLibre';
@@ -30,6 +30,7 @@ export default function SpaMap({
 }) {
   const mapRef = useRef(null);
   const view = center || DEFAULT_MAP_VIEW;
+  const [failed, setFailed] = useState(false);
 
   const routeGeo = useMemo(() => {
     if (!Array.isArray(routeCoords) || routeCoords.length < 2) return null;
@@ -55,6 +56,10 @@ export default function SpaMap({
     });
   }, [center?.latitude, center?.longitude, center?.lat, center?.lng, driver?.lat, driver?.lng, followDriver, zoom]);
 
+  if (failed) {
+    return <div className="h-full w-full bg-[#d9e2ec]" />;
+  }
+
   return (
     <Map
       ref={mapRef}
@@ -66,6 +71,10 @@ export default function SpaMap({
       }}
       attributionControl={false}
       reuseMaps
+      dragRotate={false}
+      pitchWithRotate={false}
+      touchPitch={false}
+      onError={() => setFailed(true)}
       style={{ width: '100%', height: '100%' }}
     >
       {routeGeo ? (

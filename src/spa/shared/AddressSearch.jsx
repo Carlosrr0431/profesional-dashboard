@@ -30,8 +30,14 @@ export default function AddressSearch({
     const onDoc = (event) => {
       if (!wrapRef.current?.contains(event.target)) setOpen(false);
     };
+    document.addEventListener('pointerdown', onDoc);
     document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
+    document.addEventListener('touchstart', onDoc, { passive: true });
+    return () => {
+      document.removeEventListener('pointerdown', onDoc);
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('touchstart', onDoc);
+    };
   }, []);
 
   useEffect(() => {
@@ -64,6 +70,11 @@ export default function AddressSearch({
         <input
           type="text"
           autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          enterKeyHint="search"
+          inputMode="search"
           disabled={disabled}
           value={value}
           placeholder={placeholder}
@@ -78,7 +89,7 @@ export default function AddressSearch({
         ) : null}
       </div>
       {visible ? (
-        <ul className="mt-2 max-h-[min(46vh,360px)] overflow-y-auto overscroll-contain rounded-2xl bg-light-100 p-1">
+        <ul className="spa-poi-list">
           {hits.map((hit, index) => {
             const sub = suggestionSub(hit);
             const title = suggestionLabel(hit);

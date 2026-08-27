@@ -10,11 +10,19 @@ export function registerSpaServiceWorker(scope) {
   else window.addEventListener('load', register, { once: true });
 }
 
+function mediaMatches(query) {
+  try {
+    return Boolean(window.matchMedia && window.matchMedia(query).matches);
+  } catch {
+    return false;
+  }
+}
+
 export function isStandaloneDisplay() {
   if (typeof window === 'undefined') return false;
   return Boolean(
-    window.matchMedia('(display-mode: standalone)').matches
-    || window.matchMedia('(display-mode: fullscreen)').matches
+    mediaMatches('(display-mode: standalone)')
+    || mediaMatches('(display-mode: fullscreen)')
     || window.navigator.standalone,
   );
 }

@@ -19,6 +19,7 @@ import { clearPassengerSession, readPassengerSession, writePassengerSession } fr
 import { isOpenTripStatus, passengerStatusMeta } from '../shared/tripStatus';
 import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../shared/coverage';
 import { SpaBackHome, SpaBrand, SpaButton, SpaNotice, SpaSheet, SpaTabs, spaFieldClass } from '../shared/ui';
+import { SpaAuthScreen, SpaBootScreen, SpaMapScreen } from '../shared/SpaShell';
 import InstallAppButton from '../shared/InstallAppButton';
 import LocationBanner from '../shared/LocationBanner';
 import { useGeoPermission } from '../shared/geoPermission';
@@ -397,17 +398,12 @@ export default function PassengerApp() {
   );
 
   if (booting) {
-    return (
-      <div className="flex h-[100dvh] items-center justify-center bg-[#F4F7FC] text-sm text-slate-500">
-        Cargando Profesional⬦
-      </div>
-    );
+    return <SpaBootScreen>Cargando Profesional…</SpaBootScreen>;
   }
 
   if (!session) {
     return (
-      <div className="min-h-[100dvh] bg-[#F4F7FC] px-4 py-6">
-        <div className="mx-auto flex min-h-[100dvh] max-w-md flex-col justify-center gap-6">
+      <SpaAuthScreen>
           <SpaBrand subtitle="App web de pasajeros · Salta Capital" />
           <div className="rounded-[1.6rem] bg-white p-5 shadow-[0_20px_50px_-28px_rgba(15,23,42,0.35)] ring-1 ring-black/[0.04]">
             <h1 className="text-xl font-bold text-navy-900">Pedí tu viaje</h1>
@@ -418,6 +414,7 @@ export default function PassengerApp() {
                 <input
                   value={loginName}
                   onChange={(event) => setLoginName(event.target.value)}
+                  autoComplete="name"
                   className={spaFieldClass}
                   placeholder="Cómo te llamás"
                 />
@@ -428,6 +425,7 @@ export default function PassengerApp() {
                   value={loginPhone}
                   onChange={(event) => setLoginPhone(event.target.value)}
                   inputMode="tel"
+                  autoComplete="tel"
                   className={spaFieldClass}
                   placeholder="387 123 4567"
                 />
@@ -440,15 +438,16 @@ export default function PassengerApp() {
                     onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 4))}
                     inputMode="numeric"
                     autoComplete="one-time-code"
+                    enterKeyHint="done"
                     className={`${spaFieldClass} text-center text-lg font-bold tracking-[0.4em]`}
-                    placeholder="⬢⬢⬢⬢"
+                    placeholder="••••"
                   />
                 </label>
               ) : null}
               {error ? <SpaNotice tone="error">{error}</SpaNotice> : null}
               {info ? <SpaNotice>{info}</SpaNotice> : null}
               <SpaButton type="submit" disabled={busy}>
-                {busy ? 'Enviando⬦' : otpStep === 'phone' ? 'Enviar código' : 'Ingresar'}
+                {busy ? 'Enviando…' : otpStep === 'phone' ? 'Enviar código' : 'Ingresar'}
               </SpaButton>
               {otpStep === 'code' ? (
                 <button type="button" className="text-sm font-medium text-accent" onClick={() => setOtpStep('phone')}>
@@ -459,8 +458,7 @@ export default function PassengerApp() {
           </div>
           <InstallAppButton label="Instalar Profesional Pasajero" />
           <SpaBackHome />
-        </div>
-      </div>
+      </SpaAuthScreen>
     );
   }
 
@@ -471,8 +469,9 @@ export default function PassengerApp() {
       : 'Activá la ubicación para completar el origen y pedir un móvil.';
 
   return (
-    <div className="relative h-[100dvh] overflow-hidden bg-[#D9E2EC]">
-      <div className="absolute inset-0">
+    <SpaMapScreen
+      expanded={searching}
+      map={(
         <SpaMap
           center={mapCenter}
           pickup={pickup}
@@ -481,26 +480,22 @@ export default function PassengerApp() {
           routeCoords={routeCoords}
           followDriver={Boolean(driver?.lat && isOpenTripStatus(active?.status))}
         />
-      </div>
-
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 p-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <div className="pointer-events-auto mx-auto flex max-w-lg flex-col gap-2">
-          <div className="flex items-center justify-between rounded-2xl bg-white/95 px-3 py-2 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.45)] ring-1 ring-black/[0.04] backdrop-blur">
-            <SpaBrand subtitle={session.name || 'Pasajero'} />
-            <SpaBackHome />
-          </div>
-          {geo.showBanner ? (
-            <LocationBanner
-              title="Ubicación desactivada"
-              body={locationCopy}
-              onAllow={geo.status === 'unavailable' ? undefined : geo.request}
-            />
-          ) : null}
+      )}
+      header={(
+        <div className="spa-card-bar">
+          <SpaBrand subtitle={session.name || 'Pasajero'} />
+          <SpaBackHome />
         </div>
-      </div>
-
-      <div className={`absolute inset-x-0 bottom-0 z-20 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] ${searching ? (geo.showBanner ? 'top-52' : 'top-28') : ''}`}>
-        <div className={`mx-auto flex max-w-lg flex-col gap-2 ${searching ? 'h-full' : ''}`}>
+      )}
+      banner={geo.showBanner ? (
+        <LocationBanner
+          title="Ubicación desactivada"
+          body={locationCopy}
+          onAllow={geo.status === 'unavailable' ? undefined : geo.request}
+        />
+      ) : null}
+      sheet={(
+        <>
           <SpaSheet expanded={searching}>
             {error ? <div className="mb-3"><SpaNotice tone="error">{error}</SpaNotice></div> : null}
 
@@ -519,7 +514,7 @@ export default function PassengerApp() {
                 ) : null}
                 <p className="text-sm leading-relaxed text-slate-600">
                   {active.origin_address}
-                  {active.destination_address ? ` �  ${active.destination_address}` : ''}
+                  {active.destination_address ? ` → ${active.destination_address}` : ''}
                 </p>
                 {status.canCancel ? (
                   <SpaButton variant="danger" disabled={busy} onClick={cancelTrip}>
@@ -560,7 +555,7 @@ export default function PassengerApp() {
                   </div>
                 ) : null}
                 <SpaButton disabled={busy || !pickup || !destination} onClick={requestTrip}>
-                  {busy ? 'Confirmando⬦' : 'Pedir móvil'}
+                  {busy ? 'Confirmando…' : 'Pedir móvil'}
                 </SpaButton>
               </div>
             ) : null}
@@ -593,6 +588,7 @@ export default function PassengerApp() {
                   <input
                     value={session.name || ''}
                     onChange={(event) => persistSession({ ...session, name: event.target.value })}
+                    autoComplete="name"
                     className={spaFieldClass}
                   />
                 </label>
@@ -602,8 +598,8 @@ export default function PassengerApp() {
             ) : null}
           </SpaSheet>
           <SpaTabs items={TABS} value={tab} onChange={setTab} />
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    />
   );
 }

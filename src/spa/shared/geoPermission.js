@@ -61,17 +61,22 @@ export function useGeoPermission({ watch = false, enabled = true } = {}) {
       else setStatus('prompt');
     };
 
-    if (navigator.permissions?.query) {
-      navigator.permissions.query({ name: 'geolocation' })
-        .then((result) => {
-          permission = result;
-          sync(result.state);
-          result.onchange = () => sync(result.state);
-        })
-        .catch(() => {
-          if (watch) startWatch();
-          else request();
-        });
+    if (navigator.permissions && typeof navigator.permissions.query === 'function') {
+      try {
+        navigator.permissions.query({ name: 'geolocation' })
+          .then((result) => {
+            permission = result;
+            sync(result.state);
+            result.onchange = () => sync(result.state);
+          })
+          .catch(() => {
+            if (watch) startWatch();
+            else request();
+          });
+      } catch {
+        if (watch) startWatch();
+        else request();
+      }
     } else if (watch) {
       startWatch();
     } else {
