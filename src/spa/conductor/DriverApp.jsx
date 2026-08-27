@@ -4,9 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { getDriverSupabase } from './driverSupabase';
 import { spaJson } from '../shared/api';
+import { fetchRouteLine } from '../shared/geo';
 import { formatArs } from '../shared/money';
 import { normalizeDriverPhone } from '../shared/phone';
 import { DRIVER_STATUS, isOpenTripStatus } from '../shared/tripStatus';
+import { tripDropoffPoint, tripNavTarget, tripPickupPoint } from '../shared/tripPoints';
 import { SpaBackHome, SpaBrand, SpaButton, SpaEmpty, SpaKicker, SpaNotice, SpaPanel, SpaSheet, SpaSwitch, SpaTabs, SpaTripRow, haptic, spaFieldClass } from '../shared/ui';
 import { SpaAuthScreen, SpaBootScreen, SpaMapScreen } from '../shared/SpaShell';
 import InstallAppButton from '../shared/InstallAppButton';
@@ -23,14 +25,6 @@ const TABS = [
 ];
 
 const DEFAULT_CENTER = { latitude: -24.78, longitude: -65.42 };
-
-function pickupOf(trip) {
-  return {
-    lat: Number(trip?.destination_lat),
-    lng: Number(trip?.destination_lng),
-    address: trip?.destination_address,
-  };
-}
 
 export default function DriverApp() {
   const [booting, setBooting] = useState(true);
@@ -51,9 +45,13 @@ export default function DriverApp() {
   const [pendingTrip, setPendingTrip] = useState(null);
   const [activeTrip, setActiveTrip] = useState(null);
   const [history, setHistory] = useState([]);
+  const [routeCoords, setRouteCoords] = useState(null);
   const readyHaptic = useRef(false);
+  const locationRef = useRef(null);
   const geo = useGeoPermission({ watch: Boolean(driver), enabled: Boolean(driver) });
   const location = geo.coords;
+  locationRef.current = location;
+  const hasFix = Boolean(location);
 
   const fetchProfile = useCallback(async (userId) => {
     const supabase = getDriverSupabase();
@@ -188,6 +186,34 @@ export default function DriverApp() {
       supabase.removeChannel(channel);
     };
   }, [driver?.id, loadHistory]);
+
+  useEffect(() => {
+    const trip = activeTrip;
+    const navigating = Boolean(trip && isOpenTripStatus(trip.status) && trip.status !== 'pending');
+    if (!navigating) {
+      setRouteCoords(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const load = async () => {
+      const loc = locationRef.current;
+      const target = tripNavTarget(trip);
+      if (!loc || !target) return;
+      const line = await fetchRouteLine(
+        { lat: loc.lat, lng: loc.lng },
+        { lat: target.lat, lng: target.lng },
+      );
+      if (!cancelled) setRouteCoords(line);
+    };
+
+    load();
+    const id = setInterval(load, 14000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [activeTrip?.id, activeTrip?.status, activeTrip?.origin_lat, activeTrip?.destination_lat, hasFix]);
 
   const runLookup = async (rawPhone, rawNumber = null) => {
     setError('');
@@ -547,7 +573,10 @@ export default function DriverApp() {
     );
   }
 
-  const pickup = activeTrip ? pickupOf(activeTrip) : (pendingTrip ? pickupOf(pendingTrip) : null);
+  const pickup = tripPickupPoint(activeTrip || pendingTrip);
+  const dropoff = tripDropoffPoint(activeTrip || pendingTrip);
+  const navTarget = tripNavTarget(activeTrip);
+  const navigating = Boolean(activeTrip && isOpenTripStatus(activeTrip.status) && activeTrip.status !== 'pending');
   const mapCenter = location
     ? { latitude: location.lat, longitude: location.lng }
     : DEFAULT_CENTER;
@@ -563,9 +592,13 @@ export default function DriverApp() {
       map={(
         <SpaMap
           center={mapCenter}
-          pickup={pickup?.lat ? pickup : null}
-          driver={location ? { ...location, heading: 0 } : null}
-          followDriver={online}
+          pickup={pickup}
+          dropoff={dropoff}
+          driver={location || null}
+          routeCoords={routeCoords}
+          followDriver={online || navigating}
+          navigationMode={navigating}
+          driverIcon="arrow"
         />
       )}
       header={(
@@ -595,7 +628,7 @@ export default function DriverApp() {
                 <div className="spa-route">
                   <p className="spa-route-line text-[14px] text-navy-900">
                     <span className="spa-route-dot spa-route-dot--dest" />
-                    <span className="min-w-0">{pendingTrip.destination_address}</span>
+                    <span className="min-w-0">{pendingTrip.destination_address || pendingTrip.origin_address}</span>
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -614,7 +647,7 @@ export default function DriverApp() {
                 <div className="spa-route">
                   <p className="spa-route-line text-[14px] text-navy-900">
                     <span className="spa-route-dot spa-route-dot--dest" />
-                    <span className="min-w-0">{activeTrip.destination_address}</span>
+                    <span className="min-w-0">{navTarget?.address || activeTrip.destination_address || activeTrip.origin_address}</span>
                   </p>
                 </div>
                 {activeTrip.status === 'going_to_pickup' || activeTrip.status === 'accepted' ? (

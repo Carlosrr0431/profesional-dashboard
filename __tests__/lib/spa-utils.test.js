@@ -51,3 +51,54 @@ describe('SPA trip helpers', () => {
     expect(isPickupInActiveZones([], -24.78, -65.42)).toBe(true);
   });
 });
+
+const { tripPickupPoint, tripNavTarget } = require('../../src/spa/shared/tripPoints');
+const { remainingPolyline, polylineHeading, bearingDegrees } = require('../../src/spa/shared/nav');
+
+describe('SPA driver navigation', () => {
+  it('usa origin como retiro en viajes de la app de pasajeros', () => {
+    const pickup = tripPickupPoint({
+      notes: '[PASSENGER_APP]',
+      origin_lat: -24.78,
+      origin_lng: -65.42,
+      origin_address: 'Belgrano 100',
+      destination_lat: -24.79,
+      destination_lng: -65.41,
+      destination_address: 'Alberdi 200',
+      status: 'going_to_pickup',
+    });
+    expect(pickup).toEqual(expect.objectContaining({
+      lat: -24.78,
+      lng: -65.42,
+      address: 'Belgrano 100',
+    }));
+  });
+
+  it('navega al destino cuando el viaje está en curso', () => {
+    const target = tripNavTarget({
+      notes: '[PASSENGER_APP]',
+      origin_lat: -24.78,
+      origin_lng: -65.42,
+      origin_address: 'Belgrano 100',
+      destination_lat: -24.79,
+      destination_lng: -65.41,
+      destination_address: 'Alberdi 200',
+      status: 'in_progress',
+    });
+    expect(target.address).toBe('Alberdi 200');
+  });
+
+  it('recorta la polilínea desde la posición actual y calcula rumbo', () => {
+    const line = [
+      [-65.42, -24.79],
+      [-65.41, -24.78],
+      [-65.40, -24.77],
+    ];
+    const remaining = remainingPolyline(line, -24.78, -65.41);
+    expect(remaining[0]).toEqual([-65.41, -24.78]);
+    expect(remaining.length).toBeGreaterThanOrEqual(2);
+    expect(polylineHeading([[-65.42, -24.78], [-65.42, -24.79]])).toBeGreaterThan(0);
+    expect(bearingDegrees({ lat: -24.78, lng: -65.42 }, { lat: -24.79, lng: -65.42 })).toBeGreaterThan(0);
+  });
+});
+

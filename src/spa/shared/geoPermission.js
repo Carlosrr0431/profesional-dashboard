@@ -7,9 +7,34 @@ export function useGeoPermission({ watch = false, enabled = true } = {}) {
   const [coords, setCoords] = useState(null);
   const watchRef = useRef(null);
 
+  const lastPosRef = useRef(null);
+
   const applyPosition = useCallback((pos) => {
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    let heading = Number(pos.coords.heading);
+    const prev = lastPosRef.current;
+    if (!Number.isFinite(heading) || heading < 0) {
+      if (prev && (Math.abs(prev.lat - lat) > 0.00002 || Math.abs(prev.lng - lng) > 0.00002)) {
+        const lat1 = (prev.lat * Math.PI) / 180;
+        const lat2 = (lat * Math.PI) / 180;
+        const dLng = ((lng - prev.lng) * Math.PI) / 180;
+        const y = Math.sin(dLng) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+        heading = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+      } else {
+        heading = prev?.heading ?? 0;
+      }
+    }
+    const next = {
+      lat,
+      lng,
+      heading,
+      speed: Number(pos.coords.speed) > 0 ? Number(pos.coords.speed) : 0,
+    };
+    lastPosRef.current = next;
     setStatus('granted');
-    setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+    setCoords(next);
   }, []);
 
   const applyError = useCallback((err) => {
