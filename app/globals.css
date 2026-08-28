@@ -586,6 +586,7 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   display: flex;
   flex-direction: column;
   flex: 1;
+  height: 100%;
   min-height: 0;
   pointer-events: none;
 }
@@ -633,6 +634,15 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 
 .spa-bottom--expanded {
   flex: 1;
+  overflow: hidden;
+}
+
+.spa-screen--keyboard .spa-top {
+  display: none;
+}
+
+.spa-screen--keyboard .spa-bottom {
+  padding-bottom: 8px;
 }
 
 .spa-card-bar {
@@ -744,11 +754,24 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   flex: 1;
   height: 100%;
   max-height: none;
+  min-height: 0;
 }
 
-@media (max-height: 520px) {
-  .spa-sheet {
-    max-height: 70vh;
+.spa-sheet--expanded .spa-sheet-handle {
+  margin-top: 8px;
+}
+
+.spa-sheet--expanded .spa-sheet-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 4px 14px 12px;
+}
+
+@media (min-width: 768px) {
+  .spa-sheet--expanded,
+  .spa-bottom--expanded .spa-sheet {
+    max-height: min(72dvh, 720px);
   }
 }
 
@@ -780,8 +803,8 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 .spa-poi-list {
   position: relative;
   z-index: 2;
-  margin-top: 8px;
-  max-height: 36vh;
+  margin-top: 6px;
+  max-height: min(36vh, 280px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
@@ -792,13 +815,19 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 
 @media (min-height: 740px) {
   .spa-poi-list {
-    max-height: 360px;
+    max-height: min(40vh, 360px);
+  }
+}
+
+@media (max-height: 700px) {
+  .spa-poi-list {
+    max-height: min(32vh, 220px);
   }
 }
 
 @media (max-height: 520px) {
   .spa-poi-list {
-    max-height: 28vh;
+    max-height: min(28dvh, 160px);
   }
 }
 
@@ -870,6 +899,14 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 }
 
 .spa-panel--compact {
+  gap: 8px;
+}
+
+.spa-panel.spa-panel--search {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   gap: 8px;
 }
 
@@ -1516,6 +1553,37 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   background: #f8f9fc;
 }
 
+.spa-route.spa-route--search {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 2px 12px 4px;
+}
+
+.spa-route--search .spa-route-stop.is-open {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.spa-route--search .spa-poi-list {
+  flex: 1 1 auto;
+  min-height: 8.5rem;
+  max-height: none;
+  background: #fff;
+}
+
+.spa-route--search .spa-route-line {
+  min-height: 44px;
+}
+
+.spa-route--search .spa-field {
+  height: 44px;
+}
+
 .spa-route::before {
   content: '';
   position: absolute;
@@ -1524,6 +1592,10 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   bottom: 28px;
   width: 2px;
   background: #e8ecf2;
+}
+
+.spa-route--search::before {
+  display: none;
 }
 
 .spa-route-stop + .spa-route-stop {

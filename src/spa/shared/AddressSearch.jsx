@@ -13,6 +13,7 @@ export default function AddressSearch({
   sessionToken,
   disabled = false,
   onOpenChange,
+  onFocusChange,
   tone = 'origin',
   stacked = false,
 }) {
@@ -81,7 +82,10 @@ export default function AddressSearch({
   }, [value, sessionToken]);
 
   return (
-    <div ref={wrapRef} className={stacked ? 'spa-route-stop' : 'relative'}>
+    <div
+      ref={wrapRef}
+      className={`${stacked ? 'spa-route-stop' : 'relative'}${visible ? ' is-open' : ''}`}
+    >
       <div className={stacked ? 'spa-route-line' : undefined}>
         {stacked ? (
           <span className={`spa-route-dot spa-route-dot--${tone}`} aria-hidden="true" />
@@ -107,7 +111,13 @@ export default function AddressSearch({
               lastTypedRef.current = event.target.value;
               onChangeText(event.target.value);
             }}
-            onFocus={() => hits.length > 0 && setOpen(true)}
+            onFocus={() => {
+              onFocusChange?.(true);
+              if (hits.length > 0) setOpen(true);
+            }}
+            onBlur={() => {
+              window.setTimeout(() => onFocusChange?.(false), 180);
+            }}
             className={`${spaFieldClass} ${stacked ? 'bg-transparent px-0 focus:ring-0' : ''}`}
           />
           {loading ? (
@@ -126,7 +136,8 @@ export default function AddressSearch({
               <li key={`${hit.placeId || title || 'h'}-${index}`}>
                 <button
                   type="button"
-                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left active:bg-white"
+                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left active:bg-white"
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
                     onSelect(hit);
                     setOpen(false);
@@ -146,7 +157,7 @@ export default function AddressSearch({
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-semibold text-navy-900">{title}</span>
                     {sub && sub !== title ? (
-                      <span className="mt-0.5 block text-[12px] leading-snug text-slate-500">{sub}</span>
+                      <span className="mt-0.5 block text-[12px] leading-snug text-slate-500 line-clamp-2">{sub}</span>
                     ) : null}
                   </span>
                 </button>

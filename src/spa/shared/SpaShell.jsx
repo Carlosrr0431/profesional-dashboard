@@ -73,24 +73,30 @@ export function SpaMapScreen({
     if (observer && topRef.current) observer.observe(topRef.current);
     if (observer && bottomRef.current) observer.observe(bottomRef.current);
     window.addEventListener('resize', measure);
+    window.visualViewport?.addEventListener('resize', measure);
     return () => {
       cancelAnimationFrame(frame);
       observer?.disconnect();
       window.removeEventListener('resize', measure);
+      window.visualViewport?.removeEventListener('resize', measure);
     };
-  }, [onChromeInsets, expanded, layoutKey]);
+  }, [onChromeInsets, expanded, layoutKey, keyboard]);
 
   return (
     <div
-      className="spa-screen"
+      className={keyboard > 48 ? 'spa-screen spa-screen--keyboard' : 'spa-screen'}
       style={keyboard > 0 ? { paddingBottom: keyboard } : undefined}
     >
       <div className="spa-map">{map}</div>
       <div className="spa-chrome">
-        <div className="spa-top" ref={topRef}>
-          {header}
-          {banner}
-        </div>
+        {header || banner ? (
+          <div className="spa-top" ref={topRef}>
+            {header}
+            {banner}
+          </div>
+        ) : (
+          <div ref={topRef} />
+        )}
         <div ref={bottomRef} className={expanded ? 'spa-bottom spa-bottom--expanded' : 'spa-bottom'}>
           {sheet}
         </div>

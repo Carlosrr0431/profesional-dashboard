@@ -74,6 +74,8 @@ export default function PassengerApp() {
   const [history, setHistory] = useState([]);
   const [originOpen, setOriginOpen] = useState(false);
   const [destOpen, setDestOpen] = useState(false);
+  const [originFocused, setOriginFocused] = useState(false);
+  const [destFocused, setDestFocused] = useState(false);
   const [editingRoute, setEditingRoute] = useState(true);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [chromeInsets, setChromeInsets] = useState({ top: 72, bottom: 280 });
@@ -348,6 +350,7 @@ export default function PassengerApp() {
       name: loginName.trim() || data.name || '',
     };
     persistSession(next);
+    setInfo('');
     setOtp('');
     setOtpStep('phone');
     await loadTrips(next);
@@ -538,7 +541,7 @@ export default function PassengerApp() {
     && !editingRoute
     && (!active || !isOpenTripStatus(active.status))
   );
-  const searching = (originOpen || destOpen) && !reviewing;
+  const searching = !reviewing && !liveTrip && tab === 'viaje' && (originOpen || destOpen || originFocused || destFocused);
   const tripPickup = liveNav ? tripPickupPoint(active) : pickup;
   const tripDropoff = liveNav ? tripDropoffPoint(active) : destination;
   const inProgress = active?.status === 'in_progress';
@@ -630,7 +633,7 @@ export default function PassengerApp() {
   return (
     <SpaMapScreen
       expanded={searching}
-      layoutKey={`${tab}:${reviewing ? 'review' : liveTrip ? 'live' : 'search'}`}
+      layoutKey={`${tab}:${reviewing ? 'review' : liveTrip ? 'live' : searching ? 'search' : 'idle'}`}
       onChromeInsets={onChromeInsets}
       overlay={(
         <>
@@ -668,13 +671,13 @@ export default function PassengerApp() {
           fitPadding={chromeInsets}
         />
       )}
-      header={(
+      header={searching ? null : (
         <div className="spa-card-bar">
           <SpaBrand subtitle={session.name || 'Pasajero'} />
           <SpaBackHome />
         </div>
       )}
-      banner={geo.showBanner ? (
+      banner={!searching && geo.showBanner ? (
         <LocationBanner
           title="Ubicación desactivada"
           body={locationCopy}
@@ -684,8 +687,8 @@ export default function PassengerApp() {
       sheet={(
         <>
           <SpaSheet expanded={searching} compact={liveTrip} review={reviewing}>
-            {error ? <SpaNotice tone="error">{error}</SpaNotice> : null}
-            {info && (liveTrip || (tab === 'viaje' && !reviewing)) ? <SpaNotice>{info}</SpaNotice> : null}
+            {error && !searching ? <SpaNotice tone="error">{error}</SpaNotice> : null}
+            {info && (liveTrip || reviewing) ? <SpaNotice>{info}</SpaNotice> : null}
 
             {tab === 'viaje' && active && isOpenTripStatus(active.status) ? (
               <TripLiveSheet
@@ -726,9 +729,12 @@ export default function PassengerApp() {
             ) : null}
 
             {tab === 'viaje' && (!active || !isOpenTripStatus(active.status)) && !reviewing ? (
-              <SpaPanel key="viaje-pedido">
-                <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">¿A dónde vas?</h2>
-                <div className="spa-route">
+              <SpaPanel key="viaje-pedido" className={searching ? 'spa-panel--search' : ''}>
+                {searching ? null : (
+                  <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">¿A dónde vas?</h2>
+                )}
+                {error && searching ? <SpaNotice tone="error">{error}</SpaNotice> : null}
+                <div className={`spa-route${searching ? ' spa-route--search' : ''}`}>
                   <AddressSearch
                     stacked
                     tone="origin"
@@ -739,6 +745,7 @@ export default function PassengerApp() {
                     onSelect={selectPickup}
                     sessionToken={sessionTokenPlaces.current}
                     onOpenChange={setOriginOpen}
+                    onFocusChange={setOriginFocused}
                   />
                   <AddressSearch
                     stacked
@@ -753,11 +760,14 @@ export default function PassengerApp() {
                     onSelect={selectDestination}
                     sessionToken={sessionTokenPlaces.current}
                     onOpenChange={setDestOpen}
+                    onFocusChange={setDestFocused}
                   />
                 </div>
-                <SpaButton disabled={busy || !pickup || !destination} onClick={() => requestTrip()}>
-                  {busy ? 'Confirmando…' : 'Pedir móvil'}
-                </SpaButton>
+                {searching ? null : (
+                  <SpaButton disabled={busy || !pickup || !destination} onClick={() => requestTrip()}>
+                    {busy ? 'Confirmando…' : 'Pedir móvil'}
+                  </SpaButton>
+                )}
               </SpaPanel>
             ) : null}
 
@@ -803,7 +813,9 @@ export default function PassengerApp() {
               </SpaPanel>
             ) : null}
           </SpaSheet>
-          <SpaTabs items={TABS} value={tab} onChange={setTab} compact={liveTrip || reviewing} />
+          {searching ? null : (
+            <SpaTabs items={TABS} value={tab} onChange={setTab} compact={liveTrip || reviewing} />
+          )}
         </>
       )}
     />
