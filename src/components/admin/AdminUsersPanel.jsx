@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAdminAuth } from '../../hooks/useAdminAuth';
 import { useToast } from '../../context/ToastContext';
+import { useSpaConfirm } from '../../spa/shared/SpaConfirm';
 
 function formatDate(value) {
   if (!value) return '—';
@@ -25,6 +26,7 @@ export default function AdminUsersPanel({
   onUpdateSetting,
 }) {
   const toast = useToast();
+  const { confirm, dialog: confirmDialog } = useSpaConfirm();
   const { getAccessToken } = useAdminAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -114,7 +116,15 @@ export default function AdminUsersPanel({
   }
 
   async function handleDeleteUser(userId, email) {
-    if (!window.confirm(`¿Eliminar el usuario ${email}?`)) return;
+    const ok = await confirm({
+      title: '¿Eliminar este usuario?',
+      amount: email,
+      body: 'Va a perder el acceso al panel de operaciones.',
+      confirmLabel: 'Eliminar',
+      cancelLabel: 'Volver',
+      tone: 'danger',
+    });
+    if (!ok) return;
 
     setBusyUserId(userId);
     try {
@@ -317,6 +327,7 @@ export default function AdminUsersPanel({
           )}
         </section>
       </div>
+      {confirmDialog}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { formatPhoneForDisplay, MAX_ASSIGNED_DRIVERS } from '../lib/driverRoles'
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
 import DriverAvatar from './DriverAvatar';
+import { useSpaConfirm } from '../spa/shared/SpaConfirm';
 
 function statusLabel(status) {
   if (status === 'registered') return { text: 'Registrado', className: 'bg-online/15 text-online' };
@@ -126,6 +127,7 @@ export default function AssignedDriversTab({
   getDriverTrips,
 }) {
   const toast = useToast();
+  const { confirm, dialog: confirmDialog } = useSpaConfirm();
   const [assigned, setAssigned] = useState([]);
   const [partnerFleets, setPartnerFleets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -264,7 +266,15 @@ export default function AssignedDriversTab({
   const resolveOwnerId = (row) => row.owner_id || ownerDriver.id;
 
   const handleDelete = async (row) => {
-    if (!window.confirm(`¿Eliminar a ${row.full_name} de los choferes asignados?`)) return;
+    const ok = await confirm({
+      title: '¿Eliminar chofer asignado?',
+      amount: row.full_name,
+      body: 'Va a perder el acceso a este vehículo.',
+      confirmLabel: 'Eliminar',
+      cancelLabel: 'Volver',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBusyId(row.id);
     try {
       await deleteAssignedDriver(resolveOwnerId(row), row.id);
@@ -434,6 +444,7 @@ export default function AssignedDriversTab({
           ))}
         </div>
       )}
+      {confirmDialog}
     </div>
   );
 }

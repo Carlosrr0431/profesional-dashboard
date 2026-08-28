@@ -467,10 +467,14 @@ export default function DriverApp() {
       if (status === 'completed') {
         setActiveTrip(null);
         await loadHistory(driver.id);
-        await supabase.rpc('set_driver_online_status', {
-          p_driver_id: driver.id,
-          p_online: true,
-        }).catch(() => {});
+        try {
+          await supabase.rpc('set_driver_online_status', {
+            p_driver_id: driver.id,
+            p_online: true,
+          });
+        } catch {
+          // Si el RPC falla, el chofer igual queda libre en la UI.
+        }
         setOnline(true);
       } else {
         setActiveTrip(data);
@@ -485,10 +489,14 @@ export default function DriverApp() {
   const logout = async () => {
     if (online && driver?.id) {
       const supabase = getDriverSupabase();
-      await supabase.rpc('set_driver_online_status', {
-        p_driver_id: driver.id,
-        p_online: false,
-      }).catch(() => {});
+      try {
+        await supabase.rpc('set_driver_online_status', {
+          p_driver_id: driver.id,
+          p_online: false,
+        });
+      } catch {
+        // El cierre de sesión sigue aunque el RPC no responda.
+      }
     }
     await getDriverSupabase().auth.signOut();
     setDriver(null);
