@@ -707,12 +707,24 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 }
 
 .spa-sheet--review {
-  max-height: min(42vh, 360px);
+  flex: 0 0 auto;
+  height: auto;
+  max-height: min(48dvh, 400px);
+}
+
+.spa-sheet--review .spa-sheet-handle {
+  margin-top: 8px;
 }
 
 .spa-sheet--offer .spa-sheet-body,
 .spa-sheet--review .spa-sheet-body {
-  padding: 6px 16px 14px;
+  padding: 4px 16px 16px;
+}
+
+.spa-sheet--review .spa-sheet-body {
+  flex: 0 1 auto;
+  overflow-y: auto;
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
 }
 
 @media (min-width: 768px) {
@@ -1138,15 +1150,15 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 
 .spa-review {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .spa-review-route {
   width: 100%;
   border: 0;
-  border-radius: 18px;
-  background: transparent;
-  padding: 0;
+  border-radius: 16px;
+  background: #f8f9fc;
+  padding: 10px 12px 8px;
   text-align: left;
   cursor: pointer;
 }
@@ -1177,46 +1189,69 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 
 .spa-review-price {
   margin: 0;
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 650;
   letter-spacing: -0.04em;
   color: #0f172a;
 }
 
 .spa-review-meta {
-  margin: 0 0 4px;
+  margin: 0 0 2px;
   font-size: 13px;
   color: #64748b;
+  text-align: right;
+}
+
+.spa-review-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .spa-review-schedule,
 .spa-review-cancel {
   width: 100%;
+  min-height: 42px;
   border: 0;
-  background: transparent;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 650;
   cursor: pointer;
 }
 
 .spa-review-schedule {
-  min-height: 42px;
-  border-radius: 14px;
   background: #eef5fb;
   color: #245f8d;
-  font-size: 14px;
-  font-weight: 650;
 }
 
 .spa-review-cancel {
-  min-height: 40px;
+  background: #fef2f2;
   color: #dc2626;
-  font-size: 14px;
-  font-weight: 650;
 }
 
 .spa-review-schedule:disabled,
 .spa-review-cancel:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+@media (max-height: 700px) {
+  .spa-sheet--review {
+    max-height: min(46dvh, 340px);
+  }
+
+  .spa-review {
+    gap: 6px;
+  }
+
+  .spa-review-price {
+    font-size: 22px;
+  }
+
+  .spa-review-schedule,
+  .spa-review-cancel {
+    min-height: 40px;
+  }
 }
 
 .spa-plate {

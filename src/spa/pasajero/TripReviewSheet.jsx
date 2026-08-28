@@ -50,17 +50,18 @@ export default function TripReviewSheet({
         {meta ? <p className="spa-review-meta">{meta}</p> : null}
       </div>
 
-      <SpaButton disabled={busy || quote?.price == null} onClick={onConfirm}>
+      <SpaButton className="!min-h-11" disabled={busy || quote?.price == null} onClick={onConfirm}>
         {busy ? 'Confirmando…' : quote?.price != null ? `Confirmar · ${formatArs(quote.price)}` : 'Confirmar viaje'}
       </SpaButton>
 
-      <button type="button" className="spa-review-schedule" disabled={busy} onClick={onSchedule}>
-        Programar para más tarde
-      </button>
-
-      <button type="button" className="spa-review-cancel" disabled={busy} onClick={onCancel}>
-        Cancelar viaje
-      </button>
+      <div className="spa-review-actions">
+        <button type="button" className="spa-review-schedule" disabled={busy} onClick={onSchedule}>
+          Programar
+        </button>
+        <button type="button" className="spa-review-cancel" disabled={busy} onClick={onCancel}>
+          Cancelar
+        </button>
+      </div>
     </div>
   );
 }

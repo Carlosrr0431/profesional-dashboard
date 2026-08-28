@@ -5,6 +5,7 @@ import Map, { Marker, Source, Layer } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MAP_STYLE, DEFAULT_MAP_VIEW } from '../../lib/mapLibre';
 import { polylineHeading, remainingPolyline, snapToPolyline, smoothAngle, offsetAlongBearing } from './nav';
+import { chromeToMapPadding, paddingKey, routeBounds } from './mapFit';
 import { haptic } from './ui';
 
 const OVERVIEW_ROUTE_BORDER = {
@@ -78,6 +79,7 @@ export default function SpaMap({
   driverIcon = 'car',
   showMapControls = false,
   fitToRoute = false,
+  fitPadding = null,
 }) {
   const mapRef = useRef(null);
   const navReadyRef = useRef(false);
@@ -170,25 +172,23 @@ export default function SpaMap({
     navReadyRef.current = false;
     lastBearingRef.current = null;
     if ((fitToRoute || (!showMapControls && followDriver)) && Array.isArray(routeCoords) && routeCoords.length >= 2) {
-      const key = `${routeCoords.length}:${routeCoords[0]?.[0]}:${routeCoords[routeCoords.length - 1]?.[1]}`;
-      if (lastFitKeyRef.current !== key) {
+      const bounds = routeBounds(routeCoords, pickup, dropoff);
+      const container = map.getContainer?.();
+      const padding = fitToRoute
+        ? chromeToMapPadding(fitPadding, {
+          width: container?.clientWidth,
+          height: container?.clientHeight,
+        })
+        : FOLLOW_PADDING;
+      const key = `${bounds?.[0]?.[0]}:${bounds?.[0]?.[1]}:${bounds?.[1]?.[0]}:${bounds?.[1]?.[1]}:${paddingKey(padding)}:${container?.clientHeight || 0}`;
+      if (bounds && lastFitKeyRef.current !== key) {
         lastFitKeyRef.current = key;
-        const lngs = routeCoords.map((point) => Number(point[0]));
-        const lats = routeCoords.map((point) => Number(point[1]));
-        map.fitBounds(
-          [
-            [Math.min(...lngs), Math.min(...lats)],
-            [Math.max(...lngs), Math.max(...lats)],
-          ],
-          {
-            padding: fitToRoute
-              ? { top: 88, bottom: 280, left: 36, right: 36 }
-              : FOLLOW_PADDING,
-            maxZoom: 16.4,
-            duration: 700,
-            essential: true,
-          },
-        );
+        map.fitBounds(bounds, {
+          padding,
+          maxZoom: 16,
+          duration: 700,
+          essential: true,
+        });
       }
       return;
     }
@@ -220,6 +220,12 @@ export default function SpaMap({
     followDriver,
     followTick,
     fitToRoute,
+    fitPadding?.top,
+    fitPadding?.bottom,
+    pickup?.lat,
+    pickup?.lng,
+    dropoff?.lat,
+    dropoff?.lng,
     navigationMode,
     showMapControls,
     snapped?.lat,

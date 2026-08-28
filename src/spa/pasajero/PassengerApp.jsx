@@ -76,6 +76,7 @@ export default function PassengerApp() {
   const [destOpen, setDestOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState(true);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [chromeInsets, setChromeInsets] = useState({ top: 72, bottom: 280 });
   const sessionTokenPlaces = useRef(newPlacesSessionToken());
   const driverRef = useRef(null);
   const geo = useGeoPermission({ enabled: Boolean(session) });
@@ -93,6 +94,12 @@ export default function PassengerApp() {
   const persistSession = useCallback((next) => {
     writePassengerSession(next);
     setSession(next);
+  }, []);
+
+  const onChromeInsets = useCallback((next) => {
+    setChromeInsets((prev) => (
+      prev.top === next.top && prev.bottom === next.bottom ? prev : next
+    ));
   }, []);
 
   useEffect(() => {
@@ -623,6 +630,8 @@ export default function PassengerApp() {
   return (
     <SpaMapScreen
       expanded={searching}
+      layoutKey={`${tab}:${reviewing ? 'review' : liveTrip ? 'live' : 'search'}`}
+      onChromeInsets={onChromeInsets}
       overlay={(
         <>
           {confirmDialog}
@@ -656,6 +665,7 @@ export default function PassengerApp() {
           routeCoords={routeCoords}
           followDriver={Boolean(driver?.lat && liveNav)}
           fitToRoute={reviewing || (liveTrip && !liveNav)}
+          fitPadding={chromeInsets}
         />
       )}
       header={(
@@ -675,7 +685,7 @@ export default function PassengerApp() {
         <>
           <SpaSheet expanded={searching} compact={liveTrip} review={reviewing}>
             {error ? <SpaNotice tone="error">{error}</SpaNotice> : null}
-            {info && (liveTrip || reviewing || tab === 'viaje') ? <SpaNotice>{info}</SpaNotice> : null}
+            {info && (liveTrip || (tab === 'viaje' && !reviewing)) ? <SpaNotice>{info}</SpaNotice> : null}
 
             {tab === 'viaje' && active && isOpenTripStatus(active.status) ? (
               <TripLiveSheet

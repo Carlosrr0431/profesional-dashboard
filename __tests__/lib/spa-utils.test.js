@@ -203,3 +203,25 @@ describe('SPA programación de viaje', () => {
   });
 });
 
+const { chromeToMapPadding, routeBounds } = require('../../src/spa/shared/mapFit');
+
+describe('SPA encuadre de ruta', () => {
+  it('incluye origen y destino aunque la polilínea sea corta', () => {
+    const bounds = routeBounds(
+      [[-65.42, -24.78], [-65.421, -24.781]],
+      { lat: -24.79, lng: -65.43 },
+      { latitude: -24.77, longitude: -65.41 },
+    );
+    expect(bounds[0][0]).toBe(-65.43);
+    expect(bounds[0][1]).toBe(-24.79);
+    expect(bounds[1][0]).toBe(-65.41);
+    expect(bounds[1][1]).toBe(-24.77);
+  });
+
+  it('usa el alto real del sheet y deja mapa visible', () => {
+    const padding = chromeToMapPadding({ top: 64, bottom: 300 }, { width: 390, height: 844 });
+    expect(padding.bottom).toBeGreaterThanOrEqual(300);
+    expect(padding.top + padding.bottom).toBeLessThan(844 - 160);
+  });
+});
+
