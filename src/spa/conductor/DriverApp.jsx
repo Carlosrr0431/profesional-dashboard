@@ -20,6 +20,8 @@ import TripChatModal from '../shared/TripChatModal';
 import { useSpaTripChat } from '../shared/useSpaTripChat';
 import { useSpaConfirm } from '../shared/SpaConfirm';
 import { isTripChatAvailable } from '../shared/tripChat';
+import NewTripOffer from './NewTripOffer';
+import { unlockOfferAlert } from './offerAlert';
 
 const SpaMap = dynamic(() => import('../shared/SpaMap'), { ssr: false });
 
@@ -107,6 +109,9 @@ export default function DriverApp() {
   useEffect(() => {
     initInstallPrompt();
     registerSpaServiceWorker('/conductor');
+    const unlock = () => unlockOfferAlert();
+    window.addEventListener('pointerdown', unlock);
+    return () => window.removeEventListener('pointerdown', unlock);
   }, []);
 
   useEffect(() => {
@@ -202,9 +207,14 @@ export default function DriverApp() {
   }, [driver?.id, loadHistory]);
 
   useEffect(() => {
-    const trip = activeTrip;
+    if (pendingTrip?.id && !activeTrip) setTab('inicio');
+  }, [pendingTrip?.id, activeTrip]);
+
+  useEffect(() => {
+    const offering = Boolean(pendingTrip && !activeTrip);
+    const trip = offering ? pendingTrip : activeTrip;
     const navigating = Boolean(trip && isOpenTripStatus(trip.status) && trip.status !== 'pending');
-    if (!navigating) {
+    if (!navigating && !offering) {
       setRouteCoords(null);
       return undefined;
     }
@@ -212,7 +222,7 @@ export default function DriverApp() {
     let cancelled = false;
     const load = async () => {
       const loc = locationRef.current;
-      const target = tripNavTarget(trip);
+      const target = offering ? tripPickupPoint(trip) : tripNavTarget(trip);
       if (!loc || !target) return;
       const line = await fetchRouteLine(
         { lat: loc.lat, lng: loc.lng },
@@ -222,12 +232,12 @@ export default function DriverApp() {
     };
 
     load();
-    const id = setInterval(load, 60000);
+    const id = setInterval(load, offering ? 20000 : 60000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [activeTrip?.id, activeTrip?.status, activeTrip?.origin_lat, activeTrip?.destination_lat, hasFix, geo.simulating]);
+  }, [activeTrip?.id, activeTrip?.status, activeTrip?.origin_lat, activeTrip?.destination_lat, pendingTrip?.id, pendingTrip?.origin_lat, hasFix, geo.simulating]);
 
   const runLookup = async (rawPhone, rawNumber = null) => {
     setError('');
@@ -363,6 +373,7 @@ export default function DriverApp() {
       }
       setOnline(next);
       setDriver((prev) => ({ ...prev, is_available: next }));
+      if (next) unlockOfferAlert();
       if (next && location && !geo.simulating) await syncLocation(location, true);
     } catch (err) {
       setError(err.message || 'No se pudo cambiar el estado.');
@@ -372,7 +383,7 @@ export default function DriverApp() {
   };
 
   const acceptTrip = async () => {
-    if (!pendingTrip?.id || !driver?.id) return;
+    if (!pendingTrip?.id || !driver?.id) return false;
     setBusy(true);
     setError('');
     try {
@@ -390,7 +401,10 @@ export default function DriverApp() {
         .select()
         .maybeSingle();
       if (updateError) throw updateError;
-      if (!data) throw new Error('El viaje ya no está disponible.');
+      if (!data) {
+        setPendingTrip(null);
+        throw new Error('El viaje ya no está disponible.');
+      }
       setActiveTrip(data);
       setPendingTrip(null);
       const { data: sessionData } = await supabase.auth.getSession();
@@ -402,15 +416,16 @@ export default function DriverApp() {
           body: { tripId: data.id },
         }).catch(() => {});
       }
+      return true;
     } catch (err) {
       setError(err.message || 'No se pudo aceptar el viaje.');
-      setPendingTrip(null);
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
-  const rejectTrip = async () => {
+  const rejectTrip = async (reason = 'Rechazado por chofer') => {
     if (!pendingTrip?.id) return;
     setBusy(true);
     try {
@@ -420,7 +435,7 @@ export default function DriverApp() {
       const { ok, data } = await spaJson('/api/driver/reject-trip', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: { tripId: pendingTrip.id, reason: 'Rechazado por chofer' },
+        body: { tripId: pendingTrip.id, reason },
       });
       if (!ok && data?.success !== true) {
         throw new Error(data?.error || 'No se pudo rechazar.');
@@ -428,6 +443,7 @@ export default function DriverApp() {
       setPendingTrip(null);
     } catch (err) {
       setError(err.message || 'No se pudo rechazar el viaje.');
+      setPendingTrip(null);
     } finally {
       setBusy(false);
     }
@@ -609,11 +625,13 @@ export default function DriverApp() {
   const pickup = tripPickupPoint(activeTrip || pendingTrip);
   const dropoff = tripDropoffPoint(activeTrip || pendingTrip);
   const navigating = Boolean(activeTrip && isOpenTripStatus(activeTrip.status) && activeTrip.status !== 'pending');
+  const offering = Boolean(pendingTrip && !activeTrip);
   const mapCenter = location
     ? { latitude: location.lat, longitude: location.lng }
     : DEFAULT_CENTER;
   const driverMeta = DRIVER_STATUS[activeTrip?.status] || DRIVER_STATUS.pending;
-  const liveSheet = Boolean(tab === 'inicio' && (activeTrip || pendingTrip));
+  const liveSheet = Boolean(tab === 'inicio' && activeTrip);
+  const offerSheet = Boolean(tab === 'inicio' && offering);
   const chatReady = Boolean(activeTrip && isTripChatAvailable(activeTrip.status));
   const locationCopy = geo.status === 'unavailable'
     ? 'Este navegador no comparte ubicación. Sin GPS no podés trabajar en línea.'
@@ -647,9 +665,11 @@ export default function DriverApp() {
           dropoff={dropoff}
           driver={location || null}
           routeCoords={routeCoords}
-          followDriver={online || navigating}
+          followDriver={(online || navigating) && !offering}
           navigationMode={navigating}
           driverIcon="arrow"
+          showMapControls
+          fitToRoute={offering}
         />
       )}
       header={(
@@ -667,35 +687,16 @@ export default function DriverApp() {
       ) : null}
       sheet={(
         <>
-          <SpaSheet compact={liveSheet}>
+          <SpaSheet compact={liveSheet} offer={offerSheet}>
             {error ? <SpaNotice tone="error">{error}</SpaNotice> : null}
 
-            {tab === 'inicio' && pendingTrip && !activeTrip ? (
-              <SpaPanel key="oferta" className="spa-panel--compact">
-                <div>
-                  <SpaKicker live>Nuevo viaje</SpaKicker>
-                  <h2 className="text-[18px] font-semibold tracking-tight text-navy-900">{pendingTrip.passenger_name || 'Pasajero'}</h2>
-                </div>
-                <div className="spa-route">
-                  {pendingTrip.origin_address ? (
-                    <p className="spa-route-line text-[13px] text-navy-900">
-                      <span className="spa-route-dot" />
-                      <span className="min-w-0 truncate">{pendingTrip.origin_address}</span>
-                    </p>
-                  ) : null}
-                  <p className="spa-route-line text-[13px] text-navy-900">
-                    <span className="spa-route-dot spa-route-dot--dest" />
-                    <span className="min-w-0 truncate">{pendingTrip.destination_address || pendingTrip.origin_address}</span>
-                  </p>
-                </div>
-                {pendingTrip.price ? (
-                  <p className="text-[15px] font-semibold text-navy-900">{formatArs(pendingTrip.price)}</p>
-                ) : null}
-                <div className="grid grid-cols-2 gap-2">
-                  <SpaButton variant="ghost" disabled={busy} onClick={rejectTrip} className="!min-h-11">Rechazar</SpaButton>
-                  <SpaButton variant="success" disabled={busy} onClick={acceptTrip} className="!min-h-11">Aceptar</SpaButton>
-                </div>
-              </SpaPanel>
+            {tab === 'inicio' && offering ? (
+              <NewTripOffer
+                trip={pendingTrip}
+                busy={busy}
+                onAccept={acceptTrip}
+                onReject={rejectTrip}
+              />
             ) : null}
 
             {tab === 'inicio' && activeTrip ? (
@@ -725,7 +726,7 @@ export default function DriverApp() {
               />
             ) : null}
 
-            {tab === 'inicio' && !pendingTrip && !activeTrip ? (
+            {tab === 'inicio' && !offering && !activeTrip ? (
               <SpaPanel key="espera">
                 <div className="py-2 text-center">
                   <SpaKicker live={online}>{online ? 'En línea' : 'Fuera de línea'}</SpaKicker>
@@ -778,7 +779,7 @@ export default function DriverApp() {
               </SpaPanel>
             ) : null}
           </SpaSheet>
-          <SpaTabs items={TABS} value={tab} onChange={setTab} compact={liveSheet} />
+          <SpaTabs items={TABS} value={tab} onChange={setTab} compact={liveSheet || offerSheet} />
         </>
       )}
     />

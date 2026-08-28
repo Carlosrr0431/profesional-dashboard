@@ -5,6 +5,7 @@ import Map, { Marker, Source, Layer } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MAP_STYLE, DEFAULT_MAP_VIEW } from '../../lib/mapLibre';
 import { polylineHeading, remainingPolyline, snapToPolyline, smoothAngle, offsetAlongBearing } from './nav';
+import { haptic } from './ui';
 
 const OVERVIEW_ROUTE_BORDER = {
   id: 'spa-route-border',
@@ -40,6 +41,15 @@ const NAV_PADDING = { top: 96, bottom: 340, left: 28, right: 28 };
 const NAV_LOOKAHEAD_M = 22;
 const FOLLOW_PADDING = { top: 96, bottom: 320, left: 36, right: 36 };
 
+function LocateIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 4.5v2.2M12 17.3v2.2M4.5 12h2.2M17.3 12h2.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function DriverArrow() {
   return (
     <svg
@@ -66,6 +76,8 @@ export default function SpaMap({
   followDriver = false,
   navigationMode = false,
   driverIcon = 'car',
+  showMapControls = false,
+  fitToRoute = false,
 }) {
   const mapRef = useRef(null);
   const navReadyRef = useRef(false);
@@ -74,6 +86,8 @@ export default function SpaMap({
   const view = center || DEFAULT_MAP_VIEW;
   const [failed, setFailed] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [threeDEnabled, setThreeDEnabled] = useState(true);
+  const [followTick, setFollowTick] = useState(0);
   const useArrow = driverIcon === 'arrow' || navigationMode;
 
   const snapped = useMemo(() => {
@@ -109,30 +123,45 @@ export default function SpaMap({
     if (!map || !mapLoaded) return;
 
     if (navigationMode && snapped) {
-      const heading = displayRoute?.length >= 2 ? polylineHeading(displayRoute) : 0;
-      const ahead = offsetAlongBearing(snapped.lat, snapped.lng, heading, NAV_LOOKAHEAD_M);
-      const bearing = navReadyRef.current
-        ? smoothAngle(lastBearingRef.current ?? heading, heading, 0.28)
-        : heading;
-      lastBearingRef.current = bearing;
-      const camera = {
-        center: [ahead.lng, ahead.lat],
-        zoom: NAV_ZOOM,
-        pitch: NAV_PITCH,
-        bearing,
-        padding: NAV_PADDING,
-      };
-      if (!navReadyRef.current) {
-        map.jumpTo(camera);
-        navReadyRef.current = true;
+      if (threeDEnabled) {
+        const heading = displayRoute?.length >= 2 ? polylineHeading(displayRoute) : 0;
+        const ahead = offsetAlongBearing(snapped.lat, snapped.lng, heading, NAV_LOOKAHEAD_M);
+        const bearing = navReadyRef.current
+          ? smoothAngle(lastBearingRef.current ?? heading, heading, 0.28)
+          : heading;
+        lastBearingRef.current = bearing;
+        const camera = {
+          center: [ahead.lng, ahead.lat],
+          zoom: NAV_ZOOM,
+          pitch: NAV_PITCH,
+          bearing,
+          padding: NAV_PADDING,
+        };
+        if (!navReadyRef.current) {
+          map.jumpTo(camera);
+          navReadyRef.current = true;
+          return;
+        }
+        map.easeTo({
+          center: camera.center,
+          bearing,
+          pitch: NAV_PITCH,
+          padding: NAV_PADDING,
+          duration: 220,
+          essential: true,
+        });
         return;
       }
+
+      navReadyRef.current = false;
+      lastBearingRef.current = null;
       map.easeTo({
-        center: camera.center,
-        bearing,
-        pitch: NAV_PITCH,
+        center: [snapped.lng, snapped.lat],
+        zoom: NAV_ZOOM,
+        pitch: 0,
+        bearing: 0,
         padding: NAV_PADDING,
-        duration: 220,
+        duration: 280,
         essential: true,
       });
       return;
@@ -140,7 +169,7 @@ export default function SpaMap({
 
     navReadyRef.current = false;
     lastBearingRef.current = null;
-    if (followDriver && Array.isArray(routeCoords) && routeCoords.length >= 2) {
+    if ((fitToRoute || (!showMapControls && followDriver)) && Array.isArray(routeCoords) && routeCoords.length >= 2) {
       const key = `${routeCoords.length}:${routeCoords[0]?.[0]}:${routeCoords[routeCoords.length - 1]?.[1]}`;
       if (lastFitKeyRef.current !== key) {
         lastFitKeyRef.current = key;
@@ -151,7 +180,14 @@ export default function SpaMap({
             [Math.min(...lngs), Math.min(...lats)],
             [Math.max(...lngs), Math.max(...lats)],
           ],
-          { padding: FOLLOW_PADDING, maxZoom: 17, duration: 700, essential: true },
+          {
+            padding: fitToRoute
+              ? { top: 96, bottom: 380, left: 40, right: 40 }
+              : FOLLOW_PADDING,
+            maxZoom: 16.4,
+            duration: 700,
+            essential: true,
+          },
         );
       }
       return;
@@ -163,13 +199,16 @@ export default function SpaMap({
         ? { lng: center.longitude ?? center.lng, lat: center.latitude ?? center.lat }
         : null;
     if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
+    const driver3d = Boolean(showMapControls && threeDEnabled);
     map.easeTo({
       center: [target.lng, target.lat],
-      zoom,
-      pitch: 0,
+      zoom: driver3d ? 16.2 : zoom,
+      pitch: driver3d ? NAV_PITCH : 0,
       bearing: 0,
       duration: 400,
-      padding: { top: 0, bottom: 0, left: 0, right: 0 },
+      padding: showMapControls
+        ? { top: 88, bottom: 220, left: 24, right: 24 }
+        : { top: 0, bottom: 0, left: 0, right: 0 },
     });
   }, [
     center?.latitude,
@@ -179,13 +218,34 @@ export default function SpaMap({
     driver?.lat,
     driver?.lng,
     followDriver,
+    followTick,
+    fitToRoute,
     navigationMode,
+    showMapControls,
     snapped?.lat,
     snapped?.lng,
+    threeDEnabled,
     routeCoords,
     zoom,
     mapLoaded,
   ]);
+
+  const headingUp = Boolean(navigationMode && threeDEnabled);
+
+  const recenter = () => {
+    haptic(10);
+    navReadyRef.current = false;
+    lastFitKeyRef.current = '';
+    lastBearingRef.current = null;
+    setFollowTick((n) => n + 1);
+  };
+
+  const toggleThreeD = () => {
+    haptic(10);
+    navReadyRef.current = false;
+    lastBearingRef.current = null;
+    setThreeDEnabled((prev) => !prev);
+  };
 
   if (failed) {
     return <div className="h-full w-full bg-[#d9e2ec]" />;
@@ -197,6 +257,7 @@ export default function SpaMap({
   const marker = snapped || driver;
 
   return (
+    <div className="spa-map-wrap">
     <Map
       ref={mapRef}
       mapStyle={MAP_STYLE}
@@ -255,9 +316,9 @@ export default function SpaMap({
           longitude={marker.lng}
           latitude={marker.lat}
           anchor="center"
-          rotation={navigationMode ? 0 : (useArrow ? arrowHeading : 0)}
-          rotationAlignment={navigationMode ? 'viewport' : 'map'}
-          pitchAlignment={navigationMode ? 'viewport' : 'map'}
+          rotation={headingUp ? 0 : (useArrow ? arrowHeading : 0)}
+          rotationAlignment={headingUp ? 'viewport' : 'map'}
+          pitchAlignment={headingUp ? 'viewport' : 'map'}
         >
           {useArrow ? (
             <DriverArrow />
@@ -273,5 +334,21 @@ export default function SpaMap({
         </Marker>
       ) : null}
     </Map>
+    {showMapControls ? (
+      <div className="spa-map-controls">
+        <button type="button" className="spa-map-btn" onClick={recenter} aria-label="Centrar ubicación">
+          <LocateIcon />
+        </button>
+        <button
+          type="button"
+          className="spa-map-btn spa-map-btn--mode"
+          onClick={toggleThreeD}
+          aria-label={threeDEnabled ? 'Cambiar a vista 2D' : 'Cambiar a vista 3D'}
+        >
+          {threeDEnabled ? '2D' : '3D'}
+        </button>
+      </div>
+    ) : null}
+    </div>
   );
 }

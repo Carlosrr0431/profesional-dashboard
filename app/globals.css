@@ -532,6 +532,47 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   inset: 0;
 }
 
+.spa-map-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.spa-map-controls {
+  position: absolute;
+  right: max(12px, env(safe-area-inset-right, 0px));
+  top: calc(env(safe-area-inset-top, 0px) + 78px);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.spa-map-btn {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.12);
+  color: #245f8d;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spa-map-btn:active {
+  opacity: 0.7;
+}
+
+.spa-map-btn--mode {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .spa-map .maplibregl-map,
 .spa-map .maplibregl-canvas-container,
 .spa-map .maplibregl-canvas {
@@ -551,7 +592,6 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 
 .spa-top,
 .spa-bottom {
-  pointer-events: auto;
   width: 100%;
   max-width: 28rem;
   margin-left: auto;
@@ -573,6 +613,11 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   gap: 8px;
   padding-top: max(10px, env(safe-area-inset-top, 0px));
   padding-bottom: 8px;
+  pointer-events: none;
+}
+
+.spa-top > * {
+  pointer-events: auto;
 }
 
 .spa-bottom {
@@ -583,6 +628,7 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   max-height: 100%;
   margin-top: auto;
   padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
+  pointer-events: auto;
 }
 
 .spa-bottom--expanded {
@@ -654,6 +700,14 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 
 .spa-sheet--compact {
   max-height: min(38vh, 320px);
+}
+
+.spa-sheet--offer {
+  max-height: min(58vh, 540px);
+}
+
+.spa-sheet--offer .spa-sheet-body {
+  padding: 6px 16px 14px;
 }
 
 @media (min-width: 768px) {
@@ -856,6 +910,225 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   color: #245f8d;
   font-size: 13px;
   font-weight: 700;
+}
+
+.spa-avatar--lg {
+  height: 42px;
+  width: 42px;
+  font-size: 15px;
+}
+
+.spa-offer {
+  display: grid;
+  gap: 14px;
+}
+
+.spa-offer-progress {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8ecf2;
+}
+
+.spa-offer-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #16c784;
+  transition: width 1s linear;
+}
+
+.spa-offer-progress > span.is-urgent {
+  background: #ef4444;
+}
+
+.spa-offer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.spa-offer-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #0f172a;
+}
+
+.spa-offer-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  background: #e8f0f6;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #245f8d;
+}
+
+.spa-offer-chip--warn {
+  background: #fff4e5;
+  color: #c2410c;
+}
+
+.spa-offer-timer {
+  flex-shrink: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  background: #f8fafc;
+  padding: 8px 14px;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #245f8d;
+}
+
+.spa-offer-timer.is-urgent {
+  border-color: rgba(239, 68, 68, 0.28);
+  background: #fef2f2;
+  font-size: 18px;
+  color: #dc2626;
+}
+
+.spa-route--offer .spa-route-line {
+  align-items: flex-start;
+  min-height: 44px;
+  padding: 8px 0;
+}
+
+.spa-route--offer .spa-route-line span:last-child {
+  min-width: 0;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  font-size: 14px;
+  line-height: 1.35;
+  color: #0f172a;
+}
+
+.spa-route-dot--stop {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.12);
+}
+
+.spa-offer-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.spa-offer-stats > div {
+  display: grid;
+  gap: 2px;
+  border: 1px solid #e8ecf2;
+  border-radius: 16px;
+  background: #fff;
+  padding: 12px 8px;
+  text-align: center;
+}
+
+.spa-offer-stats strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.spa-offer-stats span {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.spa-offer-stats > .is-price {
+  border: 0;
+  background: linear-gradient(135deg, #1ad98a, #0daa6e);
+  box-shadow: 0 3px 10px rgba(22, 199, 132, 0.25);
+}
+
+.spa-offer-stats > .is-price strong,
+.spa-offer-stats > .is-price span {
+  color: #fff;
+}
+
+.spa-offer-stats > .is-price span {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.spa-offer-notes {
+  margin: 0;
+  border-radius: 12px;
+  background: #fff7ed;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #c2410c;
+}
+
+.spa-offer-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.spa-offer-accept,
+.spa-offer-reject {
+  width: 100%;
+  border: 0;
+  cursor: pointer;
+}
+
+.spa-offer-accept {
+  min-height: 56px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #1ad98a, #0daa6e);
+  box-shadow: 0 6px 20px rgba(22, 199, 132, 0.38);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.spa-offer-reject {
+  min-height: 48px;
+  border-radius: 14px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.08);
+  color: #dc2626;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.spa-offer-accept:disabled,
+.spa-offer-reject:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.spa-offer-accept:active:not(:disabled),
+.spa-offer-reject:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.spa-offer-reason {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  background: #f8f9fc;
+  padding: 13px 14px;
+  text-align: left;
+  font-size: 15px;
+  font-weight: 500;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.spa-offer-reason:active {
+  background: #fee2e2;
+}
+
+.spa-offer-reasons {
+  display: grid;
+  gap: 12px;
 }
 
 .spa-plate {

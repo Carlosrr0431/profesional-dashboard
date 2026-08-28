@@ -171,10 +171,11 @@ export function SpaTabs({ items, value, onChange, compact = false }) {
   );
 }
 
-export function SpaSheet({ children, expanded = false, compact = false }) {
+export function SpaSheet({ children, expanded = false, compact = false, offer = false }) {
   const cls = ['spa-sheet'];
   if (expanded) cls.push('spa-sheet--expanded');
   if (compact) cls.push('spa-sheet--compact');
+  if (offer) cls.push('spa-sheet--offer');
   return (
     <div className={cls.join(' ')}>
       <div className="spa-sheet-handle" />

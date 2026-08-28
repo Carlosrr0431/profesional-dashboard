@@ -142,3 +142,40 @@ describe('SPA trip chat helpers', () => {
   });
 });
 
+const {
+  remainingAcceptSeconds,
+  formatOfferDistance,
+  getOfferDisplay,
+} = require('../../src/spa/conductor/tripOffer');
+
+describe('SPA oferta de viaje', () => {
+  it('cuenta 15s si no hay assigned_at', () => {
+    expect(remainingAcceptSeconds({ id: '1' }, Date.now())).toBe(15);
+  });
+
+  it('resta los segundos desde assigned_at y no baja de 0', () => {
+    const now = Date.parse('2026-08-27T22:00:15.000Z');
+    expect(remainingAcceptSeconds({ assigned_at: '2026-08-27T22:00:00.000Z' }, now)).toBe(0);
+    expect(remainingAcceptSeconds({ assigned_at: '2026-08-27T22:00:10.000Z' }, now)).toBe(10);
+  });
+
+  it('formatea distancia corta en metros', () => {
+    expect(formatOfferDistance(0.35)).toBe('350 m');
+    expect(formatOfferDistance(4.2)).toBe('4.2 km');
+  });
+
+  it('usa destino a definir en viajes solo de aproximación', () => {
+    const display = getOfferDisplay({
+      notes: '[APPROACH_ONLY]',
+      origin_address: 'Juan Gálvez 350',
+      origin_lat: -24.78,
+      origin_lng: -65.42,
+      destination_address: 'Juan Gálvez 350',
+      destination_lat: -24.78,
+      destination_lng: -65.42,
+    });
+    expect(display.pickupAddress).toMatch(/Juan Gálvez/i);
+    expect(display.destinationAddress).toBe('A definir al subir al pasajero');
+  });
+});
+
