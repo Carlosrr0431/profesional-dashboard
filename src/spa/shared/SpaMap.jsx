@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Map, { Marker, Source, Layer } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MAP_STYLE, DEFAULT_MAP_VIEW } from '../../lib/mapLibre';
-import { polylineHeading, remainingPolyline, snapToPolyline } from './nav';
+import { polylineHeading, remainingPolyline, snapToPolyline, smoothAngle, offsetAlongBearing } from './nav';
 
 const OVERVIEW_ROUTE_BORDER = {
   id: 'spa-route-border',
@@ -34,9 +34,10 @@ const NAV_ROUTE_LINE = {
   paint: { 'line-color': '#4285F4', 'line-width': 10, 'line-opacity': 0.94 },
 };
 
-const NAV_PITCH = 12;
+const NAV_PITCH = 52;
 const NAV_ZOOM = 17.4;
-const NAV_PADDING = { top: 56, bottom: 168, left: 48, right: 48 };
+const NAV_PADDING = { top: 240, bottom: 150, left: 44, right: 44 };
+const NAV_LOOKAHEAD_M = 22;
 
 function DriverArrow({ heading = 0 }) {
   return (
@@ -66,6 +67,7 @@ export default function SpaMap({
 }) {
   const mapRef = useRef(null);
   const navReadyRef = useRef(false);
+  const lastBearingRef = useRef(null);
   const view = center || DEFAULT_MAP_VIEW;
   const [failed, setFailed] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -105,11 +107,17 @@ export default function SpaMap({
     if (!map || !mapLoaded) return;
 
     if (navigationMode && snapped) {
+      const heading = displayRoute?.length >= 2 ? polylineHeading(displayRoute) : 0;
+      const ahead = offsetAlongBearing(snapped.lat, snapped.lng, heading, NAV_LOOKAHEAD_M);
+      const bearing = navReadyRef.current
+        ? smoothAngle(lastBearingRef.current ?? heading, heading, 0.28)
+        : heading;
+      lastBearingRef.current = bearing;
       const camera = {
-        center: [snapped.lng, snapped.lat],
+        center: [ahead.lng, ahead.lat],
         zoom: NAV_ZOOM,
         pitch: NAV_PITCH,
-        bearing: 0,
+        bearing,
         padding: NAV_PADDING,
       };
       if (!navReadyRef.current) {
@@ -119,15 +127,16 @@ export default function SpaMap({
       }
       map.easeTo({
         center: camera.center,
-        bearing: 0,
+        bearing,
         pitch: NAV_PITCH,
-        duration: 280,
+        duration: 220,
         essential: true,
       });
       return;
     }
 
     navReadyRef.current = false;
+    lastBearingRef.current = null;
     const target = followDriver && driver
       ? { lng: driver.lng, lat: driver.lat }
       : center
@@ -225,9 +234,9 @@ export default function SpaMap({
           longitude={marker.lng}
           latitude={marker.lat}
           anchor="center"
-          rotation={useArrow ? arrowHeading : 0}
-          rotationAlignment="map"
-          pitchAlignment="map"
+          rotation={navigationMode ? 0 : (useArrow ? arrowHeading : 0)}
+          rotationAlignment={navigationMode ? 'viewport' : 'map'}
+          pitchAlignment={navigationMode ? 'viewport' : 'map'}
         >
           {useArrow ? (
             <DriverArrow heading={0} />

@@ -53,7 +53,7 @@ describe('SPA trip helpers', () => {
 });
 
 const { tripPickupPoint, tripNavTarget } = require('../../src/spa/shared/tripPoints');
-const { remainingPolyline, polylineHeading, bearingDegrees, snapToPolyline } = require('../../src/spa/shared/nav');
+const { remainingPolyline, polylineHeading, bearingDegrees, snapToPolyline, smoothAngle, offsetAlongBearing } = require('../../src/spa/shared/nav');
 
 describe('SPA driver navigation', () => {
   it('usa origin como retiro en viajes de la app de pasajeros', () => {
@@ -109,6 +109,12 @@ describe('SPA driver navigation', () => {
     const snapped = snapToPolyline(line, -24.7804, -65.415);
     expect(snapped.lat).toBeCloseTo(-24.78, 5);
     expect(snapped.lng).toBeCloseTo(-65.415, 4);
+  });
+
+  it('suaviza el rumbo y adelanta la cámara sobre la polilínea', () => {
+    expect(smoothAngle(10, 40, 0.5)).toBeCloseTo(25, 5);
+    const ahead = offsetAlongBearing(-24.78, -65.42, 0, 100);
+    expect(ahead.lat).toBeGreaterThan(-24.78);
   });
 });
 

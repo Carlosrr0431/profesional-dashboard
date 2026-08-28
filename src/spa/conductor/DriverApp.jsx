@@ -13,8 +13,8 @@ import { SpaBackHome, SpaBrand, SpaButton, SpaEmpty, SpaKicker, SpaNotice, SpaPa
 import { SpaAuthScreen, SpaBootScreen, SpaMapScreen } from '../shared/SpaShell';
 import InstallAppButton from '../shared/InstallAppButton';
 import LocationBanner from '../shared/LocationBanner';
-import { useGeoPermission } from '../shared/geoPermission';
 import { initInstallPrompt, registerSpaServiceWorker } from '../shared/pwa';
+import { useDriverGps } from './useDriverGps';
 import TripLiveSheet from '../shared/TripLiveSheet';
 import TripChatModal from '../shared/TripChatModal';
 import { useSpaTripChat } from '../shared/useSpaTripChat';
@@ -52,7 +52,7 @@ export default function DriverApp() {
   const [routeCoords, setRouteCoords] = useState(null);
   const readyHaptic = useRef(false);
   const locationRef = useRef(null);
-  const geo = useGeoPermission({ watch: Boolean(driver), enabled: Boolean(driver) });
+  const geo = useDriverGps(driver?.id);
   const location = geo.coords;
   locationRef.current = location;
   const hasFix = Boolean(location);
@@ -158,9 +158,10 @@ export default function DriverApp() {
   }, [driver?.id]);
 
   useEffect(() => {
+    if (!geo.simReady || geo.simulating) return;
     if (!online || !location) return;
     syncLocation(location, true);
-  }, [online, location, syncLocation]);
+  }, [online, location, syncLocation, geo.simReady, geo.simulating]);
 
   useEffect(() => {
     if (!readyHaptic.current) {
@@ -224,7 +225,7 @@ export default function DriverApp() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [activeTrip?.id, activeTrip?.status, activeTrip?.origin_lat, activeTrip?.destination_lat, hasFix]);
+  }, [activeTrip?.id, activeTrip?.status, activeTrip?.origin_lat, activeTrip?.destination_lat, hasFix, geo.simulating]);
 
   const runLookup = async (rawPhone, rawNumber = null) => {
     setError('');
@@ -360,7 +361,7 @@ export default function DriverApp() {
       }
       setOnline(next);
       setDriver((prev) => ({ ...prev, is_available: next }));
-      if (next && location) await syncLocation(location, true);
+      if (next && location && !geo.simulating) await syncLocation(location, true);
     } catch (err) {
       setError(err.message || 'No se pudo cambiar el estado.');
     } finally {

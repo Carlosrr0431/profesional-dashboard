@@ -66,3 +66,28 @@ export function polylineHeading(coords) {
     { lat: Number(to[1]), lng: Number(to[0]) },
   );
 }
+
+export function smoothAngle(current, target, factor = 0.32) {
+  const from = Number(current);
+  const to = Number(target);
+  if (!Number.isFinite(from)) return Number.isFinite(to) ? to : 0;
+  if (!Number.isFinite(to)) return from;
+  const delta = ((to - from + 540) % 360) - 180;
+  return (from + delta * factor + 360) % 360;
+}
+
+export function offsetAlongBearing(lat, lng, bearing, meters) {
+  const R = 6378137;
+  const brng = (Number(bearing) * Math.PI) / 180;
+  const lat1 = (Number(lat) * Math.PI) / 180;
+  const lng1 = (Number(lng) * Math.PI) / 180;
+  const ang = Number(meters) / R;
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(ang) + Math.cos(lat1) * Math.sin(ang) * Math.cos(brng),
+  );
+  const lng2 = lng1 + Math.atan2(
+    Math.sin(brng) * Math.sin(ang) * Math.cos(lat1),
+    Math.cos(ang) - Math.sin(lat1) * Math.sin(lat2),
+  );
+  return { lat: (lat2 * 180) / Math.PI, lng: (lng2 * 180) / Math.PI };
+}
