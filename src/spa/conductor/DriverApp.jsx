@@ -18,6 +18,7 @@ import { useDriverGps } from './useDriverGps';
 import TripLiveSheet from '../shared/TripLiveSheet';
 import TripChatModal from '../shared/TripChatModal';
 import { useSpaTripChat } from '../shared/useSpaTripChat';
+import { useSpaConfirm } from '../shared/SpaConfirm';
 import { isTripChatAvailable } from '../shared/tripChat';
 
 const SpaMap = dynamic(() => import('../shared/SpaMap'), { ssr: false });
@@ -63,6 +64,7 @@ export default function DriverApp() {
     enabled: Boolean(driver && activeTrip?.id && isTripChatAvailable(activeTrip?.status)),
     getSupabase: getDriverSupabase,
   });
+  const { confirm, dialog: confirmDialog } = useSpaConfirm();
 
   const fetchProfile = useCallback(async (userId) => {
     const supabase = getDriverSupabase();
@@ -433,8 +435,16 @@ export default function DriverApp() {
 
   const updateTripStatus = async (status, extra = {}) => {
     if (!activeTrip?.id) return;
-    if (status === 'completed' && typeof window !== 'undefined' && !window.confirm('¿Finalizar este viaje?')) {
-      return;
+    if (status === 'completed') {
+      const ok = await confirm({
+        title: '¿Finalizar este viaje?',
+        amount: activeTrip.price ? formatArs(activeTrip.price) : null,
+        body: 'El viaje se completa y volvés a quedar en línea.',
+        confirmLabel: 'Finalizar',
+        cancelLabel: 'Volver',
+        tone: 'success',
+      });
+      if (!ok) return;
     }
     setBusy(true);
     setError('');
@@ -606,18 +616,21 @@ export default function DriverApp() {
   return (
     <SpaMapScreen
       overlay={(
-        <TripChatModal
-          open={tripChat.chatOpen}
-          title={activeTrip?.passenger_name || 'Pasajero'}
-          subtitle="Chat del viaje"
-          myRole={tripChat.myRole}
-          messages={tripChat.messages}
-          loading={tripChat.loading}
-          sending={tripChat.sending}
-          writable={tripChat.writable}
-          onClose={tripChat.closeChat}
-          onSendText={tripChat.sendText}
-        />
+        <>
+          {confirmDialog}
+          <TripChatModal
+            open={tripChat.chatOpen}
+            title={activeTrip?.passenger_name || 'Pasajero'}
+            subtitle="Chat del viaje"
+            myRole={tripChat.myRole}
+            messages={tripChat.messages}
+            loading={tripChat.loading}
+            sending={tripChat.sending}
+            writable={tripChat.writable}
+            onClose={tripChat.closeChat}
+            onSendText={tripChat.sendText}
+          />
+        </>
       )}
       map={(
         <SpaMap

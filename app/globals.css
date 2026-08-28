@@ -991,6 +991,57 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   outline: none;
 }
 
+.spa-confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.4);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.spa-confirm-card {
+  width: min(100%, 22rem);
+  border-radius: 28px;
+  background: #fff;
+  padding: 22px 20px 16px;
+  box-shadow: 0 24px 60px -28px rgba(15, 23, 42, 0.5);
+}
+
+.spa-confirm-card h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: #0f172a;
+}
+
+.spa-confirm-amount {
+  margin: 10px 0 0;
+  font-size: 32px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  color: #0f172a;
+}
+
+.spa-confirm-body {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.spa-confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 18px;
+}
+
 .spa-sheet--compact .spa-route {
   padding: 2px 12px 4px;
 }
@@ -1257,7 +1308,8 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   .spa-press,
   .spa-sheet,
   .spa-switch-knob,
-  .spa-pulse {
+  .spa-pulse,
+  .spa-confirm-card {
     animation: none;
     transition: none;
   }

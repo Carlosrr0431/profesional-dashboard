@@ -28,6 +28,7 @@ import { initInstallPrompt, registerSpaServiceWorker } from '../shared/pwa';
 import TripLiveSheet from '../shared/TripLiveSheet';
 import TripChatModal from '../shared/TripChatModal';
 import { useSpaTripChat } from '../shared/useSpaTripChat';
+import { useSpaConfirm } from '../shared/SpaConfirm';
 import { buildTripTrackingUrl, isTripChatAvailable } from '../shared/tripChat';
 
 const SpaMap = dynamic(() => import('../shared/SpaMap'), { ssr: false });
@@ -84,6 +85,7 @@ export default function PassengerApp() {
       ? { phone: session.phone, sessionToken: session.sessionToken }
       : null,
   });
+  const { confirm, dialog: confirmDialog } = useSpaConfirm();
 
   const persistSession = useCallback((next) => {
     writePassengerSession(next);
@@ -414,10 +416,17 @@ export default function PassengerApp() {
 
   const cancelTrip = async () => {
     if (!active?.id) return;
-    const searching = active.status === 'queued' || active.status === 'pending';
-    const okConfirm = typeof window === 'undefined'
-      ? true
-      : window.confirm(searching ? '¿Cancelar la solicitud?' : '¿Cancelar este viaje?');
+    const searchingTrip = active.status === 'queued' || active.status === 'pending';
+    const okConfirm = await confirm({
+      title: searchingTrip ? '¿Cancelar la solicitud?' : '¿Cancelar este viaje?',
+      amount: active.price ? formatArs(active.price) : null,
+      body: searchingTrip
+        ? 'Vamos a dejar de buscar un conductor.'
+        : 'El chofer dejará de ver este viaje.',
+      confirmLabel: searchingTrip ? 'Cancelar solicitud' : 'Cancelar viaje',
+      cancelLabel: 'Seguir',
+      tone: 'danger',
+    });
     if (!okConfirm) return;
     setBusy(true);
     const { ok, data } = await spaJson('/api/trips/cancel-passenger', {
@@ -556,18 +565,21 @@ export default function PassengerApp() {
     <SpaMapScreen
       expanded={searching}
       overlay={(
-        <TripChatModal
-          open={tripChat.chatOpen}
-          title={driver?.full_name || 'Tu conductor'}
-          subtitle="Chat del viaje"
-          myRole={tripChat.myRole}
-          messages={tripChat.messages}
-          loading={tripChat.loading}
-          sending={tripChat.sending}
-          writable={tripChat.writable}
-          onClose={tripChat.closeChat}
-          onSendText={tripChat.sendText}
-        />
+        <>
+          {confirmDialog}
+          <TripChatModal
+            open={tripChat.chatOpen}
+            title={driver?.full_name || 'Tu conductor'}
+            subtitle="Chat del viaje"
+            myRole={tripChat.myRole}
+            messages={tripChat.messages}
+            loading={tripChat.loading}
+            sending={tripChat.sending}
+            writable={tripChat.writable}
+            onClose={tripChat.closeChat}
+            onSendText={tripChat.sendText}
+          />
+        </>
       )}
       map={(
         <SpaMap
