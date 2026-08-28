@@ -115,8 +115,13 @@ export default function PassengerApp() {
       return;
     }
     setHistory(data.trips || []);
-    if (data.activeTrip) setActive(data.activeTrip);
-    else setActive((prev) => (prev && isOpenTripStatus(prev.status) ? prev : null));
+    if (data.activeTrip) {
+      setActive(data.activeTrip);
+    } else {
+      setActive(null);
+      setDriver(null);
+      driverRef.current = null;
+    }
     if (data.name && auth.name !== data.name) {
       persistSession({ ...auth, name: data.name });
     }
@@ -216,6 +221,17 @@ export default function PassengerApp() {
       const { ok, data } = await spaJson(`/api/public-tracking/${key}`);
       if (cancelled || !ok || !data?.ok) return;
       const trip = data.data.trip;
+      if (!isOpenTripStatus(trip.status)) {
+        setActive(null);
+        setDriver(null);
+        driverRef.current = null;
+        setRouteCoords(null);
+        setDestination(null);
+        setDestText('');
+        setQuote(null);
+        if (session) loadTrips(session);
+        return;
+      }
       setActive(trip);
       const track = data.data.lastTrack;
       const driverRow = data.data.driver;
@@ -229,9 +245,6 @@ export default function PassengerApp() {
       };
       driverRef.current = nextDriver;
       setDriver(nextDriver);
-      if (!isOpenTripStatus(trip.status)) {
-        if (session) loadTrips(session);
-      }
     };
     tick();
     const id = setInterval(tick, 3500);
@@ -440,6 +453,11 @@ export default function PassengerApp() {
     }
     setActive(null);
     setDriver(null);
+    driverRef.current = null;
+    setRouteCoords(null);
+    setDestination(null);
+    setDestText('');
+    setQuote(null);
     if (session) loadTrips(session);
   };
 
@@ -468,6 +486,9 @@ export default function PassengerApp() {
     clearPassengerSession();
     setSession(null);
     setActive(null);
+    setDriver(null);
+    driverRef.current = null;
+    setRouteCoords(null);
     setHistory([]);
     setOtpStep('phone');
   };
@@ -487,7 +508,9 @@ export default function PassengerApp() {
     in_progress: 1,
   };
   const mapCenter = asMapCenter(
-    driver?.lat != null ? driver : pickup || { lat: DEFAULT_CENTER.latitude, lng: DEFAULT_CENTER.longitude },
+    liveNav && driver?.lat != null
+      ? driver
+      : pickup || { lat: DEFAULT_CENTER.latitude, lng: DEFAULT_CENTER.longitude },
   );
 
   if (booting) {
@@ -586,7 +609,7 @@ export default function PassengerApp() {
           center={mapCenter}
           pickup={inProgress ? null : tripPickup}
           dropoff={tripDropoff}
-          driver={driver?.lat != null ? driver : null}
+          driver={liveNav && driver?.lat != null ? driver : null}
           routeCoords={routeCoords}
           followDriver={Boolean(driver?.lat && liveNav)}
         />
