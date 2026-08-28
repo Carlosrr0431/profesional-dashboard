@@ -38,6 +38,7 @@ export default function DriverApp() {
   const [driver, setDriver] = useState(null);
   const [tab, setTab] = useState('inicio');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
 
   const [step, setStep] = useState('phone');
@@ -189,8 +190,20 @@ export default function DriverApp() {
         (payload) => {
           const trip = payload.new;
           if (!trip) return;
-          if (trip.status === 'pending') setPendingTrip(trip);
-          else if (isOpenTripStatus(trip.status)) {
+          if (trip.status === 'cancelled') {
+            haptic(40);
+            setError('');
+            setInfo('El pasajero canceló el viaje.');
+            setActiveTrip((prev) => (prev?.id === trip.id ? null : prev));
+            setPendingTrip((prev) => (prev?.id === trip.id ? null : prev));
+            loadHistory(driver.id);
+            return;
+          }
+          if (trip.status === 'pending') {
+            setInfo('');
+            setPendingTrip(trip);
+          } else if (isOpenTripStatus(trip.status)) {
+            setInfo('');
             setActiveTrip(trip);
             setPendingTrip(null);
           } else {
@@ -689,6 +702,7 @@ export default function DriverApp() {
         <>
           <SpaSheet compact={liveSheet} offer={offerSheet}>
             {error ? <SpaNotice tone="error">{error}</SpaNotice> : null}
+            {info ? <SpaNotice tone="warn">{info}</SpaNotice> : null}
 
             {tab === 'inicio' && offering ? (
               <NewTripOffer

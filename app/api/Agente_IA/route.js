@@ -29,6 +29,11 @@ import {
   messageConfirmsTripCancel,
   messageDeniesTripCancel,
   messageRequestsTripCancel,
+  isCancelConfirmationPollYesVote,
+  isCancelConfirmationPollNoVote,
+  isCancelConfirmationPollVote,
+  CANCEL_CONFIRM_POLL_QUESTION,
+  CANCEL_CONFIRM_POLL_OPTIONS,
 } from '../../../src/lib/passengerCancelIntent';
 import { buildApproachOnlyTripInsertPayload } from '../../../src/lib/approachOnlyTripPayload';
 import {
@@ -84,6 +89,7 @@ import {
 import {
   isOperatorInitiatedCancellation,
   isPassengerInitiatedCancellation,
+  buildWhatsAppCancelledTripUpdate,
 } from '../../../src/lib/passengerTripCancel';
 import { buildWaContextWithExcludedDriver } from '../../../src/lib/dispatchExclusions';
 import {
@@ -4793,6 +4799,109 @@ async function sendWhatsAppPoll(phone, question, options) {
   return { msgId, wasenderMsgId, waKeyId, payload };
 }
 
+function isAwaitingCancelConfirmation(ctx) {
+  return Boolean(ctx?.pending_cancel_confirm);
+}
+
+async function notifyDriverPassengerWhatsAppCancel(trip) {
+  const driverId = trip?.driver_id;
+  if (!driverId) return;
+  const driver = await getDriverById(driverId);
+  if (!driver) return;
+  await notifyDriver(driver, {
+    title: 'Viaje cancelado',
+    body: 'El pasajero canceló el viaje por WhatsApp.',
+    data: { type: 'trip_cancelled', tripId: trip.id },
+  });
+}
+
+async function applyWhatsAppPassengerCancel(trip, phone) {
+  const full = trip?.id ? await getConversationFlowTripById(trip.id) : null;
+  const source = full || trip;
+  if (String(source?.status || '').toLowerCase() === 'cancelled') {
+    return { alreadyCancelled: true };
+  }
+  const { data, error } = await getSupabase()
+    .from('trips')
+    .update(buildWhatsAppCancelledTripUpdate(source))
+    .eq('id', trip.id)
+    .neq('status', 'cancelled')
+    .select('id')
+    .maybeSingle();
+  if (error) {
+    logWebhook('conversation_cancel_trip_error', {
+      tripId: trip.id,
+      error: summarizeDbError(error),
+    });
+    throw error;
+  }
+  if (!data?.id) {
+    return { alreadyCancelled: true };
+  }
+  await notifyDriverPassengerWhatsAppCancel(source);
+  if (phone) {
+    await sendWhatsAppText(phone, buildOpenTripCancelSuccessMessage(source));
+  }
+  logWebhook('conversation_passenger_cancelled_trip', {
+    tripId: trip.id,
+    driverId: source?.driver_id || null,
+  });
+  return { alreadyCancelled: false };
+}
+
+async function denyWhatsAppPassengerCancel(trip, phone, waContext = {}) {
+  if (!isAwaitingCancelConfirmation(waContext) && !waContext?.cancel_poll_msg_id && !waContext?.cancel_poll_wa_key_id) {
+    return { alreadyDenied: true };
+  }
+  const nextCtx = { ...waContext };
+  delete nextCtx.pending_cancel_confirm;
+  delete nextCtx.cancel_poll_msg_id;
+  delete nextCtx.cancel_poll_wa_key_id;
+  await getSupabase()
+    .from('trips')
+    .update({ wa_context: Object.keys(nextCtx).length ? nextCtx : null })
+    .eq('id', trip.id);
+  if (phone) {
+    await sendWhatsAppText(phone, buildOpenTripCancelDeniedMessage(trip));
+  }
+  logWebhook('conversation_passenger_cancel_denied', { tripId: trip.id });
+  return { alreadyDenied: false };
+}
+
+async function sendCancelConfirmationPoll(phone, trip) {
+  const cur = safeJsonParse(trip?.wa_context, {});
+  if (cur.pending_cancel_confirm && (cur.cancel_poll_msg_id || cur.cancel_poll_wa_key_id)) {
+    return { skipped: true };
+  }
+
+  let pollSendResult = null;
+  try {
+    pollSendResult = await sendWhatsAppPoll(
+      phone,
+      CANCEL_CONFIRM_POLL_QUESTION,
+      CANCEL_CONFIRM_POLL_OPTIONS,
+    );
+  } catch (err) {
+    logWebhook('cancel_confirm_poll_error', { tripId: trip?.id || null, error: err?.message });
+    await sendWhatsAppText(phone, buildOpenTripCancelConfirmMessage(trip));
+  }
+
+  const pollIds = buildStoredPollMessageIds(pollSendResult);
+  const nextCtx = injectWasenderLineIntoContext({
+    ...cur,
+    pending_cancel_confirm: true,
+    cancel_poll_msg_id: pollIds.wasender_msg_id || pollIds.msg_id || cur.cancel_poll_msg_id || null,
+    cancel_poll_wa_key_id: pollIds.wa_key_id || cur.cancel_poll_wa_key_id || null,
+  });
+  if (trip?.id) {
+    await getSupabase()
+      .from('trips')
+      .update({ wa_context: nextCtx })
+      .eq('id', trip.id);
+  }
+  return { skipped: false, pollIds };
+}
+
 async function claimConversationBatch(conversationId) {
   logWebhook('db_claim_batch_start', { conversationId });
   const { data, error } = await getSupabase().rpc('claim_whatsapp_conversation_batch', {
@@ -5808,12 +5917,21 @@ async function clearPendingPollFromTrip(tripId) {
 }
 
 async function findTripRowForPollResults({ voterPhone, pollMsgId, lastTripId }) {
-  const activeStatuses = ['queued', 'pending', 'scheduled'];
+  const activeStatuses = [
+    'queued',
+    'pending',
+    'scheduled',
+    'accepted',
+    'going_to_pickup',
+    'in_progress',
+  ];
 
   if (pollMsgId) {
     const pollIdQueries = [
       ['wa_context->>poll_msg_id', pollMsgId],
       ['wa_context->>poll_wa_key_id', pollMsgId],
+      ['wa_context->>cancel_poll_msg_id', pollMsgId],
+      ['wa_context->>cancel_poll_wa_key_id', pollMsgId],
       ['wa_context->pending_poll->>msg_id', pollMsgId],
       ['wa_context->pending_poll->>wa_key_id', pollMsgId],
     ];
@@ -9875,29 +9993,18 @@ async function processClaimedConversation(batch) {
 
     // ─ Confirmación de cancelación pendiente ─────────────────────────────────
     if (tripWaContext.pending_cancel_confirm) {
-      const confirmsCancel = messageConfirmsTripCancel(fastText);
-      const deniesCancel = messageDeniesTripCancel(fastText);
+      const confirmsCancel =
+        isCancelConfirmationPollYesVote(fastText)
+        || (messageConfirmsTripCancel(fastText) && !messageRequestsTripCancel(fastText));
+      const deniesCancel =
+        isCancelConfirmationPollNoVote(fastText) || messageDeniesTripCancel(fastText);
 
       if (confirmsCancel) {
-        const fullTripFast = await getConversationFlowTripById(openTripByPhone.id);
-        await getSupabase()
-          .from('trips')
-          .update({ status: 'cancelled', cancel_reason: 'Pasajero canceló por WhatsApp', wa_context: null })
-          .eq('id', openTripByPhone.id);
-        if (fullTripFast?.driver_id) {
-          const dFast = await getDriverById(fullTripFast.driver_id);
-          if (dFast) {
-            await notifyDriver(dFast, {
-              title: 'Viaje cancelado',
-              body: 'El pasajero canceló el viaje por WhatsApp.',
-              data: { type: 'trip_cancelled', tripId: openTripByPhone.id },
-            });
-          }
+        try {
+          await applyWhatsAppPassengerCancel(openTripByPhone, batch.phone);
+        } catch (err) {
+          logWebhook('conversation_fast_path_cancel_error', { tripId: openTripByPhone.id, error: err?.message });
         }
-        await sendWhatsAppText(
-          batch.phone,
-          buildOpenTripCancelSuccessMessage(openTripByPhone)
-        );
         logWebhook('conversation_fast_path_cancel_confirmed', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
         return {
           handled: true,
@@ -9906,11 +10013,7 @@ async function processClaimedConversation(batch) {
       }
 
       if (deniesCancel) {
-        await getSupabase()
-          .from('trips')
-          .update({ wa_context: { ...tripWaContext, pending_cancel_confirm: false } })
-          .eq('id', openTripByPhone.id);
-        await sendWhatsAppText(batch.phone, buildOpenTripCancelDeniedMessage(openTripByPhone));
+        await denyWhatsAppPassengerCancel(openTripByPhone, batch.phone, tripWaContext);
         logWebhook('conversation_fast_path_cancel_denied', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
         return {
           handled: true,
@@ -9918,8 +10021,10 @@ async function processClaimedConversation(batch) {
         };
       }
 
-      // Respuesta ambigua → volver a pedir confirmación
-      await sendWhatsAppText(batch.phone, 'Respondé *sí* para confirmar la cancelación o *no* para mantener el viaje.');
+      await sendWhatsAppText(
+        batch.phone,
+        'Usá la encuesta de arriba: *Sí, cancelar* o *No, mantener el viaje*.'
+      );
       logWebhook('conversation_fast_path_cancel_unclear', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
       return {
         handled: true,
@@ -9929,11 +10034,7 @@ async function processClaimedConversation(batch) {
 
     // ─ Detección liviana de intent de cancelación ─────────────────────────────
     if (messageRequestsTripCancel(fastText)) {
-      await getSupabase()
-        .from('trips')
-        .update({ wa_context: { ...tripWaContext, pending_cancel_confirm: true } })
-        .eq('id', openTripByPhone.id);
-      await sendWhatsAppText(batch.phone, buildOpenTripCancelConfirmMessage(openTripByPhone));
+      await sendCancelConfirmationPoll(batch.phone, openTripByPhone);
       logWebhook('conversation_fast_path_cancel_requested', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
       return {
         handled: true,
@@ -10487,74 +10588,61 @@ async function processClaimedConversation(batch) {
 
   // --- Cancelación solicitada por el pasajero ---
   if (extracted.intent === 'cancel_trip') {
-    if (!extracted.cancel_confirmed) {
-      // Guardar pending_cancel en trips.wa_context si hay un viaje abierto
-      if (openTripByPhone) {
-        const curWaCtx = safeJsonParse(openTripByPhone.wa_context, {});
-        await getSupabase()
-          .from('trips')
-          .update({ wa_context: { ...curWaCtx, pending_cancel_confirm: true } })
-          .eq('id', openTripByPhone.id);
-      }
-      await sendWhatsAppPoll(
+    const tripToCancel =
+      openTripByPhone && isOpenTripStatus(openTripByPhone.status) ? openTripByPhone : null;
+
+    if (!tripToCancel) {
+      await sendWhatsAppText(
         batch.phone,
-        '¿Confirmás la cancelación de tu viaje?',
-        ['Sí, cancelar', 'No, mantener el viaje']
+        'No encontré ningún viaje activo para cancelar. ¿Necesitás un móvil?'
       );
-      logWebhook('conversation_cancel_pending_confirm', { conversationId: batch?.id || null });
+      logWebhook('conversation_cancel_no_open_trip', { conversationId: batch?.id || null });
       return {
         handled: true,
         updates: {
-          status: batch.status || 'open',
+          status: 'open',
           context: {},
-          last_trip_id: openTripByPhone?.id || batch.last_trip_id || null,
+          last_trip_id: batch.last_trip_id || null,
           processing_started_at: null,
           last_processed_at: new Date().toISOString(),
         },
       };
     }
 
-    // cancel_confirmed = true: cancelar el viaje abierto si existe
-    const tripToCancel =
-      openTripByPhone && isOpenTripStatus(openTripByPhone.status) ? openTripByPhone : null;
-    if (tripToCancel) {
-      // Obtener datos completos del viaje (incluye driver_id) para notificar al chofer
-      const fullTripToCancel = await getConversationFlowTripById(tripToCancel.id);
-      const { error: cancelErr } = await getSupabase()
-        .from('trips')
-        .update({ status: 'cancelled', cancel_reason: 'Pasajero canceló por WhatsApp' })
-        .eq('id', tripToCancel.id);
-      if (cancelErr) {
-        logWebhook('conversation_cancel_trip_error', {
-          conversationId: batch?.id || null,
-          tripId: tripToCancel.id,
-          error: summarizeDbError(cancelErr),
-        });
-      } else {
-        logWebhook('conversation_passenger_cancelled_trip', {
-          conversationId: batch?.id || null,
-          tripId: tripToCancel.id,
-          driverId: fullTripToCancel?.driver_id || null,
-        });
-        // Notificar al chofer que el pasajero canceló
-        if (fullTripToCancel?.driver_id) {
-          const cancelledDriver = await getDriverById(fullTripToCancel.driver_id);
-          if (cancelledDriver) {
-            await notifyDriver(cancelledDriver, {
-              title: 'Viaje cancelado',
-              body: 'El pasajero canceló el viaje por WhatsApp.',
-              data: { type: 'trip_cancelled', tripId: tripToCancel.id },
-            });
-          }
-        }
+    if (!extracted.cancel_confirmed) {
+      const pollResult = await sendCancelConfirmationPoll(batch.phone, tripToCancel);
+      if (pollResult?.skipped) {
+        await sendWhatsAppText(
+          batch.phone,
+          'Usá la encuesta de arriba: *Sí, cancelar* o *No, mantener el viaje*.'
+        );
       }
+      logWebhook('conversation_cancel_pending_confirm', {
+        conversationId: batch?.id || null,
+        tripId: tripToCancel.id,
+        skipped: Boolean(pollResult?.skipped),
+      });
+      return {
+        handled: true,
+        updates: {
+          status: batch.status || 'open',
+          context: {},
+          last_trip_id: tripToCancel.id,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
+      };
     }
-    const cancelReply =
-      extracted.reply ||
-      (tripToCancel
-        ? buildOpenTripCancelSuccessMessage(tripToCancel)
-        : 'No encontré ningún viaje activo para cancelar. ¿Necesitás un móvil?');
-    await sendWhatsAppText(batch.phone, cancelReply);
+
+    try {
+      await applyWhatsAppPassengerCancel(tripToCancel, batch.phone);
+    } catch (err) {
+      logWebhook('conversation_cancel_trip_error', {
+        conversationId: batch?.id || null,
+        tripId: tripToCancel.id,
+        error: err?.message,
+      });
+    }
     return {
       handled: true,
       updates: {
@@ -12259,6 +12347,72 @@ async function processWebhookBody(body, requestMeta = {}) {
       ).trim();
       const isPriceConfirmVote =
         isTripPriceConfirmYesVote(votedName) || isTripPriceConfirmNoVote(votedName);
+      const isCancelPollContext =
+        isAwaitingCancelConfirmation(pollTripWaCtxResults)
+        || Boolean(pollTripWaCtxResults.cancel_poll_msg_id || pollTripWaCtxResults.cancel_poll_wa_key_id);
+
+      if (pollTripRow?.id && isCancelPollContext) {
+        const pollPassengerPhone = normalizePhone(voterPhone);
+        if (isCancelConfirmationPollYesVote(votedName)) {
+          try {
+            await applyWhatsAppPassengerCancel(pollTripRow, pollPassengerPhone);
+          } catch (err) {
+            logWebhook('poll_results_cancel_confirm_error', { tripId: pollTripRow.id, error: err?.message });
+          }
+          if (pollConv?.id) {
+            try {
+              await getSupabase()
+                .from('whatsapp_conversations')
+                .update({
+                  status: 'open',
+                  context: {},
+                  last_trip_id: null,
+                  last_processed_at: new Date().toISOString(),
+                })
+                .eq('id', pollConv.id);
+            } catch (_) {}
+          }
+          return {
+            status: 200,
+            body: { success: true, event: 'poll.results', tripId: pollTripRow.id, cancelConfirmed: true },
+          };
+        }
+
+        if (isCancelConfirmationPollNoVote(votedName)) {
+          try {
+            await denyWhatsAppPassengerCancel(pollTripRow, pollPassengerPhone, pollTripWaCtxResults);
+          } catch (err) {
+            logWebhook('poll_results_cancel_deny_error', { tripId: pollTripRow.id, error: err?.message });
+          }
+          if (pollConv?.id) {
+            try {
+              await getSupabase()
+                .from('whatsapp_conversations')
+                .update({
+                  last_trip_id: pollTripRow.id,
+                  status: 'open',
+                  context: {},
+                  last_processed_at: new Date().toISOString(),
+                })
+                .eq('id', pollConv.id);
+            } catch (_) {}
+          }
+          return {
+            status: 200,
+            body: { success: true, event: 'poll.results', tripId: pollTripRow.id, cancelDenied: true },
+          };
+        }
+
+        logWebhook('poll_results_cancel_confirm_unclear', { tripId: pollTripRow.id, votedName });
+        await sendWhatsAppText(
+          pollPassengerPhone,
+          'Usá la encuesta de arriba: *Sí, cancelar* o *No, mantener el viaje*.'
+        );
+        return {
+          status: 200,
+          body: { success: true, event: 'poll.results', ignored: true, reason: 'cancel_confirm_unclear' },
+        };
+      }
 
       // Encuesta de confirmación de precio (retiro + destino ya definidos)
       if (

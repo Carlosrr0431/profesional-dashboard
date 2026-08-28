@@ -6,6 +6,11 @@ const {
   messageConfirmsTripCancel,
   messageDeniesTripCancel,
   isCancelConfirmationPollYesVote,
+  isCancelConfirmationPollNoVote,
+  isCancelConfirmationPollVote,
+  CANCEL_CONFIRM_POLL_QUESTION,
+  CANCEL_CONFIRM_OPTION_YES,
+  CANCEL_CONFIRM_OPTION_NO,
 } = require('../../src/lib/passengerCancelIntent');
 
 describe('passengerCancelIntent', () => {
@@ -84,6 +89,28 @@ describe('passengerCancelIntent', () => {
   describe('poll cancelación', () => {
     it('voto Sí, cancelar', () => {
       expect(isCancelConfirmationPollYesVote('Sí, cancelar')).toBe(true);
+      expect(isCancelConfirmationPollYesVote(CANCEL_CONFIRM_OPTION_YES)).toBe(true);
+      expect(isCancelConfirmationPollNoVote('Sí, cancelar')).toBe(false);
+    });
+
+    it('voto No, mantener el viaje', () => {
+      expect(isCancelConfirmationPollNoVote('No, mantener el viaje')).toBe(true);
+      expect(isCancelConfirmationPollNoVote(CANCEL_CONFIRM_OPTION_NO)).toBe(true);
+      expect(isCancelConfirmationPollYesVote('No, mantener el viaje')).toBe(false);
+    });
+
+    it('no trata "cancelar" suelto como voto de encuesta', () => {
+      expect(isCancelConfirmationPollYesVote('cancelar')).toBe(false);
+      expect(isCancelConfirmationPollVote('cancelar')).toBe(false);
+    });
+
+    it('no confunde el voto de precio "No, cancelar el viaje"', () => {
+      expect(isCancelConfirmationPollYesVote('No, cancelar el viaje')).toBe(false);
+      expect(isCancelConfirmationPollNoVote('No, cancelar el viaje')).toBe(false);
+    });
+
+    it('pregunta de encuesta es la esperada', () => {
+      expect(CANCEL_CONFIRM_POLL_QUESTION).toBe('¿Confirmás la cancelación de tu viaje?');
     });
   });
 });

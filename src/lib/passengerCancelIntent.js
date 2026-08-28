@@ -174,15 +174,24 @@ export function messageDeniesTripCancel(text) {
   return false;
 }
 
+export const CANCEL_CONFIRM_POLL_QUESTION = '¿Confirmás la cancelación de tu viaje?';
+export const CANCEL_CONFIRM_OPTION_YES = 'Sí, cancelar';
+export const CANCEL_CONFIRM_OPTION_NO = 'No, mantener el viaje';
+export const CANCEL_CONFIRM_POLL_OPTIONS = [CANCEL_CONFIRM_OPTION_YES, CANCEL_CONFIRM_OPTION_NO];
+
 export function isCancelConfirmationPollYesVote(votedName) {
   const norm = normalizePassengerMessage(votedName);
   if (!norm) return false;
-  if (/\bno\b/.test(norm) && /\bmantener\b/.test(norm)) return false;
-  return norm.includes('cancelar') && (norm.includes('si') || norm.startsWith('cancelar'));
+  if (/\bno\b/.test(norm)) return false;
+  return norm.includes('si') && norm.includes('cancelar');
 }
 
 export function isCancelConfirmationPollNoVote(votedName) {
   const norm = normalizePassengerMessage(votedName);
   if (!norm) return false;
   return norm.includes('mantener') || (norm.startsWith('no') && !norm.includes('cancelar'));
+}
+
+export function isCancelConfirmationPollVote(votedName) {
+  return isCancelConfirmationPollYesVote(votedName) || isCancelConfirmationPollNoVote(votedName);
 }

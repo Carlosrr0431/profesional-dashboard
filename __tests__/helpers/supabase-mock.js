@@ -60,6 +60,7 @@ function createQueryBuilder(resolvedValue = { data: null, error: null }) {
     ilike:        jest.fn(() => builder),
     like:         jest.fn(() => builder),
     or:           jest.fn(() => builder),
+    filter:       jest.fn(() => builder),
     order:        jest.fn(() => builder),
     limit:        jest.fn(() => builder),
     range:        jest.fn(() => builder),

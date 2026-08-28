@@ -2,6 +2,8 @@ const {
   isPassengerInitiatedCancellation,
   isOperatorInitiatedCancellation,
   buildPassengerCancelledTripUpdate,
+  buildWhatsAppCancelledTripUpdate,
+  WHATSAPP_CANCEL_REASON,
 } = require('../../src/lib/passengerTripCancel');
 const { canRequeuePendingTrip } = require('../../src/lib/tripRequeue');
 
@@ -35,14 +37,27 @@ describe('passengerTripCancel', () => {
     expect(payload.status).toBe('cancelled');
     expect(payload.driver_id).toBeUndefined();
   });
+
+  it('buildWhatsAppCancelledTripUpdate conserva driver_id y limpia wa_context', () => {
+    const payload = buildWhatsAppCancelledTripUpdate({
+      status: 'accepted',
+      driver_id: 'driver-wa-1',
+    });
+    expect(payload.status).toBe('cancelled');
+    expect(payload.dispatch_status).toBe('cancelled');
+    expect(payload.cancel_reason).toBe(WHATSAPP_CANCEL_REASON);
+    expect(payload.wa_context).toBeNull();
+    expect(payload.driver_id).toBeUndefined();
+    expect(isPassengerInitiatedCancellation(payload)).toBe(true);
+  });
 });
 
 describe('canRequeuePendingTrip', () => {
-  it('no reencola si el pasajero canceló', () => {
+  it('no reencola si el pasajero canceló por WhatsApp', () => {
     expect(
       canRequeuePendingTrip({
         status: 'pending',
-        cancel_reason: '[PASSENGER_APP] Cancelado por el pasajero',
+        cancel_reason: 'Pasajero canceló por WhatsApp',
       })
     ).toBe(false);
   });

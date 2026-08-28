@@ -1,4 +1,5 @@
 export const PASSENGER_CANCEL_REASON = '[PASSENGER_APP] Cancelado por el pasajero';
+export const WHATSAPP_CANCEL_REASON = 'Pasajero canceló por WhatsApp';
 
 const PASSENGER_CANCEL_MARKERS = [
   'passenger_app',
@@ -6,6 +7,7 @@ const PASSENGER_CANCEL_MARKERS = [
   'pasajero canceló',
   'cancelado por el pasajero',
   'cancelado por pasajero',
+  'por whatsapp',
 ];
 
 export function isPassengerInitiatedCancellation(tripOrReason) {
@@ -64,4 +66,12 @@ export function buildPassengerCancelledTripUpdate(existing = {}, extra = {}) {
     status_updated_at: new Date().toISOString(),
     ...extra,
   };
+}
+
+export function buildWhatsAppCancelledTripUpdate(existing = {}, extra = {}) {
+  return buildPassengerCancelledTripUpdate(existing, {
+    cancel_reason: WHATSAPP_CANCEL_REASON,
+    wa_context: null,
+    ...extra,
+  });
 }
