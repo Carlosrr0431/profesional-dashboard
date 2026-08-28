@@ -63,6 +63,12 @@ export function isOpenTripStatus(status) {
   return OPEN_TRIP_STATUSES.includes(String(status || '').toLowerCase());
 }
 
+/** Viaje con chofer asignado: hay que dibujar ruta viva hasta retiro o destino. */
+export function isLiveNavTrip(status) {
+  const key = String(status || '').toLowerCase();
+  return key === 'accepted' || key === 'going_to_pickup' || key === 'in_progress';
+}
+
 export function passengerStatusMeta(status) {
   const key = String(status || '').toLowerCase();
   return PASSENGER_STATUS[key] || {

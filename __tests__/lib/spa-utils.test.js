@@ -4,7 +4,7 @@ const {
   normalizeDriverPhone,
 } = require('../../src/spa/shared/phone');
 const { calculateTripPrice, resolvePassengerTariff } = require('../../src/spa/shared/money');
-const { isOpenTripStatus, passengerStatusMeta } = require('../../src/spa/shared/tripStatus');
+const { isOpenTripStatus, isLiveNavTrip, passengerStatusMeta } = require('../../src/spa/shared/tripStatus');
 const { isPickupInActiveZones } = require('../../src/spa/shared/coverage');
 
 describe('SPA passenger phone', () => {
@@ -32,6 +32,8 @@ describe('SPA trip helpers', () => {
     expect(isOpenTripStatus('going_to_pickup')).toBe(true);
     expect(isOpenTripStatus('completed')).toBe(false);
     expect(isOpenTripStatus('cancelled')).toBe(false);
+    expect(isLiveNavTrip('in_progress')).toBe(true);
+    expect(isLiveNavTrip('queued')).toBe(false);
   });
 
   it('devuelve copy en español para el pasajero', () => {

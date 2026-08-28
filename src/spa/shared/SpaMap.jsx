@@ -36,21 +36,23 @@ const NAV_ROUTE_LINE = {
 
 const NAV_PITCH = 52;
 const NAV_ZOOM = 17.4;
-const NAV_PADDING = { top: 240, bottom: 150, left: 44, right: 44 };
+const NAV_PADDING = { top: 96, bottom: 340, left: 28, right: 28 };
 const NAV_LOOKAHEAD_M = 22;
+const FOLLOW_PADDING = { top: 96, bottom: 320, left: 36, right: 36 };
 
-function DriverArrow({ heading = 0 }) {
+function DriverArrow() {
   return (
-    <img
-      src="/driver-nav-puck.svg"
-      alt="Conductor"
-      width={72}
-      height={72}
-      style={{
-        transform: `rotate(${Number.isFinite(heading) ? heading : 0}deg)`,
-        filter: 'drop-shadow(0 6px 10px rgba(15,23,42,0.35))',
-      }}
-    />
+    <svg
+      width="88"
+      height="88"
+      viewBox="0 0 96 96"
+      aria-label="Conductor"
+      style={{ display: 'block', filter: 'drop-shadow(0 6px 10px rgba(15,23,42,0.4))' }}
+    >
+      <circle cx="48" cy="48" r="22" fill="#ffffff" />
+      <circle cx="48" cy="48" r="17" fill="#282e69" />
+      <path d="M48 39 L53.25 54 L48 49.75 L42.75 54 Z" fill="#ffffff" />
+    </svg>
   );
 }
 
@@ -68,6 +70,7 @@ export default function SpaMap({
   const mapRef = useRef(null);
   const navReadyRef = useRef(false);
   const lastBearingRef = useRef(null);
+  const lastFitKeyRef = useRef('');
   const view = center || DEFAULT_MAP_VIEW;
   const [failed, setFailed] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -75,19 +78,18 @@ export default function SpaMap({
 
   const snapped = useMemo(() => {
     if (!driver || driver.lat == null || driver.lng == null) return null;
-    if (!navigationMode || !Array.isArray(routeCoords) || routeCoords.length < 2) {
-      return { lat: driver.lat, lng: driver.lng };
-    }
+    const canSnap = (navigationMode || followDriver) && Array.isArray(routeCoords) && routeCoords.length >= 2;
+    if (!canSnap) return { lat: driver.lat, lng: driver.lng };
     const hit = snapToPolyline(routeCoords, driver.lat, driver.lng);
     return hit ? { lat: hit.lat, lng: hit.lng } : { lat: driver.lat, lng: driver.lng };
-  }, [navigationMode, routeCoords, driver?.lat, driver?.lng]);
+  }, [navigationMode, followDriver, routeCoords, driver?.lat, driver?.lng]);
 
   const displayRoute = useMemo(() => {
-    if (navigationMode && snapped) {
+    if ((navigationMode || followDriver) && snapped && Array.isArray(routeCoords) && routeCoords.length >= 2) {
       return remainingPolyline(routeCoords, snapped.lat, snapped.lng);
     }
     return routeCoords;
-  }, [navigationMode, routeCoords, snapped?.lat, snapped?.lng]);
+  }, [navigationMode, followDriver, routeCoords, snapped?.lat, snapped?.lng]);
 
   const routeGeo = useMemo(() => {
     if (!Array.isArray(displayRoute) || displayRoute.length < 2) return null;
@@ -129,6 +131,7 @@ export default function SpaMap({
         center: camera.center,
         bearing,
         pitch: NAV_PITCH,
+        padding: NAV_PADDING,
         duration: 220,
         essential: true,
       });
@@ -137,6 +140,23 @@ export default function SpaMap({
 
     navReadyRef.current = false;
     lastBearingRef.current = null;
+    if (followDriver && Array.isArray(routeCoords) && routeCoords.length >= 2) {
+      const key = `${routeCoords.length}:${routeCoords[0]?.[0]}:${routeCoords[routeCoords.length - 1]?.[1]}`;
+      if (lastFitKeyRef.current !== key) {
+        lastFitKeyRef.current = key;
+        const lngs = routeCoords.map((point) => Number(point[0]));
+        const lats = routeCoords.map((point) => Number(point[1]));
+        map.fitBounds(
+          [
+            [Math.min(...lngs), Math.min(...lats)],
+            [Math.max(...lngs), Math.max(...lats)],
+          ],
+          { padding: FOLLOW_PADDING, maxZoom: 17, duration: 700, essential: true },
+        );
+      }
+      return;
+    }
+    lastFitKeyRef.current = '';
     const target = followDriver && driver
       ? { lng: driver.lng, lat: driver.lat }
       : center
@@ -162,6 +182,7 @@ export default function SpaMap({
     navigationMode,
     snapped?.lat,
     snapped?.lng,
+    routeCoords,
     zoom,
     mapLoaded,
   ]);
@@ -198,8 +219,8 @@ export default function SpaMap({
     >
       {routeGeo ? (
         <Source id="spa-route" type="geojson" data={routeGeo}>
-          <Layer {...(navigationMode ? NAV_ROUTE_BORDER : OVERVIEW_ROUTE_BORDER)} />
-          <Layer {...(navigationMode ? NAV_ROUTE_LINE : OVERVIEW_ROUTE_LINE)} />
+          <Layer {...(navigationMode || followDriver ? NAV_ROUTE_BORDER : OVERVIEW_ROUTE_BORDER)} />
+          <Layer {...(navigationMode || followDriver ? NAV_ROUTE_LINE : OVERVIEW_ROUTE_LINE)} />
         </Source>
       ) : null}
 
@@ -239,7 +260,7 @@ export default function SpaMap({
           pitchAlignment={navigationMode ? 'viewport' : 'map'}
         >
           {useArrow ? (
-            <DriverArrow heading={0} />
+            <DriverArrow />
           ) : (
             <img
               src="/tracking-car.png"

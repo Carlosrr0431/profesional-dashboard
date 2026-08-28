@@ -16,7 +16,8 @@ import {
 import { calculateTripPrice, formatArs, resolvePassengerTariff } from '../shared/money';
 import { normalizePassengerPhone } from '../shared/phone';
 import { clearPassengerSession, readPassengerSession, writePassengerSession } from '../shared/storage';
-import { isOpenTripStatus, passengerStatusMeta } from '../shared/tripStatus';
+import { isLiveNavTrip, isOpenTripStatus, passengerStatusMeta } from '../shared/tripStatus';
+import { tripDropoffPoint, tripNavTarget, tripPickupPoint } from '../shared/tripPoints';
 import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../shared/coverage';
 import { SpaBackHome, SpaBrand, SpaButton, SpaEmpty, SpaNotice, SpaPanel, SpaSheet, SpaTabs, SpaTripRow, spaFieldClass } from '../shared/ui';
 import { SpaAuthScreen, SpaBootScreen, SpaMapScreen } from '../shared/SpaShell';
@@ -71,6 +72,7 @@ export default function PassengerApp() {
   const [originOpen, setOriginOpen] = useState(false);
   const [destOpen, setDestOpen] = useState(false);
   const sessionTokenPlaces = useRef(newPlacesSessionToken());
+  const driverRef = useRef(null);
   const geo = useGeoPermission({ enabled: Boolean(session) });
   const searching = originOpen || destOpen;
   const tripChat = useSpaTripChat({
@@ -172,6 +174,7 @@ export default function PassengerApp() {
   }, [geo.coords, pickup]);
 
   useEffect(() => {
+    if (isLiveNavTrip(active?.status)) return undefined;
     if (!pickup || !destination) {
       setQuote(null);
       setRouteCoords(null);
@@ -201,7 +204,7 @@ export default function PassengerApp() {
       }
     })();
     return () => { cancelled = true; };
-  }, [pickup, destination]);
+  }, [pickup, destination, active?.status]);
 
   useEffect(() => {
     if (!active?.id || !isOpenTripStatus(active.status)) return undefined;
@@ -216,12 +219,14 @@ export default function PassengerApp() {
       const driverRow = data.data.driver;
       const lat = Number(track?.lat ?? driverRow?.current_lat);
       const lng = Number(track?.lng ?? driverRow?.current_lng);
-      setDriver({
+      const nextDriver = {
         ...driverRow,
         lat: Number.isFinite(lat) ? lat : null,
         lng: Number.isFinite(lng) ? lng : null,
         heading: Number(track?.heading) || 0,
-      });
+      };
+      driverRef.current = nextDriver;
+      setDriver(nextDriver);
       if (!isOpenTripStatus(trip.status)) {
         if (session) loadTrips(session);
       }
@@ -233,6 +238,33 @@ export default function PassengerApp() {
       clearInterval(id);
     };
   }, [active?.id, active?.status, active?.tracking_token, loadTrips, session]);
+
+  useEffect(() => {
+    const trip = active;
+    if (!trip?.id || !isLiveNavTrip(trip.status)) return undefined;
+
+    let cancelled = false;
+    const load = async () => {
+      const loc = driverRef.current;
+      const origin = loc?.lat != null && loc?.lng != null
+        ? { lat: loc.lat, lng: loc.lng }
+        : tripPickupPoint(trip);
+      const target = tripNavTarget(trip);
+      if (!origin || !target) return;
+      const line = await fetchRouteLine(
+        { lat: origin.lat, lng: origin.lng },
+        { lat: target.lat, lng: target.lng },
+      );
+      if (!cancelled && line) setRouteCoords(line);
+    };
+
+    load();
+    const id = setInterval(load, 20000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [active?.id, active?.status, active?.origin_lat, active?.destination_lat, driver?.lat != null]);
 
   const sendOtp = async (event) => {
     event.preventDefault();
@@ -433,6 +465,10 @@ export default function PassengerApp() {
 
   const status = passengerStatusMeta(active?.status);
   const liveTrip = Boolean(active && isOpenTripStatus(active.status) && tab === 'viaje');
+  const liveNav = Boolean(active && isLiveNavTrip(active.status));
+  const tripPickup = liveNav ? tripPickupPoint(active) : pickup;
+  const tripDropoff = liveNav ? tripDropoffPoint(active) : destination;
+  const inProgress = active?.status === 'in_progress';
   const chatReady = Boolean((active?.driver_id || driver?.id || driver?.full_name) && isTripChatAvailable(active?.status));
   const progressByStatus = {
     queued: 0.12,
@@ -536,11 +572,11 @@ export default function PassengerApp() {
       map={(
         <SpaMap
           center={mapCenter}
-          pickup={pickup}
-          dropoff={destination}
+          pickup={inProgress ? null : tripPickup}
+          dropoff={tripDropoff}
           driver={driver?.lat != null ? driver : null}
           routeCoords={routeCoords}
-          followDriver={Boolean(driver?.lat && isOpenTripStatus(active?.status))}
+          followDriver={Boolean(driver?.lat && liveNav)}
         />
       )}
       header={(
