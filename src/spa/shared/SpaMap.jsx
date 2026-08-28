@@ -182,7 +182,7 @@ export default function SpaMap({
           ],
           {
             padding: fitToRoute
-              ? { top: 96, bottom: 380, left: 40, right: 40 }
+              ? { top: 88, bottom: 280, left: 36, right: 36 }
               : FOLLOW_PADDING,
             maxZoom: 16.4,
             duration: 700,

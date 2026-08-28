@@ -706,7 +706,12 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   max-height: min(58vh, 540px);
 }
 
-.spa-sheet--offer .spa-sheet-body {
+.spa-sheet--review {
+  max-height: min(42vh, 360px);
+}
+
+.spa-sheet--offer .spa-sheet-body,
+.spa-sheet--review .spa-sheet-body {
   padding: 6px 16px 14px;
 }
 
@@ -1129,6 +1134,89 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 .spa-offer-reasons {
   display: grid;
   gap: 12px;
+}
+
+.spa-review {
+  display: grid;
+  gap: 10px;
+}
+
+.spa-review-route {
+  width: 100%;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.spa-review-edit {
+  margin: 2px 4px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #245f8d;
+}
+
+.spa-review-fare {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.spa-review-kicker {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.spa-review-price {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  color: #0f172a;
+}
+
+.spa-review-meta {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.spa-review-schedule,
+.spa-review-cancel {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.spa-review-schedule {
+  min-height: 42px;
+  border-radius: 14px;
+  background: #eef5fb;
+  color: #245f8d;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.spa-review-cancel {
+  min-height: 40px;
+  color: #dc2626;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.spa-review-schedule:disabled,
+.spa-review-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .spa-plate {

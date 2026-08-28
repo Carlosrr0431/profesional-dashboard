@@ -21,6 +21,8 @@ export default function AddressSearch({
   const [loading, setLoading] = useState(false);
   const timerRef = useRef(null);
   const wrapRef = useRef(null);
+  const lastTypedRef = useRef(value);
+  const skipInitialRef = useRef(String(value || '').trim().length >= 2);
 
   const visible = open && hits.length > 0;
 
@@ -45,6 +47,21 @@ export default function AddressSearch({
   useEffect(() => {
     const query = String(value || '').trim();
     if (timerRef.current) clearTimeout(timerRef.current);
+    if (skipInitialRef.current) {
+      skipInitialRef.current = false;
+      lastTypedRef.current = value;
+      setHits([]);
+      setOpen(false);
+      setLoading(false);
+      return undefined;
+    }
+    if (value !== lastTypedRef.current) {
+      lastTypedRef.current = value;
+      setHits([]);
+      setOpen(false);
+      setLoading(false);
+      return undefined;
+    }
     if (query.length < 2) {
       setHits([]);
       setOpen(false);
@@ -86,7 +103,10 @@ export default function AddressSearch({
             disabled={disabled}
             value={value}
             placeholder={placeholder}
-            onChange={(event) => onChangeText(event.target.value)}
+            onChange={(event) => {
+              lastTypedRef.current = event.target.value;
+              onChangeText(event.target.value);
+            }}
             onFocus={() => hits.length > 0 && setOpen(true)}
             className={`${spaFieldClass} ${stacked ? 'bg-transparent px-0 focus:ring-0' : ''}`}
           />
@@ -111,6 +131,10 @@ export default function AddressSearch({
                     onSelect(hit);
                     setOpen(false);
                     setHits([]);
+                    setLoading(false);
+                    if (typeof document !== 'undefined' && document.activeElement?.blur) {
+                      document.activeElement.blur();
+                    }
                   }}
                 >
                   <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-navy-900 ring-1 ring-light-300">

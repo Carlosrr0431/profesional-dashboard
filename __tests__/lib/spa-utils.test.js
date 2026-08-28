@@ -179,3 +179,27 @@ describe('SPA oferta de viaje', () => {
   });
 });
 
+const {
+  minScheduleDate,
+  toDatetimeLocalValue,
+  parseDatetimeLocalValue,
+  formatScheduleDisplay,
+  isScheduleValid,
+} = require('../../src/spa/pasajero/scheduleTrip');
+
+describe('SPA programación de viaje', () => {
+  it('pide al menos 30 minutos de anticipación', () => {
+    const now = new Date('2026-08-27T22:00:00');
+    expect(isScheduleValid(new Date('2026-08-27T22:20:00'), now)).toBe(false);
+    expect(isScheduleValid(new Date('2026-08-27T22:30:00'), now)).toBe(true);
+    expect(minScheduleDate(now).getTime()).toBe(now.getTime() + 30 * 60 * 1000);
+  });
+
+  it('convierte datetime-local sin perder hora local', () => {
+    const value = '2026-08-27T22:45';
+    const parsed = parseDatetimeLocalValue(value);
+    expect(toDatetimeLocalValue(parsed)).toBe(value);
+    expect(formatScheduleDisplay(parsed)).toMatch(/jueves 27\/08 a las 22:45/);
+  });
+});
+

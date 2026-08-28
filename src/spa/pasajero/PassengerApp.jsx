@@ -30,6 +30,8 @@ import TripChatModal from '../shared/TripChatModal';
 import { useSpaTripChat } from '../shared/useSpaTripChat';
 import { useSpaConfirm } from '../shared/SpaConfirm';
 import { buildTripTrackingUrl, isTripChatAvailable } from '../shared/tripChat';
+import TripReviewSheet from './TripReviewSheet';
+import ScheduleTripModal from './ScheduleTripModal';
 
 const SpaMap = dynamic(() => import('../shared/SpaMap'), { ssr: false });
 
@@ -72,10 +74,11 @@ export default function PassengerApp() {
   const [history, setHistory] = useState([]);
   const [originOpen, setOriginOpen] = useState(false);
   const [destOpen, setDestOpen] = useState(false);
+  const [editingRoute, setEditingRoute] = useState(true);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const sessionTokenPlaces = useRef(newPlacesSessionToken());
   const driverRef = useRef(null);
   const geo = useGeoPermission({ enabled: Boolean(session) });
-  const searching = originOpen || destOpen;
   const tripChat = useSpaTripChat({
     role: 'passenger',
     tripId: active?.id,
@@ -357,6 +360,7 @@ export default function PassengerApp() {
         : await geocodePlace({ ...hit, sessionToken: sessionTokenPlaces.current });
       setPickup(point);
       setPickupText(point.address);
+      if (destination) setEditingRoute(false);
     } catch (err) {
       setError(err.message || 'No se pudo ubicar el origen.');
     }
@@ -376,12 +380,24 @@ export default function PassengerApp() {
         : await geocodePlace({ ...hit, sessionToken: sessionTokenPlaces.current });
       setDestination(point);
       setDestText(point.address);
+      setOriginOpen(false);
+      setDestOpen(false);
+      setEditingRoute(false);
     } catch (err) {
       setError(err.message || 'No se pudo ubicar el destino.');
     }
   };
 
-  const requestTrip = async () => {
+  const clearPreview = () => {
+    setDestination(null);
+    setDestText('');
+    setQuote(null);
+    setRouteCoords(null);
+    setEditingRoute(true);
+    setScheduleOpen(false);
+  };
+
+  const requestTrip = async ({ scheduledFor = null, scheduledDisplay = null } = {}) => {
     if (!session || !pickup || !destination) return;
     setError('');
     setBusy(true);
@@ -410,6 +426,8 @@ export default function PassengerApp() {
           estimatedPrice: quote?.price ?? null,
           distanceKm: quote?.distanceKm ?? null,
           durationMinutes: quote?.durationMinutes ?? null,
+          scheduledFor,
+          scheduledDisplay,
         },
       });
       if (!ok || !data?.ok) {
@@ -417,8 +435,18 @@ export default function PassengerApp() {
         setBusy(false);
         return;
       }
-      setActive(data.trip);
-      setTab('viaje');
+      setScheduleOpen(false);
+      if (data.trip?.status === 'scheduled' || scheduledFor) {
+        setInfo(scheduledDisplay
+          ? `Viaje programado para ${scheduledDisplay}.`
+          : 'Viaje programado.');
+        clearPreview();
+        if (session) loadTrips(session);
+      } else {
+        setActive(data.trip);
+        setTab('viaje');
+        setEditingRoute(true);
+      }
       sessionTokenPlaces.current = newPlacesSessionToken();
     } catch (err) {
       setError(err.message || 'No se pudo pedir el viaje.');
@@ -496,6 +524,14 @@ export default function PassengerApp() {
   const status = passengerStatusMeta(active?.status);
   const liveTrip = Boolean(active && isOpenTripStatus(active.status) && tab === 'viaje');
   const liveNav = Boolean(active && isLiveNavTrip(active.status));
+  const reviewing = Boolean(
+    tab === 'viaje'
+    && pickup
+    && destination
+    && !editingRoute
+    && (!active || !isOpenTripStatus(active.status))
+  );
+  const searching = (originOpen || destOpen) && !reviewing;
   const tripPickup = liveNav ? tripPickupPoint(active) : pickup;
   const tripDropoff = liveNav ? tripDropoffPoint(active) : destination;
   const inProgress = active?.status === 'in_progress';
@@ -590,6 +626,13 @@ export default function PassengerApp() {
       overlay={(
         <>
           {confirmDialog}
+          <ScheduleTripModal
+            open={scheduleOpen}
+            busy={busy}
+            fareLabel={quote?.price != null ? formatArs(quote.price) : null}
+            onClose={() => setScheduleOpen(false)}
+            onConfirm={requestTrip}
+          />
           <TripChatModal
             open={tripChat.chatOpen}
             title={driver?.full_name || 'Tu conductor'}
@@ -612,6 +655,7 @@ export default function PassengerApp() {
           driver={liveNav && driver?.lat != null ? driver : null}
           routeCoords={routeCoords}
           followDriver={Boolean(driver?.lat && liveNav)}
+          fitToRoute={reviewing || (liveTrip && !liveNav)}
         />
       )}
       header={(
@@ -629,9 +673,9 @@ export default function PassengerApp() {
       ) : null}
       sheet={(
         <>
-          <SpaSheet expanded={searching} compact={liveTrip}>
+          <SpaSheet expanded={searching} compact={liveTrip} review={reviewing}>
             {error ? <SpaNotice tone="error">{error}</SpaNotice> : null}
-            {info && liveTrip ? <SpaNotice>{info}</SpaNotice> : null}
+            {info && (liveTrip || reviewing || tab === 'viaje') ? <SpaNotice>{info}</SpaNotice> : null}
 
             {tab === 'viaje' && active && isOpenTripStatus(active.status) ? (
               <TripLiveSheet
@@ -643,18 +687,35 @@ export default function PassengerApp() {
                 plate={driver?.vehicle_plate || null}
                 pickup={active.origin_address}
                 destination={active.destination_address}
+                priceLabel={active.price ? formatArs(active.price) : null}
                 canCancel={status.canCancel}
                 cancelLabel={active.status === 'queued' || active.status === 'pending' ? 'Cancelar solicitud' : 'Cancelar viaje'}
                 chatAvailable={chatReady}
                 chatUnread={tripChat.unreadCount}
                 onChat={chatReady ? tripChat.openChat : undefined}
                 onShare={shareTrip}
+                onSos={() => {
+                  if (typeof window !== 'undefined') window.location.href = 'tel:911';
+                }}
                 onCancel={status.canCancel ? cancelTrip : undefined}
                 busy={busy}
               />
             ) : null}
 
-            {tab === 'viaje' && (!active || !isOpenTripStatus(active.status)) ? (
+            {tab === 'viaje' && reviewing ? (
+              <TripReviewSheet
+                pickupAddress={pickup?.address}
+                destinationAddress={destination?.address}
+                quote={quote}
+                busy={busy}
+                onConfirm={() => requestTrip()}
+                onSchedule={() => setScheduleOpen(true)}
+                onEdit={() => setEditingRoute(true)}
+                onCancel={clearPreview}
+              />
+            ) : null}
+
+            {tab === 'viaje' && (!active || !isOpenTripStatus(active.status)) && !reviewing ? (
               <SpaPanel key="viaje-pedido">
                 <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">¿A dónde vas?</h2>
                 <div className="spa-route">
@@ -675,25 +736,16 @@ export default function PassengerApp() {
                     label="Destino"
                     placeholder="¿A dónde vas?"
                     value={destText}
-                    onChangeText={setDestText}
+                    onChangeText={(text) => {
+                      setDestText(text);
+                      setEditingRoute(true);
+                    }}
                     onSelect={selectDestination}
                     sessionToken={sessionTokenPlaces.current}
                     onOpenChange={setDestOpen}
                   />
                 </div>
-                {quote?.price ? (
-                  <div className="flex items-end justify-between px-1">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Estimado</p>
-                      <p className="text-[28px] font-semibold tracking-tight text-navy-900">{formatArs(quote.price)}</p>
-                    </div>
-                    <p className="pb-1 text-[13px] text-slate-500">
-                      {quote.distanceKm ? `${quote.distanceKm} km` : ''}
-                      {quote.durationMinutes ? ` · ${quote.durationMinutes} min` : ''}
-                    </p>
-                  </div>
-                ) : null}
-                <SpaButton disabled={busy || !pickup || !destination} onClick={requestTrip}>
+                <SpaButton disabled={busy || !pickup || !destination} onClick={() => requestTrip()}>
                   {busy ? 'Confirmando…' : 'Pedir móvil'}
                 </SpaButton>
               </SpaPanel>
@@ -741,7 +793,7 @@ export default function PassengerApp() {
               </SpaPanel>
             ) : null}
           </SpaSheet>
-          <SpaTabs items={TABS} value={tab} onChange={setTab} compact={liveTrip} />
+          <SpaTabs items={TABS} value={tab} onChange={setTab} compact={liveTrip || reviewing} />
         </>
       )}
     />
