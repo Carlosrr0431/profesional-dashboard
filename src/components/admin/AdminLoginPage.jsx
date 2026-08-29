@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import DashboardBrand from '../DashboardBrand';
 import { useAdminAuth } from '../../hooks/useAdminAuth';
+import { DASHBOARD_ACCESS_DENIED } from '../../lib/adminSuperUser';
 
 function LoginSpinner() {
   return (
@@ -278,7 +279,11 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(
+    searchParams.get('error') === 'no-access'
+      ? 'Esta cuenta no tiene acceso al panel de operaciones.'
+      : '',
+  );
   const [focusedField, setFocusedField] = useState(null);
 
   useEffect(() => {
@@ -296,7 +301,9 @@ export default function AdminLoginPage() {
       router.replace(nextPath);
     } catch (err) {
       const message = String(err?.message || '');
-      if (message.toLowerCase().includes('invalid login credentials')) {
+      if (message === DASHBOARD_ACCESS_DENIED || err?.code === DASHBOARD_ACCESS_DENIED) {
+        setError('Esta cuenta no tiene acceso al panel de operaciones.');
+      } else if (message.toLowerCase().includes('invalid login credentials')) {
         setError('Email o contraseña incorrectos.');
       } else {
         setError('No pudimos iniciar sesión. Intentá de nuevo.');

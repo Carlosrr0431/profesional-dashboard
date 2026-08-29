@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireSuperAdminUser } from '../../../../src/lib/adminAuthServer';
+import { isDashboardOperatorUser, isDriverAuthEmail } from '../../../../src/lib/adminSuperUser';
 import { getSupabaseAdmin } from '../../../../src/lib/supabaseAdmin';
 
 function normalizeEmail(value) {
@@ -10,6 +11,30 @@ function normalizePassword(value) {
   return String(value || '');
 }
 
+function toListUser(user) {
+  return {
+    id: user.id,
+    email: user.email,
+    createdAt: user.created_at,
+    lastSignInAt: user.last_sign_in_at,
+    emailConfirmed: Boolean(user.email_confirmed_at),
+  };
+}
+
+async function listAuthUsers(admin) {
+  const all = [];
+  let page = 1;
+  while (page <= 20) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw error;
+    const users = data?.users || [];
+    all.push(...users);
+    if (users.length < 200) break;
+    page += 1;
+  }
+  return all;
+}
+
 export async function GET(request) {
   const auth = await requireSuperAdminUser(request);
   if (!auth.user) {
@@ -18,16 +43,10 @@ export async function GET(request) {
 
   try {
     const admin = getSupabaseAdmin();
-    const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
-    if (error) throw error;
-
-    const users = (data?.users || []).map((user) => ({
-      id: user.id,
-      email: user.email,
-      createdAt: user.created_at,
-      lastSignInAt: user.last_sign_in_at,
-      emailConfirmed: Boolean(user.email_confirmed_at),
-    }));
+    const authUsers = await listAuthUsers(admin);
+    const users = authUsers
+      .filter((user) => isDashboardOperatorUser(user))
+      .map(toListUser);
 
     users.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
     return NextResponse.json({ users });
@@ -57,6 +76,9 @@ export async function POST(request) {
 
   if (!email || !email.includes('@')) {
     return NextResponse.json({ error: 'Ingresá un email válido.' }, { status: 400 });
+  }
+  if (isDriverAuthEmail(email)) {
+    return NextResponse.json({ error: 'Ese dominio está reservado para la app de choferes.' }, { status: 400 });
   }
   if (password.length < 8) {
     return NextResponse.json({ error: 'La contraseña debe tener al menos 8 caracteres.' }, { status: 400 });

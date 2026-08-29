@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { DASHBOARD_ACCESS_DENIED, isDashboardOperatorUser } from '../lib/adminSuperUser';
 import { supabase } from '../lib/supabase';
 
 export function useAdminAuth() {
@@ -13,14 +14,32 @@ export function useAdminAuth() {
 
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
+      const nextUser = data.session?.user ?? null;
+      if (nextUser && !isDashboardOperatorUser(nextUser)) {
+        supabase.auth.signOut().then(() => {
+          if (!mounted) return;
+          setSession(null);
+          setUser(null);
+          setLoading(false);
+        });
+        return;
+      }
       setSession(data.session ?? null);
-      setUser(data.session?.user ?? null);
+      setUser(nextUser);
       setLoading(false);
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      const nextUser = nextSession?.user ?? null;
+      if (nextUser && !isDashboardOperatorUser(nextUser)) {
+        supabase.auth.signOut();
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
       setSession(nextSession ?? null);
-      setUser(nextSession?.user ?? null);
+      setUser(nextUser);
       setLoading(false);
     });
 
@@ -41,6 +60,12 @@ export function useAdminAuth() {
       password: String(password || ''),
     });
     if (error) throw error;
+    if (!isDashboardOperatorUser(data.user)) {
+      await supabase.auth.signOut();
+      const denied = new Error(DASHBOARD_ACCESS_DENIED);
+      denied.code = DASHBOARD_ACCESS_DENIED;
+      throw denied;
+    }
     setSession(data.session ?? null);
     setUser(data.user ?? null);
     return data.user;

@@ -1,6 +1,6 @@
 import { createSupabaseServerClient } from './supabase/server';
 import { getSupabaseAdmin } from './supabaseAdmin';
-import { isSuperAdminUser } from './adminSuperUser';
+import { isDashboardOperatorUser, isSuperAdminUser } from './adminSuperUser';
 
 function getBearerToken(request) {
   const authHeader = String(request.headers.get('authorization') || '');
@@ -15,6 +15,9 @@ export async function requireAdminUser(request) {
     const admin = getSupabaseAdmin();
     const { data, error } = await admin.auth.getUser(bearer);
     if (!error && data?.user) {
+      if (!isDashboardOperatorUser(data.user)) {
+        return { user: null, error: 'No autorizado', status: 403 };
+      }
       return { user: data.user, error: null, status: 200 };
     }
   }
@@ -23,6 +26,9 @@ export async function requireAdminUser(request) {
   const { data, error } = await supabase.auth.getUser();
   if (error || !data?.user) {
     return { user: null, error: 'No autorizado', status: 401 };
+  }
+  if (!isDashboardOperatorUser(data.user)) {
+    return { user: null, error: 'No autorizado', status: 403 };
   }
 
   return { user: data.user, error: null, status: 200 };
