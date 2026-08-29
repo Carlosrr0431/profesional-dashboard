@@ -766,7 +766,7 @@ export default function App() {
                   />
                 ) : null}
                 <div className={isDesktopLayout
-                  ? 'absolute top-3 bottom-3 left-3 z-20 flex flex-col rounded-2xl overflow-hidden shadow-2xl shadow-navy-900/20 ring-1 ring-black/[0.06]'
+                  ? 'absolute top-3 bottom-3 left-[76px] z-20 flex flex-col rounded-2xl overflow-hidden shadow-2xl shadow-navy-900/20 ring-1 ring-black/[0.06]'
                   : 'fixed inset-0 z-50 flex'}>
                   <Sidebar
                     drivers={drivers}
@@ -882,7 +882,7 @@ export default function App() {
                       <p className="text-[12px] font-bold text-slate-900">Cola de espera</p>
                       <span className="text-[10px] font-medium text-slate-400">{queueData.stats.inQueue} pasajeros · espera media {queueData.stats.avgWaitMinutes}min</span>
                     </div>
-                    <div className="max-h-60 overflow-y-auto">
+                    <div className="max-h-[min(280px,42vh)] overflow-y-auto overscroll-contain">
                       {queueData.queuedList.length === 0 ? (
                         <p className="py-6 text-center text-xs text-slate-400">Cola vacía</p>
                       ) : (
@@ -911,7 +911,7 @@ export default function App() {
                       <p className="text-[12px] font-bold text-slate-900">Viajes activos</p>
                       <span className="text-[10px] font-medium text-slate-400">{liveTripsData.allTrips.filter((t) => t.isActive).length} en curso</span>
                     </div>
-                    <div className="max-h-60 overflow-y-auto">
+                    <div className="max-h-[min(280px,42vh)] overflow-y-auto overscroll-contain">
                       {liveTripsData.allTrips.filter((t) => t.isActive || t.isQueued).length === 0 ? (
                         <p className="py-6 text-center text-xs text-slate-400">Sin viajes activos</p>
                       ) : (
@@ -1035,6 +1035,7 @@ export default function App() {
 
       {showNewTripModal && (
         <NewTripModal
+          asPopover
           onClose={() => { setShowNewTripModal(false); setPreviewRoute(null); }}
           onSuccess={handleNewTripSuccess}
           onRouteChange={setPreviewRoute}

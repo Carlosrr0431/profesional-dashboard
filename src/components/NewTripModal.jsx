@@ -44,6 +44,7 @@ export default function NewTripModal({
   tariffBase,
   commissionPercent,
   onRouteChange,
+  asPopover = false,
 }) {
   const toast = useToast();
   const pickupInputRef = useRef(null);
@@ -321,18 +322,25 @@ export default function NewTripModal({
   /* ── Render modal completo ────────────────────────────────────────────── */
   return (
     <div
-      style={{
+      style={asPopover ? {
+        position: 'fixed', bottom: 76, right: 16, zIndex: 9999,
+        width: 'min(500px, calc(100vw - 80px))',
+      } : {
         position: 'fixed', inset: 0, zIndex: 9999,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(6px)',
       }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={asPopover ? undefined : ((e) => e.target === e.currentTarget && onClose())}
     >
       <style>{MODAL_STYLES}</style>
       <div style={{
         background: '#FFFFFF', borderRadius: 20,
-        width: '100%', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto',
-        boxShadow: '0 24px 64px rgba(0,0,0,0.28)',
+        width: '100%', maxWidth: asPopover ? 'none' : 520,
+        maxHeight: asPopover ? 'calc(100vh - 110px)' : '92vh', overflowY: 'auto',
+        boxShadow: asPopover
+          ? '0 16px 48px rgba(0,0,0,0.18), 0 4px 12px rgba(0,0,0,0.08)'
+          : '0 24px 64px rgba(0,0,0,0.28)',
+        border: asPopover ? '1px solid rgba(226,232,240,0.7)' : 'none',
         animation: '_ntm_fade 0.18s ease',
       }}>
         {/* Header */}
