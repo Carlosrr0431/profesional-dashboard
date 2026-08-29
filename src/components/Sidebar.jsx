@@ -127,7 +127,7 @@ export default function Sidebar({
   });
 
   return (
-    <div className="flex h-full w-full flex-col border-r border-slate-200/60 bg-white lg:w-[340px] lg:max-w-[340px]">
+    <div className="flex h-full w-full flex-col bg-white lg:w-[340px] lg:max-w-[340px]">
       {/* Header compacto */}
       <div className="shrink-0 border-b border-slate-100 px-3.5 pb-3 pt-3">
         <div className="mb-2 flex items-center gap-2">

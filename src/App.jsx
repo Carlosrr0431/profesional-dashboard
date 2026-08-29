@@ -506,14 +506,14 @@ export default function App() {
       ══════════════════════════════════════════════════════════════════════ */}
       <aside className="app-sidebar hidden lg:flex lg:flex-col">
         {/* Brand */}
-        <div className="flex-shrink-0 flex items-center gap-2.5 px-[17px] py-3.5 border-b border-slate-100">
+        <div className="flex-shrink-0 flex items-center gap-2.5 px-[17px] py-3.5 border-b border-white/8">
           <DashboardBrand imageClassName="h-7 w-7 min-w-[28px] flex-shrink-0 object-contain rounded-lg" />
-          <span className="app-sidebar-label text-[13px] font-bold text-navy-900 tracking-tight">Profesional</span>
+          <span className="app-sidebar-label text-[13px] font-bold text-white/90 tracking-tight">Profesional</span>
         </div>
         {/* Navegación */}
         <nav className="flex-1 px-2 py-3 flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden min-h-0 scrollbar-none">
           {renderSideNavigation()}
-          <div className="my-2 mx-1 h-px bg-slate-100 flex-shrink-0" />
+          <div className="my-2 mx-1 h-px bg-white/10 flex-shrink-0" />
           <SideNavItem active={multiSelectMode}
             onClick={() => { if (multiSelectMode) clearMultiSelect(); else { setMultiSelectMode(true); setPanelDriverId(null); setSelectedId(null); setVoiceChatDriver(null); } }}
             badge={multiSelectMode && multiSelectedIds.size > 0 ? multiSelectedIds.size : null} badgeColor="violet"
@@ -525,17 +525,17 @@ export default function App() {
             label="Audio masivo" />
         </nav>
         {/* Acciones */}
-        <div className="flex-shrink-0 border-t border-slate-100 px-2 py-2.5 flex flex-col gap-0.5">
+        <div className="flex-shrink-0 border-t border-white/8 px-2 py-2.5 flex flex-col gap-0.5">
           <SideNavItem active={false} onClick={() => setShowNewTripModal(true)}
             icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4"/></svg>}
             label="Nuevo viaje" variant="primary" />
           <SideNavItem active={false} onClick={() => setShowAiAgentModal(true)}
             icon={<span className="relative flex h-4 w-4 flex-shrink-0 items-center justify-center">{whatsappAgentEnabled ? <><span className="animate-ping absolute h-2 w-2 rounded-full bg-emerald-500 opacity-60"/><span className="relative h-2 w-2 rounded-full bg-emerald-500"/></> : <span className="h-2 w-2 rounded-full bg-slate-400"/>}</span>}
-            label="Agente IA" toneClass={whatsappAgentEnabled ? 'text-emerald-700 bg-emerald-500/10 hover:bg-emerald-500/15' : ''} />
+            label="Agente IA" toneClass={whatsappAgentEnabled ? 'text-emerald-400' : 'text-slate-400'} />
           <SideNavItem active={false} onClick={() => { window.location.href = '/admin/whatsapp'; }}
             icon={<span className="relative flex h-4 w-4 flex-shrink-0 items-center justify-center"><span className={`relative h-2 w-2 rounded-full ${whatsappConnected ? 'bg-emerald-500' : 'bg-red-500'}`}/></span>}
-            label="WhatsApp" toneClass={whatsappConnected ? 'text-emerald-700' : 'text-red-500'} />
-          <div className="my-0.5 mx-1 h-px bg-slate-100 flex-shrink-0" />
+            label="WhatsApp" toneClass={whatsappConnected ? 'text-emerald-400' : 'text-red-400'} />
+          <div className="my-0.5 mx-1 h-px bg-white/10 flex-shrink-0" />
           <SideNavItem active={false} onClick={handleSignOut}
             icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1"/></svg>}
             label="Cerrar sesión" />
@@ -753,7 +753,7 @@ export default function App() {
 
         ) : (
           /* ── Vista mapa ──────────────────────────────────────────────── */
-          <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
             {showFleetSidebar ? (
               <>
                 {!isDesktopLayout ? (
@@ -764,7 +764,9 @@ export default function App() {
                     aria-label="Cerrar flota"
                   />
                 ) : null}
-                <div className={isDesktopLayout ? 'flex shrink-0' : 'fixed inset-0 z-50 flex'}>
+                <div className={isDesktopLayout
+                  ? 'absolute top-3 bottom-3 left-3 z-20 flex flex-col rounded-2xl overflow-hidden shadow-2xl shadow-navy-900/20 ring-1 ring-black/[0.06]'
+                  : 'fixed inset-0 z-50 flex'}>
                   <Sidebar
                     drivers={drivers}
                     selectedId={selectedId}
@@ -783,7 +785,7 @@ export default function App() {
               </>
             ) : null}
 
-            <div className="relative min-h-0 flex-1 overflow-hidden border-l border-t border-light-300/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] lg:rounded-tl-3xl">
+            <div className="relative min-h-0 flex-1 overflow-hidden">
               <MapView
                 drivers={drivers}
                 pendingPassengers={pendingPassengers}
@@ -805,14 +807,14 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setFleetDrawerOpen(true)}
-                  className="pointer-events-auto absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-2xl border border-light-300/70 bg-white/95 px-3.5 py-2.5 text-[12px] font-bold text-navy-900 shadow-lg shadow-navy-900/10 backdrop-blur-md transition hover:bg-white lg:hidden"
+                  className="pointer-events-auto absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-2xl bg-navy-900/90 backdrop-blur-sm px-3.5 py-2.5 text-[12px] font-bold text-white shadow-xl shadow-navy-900/20 transition hover:bg-navy-900 lg:hidden"
                 >
-                  <svg className="h-4 w-4 text-navy-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="h-4 w-4 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                       d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                   Flota
-                  <span className="rounded-full bg-navy-900 px-1.5 py-0.5 text-[10px] font-bold text-white tabular-nums">
+                  <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
                     {drivers.length}
                   </span>
                 </button>
@@ -867,47 +869,57 @@ export default function App() {
                 </div>
               )}
 
-              {/* ── Indicadores flotantes de alertas ─────────────────── */}
-              <div className="pointer-events-none absolute bottom-20 right-3 z-10 flex flex-col items-end gap-2 sm:bottom-4 sm:right-4">
+              {/* ── Indicadores flotantes + acciones ──────────────────── */}
+              <div className="pointer-events-none absolute bottom-4 right-4 z-10 flex flex-col items-end gap-2">
                 {scheduledData.stats.imminent > 0 && (
                   <button
-                    className="pointer-events-auto flex max-w-[calc(100vw-6.5rem)] items-center gap-2 rounded-xl border border-warning/40 bg-white px-2.5 py-2 shadow-lg shadow-warning/15 transition-all hover:border-warning/60 hover:shadow-xl sm:max-w-none sm:px-3"
+                    className="pointer-events-auto flex items-center gap-2 rounded-full border border-warning/35 bg-white/95 backdrop-blur-sm px-3.5 py-2 text-[12px] font-semibold text-warning shadow-lg shadow-warning/12 transition-all hover:shadow-xl hover:border-warning/55"
                     onClick={() => goTo(VIEWS.scheduled)}
-                    title="Ver viajes inminentes"
                   >
-                    <span className="relative flex h-2.5 w-2.5 shrink-0">
+                    <span className="relative flex h-2 w-2 shrink-0">
                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-75" />
-                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-warning" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-warning" />
                     </span>
-                    <span className="truncate text-[11px] font-bold text-warning sm:text-[12px]">
-                      {scheduledData.stats.imminent} inminente{scheduledData.stats.imminent !== 1 ? 's' : ''}
-                    </span>
-                    <svg className="h-3.5 w-3.5 shrink-0 text-warning/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
+                    {scheduledData.stats.imminent} inminente{scheduledData.stats.imminent !== 1 ? 's' : ''}
                   </button>
                 )}
                 {queueData.stats.inQueue > 0 && (
                   <button
-                    className="pointer-events-auto flex max-w-[calc(100vw-6.5rem)] items-center gap-2 rounded-xl border border-accent/30 bg-white px-2.5 py-2 shadow-lg shadow-accent/10 transition-all hover:border-accent/50 hover:shadow-xl sm:max-w-none sm:px-3"
-                    onClick={() => {
-                      setTripsDate(toLocalDateInputValue());
-                      goTo(VIEWS.trips);
-                    }}
-                    title="Ver cola de espera"
+                    className="pointer-events-auto flex items-center gap-2 rounded-full border border-accent/25 bg-white/95 backdrop-blur-sm px-3.5 py-2 text-[12px] font-semibold text-accent shadow-lg shadow-accent/8 transition-all hover:shadow-xl hover:border-accent/45"
+                    onClick={() => { setTripsDate(toLocalDateInputValue()); goTo(VIEWS.trips); }}
                   >
-                    <span className="relative flex h-2.5 w-2.5 shrink-0">
+                    <span className="relative flex h-2 w-2 shrink-0">
                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
-                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-accent" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
                     </span>
-                    <span className="truncate text-[11px] font-bold text-accent sm:text-[12px]">
-                      {queueData.stats.inQueue} en cola
-                    </span>
-                    <svg className="h-3.5 w-3.5 shrink-0 text-accent/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
+                    {queueData.stats.inQueue} en cola
                   </button>
                 )}
+                <div className="pointer-events-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setTripsDate(toLocalDateInputValue()); goTo(VIEWS.trips); }}
+                    className="flex h-10 items-center gap-2 rounded-full bg-white/95 backdrop-blur-sm border border-slate-200/70 px-4 text-[12px] font-semibold text-slate-700 shadow-lg transition-all hover:bg-white hover:shadow-xl active:scale-[0.97]"
+                    title="Ver viajes"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10m16 0V8a1 1 0 00-1-1h-3.5M6 8h2" />
+                    </svg>
+                    <span className="hidden sm:inline">Viajes</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewTripModal(true)}
+                    className="flex h-10 items-center gap-2 rounded-full bg-navy-900 px-4 text-[12px] font-semibold text-white shadow-xl shadow-navy-900/30 transition-all hover:bg-navy-800 hover:shadow-2xl active:scale-[0.97]"
+                    title="Nuevo viaje"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span className="hidden sm:inline">Nuevo viaje</span>
+                  </button>
+                </div>
               </div>
             </div>
 
