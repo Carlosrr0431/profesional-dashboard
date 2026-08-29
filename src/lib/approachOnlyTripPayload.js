@@ -220,9 +220,9 @@ export function mergePassengerRouteFare(serverFare, clientFare) {
   if (!serverFare) return clientFare;
 
   return {
-    price: clientFare.price ?? serverFare.price,
-    distance_km: clientFare.distance_km ?? serverFare.distance_km,
-    duration_minutes: clientFare.duration_minutes ?? serverFare.duration_minutes,
+    price: serverFare.price ?? clientFare.price,
+    distance_km: serverFare.distance_km ?? clientFare.distance_km,
+    duration_minutes: serverFare.duration_minutes ?? clientFare.duration_minutes,
     commission_amount: serverFare.commission_amount ?? clientFare.commission_amount ?? null,
   };
 }

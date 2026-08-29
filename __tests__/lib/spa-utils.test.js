@@ -49,6 +49,23 @@ describe('SPA trip helpers', () => {
     expect(calculateTripPrice({ ...tariff, distanceKm: 4.2 })).toBe(4700);
   });
 
+  it('web usa tarifa propia y si no hay keys hereda la app', () => {
+    const web = resolvePassengerTariff({
+      passenger_web_tariff_per_km: '800',
+      passenger_web_tariff_base: '200',
+      passenger_app_tariff_per_km: '600',
+      passenger_app_tariff_base: '0',
+    });
+    expect(web.perKm).toBe(800);
+    expect(web.base).toBe(200);
+
+    const inherited = resolvePassengerTariff({
+      passenger_app_tariff_per_km: '600',
+      passenger_app_tariff_base: '0',
+    });
+    expect(inherited.perKm).toBe(600);
+  });
+
   it('sin zonas activas deja pasar el retiro', () => {
     expect(isPickupInActiveZones([], -24.78, -65.42)).toBe(true);
   });

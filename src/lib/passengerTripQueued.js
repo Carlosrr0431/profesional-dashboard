@@ -21,6 +21,13 @@ import {
   getRouteMetrics as getOsrmRouteMetrics,
   getRouteAlternatives,
 } from './geo/index.js';
+import {
+  channelFromTripSource,
+  commissionFromPrice,
+  loadTariffContext,
+  priceFromTariff,
+  resolveChannelTariff,
+} from './resolveTariff';
 
 function sanitizeText(value, maxLen = 500) {
   return String(value || '').trim().slice(0, maxLen);
@@ -132,19 +139,21 @@ async function getRouteMetrics(origin, destination, waypoints = []) {
   }
 }
 
-function calculateTripPricing(settings, route) {
-  const tariffPerKm = Number(settings?.passenger_app_tariff_per_km || 0);
-  const tariffBase = Number(settings?.passenger_app_tariff_base || 0);
-  const commissionPercent = Number(settings?.passenger_app_commission_percent || 10);
-
+function calculateTripPricing(settingsMap, route, windows = [], { source, at } = {}) {
   if (route?.distanceKm == null) return null;
 
-  const price = Math.round(tariffBase + tariffPerKm * route.distanceKm);
-  const commission_amount = Math.round((price * commissionPercent) / 100);
+  const tariff = resolveChannelTariff({
+    settingsMap,
+    windows,
+    channel: channelFromTripSource(source),
+    at: at || new Date(),
+  });
+  const price = priceFromTariff(tariff, route.distanceKm);
+  if (price == null) return null;
 
   return {
     price,
-    commission_amount,
+    commission_amount: commissionFromPrice(price, tariff.commissionPercent),
     distance_km: route.distanceKm,
     duration_minutes: route.durationMinutes,
   };
@@ -154,7 +163,8 @@ export async function resolvePassengerRouteFare(
   supabase,
   pickupLocation,
   finalDestinationLocation,
-  waypoints = []
+  waypoints = [],
+  { source, at } = {},
 ) {
   if (!pickupLocation || !finalDestinationLocation) return null;
 
@@ -165,11 +175,8 @@ export async function resolvePassengerRouteFare(
   );
   if (!route) return null;
 
-  const { data: settingsRows, error } = await supabase.from('settings').select('key, value');
-  if (error) throw error;
-
-  const settings = Object.fromEntries((settingsRows || []).map((r) => [r.key, r.value]));
-  return calculateTripPricing(settings, route);
+  const { settingsMap, windows } = await loadTariffContext(supabase);
+  return calculateTripPricing(settingsMap, route, windows, { source, at });
 }
 
 /** Intenta obtener destino final por geocode o por ruta OSRM entre direcciones. */

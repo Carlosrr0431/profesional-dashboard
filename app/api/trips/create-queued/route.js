@@ -151,7 +151,11 @@ export async function POST(req) {
       supabase,
       pickupLocation,
       finalDestinationLocation,
-      resolvedWaypoints || []
+      resolvedWaypoints || [],
+      {
+        source: payload?.source,
+        at: isScheduled ? scheduledForDate : new Date(),
+      },
     );
     const fare = mergePassengerRouteFare(serverFare, fareFromClientPayload(payload));
 

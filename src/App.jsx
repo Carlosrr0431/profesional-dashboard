@@ -89,7 +89,10 @@ export default function App() {
   const scheduledData = useScheduledTrips();
   const {
     tariffPerKm, tariffBase, commissionPercent,
+    platformDefaultPerKm, platformDefaultBase, platformDefaultCommission,
     passengerAppTariffPerKm, passengerAppTariffBase, passengerAppCommissionPercent,
+    passengerWebTariffPerKm, passengerWebTariffBase, passengerWebCommissionPercent,
+    tariffWindows, saveTariffWindow, deleteTariffWindow,
     driverAppLatestVersionCode, passengerAppLatestVersionCode,
     whatsappAgentEnabled, calculatePrice, updateSetting,
   } = useSettings();
@@ -736,12 +739,20 @@ export default function App() {
                     onSelectDriver={handleFleetDriverSelect}
                     onCenterDriver={handleCenterDriver}
                     tariffPerKm={tariffPerKm}
-                    tariffBase={tariffBase}
                     commissionPercent={commissionPercent}
+                    platformDefaultPerKm={platformDefaultPerKm}
+                    platformDefaultBase={platformDefaultBase}
+                    platformDefaultCommission={platformDefaultCommission}
                     passengerAppTariffPerKm={passengerAppTariffPerKm}
                     passengerAppTariffBase={passengerAppTariffBase}
                     passengerAppCommissionPercent={passengerAppCommissionPercent}
+                    passengerWebTariffPerKm={passengerWebTariffPerKm}
+                    passengerWebTariffBase={passengerWebTariffBase}
+                    passengerWebCommissionPercent={passengerWebCommissionPercent}
+                    tariffWindows={tariffWindows}
                     onUpdateSetting={updateSetting}
+                    onSaveTariffWindow={saveTariffWindow}
+                    onDeleteTariffWindow={deleteTariffWindow}
                     onClose={!isDesktopLayout ? () => setFleetDrawerOpen(false) : undefined}
                   />
                 </div>

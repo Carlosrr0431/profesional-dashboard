@@ -3,6 +3,11 @@ import { supabase } from '../lib/supabase';
 import { timeAgo, formatSpeed, getTripStatus } from '../lib/utils';
 import { matchesDriverSearch } from '../lib/driverRoles';
 import { resolveDriverIsOnline } from '../lib/driverPresence';
+import {
+  artMinutesFromDate,
+  minutesToTimeInput,
+  pickMatchingWindow,
+} from '../lib/resolveTariff';
 import DriverAvatar from './DriverAvatar';
 
 export default function Sidebar({
@@ -11,12 +16,20 @@ export default function Sidebar({
   onSelectDriver,
   onCenterDriver,
   tariffPerKm,
-  tariffBase,
   commissionPercent,
+  platformDefaultPerKm,
+  platformDefaultBase,
+  platformDefaultCommission,
   passengerAppTariffPerKm,
   passengerAppTariffBase,
   passengerAppCommissionPercent,
+  passengerWebTariffPerKm,
+  passengerWebTariffBase,
+  passengerWebCommissionPercent,
+  tariffWindows = [],
   onUpdateSetting,
+  onSaveTariffWindow,
+  onDeleteTariffWindow,
   onClose,
 }) {
   const [search, setSearch] = useState('');
@@ -229,7 +242,7 @@ export default function Sidebar({
           <span className="min-w-0 flex-1">
             <span className="block text-[11px] font-bold tracking-tight text-navy-900">Tarifas</span>
             <span className="block truncate text-[10px] font-medium text-slate-500">
-              ${tariffPerKm}/km · comisión {commissionPercent}%
+              Ahora ${tariffPerKm}/km · comisión {commissionPercent}%
             </span>
           </span>
           <svg className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${showTariff ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -238,28 +251,51 @@ export default function Sidebar({
         </button>
 
         {showTariff ? (
-          <div className="space-y-2.5 px-3 pb-3">
+          <div className="max-h-[46vh] space-y-2.5 overflow-y-auto px-3 pb-3">
             <TariffPlanCard
               title="Plataforma"
               description="WhatsApp y panel. Vale para los viajes operativos."
               tone="navy"
-              perKm={tariffPerKm}
-              base={tariffBase}
-              commission={commissionPercent}
+              channel="platform"
+              perKm={platformDefaultPerKm}
+              base={platformDefaultBase}
+              commission={platformDefaultCommission}
+              windows={tariffWindows}
               onPerKm={(v) => onUpdateSetting('platform_tariff_per_km', v)}
               onBase={(v) => onUpdateSetting('platform_tariff_base', v)}
               onCommission={(v) => onUpdateSetting('platform_commission_percent', v)}
+              onSaveWindow={onSaveTariffWindow}
+              onDeleteWindow={onDeleteTariffWindow}
             />
             <TariffPlanCard
               title="App pasajeros"
-              description="Solo viajes pedidos desde la app."
+              description="Solo viajes pedidos desde la app nativa."
               tone="accent"
+              channel="passenger_app"
               perKm={passengerAppTariffPerKm}
               base={passengerAppTariffBase}
               commission={passengerAppCommissionPercent}
+              windows={tariffWindows}
               onPerKm={(v) => onUpdateSetting('passenger_app_tariff_per_km', v)}
               onBase={(v) => onUpdateSetting('passenger_app_tariff_base', v)}
               onCommission={(v) => onUpdateSetting('passenger_app_commission_percent', v)}
+              onSaveWindow={onSaveTariffWindow}
+              onDeleteWindow={onDeleteTariffWindow}
+            />
+            <TariffPlanCard
+              title="Web pasajeros"
+              description="https://www.profesionalviajes.com.ar/pasajero — cotiza y cobra esta tarifa, independiente de la app."
+              tone="web"
+              channel="passenger_web"
+              perKm={passengerWebTariffPerKm}
+              base={passengerWebTariffBase}
+              commission={passengerWebCommissionPercent}
+              windows={tariffWindows}
+              onPerKm={(v) => onUpdateSetting('passenger_web_tariff_per_km', v)}
+              onBase={(v) => onUpdateSetting('passenger_web_tariff_base', v)}
+              onCommission={(v) => onUpdateSetting('passenger_web_commission_percent', v)}
+              onSaveWindow={onSaveTariffWindow}
+              onDeleteWindow={onDeleteTariffWindow}
             />
           </div>
         ) : null}
@@ -308,21 +344,100 @@ function TariffField({ label, prefix, value, onChange }) {
   );
 }
 
-function TariffPlanCard({ title, description, tone, perKm, base, commission, onPerKm, onBase, onCommission }) {
+function emptyWindowDraft(perKm, base, commission) {
+  return {
+    id: '',
+    startTime: '22:00',
+    endTime: '06:00',
+    perKm: String(Math.round(Number(perKm) || 0)),
+    base: String(Math.round(Number(base) || 0)),
+    commission: String(Math.round(Number(commission) || 0)),
+  };
+}
+
+function TariffPlanCard({
+  title,
+  description,
+  tone,
+  channel,
+  perKm,
+  base,
+  commission,
+  windows = [],
+  onPerKm,
+  onBase,
+  onCommission,
+  onSaveWindow,
+  onDeleteWindow,
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState(() => emptyWindowDraft(perKm, base, commission));
   const total = Math.round((Number(base) || 0) + (Number(perKm) || 0) * 5);
   const cut = Math.round(total * (Number(commission) || 0) / 100);
   const isNavy = tone === 'navy';
+  const isWeb = tone === 'web';
+  const channelWindows = (windows || []).filter((row) => row.channel === channel);
+  const activeWindow = pickMatchingWindow(channelWindows, channel, artMinutesFromDate(new Date()));
+  const shellClass = isNavy
+    ? 'border-navy-900/12 bg-slate-50/80'
+    : isWeb
+      ? 'border-indigo-200 bg-indigo-50/40'
+      : 'border-accent/15 bg-accent/[0.04]';
+  const dotClass = isNavy ? 'bg-navy-900' : isWeb ? 'bg-indigo-500' : 'bg-accent';
+
+  const openNew = () => {
+    setDraft(emptyWindowDraft(perKm, base, commission));
+    setShowForm(true);
+  };
+
+  const openEdit = (row) => {
+    setDraft({
+      id: row.id,
+      startTime: minutesToTimeInput(row.start_minute),
+      endTime: minutesToTimeInput(row.end_minute),
+      perKm: String(Math.round(Number(row.per_km) || 0)),
+      base: String(Math.round(Number(row.base) || 0)),
+      commission: String(Math.round(Number(row.commission_percent) || 0)),
+    });
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
+    if (!onSaveWindow) return;
+    setSaving(true);
+    const ok = await onSaveWindow({
+      id: draft.id || undefined,
+      channel,
+      startTime: draft.startTime,
+      endTime: draft.endTime,
+      per_km: draft.perKm,
+      base: draft.base,
+      commission_percent: draft.commission,
+      enabled: true,
+    });
+    setSaving(false);
+    if (ok) setShowForm(false);
+  };
 
   return (
-    <div className={`overflow-hidden rounded-2xl border ${isNavy ? 'border-navy-900/12 bg-slate-50/80' : 'border-accent/15 bg-accent/[0.04]'}`}>
+    <div className={`overflow-hidden rounded-2xl border ${shellClass}`}>
       <div className="px-3 pt-3">
         <div className="flex items-center gap-2">
-          <span className={`h-1.5 w-1.5 rounded-full ${isNavy ? 'bg-navy-900' : 'bg-accent'}`} />
+          <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
           <p className="text-[12px] font-bold tracking-tight text-navy-900">{title}</p>
+          {activeWindow ? (
+            <span className="rounded-md bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">
+              Franja activa
+            </span>
+          ) : null}
         </div>
         <p className="mt-0.5 text-[10px] leading-snug text-slate-500">{description}</p>
       </div>
-      <div className="flex gap-1.5 px-3 pt-2.5">
+      <p className="px-3 pt-2 text-[9px] font-bold uppercase tracking-wide text-slate-400">
+        Por defecto (fuera de franjas)
+      </p>
+      <div className="flex gap-1.5 px-3 pt-1.5">
         <TariffField label="$ / km" prefix="$" value={perKm} onChange={onPerKm} />
         <TariffField label="Base" prefix="$" value={base} onChange={onBase} />
         <TariffField label="Comisión %" value={commission} onChange={onCommission} />
@@ -336,6 +451,116 @@ function TariffPlanCard({ title, description, tone, perKm, base, commission, onP
           <span className="text-amber-600">{moneyAr(cut)}</span>
           <span className="text-[9px] font-medium text-slate-400">comisión</span>
         </p>
+      </div>
+
+      <div className="border-t border-black/[0.04] px-3 py-2">
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Franjas horarias</p>
+          <button
+            type="button"
+            onClick={openNew}
+            className="text-[10px] font-semibold text-navy-900 hover:underline"
+          >
+            + Agregar
+          </button>
+        </div>
+        {channelWindows.length === 0 && !showForm ? (
+          <p className="text-[10px] leading-snug text-slate-400">
+            Sin franjas: vale la tarifa por defecto todo el día.
+          </p>
+        ) : null}
+        <div className="space-y-1">
+          {channelWindows.map((row) => (
+            <div
+              key={row.id}
+              className={`flex items-center gap-2 rounded-xl px-2 py-1.5 ${
+                activeWindow?.id === row.id ? 'bg-amber-500/10' : 'bg-white/70'
+              }`}
+            >
+              <p className="min-w-0 flex-1 text-[11px] font-semibold tabular-nums text-navy-900">
+                {minutesToTimeInput(row.start_minute)}–{minutesToTimeInput(row.end_minute)}
+                <span className="ml-1.5 font-medium text-slate-500">
+                  {moneyAr(row.per_km)}/km
+                </span>
+              </p>
+              <button
+                type="button"
+                onClick={() => openEdit(row)}
+                className="text-[10px] font-semibold text-slate-500 hover:text-navy-900"
+              >
+                Editar
+              </button>
+              <button
+                type="button"
+                onClick={() => onDeleteWindow?.(row.id)}
+                className="text-[10px] font-semibold text-rose-500 hover:text-rose-700"
+              >
+                Borrar
+              </button>
+            </div>
+          ))}
+        </div>
+        {showForm ? (
+          <div className="mt-2 space-y-1.5 rounded-xl bg-white p-2 ring-1 ring-slate-200">
+            <div className="flex gap-1.5">
+              <label className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Desde</span>
+                <input
+                  type="time"
+                  value={draft.startTime}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, startTime: e.target.value }))}
+                  className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[12px] font-semibold text-navy-900"
+                />
+              </label>
+              <label className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Hasta</span>
+                <input
+                  type="time"
+                  value={draft.endTime}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, endTime: e.target.value }))}
+                  className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[12px] font-semibold text-navy-900"
+                />
+              </label>
+            </div>
+            <div className="flex gap-1.5">
+              <TariffField
+                label="$ / km"
+                prefix="$"
+                value={draft.perKm}
+                onChange={(v) => setDraft((prev) => ({ ...prev, perKm: v }))}
+              />
+              <TariffField
+                label="Base"
+                prefix="$"
+                value={draft.base}
+                onChange={(v) => setDraft((prev) => ({ ...prev, base: v }))}
+              />
+              <TariffField
+                label="Comisión %"
+                value={draft.commission}
+                onChange={(v) => setDraft((prev) => ({ ...prev, commission: v }))}
+              />
+            </div>
+            <p className="text-[9px] text-slate-400">Si “desde” es mayor que “hasta”, cruza medianoche.</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="text-[11px] font-semibold text-slate-500"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={handleSave}
+                className="rounded-lg bg-navy-900 px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-50"
+              >
+                {saving ? 'Guardando…' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

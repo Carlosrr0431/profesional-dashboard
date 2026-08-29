@@ -3,6 +3,7 @@ const {
   resolveFinalDestinationFromClient,
   buildPassengerQueuedTripPayload,
   fareFromClientPayload,
+  mergePassengerRouteFare,
 } = require('../../src/lib/passengerTripQueued');
 
 describe('passengerTripQueued', () => {
@@ -94,5 +95,15 @@ describe('passengerTripQueued', () => {
     expect(payload.notes).toContain('[PASSENGER_WEB]');
     expect(payload.notes).toContain('[PASSENGER_APP]');
     expect(payload.notes).toContain('Solicitado desde la web de pasajeros.');
+  });
+
+  it('mergePassengerRouteFare prioriza el precio del servidor', () => {
+    const merged = mergePassengerRouteFare(
+      { price: 3600, commission_amount: 1800, distance_km: 5, duration_minutes: 12 },
+      { price: 3000, commission_amount: null, distance_km: 4.8, duration_minutes: 11 },
+    );
+    expect(merged.price).toBe(3600);
+    expect(merged.commission_amount).toBe(1800);
+    expect(merged.distance_km).toBe(5);
   });
 });

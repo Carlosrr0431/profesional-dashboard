@@ -18,10 +18,18 @@ export function parseSettingNumber(rawValue) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function resolvePassengerTariff(settingsMap = {}, { defaultPerKm = 1000 } = {}) {
-  const perKm = parseSettingNumber(settingsMap.passenger_app_tariff_per_km);
-  const base = parseSettingNumber(settingsMap.passenger_app_tariff_base) || 0;
-  const commissionPercent = parseSettingNumber(settingsMap.passenger_app_commission_percent) || 0;
+export function resolvePassengerTariff(settingsMap = {}, { defaultPerKm = 1000, channel = 'passenger_web' } = {}) {
+  const prefix = channel === 'passenger_app' ? 'passenger_app' : 'passenger_web';
+  let perKm = parseSettingNumber(settingsMap[`${prefix}_tariff_per_km`]);
+  let base = parseSettingNumber(settingsMap[`${prefix}_tariff_base`]);
+  let commissionPercent = parseSettingNumber(settingsMap[`${prefix}_commission_percent`]);
+
+  if (prefix === 'passenger_web' && perKm <= 0 && base <= 0) {
+    perKm = parseSettingNumber(settingsMap.passenger_app_tariff_per_km);
+    base = parseSettingNumber(settingsMap.passenger_app_tariff_base);
+    commissionPercent = parseSettingNumber(settingsMap.passenger_app_commission_percent);
+  }
+
   return {
     base,
     perKm: perKm > 0 ? perKm : defaultPerKm,

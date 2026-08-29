@@ -1,21 +1,21 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  TARIFF_KEYS_BY_CHANNEL,
+  overlayResolvedTariffSettings,
+  fetchTariffWindows,
+} from '../../../src/lib/resolveTariff';
 
-/** Tarifa activa de plataforma (todos los viajes operativos). */
-const PLATFORM_TARIFF_KEYS = [
-  'platform_tariff_per_km',
-  'platform_tariff_base',
-  'platform_commission_percent',
+export const dynamic = 'force-dynamic';
+
+const PLATFORM_TARIFF_KEYS = Object.values(TARIFF_KEYS_BY_CHANNEL.platform);
+const PASSENGER_APP_TARIFF_KEYS = Object.values(TARIFF_KEYS_BY_CHANNEL.passenger_app);
+const PASSENGER_WEB_TARIFF_KEYS = Object.values(TARIFF_KEYS_BY_CHANNEL.passenger_web);
+const TARIFF_KEYS = [
+  ...PLATFORM_TARIFF_KEYS,
+  ...PASSENGER_APP_TARIFF_KEYS,
+  ...PASSENGER_WEB_TARIFF_KEYS,
 ];
-
-/** Tarifa activa para viajes de la app de pasajeros. */
-const PASSENGER_APP_TARIFF_KEYS = [
-  'passenger_app_tariff_per_km',
-  'passenger_app_tariff_base',
-  'passenger_app_commission_percent',
-];
-
-const TARIFF_KEYS = [...PLATFORM_TARIFF_KEYS, ...PASSENGER_APP_TARIFF_KEYS];
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -33,25 +33,30 @@ function getSupabaseAdmin() {
 export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('settings')
-      .select('key, value')
-      .in('key', TARIFF_KEYS);
+    const [{ data, error }, windows] = await Promise.all([
+      supabase.from('settings').select('key, value').in('key', TARIFF_KEYS),
+      fetchTariffWindows(supabase),
+    ]);
 
     if (error) throw error;
 
-    const map = {};
+    const defaults = {};
     (data || []).forEach((row) => {
-      if (row?.key) map[row.key] = row.value;
+      if (row?.key) defaults[row.key] = row.value;
     });
+
+    const resolved = overlayResolvedTariffSettings(defaults, windows, new Date());
 
     return NextResponse.json({
       ok: true,
-      data: map,
+      data: resolved,
+      defaults,
+      windows,
       activeSource: 'platform',
       platformKeys: PLATFORM_TARIFF_KEYS,
       passengerAppKeys: PASSENGER_APP_TARIFF_KEYS,
-    });
+      passengerWebKeys: PASSENGER_WEB_TARIFF_KEYS,
+    }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     return NextResponse.json(
       {
@@ -61,7 +66,7 @@ export async function GET() {
           message: err?.message || 'Unexpected server error',
         },
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

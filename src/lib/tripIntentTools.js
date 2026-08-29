@@ -21,8 +21,17 @@ import {
   fixCommonPoiTypos,
 } from '../../shared/geo/googlePlaces.js';
 import { stripScheduleTimePhrases } from './whatsappTripAddressParse.js';
+import {
+  fetchTariffWindows,
+  priceFromTariff,
+  resolveChannelTariff,
+} from './resolveTariff';
 
-const TARIFF_KEYS = ['platform_tariff_per_km', 'platform_tariff_base'];
+const TARIFF_KEYS = [
+  'platform_tariff_per_km',
+  'platform_tariff_base',
+  'platform_commission_percent',
+];
 const OPEN_TRIP_STATUSES = ['scheduled', 'queued', 'pending', 'accepted', 'going_to_pickup', 'in_progress'];
 
 const BARRIO_ALIASES = [
@@ -447,18 +456,30 @@ async function quoteFare(args = {}, settingsMap = {}) {
     return { priced: false, reason: 'no_distance', origin, destination };
   }
 
-  const tariffPerKm = Number(settingsMap.platform_tariff_per_km || 0);
-  const tariffBase = Number(settingsMap.platform_tariff_base || 0);
-  const price = Math.round(tariffBase + tariffPerKm * distanceKm);
+  let windows = [];
+  try {
+    windows = await fetchTariffWindows(getSupabaseAdmin());
+  } catch {
+    windows = [];
+  }
+
+  const tariff = resolveChannelTariff({
+    settingsMap,
+    windows,
+    channel: 'platform',
+    at: new Date(),
+  });
+  const price = priceFromTariff(tariff, distanceKm);
+  const priced = (tariff.perKm > 0 || tariff.base > 0) && price != null;
   return {
-    priced: tariffPerKm > 0 || tariffBase > 0,
+    priced,
     origin: route.originResolved || origin,
     destination: route.destinationResolved || destination,
     distance_km: distanceKm,
     duration_minutes: route.durationMinutes ?? null,
-    price: tariffPerKm > 0 || tariffBase > 0 ? price : null,
-    tariff_base: tariffBase,
-    tariff_per_km: tariffPerKm,
+    price: priced ? price : null,
+    tariff_base: tariff.base,
+    tariff_per_km: tariff.perKm,
   };
 }
 

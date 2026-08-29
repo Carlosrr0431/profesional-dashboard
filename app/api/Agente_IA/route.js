@@ -59,6 +59,12 @@ import {
   buildScheduledTripConfirmationReply,
 } from '../../../src/lib/scheduledTripWhatsAppMessages';
 import { triggerDispatchWorker } from '../../../src/lib/triggerDispatchWorker';
+import {
+  commissionFromPrice,
+  fetchTariffWindows,
+  priceFromTariff,
+  resolveChannelTariff,
+} from '../../../src/lib/resolveTariff';
 import { isPassengerAppTrip, resolveTripPickupCoords } from '../../../shared/trip-contract.js';
 import { isDriverEligibleForDispatch } from '../../../shared/driver-billing.js';
 import { selectDriversCompat } from '../../../src/lib/driversBillingSelect';
@@ -6438,25 +6444,26 @@ async function getSettingsMap() {
   return map;
 }
 
-function calculateWhatsAppTripPricing(settings, route) {
-  const tariffPerKm = Number(settings.platform_tariff_per_km || 0);
-  const tariffBase = Number(settings.platform_tariff_base || 0);
-  const commissionPercent = Number(settings.platform_commission_percent || 10);
+function calculateWhatsAppTripPricing(settings, route, windows = [], at = new Date()) {
+  const tariff = resolveChannelTariff({
+    settingsMap: settings,
+    windows,
+    channel: 'platform',
+    at,
+  });
 
-  const price = route.distanceKm == null
-    ? null
-    : Math.round(tariffBase + tariffPerKm * route.distanceKm);
+  const price = route.distanceKm == null ? null : priceFromTariff(tariff, route.distanceKm);
   const commissionAmount = price == null
     ? null
-    : Math.round((price * commissionPercent) / 100);
+    : commissionFromPrice(price, tariff.commissionPercent);
 
   return {
     price,
     commissionAmount,
     pricingMode: 'platform',
-    tariffPerKm,
-    tariffBase,
-    commissionPercent,
+    tariffPerKm: tariff.perKm,
+    tariffBase: tariff.base,
+    commissionPercent: tariff.commissionPercent,
   };
 }
 
@@ -6483,8 +6490,11 @@ async function resolvePassengerRouteFare(pickupLocation, finalDestinationGeo) {
     );
     if (route.distanceKm == null) return null;
 
-    const settings = await getSettingsMap();
-    const pricing = calculateWhatsAppTripPricing(settings, route);
+    const [settings, windows] = await Promise.all([
+      getSettingsMap(),
+      fetchTariffWindows(getSupabase()),
+    ]);
+    const pricing = calculateWhatsAppTripPricing(settings, route, windows);
     logWebhook('trip_passenger_route_fare_resolved', {
       distanceKm: route.distanceKm,
       durationMinutes: route.durationMinutes,
@@ -10812,8 +10822,11 @@ async function processClaimedConversation(batch) {
       };
     }
 
-    const settings = await getSettingsMap();
-    const pricing = calculateWhatsAppTripPricing(settings, priceRoute);
+    const [settings, windows] = await Promise.all([
+      getSettingsMap(),
+      fetchTariffWindows(getSupabase()),
+    ]);
+    const pricing = calculateWhatsAppTripPricing(settings, priceRoute, windows);
 
     const resolvedOrigin = priceRoute.originResolved || originQuery;
     const resolvedDest = priceRoute.destinationResolved || destQuery;
