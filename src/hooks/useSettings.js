@@ -121,14 +121,18 @@ export function useSettings() {
     fetchSettings();
     fetchWindows();
 
-    channelRef.current = supabase
-      .channel('settings_realtime')
+    // Nombre único: App y Zonas montan useSettings a la vez.
+    // Reusar `settings_realtime` tira "cannot add postgres_changes after subscribe()".
+    const channel = supabase
+      .channel(`settings_realtime_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, fetchSettings)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tariff_windows' }, fetchWindows)
       .subscribe();
+    channelRef.current = channel;
 
     return () => {
-      if (channelRef.current) supabase.removeChannel(channelRef.current);
+      supabase.removeChannel(channel);
+      channelRef.current = null;
     };
   }, [fetchSettings, fetchWindows]);
 
