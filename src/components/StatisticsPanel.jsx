@@ -79,11 +79,34 @@ const STATUS_LABELS = {
   cancelled: 'Cancelado',
 };
 
-const SOURCE_LABELS = {
-  passenger_app: 'App pasajeros',
-  whatsapp: 'WhatsApp',
-  dashboard: 'Dashboard',
-  otro: 'Otro',
+const SOURCE_ORDER = ['passenger_web', 'passenger_app', 'whatsapp', 'dashboard', 'otro'];
+
+const SOURCE_META = {
+  passenger_web: {
+    label: 'Web pasajeros',
+    color: '#0EA5E9',
+    hint: 'profesionalviajes.com.ar/pasajero',
+  },
+  passenger_app: {
+    label: 'App pasajeros',
+    color: '#6366F1',
+    hint: 'Aplicación móvil',
+  },
+  whatsapp: {
+    label: 'WhatsApp',
+    color: '#22C55E',
+    hint: 'Agente y mensajes',
+  },
+  dashboard: {
+    label: 'Panel',
+    color: '#0F172A',
+    hint: 'Carga operativa',
+  },
+  otro: {
+    label: 'Otro',
+    color: '#94A3B8',
+    hint: 'Sin marcar',
+  },
 };
 
 function formatHour(hour) {
@@ -99,11 +122,11 @@ function formatMonthLabel(monthStr) {
 
 function Panel({ title, hint, children, className = '', action = null }) {
   return (
-    <section className={`rounded-[20px] bg-white p-5 ${className}`}>
+    <section className={`rounded-[24px] bg-white p-5 shadow-sm ring-1 ring-slate-200/70 ${className}`}>
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[13px] font-semibold tracking-tight text-navy-900">{title}</h3>
-          {hint ? <p className="mt-0.5 text-[11px] text-gray-400">{hint}</p> : null}
+          {hint ? <p className="mt-0.5 text-[11px] text-slate-400">{hint}</p> : null}
         </div>
         {action}
       </div>
@@ -112,13 +135,79 @@ function Panel({ title, hint, children, className = '', action = null }) {
   );
 }
 
-function Metric({ label, value, detail }) {
+function MetricCard({ label, value, detail, accent = '#0F172A' }) {
   return (
-    <div className="min-w-0">
-      <p className="mb-1 text-[10px] uppercase tracking-[0.12em] text-gray-400">{label}</p>
-      <p className="text-[22px] font-semibold leading-none tracking-tight text-navy-900 tabular-nums">{value}</p>
-      {detail ? <p className="mt-1.5 text-[11px] text-gray-400">{detail}</p> : null}
+    <div className="relative min-w-0 overflow-hidden rounded-[22px] bg-white p-4 shadow-sm ring-1 ring-slate-200/70">
+      <span
+        className="absolute inset-y-0 left-0 w-[3px]"
+        style={{ backgroundColor: accent }}
+      />
+      <p className="mb-1.5 pl-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+        {label}
+      </p>
+      <p className="pl-2 text-[26px] font-semibold leading-none tracking-tight text-navy-900 tabular-nums">
+        {value}
+      </p>
+      {detail ? <p className="mt-2 pl-2 text-[11px] text-slate-400">{detail}</p> : null}
     </div>
+  );
+}
+
+function ChannelMix({ items, total }) {
+  const safeTotal = total > 0 ? total : 0;
+  return (
+    <section className="rounded-[24px] bg-white p-5 shadow-sm ring-1 ring-slate-200/70">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h3 className="text-[13px] font-semibold tracking-tight text-navy-900">Canales de pedido</h3>
+          <p className="mt-0.5 text-[11px] text-slate-400">
+            Incluye la web de pasajeros · profesionalviajes.com.ar/pasajero
+          </p>
+        </div>
+        <p className="text-[11px] tabular-nums text-slate-400">{safeTotal} viajes en el período</p>
+      </div>
+
+      <div className="mb-4 flex h-2.5 overflow-hidden rounded-full bg-slate-100">
+        {items.filter((item) => item.count > 0).map((item) => (
+          <span
+            key={item.key}
+            className="h-full"
+            style={{
+              width: `${Math.max(2, (item.count / Math.max(safeTotal, 1)) * 100)}%`,
+              backgroundColor: item.color,
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {items.map((item) => {
+          const percent = safeTotal > 0 ? Math.round((item.count / safeTotal) * 100) : 0;
+          const isWeb = item.key === 'passenger_web';
+          return (
+            <div
+              key={item.key}
+              className={`rounded-2xl px-3 py-3 ring-1 ${
+                isWeb
+                  ? 'bg-sky-50/80 ring-sky-200/80'
+                  : 'bg-slate-50/80 ring-slate-100'
+              }`}
+            >
+              <div className="mb-2 flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
+                <p className="truncate text-[11px] font-medium text-navy-800">{item.label}</p>
+              </div>
+              <p className="text-[22px] font-semibold tabular-nums leading-none text-navy-900">
+                {item.count}
+              </p>
+              <p className="mt-1.5 truncate text-[10px] text-slate-400">
+                {percent}% · {item.hint}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -254,16 +343,22 @@ export default function StatisticsPanel({
   ), [stats]);
 
   const sourceItems = useMemo(() => {
-    if (!stats?.bySource) return [];
-    return Object.entries(stats.bySource)
-      .filter(([, count]) => count > 0)
-      .sort((a, b) => b[1] - a[1])
-      .map(([key, count]) => ({
+    const counts = stats?.bySource || {};
+    return SOURCE_ORDER
+      .map((key) => ({
         key,
-        count,
-        label: SOURCE_LABELS[key] || key,
-      }));
+        count: Number(counts[key]) || 0,
+        label: SOURCE_META[key].label,
+        color: SOURCE_META[key].color,
+        hint: SOURCE_META[key].hint,
+      }))
+      .filter((item) => item.key !== 'otro' || item.count > 0);
   }, [stats]);
+
+  const sourceDonutItems = useMemo(
+    () => sourceItems.filter((item) => item.count > 0),
+    [sourceItems],
+  );
 
   const statusItems = useMemo(() => {
     if (!stats?.byStatus) return [];
@@ -322,18 +417,18 @@ export default function StatisticsPanel({
 
   if (loading && !stats) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#FAFBFC]">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-200 border-t-navy-900" />
+      <div className="flex h-full items-center justify-center bg-[#F3F5F8]">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-navy-900" />
       </div>
     );
   }
 
   if (error && !stats) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#FAFBFC] p-6">
+      <div className="flex h-full items-center justify-center bg-[#F3F5F8] p-6">
         <div className="text-center">
           <p className="mb-1 text-sm font-medium text-navy-900">Error al cargar</p>
-          <p className="mb-4 text-[13px] text-gray-400">{error}</p>
+          <p className="mb-4 text-[13px] text-slate-400">{error}</p>
           <button
             type="button"
             onClick={refetch}
@@ -349,78 +444,83 @@ export default function StatisticsPanel({
   const summary = stats?.summary || {};
 
   return (
-    <div className={`h-full overflow-x-hidden overflow-y-auto bg-[#FAFBFC] ${loading ? 'opacity-90' : ''}`}>
+    <div className={`h-full overflow-x-hidden overflow-y-auto bg-[#F3F5F8] ${loading ? 'opacity-90' : ''}`}>
       <div className="mx-auto max-w-6xl space-y-5 px-5 py-6 pb-16">
 
-        <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h1 className="text-[28px] font-semibold tracking-tight text-navy-900">Estadística</h1>
-            <p className="mt-1 text-[13px] capitalize text-gray-400">
-              {rangeTitle}
-              {lastUpdated
-                ? ` · actualizado ${lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`
-                : ''}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-full bg-white p-0.5 shadow-sm ring-1 ring-gray-100">
-              {QUICK_PERIODS.map((option) => (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => changePeriod?.(option.key)}
-                  className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition-all ${
-                    period === option.key
-                      ? 'bg-navy-900 text-white'
-                      : 'text-gray-400 hover:text-navy-900'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
+        <header className="relative overflow-hidden rounded-[28px] bg-navy-900 px-5 py-5 text-white shadow-lg shadow-navy-900/10 sm:px-6">
+          <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-sky-400/20 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-24 left-1/3 h-48 w-48 rounded-full bg-indigo-400/10 blur-3xl" />
+          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">Operaciones</p>
+              <h1 className="mt-1 text-[30px] font-semibold tracking-tight">Estadística</h1>
+              <p className="mt-1 text-[13px] capitalize text-white/55">
+                {rangeTitle}
+                {lastUpdated
+                  ? ` · actualizado ${lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`
+                  : ''}
+              </p>
             </div>
 
-            <label className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium shadow-sm ring-1 transition ${
-              isDay ? 'bg-navy-900 text-white ring-navy-900' : 'bg-white text-gray-500 ring-gray-100'
-            }`}>
-              Día
-              <input
-                type="date"
-                value={date || ''}
-                max={new Date().toISOString().slice(0, 10)}
-                onChange={(e) => changeDate?.(e.target.value)}
-                className={`border-0 bg-transparent text-[12px] outline-none ${
-                  isDay ? 'text-white [color-scheme:dark]' : 'text-navy-900'
-                }`}
-              />
-            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-full bg-white/10 p-0.5 ring-1 ring-white/10">
+                {QUICK_PERIODS.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => changePeriod?.(option.key)}
+                    className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition-all ${
+                      period === option.key
+                        ? 'bg-white text-navy-900 shadow-sm'
+                        : 'text-white/60 hover:text-white'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
 
-            <label className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium shadow-sm ring-1 transition ${
-              isMonth ? 'bg-navy-900 text-white ring-navy-900' : 'bg-white text-gray-500 ring-gray-100'
-            }`}>
-              Mes
-              <input
-                type="month"
-                value={month || ''}
-                max={new Date().toISOString().slice(0, 7)}
-                onChange={(e) => changeMonth?.(e.target.value)}
-                className={`border-0 bg-transparent text-[12px] outline-none ${
-                  isMonth ? 'text-white [color-scheme:dark]' : 'text-navy-900'
-                }`}
-              />
-            </label>
+              <label className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium ring-1 transition ${
+                isDay ? 'bg-white text-navy-900 ring-white' : 'bg-white/10 text-white/70 ring-white/10'
+              }`}>
+                Día
+                <input
+                  type="date"
+                  value={date || ''}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => changeDate?.(e.target.value)}
+                  className={`border-0 bg-transparent text-[12px] outline-none ${
+                    isDay ? 'text-navy-900' : 'text-white [color-scheme:dark]'
+                  }`}
+                />
+              </label>
 
-            <button
-              type="button"
-              onClick={refetch}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-gray-400 ring-1 ring-gray-100 transition-colors hover:text-navy-900"
-              title="Actualizar"
-            >
-              <svg className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </button>
+              <label className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium ring-1 transition ${
+                isMonth ? 'bg-white text-navy-900 ring-white' : 'bg-white/10 text-white/70 ring-white/10'
+              }`}>
+                Mes
+                <input
+                  type="month"
+                  value={month || ''}
+                  max={new Date().toISOString().slice(0, 7)}
+                  onChange={(e) => changeMonth?.(e.target.value)}
+                  className={`border-0 bg-transparent text-[12px] outline-none ${
+                    isMonth ? 'text-navy-900' : 'text-white [color-scheme:dark]'
+                  }`}
+                />
+              </label>
+
+              <button
+                type="button"
+                onClick={refetch}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/70 ring-1 ring-white/10 transition-colors hover:bg-white/20 hover:text-white"
+                title="Actualizar"
+              >
+                <svg className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            </div>
           </div>
         </header>
 
@@ -430,22 +530,21 @@ export default function StatisticsPanel({
           </div>
         ) : null}
 
-        <div className="rounded-[20px] bg-white px-5 py-5">
-          <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-6 lg:gap-4 lg:divide-x lg:divide-gray-100">
-            <div className="lg:pl-0"><Metric label="Viajes" value={summary.total ?? 0} detail={`${summary.avgTripsPerDay ?? 0}/día prom.`} /></div>
-            <div className="lg:pl-4"><Metric label="Completados" value={summary.completed ?? 0} detail={`${summary.completionRate ?? 0}% del total`} /></div>
-            <div className="lg:pl-4"><Metric label="Cancelados" value={summary.cancelled ?? 0} detail={`${summary.cancelRate ?? 0}% del total`} /></div>
-            <div className="lg:pl-4"><Metric label="Facturación" value={formatPrice(summary.completedRevenue ?? summary.totalRevenue)} detail={`Ticket ${formatPrice(summary.avgCompletedPrice || summary.avgPrice)}`} /></div>
-            <div className="lg:pl-4"><Metric label="Comisiones" value={formatPrice(summary.totalCommission)} detail={formatKm(summary.avgDistanceKm)} /></div>
-            <div className="lg:pl-4">
-              <Metric
-                label="Flota"
-                value={fleetStats.total}
-                detail={`${fleetStats.online} libres · ${fleetStats.inTrip} viaje`}
-              />
-            </div>
-          </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <MetricCard label="Viajes" value={summary.total ?? 0} detail={`${summary.avgTripsPerDay ?? 0}/día prom.`} accent="#0F172A" />
+          <MetricCard label="Completados" value={summary.completed ?? 0} detail={`${summary.completionRate ?? 0}% del total`} accent="#22C55E" />
+          <MetricCard label="Cancelados" value={summary.cancelled ?? 0} detail={`${summary.cancelRate ?? 0}% del total`} accent="#FB7185" />
+          <MetricCard label="Facturación" value={formatPrice(summary.completedRevenue ?? summary.totalRevenue)} detail={`Ticket ${formatPrice(summary.avgCompletedPrice || summary.avgPrice)}`} accent="#F59E0B" />
+          <MetricCard label="Comisiones" value={formatPrice(summary.totalCommission)} detail={formatKm(summary.avgDistanceKm)} accent="#0EA5E9" />
+          <MetricCard
+            label="Flota"
+            value={fleetStats.total}
+            detail={`${fleetStats.online} libres · ${fleetStats.inTrip} viaje`}
+            accent="#6366F1"
+          />
         </div>
+
+        <ChannelMix items={sourceItems} total={summary.total ?? 0} />
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel title="Tendencia diaria" hint="Cantidad de viajes por día (hora Argentina)">
@@ -462,7 +561,7 @@ export default function StatisticsPanel({
             title="Completados vs cancelados"
             hint="Comparación diaria"
             action={(
-              <div className="flex items-center gap-3 text-[10px] text-gray-400">
+              <div className="flex items-center gap-3 text-[10px] text-slate-400">
                 <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Completados</span>
                 <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-400" /> Cancelados</span>
               </div>
@@ -490,7 +589,7 @@ export default function StatisticsPanel({
           </Panel>
 
           <Panel title="Por canal" hint="Origen real del pedido">
-            <DonutChart items={sourceItems} />
+            <DonutChart items={sourceDonutItems} />
           </Panel>
 
           <Panel title="Por estado" hint="Composición del período">

@@ -387,7 +387,7 @@ export function DonutChart({ items, size = 128 }) {
                 cy="18"
                 r={radius}
                 fill="none"
-                stroke={CHART_COLORS[index % CHART_COLORS.length]}
+                stroke={item.color || CHART_COLORS[index % CHART_COLORS.length]}
                 strokeWidth={active ? 5 : 4}
                 strokeDasharray={dash}
                 strokeDashoffset={-offset}
@@ -422,7 +422,7 @@ export function DonutChart({ items, size = 128 }) {
           >
             <span
               className="h-2 w-2 flex-shrink-0 rounded-full"
-              style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+              style={{ backgroundColor: item.color || CHART_COLORS[index % CHART_COLORS.length] }}
             />
             <span className="flex-1 truncate text-[11px] text-gray-500">{item.label}</span>
             <span className="text-[11px] font-medium tabular-nums text-navy-900">{item.count}</span>

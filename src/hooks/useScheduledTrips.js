@@ -31,6 +31,7 @@ function parseScheduledSource(trip) {
   const notes = String(trip?.notes || '');
   const sourceMatch = notes.match(/\[SCHEDULED_SOURCE\]\s*([a-z_]+)/i);
   if (sourceMatch?.[1]) return sourceMatch[1].toLowerCase();
+  if (notes.includes('[PASSENGER_WEB]')) return 'passenger_web';
   if (notes.includes('[PASSENGER_APP]')) return 'passenger_app';
   return 'whatsapp';
 }

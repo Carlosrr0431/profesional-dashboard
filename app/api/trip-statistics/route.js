@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { isWithinSaltaCapital } from '../../../src/lib/constants';
 import { buildLocationViews } from '../../../src/lib/tripLocationStats';
+import { detectTripSource, emptySourceCounts } from '../../../src/lib/detectTripSource';
 
 const TRIP_SELECT = [
   'id',
@@ -133,13 +134,6 @@ function resolveRange({ period, date, month }) {
   };
 }
 
-function detectTripSource(notes) {
-  const text = String(notes || '').toLowerCase();
-  if (text.includes('[passenger_app]')) return 'passenger_app';
-  if (text.includes('[dashboard_assign]') || text.includes('[dashboard]')) return 'dashboard';
-  if (text.includes('whatsapp') || text.includes('[wa_') || text.includes('cola de espera')) return 'whatsapp';
-  return 'otro';
-}
 
 function normalizeCancelReason(reason) {
   const raw = String(reason || '').trim();
@@ -153,12 +147,7 @@ function normalizeCancelReason(reason) {
 
 function buildStatistics(trips, range, driversMap = {}) {
   const statusCounts = {};
-  const sourceCounts = {
-    passenger_app: 0,
-    whatsapp: 0,
-    dashboard: 0,
-    otro: 0,
-  };
+  const sourceCounts = emptySourceCounts();
   const dailyMap = {};
   const hourlyCounts = Array.from({ length: 24 }, () => 0);
   const weekdayCounts = Array.from({ length: 7 }, () => 0);
@@ -191,7 +180,7 @@ function buildStatistics(trips, range, driversMap = {}) {
     statusCounts[status] = (statusCounts[status] || 0) + 1;
 
     const source = detectTripSource(trip.notes);
-    sourceCounts[source] += 1;
+    sourceCounts[source] = (sourceCounts[source] || 0) + 1;
 
     if (status === 'completed') completed += 1;
     if (status === 'cancelled') {

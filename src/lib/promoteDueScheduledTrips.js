@@ -59,7 +59,7 @@ export function resolveScheduledDisplayFromTrip(trip, scheduledFor) {
 export function shouldNotifyScheduledTripViaWhatsApp(trip) {
   const notes = String(trip?.notes || '');
   if (notes.includes('[PASSENGER_APP]')) return false;
-  if (/\[SCHEDULED_SOURCE\]\s*passenger_app/i.test(notes)) return false;
+  if (/\[SCHEDULED_SOURCE\]\s*passenger_(app|web)/i.test(notes)) return false;
   return true;
 }
 

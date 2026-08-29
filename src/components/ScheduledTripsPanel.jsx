@@ -158,11 +158,17 @@ function ScheduledTripCard({ trip, onCancel }) {
           )}
           <p className="mt-1.5">
             <span className={`inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-              trip.scheduledSource === 'passenger_app'
-                ? 'bg-sky-50 text-sky-700 border-sky-200'
-                : 'bg-violet-50 text-violet-700 border-violet-200'
+              trip.scheduledSource === 'passenger_web'
+                ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                : trip.scheduledSource === 'passenger_app'
+                  ? 'bg-sky-50 text-sky-700 border-sky-200'
+                  : 'bg-violet-50 text-violet-700 border-violet-200'
             }`}>
-              {trip.scheduledSource === 'passenger_app' ? 'App pasajeros' : 'WhatsApp'}
+              {trip.scheduledSource === 'passenger_web'
+                ? 'Web pasajeros'
+                : trip.scheduledSource === 'passenger_app'
+                  ? 'App pasajeros'
+                  : 'WhatsApp'}
             </span>
           </p>
 

@@ -14,9 +14,11 @@ import {
   normalizeWaypointList,
 } from '../../shared/trip-contract.js';
 import { isVagueLocalityAddress } from '../../shared/salta-address.js';
+import { isPassengerChannelSource } from './detectTripSource';
 
 function sanitizeExtraNotes(notes) {
   return String(notes || '')
+    .replace(/\[PASSENGER_WEB\]/gi, '')
     .replace(/\[PASSENGER_APP\]/gi, '')
     .replace(/\[APPROACH_ONLY\]/gi, '')
     .replace(/\[DASHBOARD\]/gi, '')
@@ -26,6 +28,7 @@ function sanitizeExtraNotes(notes) {
 const SOURCE_DEFAULT_NOTES = {
   whatsapp: 'En cola de espera. Retiro confirmado.',
   passenger_app: 'Solicitado desde la app de pasajeros.',
+  passenger_web: 'Solicitado desde la web de pasajeros.',
   dashboard: 'Viaje ingresado desde el panel de operaciones.',
 };
 
@@ -59,7 +62,12 @@ export function buildApproachOnlyTripNotes({
   waypoints = [],
 }) {
   const markers = ['[APPROACH_ONLY]'];
-  if (source === 'passenger_app') markers.push('[PASSENGER_APP]');
+  if (source === 'passenger_web') {
+    markers.push('[PASSENGER_APP]');
+    markers.push('[PASSENGER_WEB]');
+  } else if (source === 'passenger_app') {
+    markers.push('[PASSENGER_APP]');
+  }
   if (source === 'dashboard') markers.push('[DASHBOARD]');
 
   const cleanedExtra = sanitizeExtraNotes(extraNotes);
@@ -135,8 +143,8 @@ export function buildApproachOnlyTripInsertPayload({
     ? normalizeLocation(finalDestinationLocation)
     : null;
 
-  const isPassengerApp = source === 'passenger_app';
-  if (isPassengerApp && !finalDest) {
+  const isPassengerChannel = isPassengerChannelSource(source);
+  if (isPassengerChannel && !finalDest) {
     throw new Error('finalDestinationLocation requerida para passenger_app');
   }
 
@@ -151,11 +159,11 @@ export function buildApproachOnlyTripInsertPayload({
     ? [
         `[SCHEDULED_FOR] ${scheduledDate.toISOString()}`,
         `[SCHEDULED_DISPLAY] ${String(scheduledDisplay || '').trim() || scheduledDate.toISOString()}`,
-        isPassengerApp ? '[SCHEDULED_SOURCE] passenger_app' : null,
+        isPassengerChannel ? `[SCHEDULED_SOURCE] ${source}` : null,
       ].filter(Boolean)
     : [];
 
-  const locationFields = isPassengerApp
+  const locationFields = isPassengerChannel
     ? {
         origin_address: pickup.formattedAddress,
         origin_lat: pickup.lat,

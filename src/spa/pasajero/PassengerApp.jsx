@@ -424,7 +424,7 @@ export default function PassengerApp() {
       const { ok, data } = await spaJson('/api/trips/create-queued', {
         method: 'POST',
         body: {
-          source: 'passenger_app',
+          source: 'passenger_web',
           pickupAddress: pickup.address,
           pickupLat: pickup.lat,
           pickupLng: pickup.lng,

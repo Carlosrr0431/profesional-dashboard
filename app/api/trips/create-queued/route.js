@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { triggerDispatchWorker } from '../../../../src/lib/triggerDispatchWorker';
+import { isPassengerChannelSource } from '../../../../src/lib/detectTripSource';
 import {
   resolveTripLocation,
   resolveFinalDestination,
@@ -124,7 +125,7 @@ export async function POST(req) {
       && scheduledForDate.getTime() > Date.now() + 60_000;
     const scheduledDisplay = sanitizeText(payload?.scheduledDisplay || payload?.scheduled_display, 120) || null;
 
-    if (passengerPhone && payload?.source === 'passenger_app' && !isScheduled) {
+    if (passengerPhone && isPassengerChannelSource(payload?.source) && !isScheduled) {
       const localDigits = passengerPhone.startsWith('549')
         ? passengerPhone.slice(3)
         : passengerPhone.startsWith('54')

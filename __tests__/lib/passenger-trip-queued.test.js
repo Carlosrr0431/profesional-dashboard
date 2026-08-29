@@ -74,5 +74,25 @@ describe('passengerTripQueued', () => {
     expect(payload.notes).toContain('[PASSENGER_APP]');
     expect(payload.notes).toContain('[FINAL_DEST_JSON:');
     expect(payload.notes).not.toContain('Destino final sugerido:');
+    expect(payload.notes).not.toContain('[PASSENGER_WEB]');
+  });
+
+  it('buildPassengerQueuedTripPayload marca passenger_web sin perder PASSENGER_APP', () => {
+    const payload = buildPassengerQueuedTripPayload({
+      pickupLocation: pickup,
+      finalDestinationLocation: finalDest,
+      passengerName: 'Carlos',
+      passengerPhone: '543878630173',
+      source: 'passenger_web',
+      fare: fareFromClientPayload({
+        estimatedPrice: 4040,
+        distanceKm: 2.4,
+        durationMinutes: 9,
+      }),
+    });
+
+    expect(payload.notes).toContain('[PASSENGER_WEB]');
+    expect(payload.notes).toContain('[PASSENGER_APP]');
+    expect(payload.notes).toContain('Solicitado desde la web de pasajeros.');
   });
 });

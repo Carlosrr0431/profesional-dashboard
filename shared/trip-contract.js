@@ -133,7 +133,9 @@ function getScheduledTripSource(trip) {
     || notes.includes('[SCHEDULED_FOR]');
   if (!isScheduled) return null;
 
-  return isPassengerAppTrip(trip) ? 'passenger_app' : 'whatsapp';
+  return isPassengerAppTrip(trip)
+    ? (notes.includes('[PASSENGER_WEB]') ? 'passenger_web' : 'passenger_app')
+    : 'whatsapp';
 }
 
 function isPassengerAppScheduledTrip(trip) {
@@ -251,11 +253,13 @@ function cleanTripNotesForDriverDisplay(notes) {
   result = result
     .replace(/\[APPROACH_ONLY\]/gi, '')
     .replace(/\[PASSENGER_APP\]/gi, '')
+    .replace(/\[PASSENGER_WEB\]/gi, '')
     .replace(/Creado autom[aá]ticamente desde WhatsApp[^.]*\./gi, '')
     .replace(/chofer\s*->\s*retiro pasajero[^.]*\./gi, '')
     .replace(/Destino final:[^.]*\./gi, '')
     .replace(/Destino final sugerido:.*/gi, '')
     .replace(/Solicitado desde la app de pasajeros\./gi, '')
+    .replace(/Solicitado desde la web de pasajeros\./gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   return result || null;

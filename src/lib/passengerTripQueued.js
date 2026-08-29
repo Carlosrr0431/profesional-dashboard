@@ -233,12 +233,8 @@ export async function resolveWaypointsFromClient(payload) {
   return resolved;
 }
 
-function resolveTripSource(payload) {
-  if (payload?.source === 'passenger_app') return 'passenger_app';
-  if (payload?.source === 'whatsapp') return 'whatsapp';
-  const notes = String(payload?.notes || '');
-  if (notes.includes('[PASSENGER_APP]')) return 'passenger_app';
-  return 'dashboard';
+function resolveQueuedPassengerSource(source) {
+  return source === 'passenger_web' ? 'passenger_web' : 'passenger_app';
 }
 
 /**
@@ -264,7 +260,7 @@ export function buildPassengerQueuedTripPayload({
     passengerName,
     passengerPhone,
     fare,
-    source: 'passenger_app',
+    source: resolveQueuedPassengerSource(source),
     destinationHint,
     extraNotes: sanitizeText(notes) || null,
     waypoints,

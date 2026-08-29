@@ -73,6 +73,30 @@ describe('approachOnlyTripPayload', () => {
     expect(payload.notes).not.toContain('[DASHBOARD]');
     expect((payload.notes.match(/\[PASSENGER_APP\]/g) || []).length).toBe(1);
     expect(payload.notes).not.toContain('Destino final sugerido:');
+    expect(payload.notes).not.toContain('[PASSENGER_WEB]');
+  });
+
+  it('payload passenger_web: misma geometría y marca web además de passenger_app', () => {
+    const payload = buildPassengerQueuedTripPayload({
+      pickupLocation: pickup,
+      finalDestinationLocation: finalDest,
+      passengerName: 'Carlos',
+      passengerPhone: '543878630173',
+      fare: { price: 5000, commission_amount: 1000, distance_km: 3, duration_minutes: 10 },
+      source: 'passenger_web',
+    });
+
+    expect(payload.origin_address).toBe(pickup.formattedAddress);
+    expect(payload.origin_lat).toBe(pickup.lat);
+    expect(payload.destination_address).toBe(finalDest.formattedAddress);
+    expect(payload.destination_lat).toBe(finalDest.lat);
+    expect(payload.notes).toContain('[APPROACH_ONLY]');
+    expect(payload.notes).toContain('[PASSENGER_APP]');
+    expect(payload.notes).toContain('[PASSENGER_WEB]');
+    expect(payload.notes).toContain('Solicitado desde la web de pasajeros.');
+    expect(payload.notes).not.toContain('Solicitado desde la app de pasajeros.');
+    expect((payload.notes.match(/\[PASSENGER_APP\]/g) || []).length).toBe(1);
+    expect((payload.notes.match(/\[PASSENGER_WEB\]/g) || []).length).toBe(1);
   });
 
   it('payload WhatsApp solo retiro: origin_* = recogida, destination_* vacío', () => {
@@ -132,6 +156,26 @@ describe('approachOnlyTripPayload', () => {
     expect(payload.notes).toContain('[SCHEDULED_FOR]');
     expect(payload.notes).toContain('[SCHEDULED_DISPLAY] lunes 20/07 a las 15:30');
     expect(payload.notes).toContain('[SCHEDULED_SOURCE] passenger_app');
+    expect(payload.notes).not.toContain('[PASSENGER_WEB]');
+  });
+
+  it('payload passenger_web programado: SCHEDULED_SOURCE passenger_web', () => {
+    const scheduledFor = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const payload = buildApproachOnlyTripInsertPayload({
+      pickupLocation: pickup,
+      finalDestinationLocation: finalDest,
+      passengerName: 'Carlos',
+      passengerPhone: '543878630173',
+      fare: { price: 5000, commission_amount: 1000, distance_km: 3, duration_minutes: 10 },
+      source: 'passenger_web',
+      scheduledFor,
+      scheduledDisplay: 'lunes 20/07 a las 15:30',
+    });
+
+    expect(payload.status).toBe('scheduled');
+    expect(payload.notes).toContain('[PASSENGER_WEB]');
+    expect(payload.notes).toContain('[PASSENGER_APP]');
+    expect(payload.notes).toContain('[SCHEDULED_SOURCE] passenger_web');
   });
 
   it('payload WhatsApp programado: sin SCHEDULED_SOURCE passenger_app', () => {

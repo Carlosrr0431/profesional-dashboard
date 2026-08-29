@@ -281,8 +281,6 @@ export default function Sidebar({
   );
 }
 
-}
-
 function moneyAr(n) {
   return `$${Math.round(Number(n) || 0).toLocaleString('es-AR')}`;
 }
