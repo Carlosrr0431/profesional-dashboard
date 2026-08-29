@@ -490,7 +490,7 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   left: 10px;
   bottom: 10px;
   height: auto;
-  z-index: 30;
+  z-index: 40;
   flex-shrink: 0;
   width: 56px;
   background: #0f172a;
@@ -527,10 +527,10 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 .app-sidebar-nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0;
   width: 100%;
   min-height: 38px;
-  padding: 0 20px;
+  padding: 0 10px 0 0;
   border-radius: 10px;
   font-size: 12.5px;
   font-weight: 600;
@@ -555,6 +555,15 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 
 .app-sidebar-nav-item.active:hover {
   background: rgba(255, 255, 255, 0.16);
+}
+
+.app-sidebar-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 56px;
+  min-height: 38px;
 }
 
 /* Apps web pasajero / conductor */

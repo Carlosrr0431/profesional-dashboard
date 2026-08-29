@@ -1136,10 +1136,10 @@ function SideNavItem({ icon, label, active, onClick, badge, badgeColor = 'warnin
     : `app-sidebar-nav-item${active ? ' active' : ''}${toneClass ? ` ${toneClass}` : ''}`;
   return (
     <button type="button" onClick={onClick} className={baseClass}>
-      {icon}
-      <span className="app-sidebar-label flex-1 text-left truncate">{label}</span>
+      <span className="app-sidebar-icon-wrap">{icon}</span>
+      <span className="app-sidebar-label flex-1 text-left truncate ml-2">{label}</span>
       {badge != null && badge > 0 && (
-        <span className={`app-sidebar-label ml-auto flex-shrink-0 min-w-[18px] h-[18px] rounded-full text-[9px] font-bold flex items-center justify-center px-1 ${
+        <span className={`app-sidebar-label mr-1 flex-shrink-0 min-w-[18px] h-[18px] rounded-full text-[9px] font-bold flex items-center justify-center px-1 ${
           active ? 'bg-white/20 text-white' : (badgeStyles[badgeColor] || badgeStyles.warning)
         }`}>
           {badge > 99 ? '99+' : badge}
