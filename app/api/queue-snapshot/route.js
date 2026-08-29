@@ -24,7 +24,7 @@ export async function GET() {
     // Cola de espera: viajes sin chofer asignado (status='queued'), orden FIFO
     const { data: queuedTripsRaw, error: queuedErr } = await supabase
       .from('trips')
-      .select('id, passenger_name, passenger_phone, destination_address, destination_lat, destination_lng, notes, created_at, dispatch_status')
+      .select('id, passenger_name, passenger_phone, origin_address, destination_address, destination_lat, destination_lng, price, distance_km, duration_minutes, dispatch_attempts, notes, created_at, dispatch_status')
       .eq('status', 'queued')
       .order('created_at', { ascending: true });
 
@@ -69,9 +69,15 @@ export async function GET() {
       position: index + 1,
       phone: trip.passenger_phone,
       passengerName: trip.passenger_name || 'Pasajero',
-      pickupAddress: trip.destination_address || '—',
+      originAddress: trip.origin_address || null,
+      destinationAddress: trip.destination_address || null,
+      pickupAddress: trip.origin_address || trip.destination_address || '—',
       queuedAt: trip.created_at,
       waitMinutes: waitMinutes(trip.created_at),
+      price: trip.price ? Number(trip.price) : null,
+      distanceKm: trip.distance_km ? Number(trip.distance_km) : null,
+      durationMinutes: trip.duration_minutes ? Number(trip.duration_minutes) : null,
+      dispatchAttempts: trip.dispatch_attempts ?? 0,
       notes: trip.notes || null,
     }));
 

@@ -889,22 +889,71 @@ export default function App() {
               <div className="pointer-events-none absolute bottom-4 right-4 z-10 flex flex-col items-end gap-2">
                 {/* Popovers */}
                 {mapPopover === 'queue' && (
-                  <div className="pointer-events-auto mb-1 w-80 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/98 shadow-2xl shadow-navy-900/18 backdrop-blur-xl">
+                  <div className="pointer-events-auto mb-1 w-[340px] overflow-hidden rounded-2xl border border-slate-200/70 bg-white/98 shadow-2xl shadow-navy-900/18 backdrop-blur-xl">
                     <div className="flex items-center justify-between border-b border-slate-100 px-3.5 py-2.5">
                       <p className="text-[12px] font-bold text-slate-900">Cola de espera</p>
-                      <span className="text-[10px] font-medium text-slate-400">{queueData.stats.inQueue} pasajeros · espera media {queueData.stats.avgWaitMinutes}min</span>
+                      <span className="text-[10px] font-medium text-slate-400">
+                        {queueData.stats.inQueue} {queueData.stats.inQueue === 1 ? 'pasajero' : 'pasajeros'}
+                        {queueData.stats.avgWaitMinutes > 0 ? ` · espera media ${queueData.stats.avgWaitMinutes}min` : ''}
+                      </span>
                     </div>
-                    <div className="max-h-[min(280px,42vh)] overflow-y-auto overscroll-contain">
+                    <div className="max-h-[min(340px,48vh)] overflow-y-auto overscroll-contain">
                       {queueData.queuedList.length === 0 ? (
                         <p className="py-6 text-center text-xs text-slate-400">Cola vacía</p>
                       ) : (
                         queueData.queuedList.map((item, i) => (
-                          <div key={item.id || i} className="border-b border-slate-50 px-3.5 py-2.5 last:border-0 hover:bg-slate-50/80">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="truncate text-[12px] font-semibold text-slate-900">{item.passengerName}</p>
-                              <span className="shrink-0 text-[10px] font-semibold text-amber-600">{item.waitMinutes}min</span>
+                          <div key={item.id || i} className="border-b border-slate-100/80 px-3.5 py-3 last:border-0 hover:bg-slate-50/70 transition-colors">
+                            {/* Nombre + posición + espera */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 text-[9px] font-bold text-amber-700">
+                                    {item.position ?? i + 1}
+                                  </span>
+                                  <p className="truncate text-[12.5px] font-bold text-slate-900">{item.passengerName}</p>
+                                </div>
+                                {item.phone ? (
+                                  <p className="mt-0.5 text-[10.5px] text-slate-400">
+                                    {String(item.phone).length > 6 ? `···${String(item.phone).slice(-4)}` : item.phone}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <span className="shrink-0 rounded-full bg-amber-500/12 px-2 py-0.5 text-[10.5px] font-bold text-amber-700">
+                                {item.waitMinutes}min
+                              </span>
                             </div>
-                            <p className="mt-0.5 truncate text-[11px] text-slate-500">{item.destination_address || item.driverOrigin || '—'}</p>
+
+                            {/* Origen → Destino */}
+                            <div className="mt-2 space-y-1">
+                              <div className="flex items-start gap-1.5">
+                                <span className="mt-[3px] h-2 w-2 flex-shrink-0 rounded-full bg-accent" />
+                                <p className="truncate text-[11px] text-slate-600">{item.originAddress || item.pickupAddress || '—'}</p>
+                              </div>
+                              {item.destinationAddress ? (
+                                <div className="flex items-start gap-1.5">
+                                  <span className="mt-[3px] h-2 w-2 flex-shrink-0 rounded bg-navy-900" />
+                                  <p className="truncate text-[11px] text-slate-600">{item.destinationAddress}</p>
+                                </div>
+                              ) : null}
+                            </div>
+
+                            {/* Stats: precio, km, duración, intentos */}
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              {item.price ? (
+                                <span className="text-[11px] font-bold text-emerald-700">
+                                  ${Number(item.price).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                                </span>
+                              ) : null}
+                              {item.distanceKm ? (
+                                <span className="text-[10.5px] text-slate-400">{Number(item.distanceKm).toFixed(1)} km</span>
+                              ) : null}
+                              {item.durationMinutes ? (
+                                <span className="text-[10.5px] text-slate-400">{item.durationMinutes} min de viaje</span>
+                              ) : null}
+                              {item.dispatchAttempts > 0 ? (
+                                <span className="text-[10.5px] text-slate-400">{item.dispatchAttempts} intento{item.dispatchAttempts !== 1 ? 's' : ''}</span>
+                              ) : null}
+                            </div>
                           </div>
                         ))
                       )}
