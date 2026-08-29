@@ -1,6 +1,5 @@
 /** Config de mapa para componentes cliente (sin imports de Node). */
 
-const { buildCartoRasterStyle } = require('../../shared/geo/hybridMapStyle');
 const googleMapsLikeStyle = require('./map-styles/googleMapsLike.json');
 
 /**
@@ -10,9 +9,6 @@ export const GOOGLE_MAPS_LIKE_STYLE = googleMapsLikeStyle;
 
 /** OpenFreeMap Liberty — respaldo vectorial. */
 export const OPENFREEMAP_LIBERTY_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
-
-/** Carto Voyager retina — fallback raster. */
-export const CARTO_RASTER_STYLE = buildCartoRasterStyle({ maxZoom: 19, retina: true });
 
 const envStyleUrl = typeof process !== 'undefined'
   ? process.env.NEXT_PUBLIC_MAP_STYLE_URL?.trim()
