@@ -563,7 +563,7 @@ export default function PassengerApp() {
   );
 
   if (booting) {
-    return <SpaBootScreen>Cargando Profesional…</SpaBootScreen>;
+    return <SpaBootScreen subtitle="Pasajero · Salta">Preparando tu viaje…</SpaBootScreen>;
   }
 
   if (!session) {
@@ -571,8 +571,9 @@ export default function PassengerApp() {
       <SpaAuthScreen>
           <SpaBrand subtitle="Pasajero · Salta" />
           <div className="spa-auth-card">
-            <h1>Pedí tu viaje</h1>
-            <p className="lead">Te enviamos un código por WhatsApp. Podés instalar esta app en el teléfono.</p>
+            <p className="spa-kicker">WhatsApp</p>
+            <h1 className="text-balance">Pedí tu viaje</h1>
+            <p className="lead">Te enviamos un código por WhatsApp. En un minuto estás pidiendo el móvil.</p>
             <form className="mt-6 grid gap-3" onSubmit={otpStep === 'phone' ? sendOtp : verifyOtp}>
               <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
                 Nombre
@@ -580,8 +581,9 @@ export default function PassengerApp() {
                   value={loginName}
                   onChange={(event) => setLoginName(event.target.value)}
                   autoComplete="name"
+                  name="name"
                   className={spaFieldClass}
-                  placeholder="Cómo te llamás"
+                  placeholder="Cómo te llamás…"
                 />
               </label>
               <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
@@ -591,6 +593,7 @@ export default function PassengerApp() {
                   onChange={(event) => setLoginPhone(event.target.value)}
                   inputMode="tel"
                   autoComplete="tel"
+                  name="tel"
                   className={spaFieldClass}
                   placeholder="387 123 4567"
                 />
@@ -603,9 +606,11 @@ export default function PassengerApp() {
                     onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 4))}
                     inputMode="numeric"
                     autoComplete="one-time-code"
+                    name="one-time-code"
                     enterKeyHint="done"
+                    spellCheck={false}
                     className={`${spaFieldClass} text-center text-lg font-semibold tracking-[0.45em]`}
-                    placeholder="••••"
+                    placeholder="1234"
                   />
                 </label>
               ) : null}
@@ -615,7 +620,11 @@ export default function PassengerApp() {
                 {busy ? 'Enviando…' : otpStep === 'phone' ? 'Enviar código' : 'Ingresar'}
               </SpaButton>
               {otpStep === 'code' ? (
-                <button type="button" className="text-sm font-medium text-accent" onClick={() => setOtpStep('phone')}>
+                <button
+                  type="button"
+                  className="touch-manipulation rounded-lg text-sm font-medium text-accent transition-colors duration-150 hover:text-accent-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 focus-visible:ring-offset-2"
+                  onClick={() => setOtpStep('phone')}
+                >
                   Cambiar número
                 </button>
               ) : null}
@@ -734,7 +743,10 @@ export default function PassengerApp() {
             {tab === 'viaje' && (!active || !isOpenTripStatus(active.status)) && !reviewing ? (
               <SpaPanel key="viaje-pedido" className={searching ? 'spa-panel--search' : ''}>
                 {searching ? null : (
-                  <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">¿A dónde vas?</h2>
+                  <>
+                    <p className="spa-kicker">Salta Capital</p>
+                    <h2 className="text-balance text-[22px] font-semibold tracking-tight text-navy-900">¿A dónde vas?</h2>
+                  </>
                 )}
                 {error && searching ? <SpaNotice tone="error">{error}</SpaNotice> : null}
                 <div className={`spa-route${searching ? ' spa-route--search' : ''}`}>
@@ -742,7 +754,7 @@ export default function PassengerApp() {
                     stacked
                     tone="origin"
                     label="Origen"
-                    placeholder="Punto de origen"
+                    placeholder="Tu ubicación actual…"
                     value={pickupText}
                     onChangeText={setPickupText}
                     onSelect={selectPickup}
@@ -754,7 +766,7 @@ export default function PassengerApp() {
                     stacked
                     tone="dest"
                     label="Destino"
-                    placeholder="¿A dónde vas?"
+                    placeholder="Barrio, calle o lugar…"
                     value={destText}
                     onChangeText={(text) => {
                       setDestText(text);
@@ -776,7 +788,10 @@ export default function PassengerApp() {
 
             {tab === 'historial' ? (
               <SpaPanel key="historial">
-                <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">Tus viajes</h2>
+                <div>
+                  <p className="spa-kicker">Historial</p>
+                  <h2 className="text-balance text-[22px] font-semibold tracking-tight text-navy-900">Tus viajes</h2>
+                </div>
                 {history.length === 0 ? (
                   <SpaEmpty>Todavía no tenés viajes.</SpaEmpty>
                 ) : (
@@ -800,7 +815,10 @@ export default function PassengerApp() {
 
             {tab === 'cuenta' ? (
               <SpaPanel key="cuenta">
-                <h2 className="text-[22px] font-semibold tracking-tight text-navy-900">Tu cuenta</h2>
+                <div>
+                  <p className="spa-kicker">Perfil</p>
+                  <h2 className="text-balance text-[22px] font-semibold tracking-tight text-navy-900">Tu cuenta</h2>
+                </div>
                 <p className="text-[15px] text-slate-500">{session.phone}</p>
                 <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
                   Nombre

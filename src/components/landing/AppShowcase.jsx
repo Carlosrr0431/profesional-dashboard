@@ -83,7 +83,7 @@ export default function AppShowcase({
   const sectionBg = isPassenger ? 'bg-white' : 'bg-light-100/80';
 
   return (
-    <section id={id} className={`relative overflow-hidden py-12 sm:py-24 lg:py-28 ${sectionBg}`}>
+    <section id={id} className={`relative scroll-mt-24 overflow-hidden py-12 sm:py-24 lg:py-28 ${sectionBg}`}>
       <div
         aria-hidden
         className={`pointer-events-none absolute ${reversed ? '-left-32' : '-right-32'} top-0 hidden h-96 w-96 rounded-full blur-[100px] sm:block ${

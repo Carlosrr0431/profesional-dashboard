@@ -76,7 +76,7 @@ export default function TripChatModal({
           onChange={(event) => setDraft(event.target.value)}
           maxLength={500}
           disabled={!writable || sending}
-          placeholder={writable ? 'Escribí un mensaje' : 'El chat está cerrado'}
+          placeholder={writable ? 'Escribí un mensaje…' : 'El chat está cerrado'}
         />
         <SpaButton type="submit" disabled={!writable || sending || !draft.trim()} className="!min-h-11 !w-auto px-4">
           Enviar

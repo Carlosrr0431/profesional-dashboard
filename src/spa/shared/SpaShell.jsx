@@ -27,11 +27,23 @@ export function useKeyboardInset() {
   return bottom;
 }
 
-export function SpaBootScreen({ children }) {
+export function SpaBootScreen({ children, subtitle = 'Salta Capital' }) {
   return (
-    <div className="spa-boot">
-      <div className="spa-boot-mark">P</div>
-      <p>{children}</p>
+    <div className="spa-boot" role="status" aria-live="polite" aria-busy="true">
+      <div className="spa-boot-glow" aria-hidden="true" />
+      <div className="spa-boot-glow spa-boot-glow--accent" aria-hidden="true" />
+      <div className="spa-boot-core">
+        <div className="spa-boot-orb">
+          <span className="spa-boot-ring" aria-hidden="true" />
+          <span className="spa-boot-mark">P</span>
+        </div>
+        <p className="spa-boot-brand" translate="no">Profesional</p>
+        <div className="spa-boot-track" aria-hidden="true">
+          <span className="spa-boot-bar" />
+        </div>
+        <p className="spa-boot-msg">{children}</p>
+        {subtitle ? <p className="spa-boot-sub">{subtitle}</p> : null}
+      </div>
     </div>
   );
 }
@@ -39,6 +51,7 @@ export function SpaBootScreen({ children }) {
 export function SpaAuthScreen({ children }) {
   return (
     <div className="spa-auth">
+      <div className="spa-auth-glow" aria-hidden="true" />
       <div className="spa-auth-inner">{children}</div>
     </div>
   );

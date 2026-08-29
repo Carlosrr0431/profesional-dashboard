@@ -123,11 +123,11 @@ export function SpaNotice({ tone = 'info', children }) {
 
 export function SpaButton({ children, onClick, disabled, variant = 'primary', type = 'button', className = '' }) {
   const variants = {
-    primary: 'bg-navy-900 text-white',
-    accent: 'bg-accent text-white',
-    ghost: 'bg-light-100 text-navy-900',
-    danger: 'bg-red-50 text-red-700',
-    success: 'bg-emerald-600 text-white',
+    primary: 'bg-navy-900 text-white hover:bg-navy-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-900/30 focus-visible:ring-offset-2',
+    accent: 'bg-accent text-white hover:bg-accent-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 focus-visible:ring-offset-2',
+    ghost: 'bg-light-100 text-navy-900 hover:bg-light-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-900/20 focus-visible:ring-offset-2',
+    danger: 'bg-red-50 text-red-700 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200 focus-visible:ring-offset-2',
+    success: 'bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2',
   };
   return (
     <button
@@ -189,7 +189,10 @@ export function SpaSheet({ children, expanded = false, compact = false, offer = 
 
 export function SpaBackHome() {
   return (
-    <Link href="/" className="spa-icon-btn">
+    <Link
+      href="/"
+      className="spa-icon-btn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-900/20 focus-visible:ring-offset-2"
+    >
       Inicio
     </Link>
   );

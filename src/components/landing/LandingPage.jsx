@@ -146,7 +146,15 @@ export default function LandingPage() {
         menuOpen ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'
       }`}
     >
+      <a
+        href="#contenido"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-navy-900 focus:shadow-lg"
+      >
+        Saltar al contenido
+      </a>
       <LandingNav open={menuOpen} onOpenChange={setMenuOpen} />
+
+      <main id="contenido">
 
       {/* Hero */}
       <section className="relative overflow-hidden bg-gradient-to-b from-white via-light-50 to-light-100">
@@ -176,7 +184,7 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              <h1 className="landing-hero-enter landing-hero-enter-delay-1 max-w-4xl text-[1.75rem] font-extrabold leading-[1.1] tracking-tight text-navy-900 min-[380px]:text-[2rem] sm:text-5xl lg:text-6xl">
+              <h1 className="landing-hero-enter landing-hero-enter-delay-1 max-w-4xl text-balance text-[1.75rem] font-extrabold leading-[1.1] tracking-tight text-navy-900 min-[380px]:text-[2rem] sm:text-5xl lg:text-6xl">
                 Tu viaje en Salta,{' '}
                 <span className="landing-shimmer-text">más simple</span>
                 {' '}que nunca
@@ -187,18 +195,15 @@ export default function LandingPage() {
                 Todo conectado en tiempo real en Salta Capital.
               </p>
 
-              <div className="landing-hero-enter landing-hero-enter-delay-3 mt-6 grid grid-cols-1 gap-3 sm:mt-8 sm:grid-cols-2 lg:flex lg:flex-wrap">
+              <div className="landing-hero-enter landing-hero-enter-delay-3 mt-6 flex flex-col gap-3 sm:mt-8 sm:flex-row sm:flex-wrap sm:items-center">
                 <Link
                   href="/pasajero"
-                  className="inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-accent px-4 py-3.5 text-sm font-bold text-white shadow-[0_8px_30px_-8px_rgba(36,95,141,0.35)] transition hover:bg-accent-light sm:w-auto"
+                  className="group inline-flex min-h-[52px] w-full touch-manipulation items-center justify-center gap-2 rounded-full bg-navy-900 px-6 py-3.5 text-sm font-semibold tracking-tight text-white shadow-[0_12px_32px_-12px_rgba(15,23,42,0.5)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:bg-navy-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-900/35 focus-visible:ring-offset-2 sm:w-auto"
                 >
-                  Pedir viaje en el navegador
-                </Link>
-                <Link
-                  href="/conductor"
-                  className="inline-flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-navy-700/10 bg-navy-900 px-4 py-3.5 text-sm font-bold text-white shadow-[0_8px_30px_-8px_rgba(15,23,42,0.25)] transition hover:bg-navy-800 sm:w-auto"
-                >
-                  Entrar como conductor
+                  Pedir viaje
+                  <svg className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                  </svg>
                 </Link>
                 <HeroStoreButton href={PLAY_PASSENGER} sublabel="App para pasajeros" label="Profesional Pasajero" variant="passenger" />
                 <HeroStoreButton href={PLAY_DRIVER} sublabel="App para conductores" label="Profesional Conductor" variant="driver" />
@@ -288,7 +293,7 @@ export default function LandingPage() {
       />
 
       {/* Features */}
-      <section id="features" className="border-t border-light-300/70 bg-white py-12 sm:py-24 lg:py-28">
+      <section id="features" className="scroll-mt-24 border-t border-light-300/70 bg-white py-12 sm:py-24 lg:py-28">
         <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8">
           <RevealSection className="mx-auto mb-8 max-w-2xl text-center sm:mb-14">
             <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 sm:text-sm">Tecnología</p>
@@ -314,7 +319,7 @@ export default function LandingPage() {
       </section>
 
       {/* How it works */}
-      <section id="how" className="border-t border-light-300/70 bg-light-100/80 py-12 sm:py-24 lg:py-28">
+      <section id="how" className="scroll-mt-24 border-t border-light-300/70 bg-light-100/80 py-12 sm:py-24 lg:py-28">
         <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8">
           <RevealSection className="mx-auto mb-8 max-w-2xl text-center sm:mb-14">
             <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 sm:text-sm">Cómo funciona</p>
@@ -397,6 +402,8 @@ export default function LandingPage() {
           </div>
         </RevealSection>
       </section>
+
+      </main>
 
       {/* Footer */}
       <footer className="border-t border-light-300/70 bg-light-100 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-8 sm:pb-12 sm:pt-12">

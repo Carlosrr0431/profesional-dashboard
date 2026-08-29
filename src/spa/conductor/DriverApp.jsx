@@ -537,7 +537,7 @@ export default function DriverApp() {
   };
 
   if (booting) {
-    return <SpaBootScreen>Cargando Profesional…</SpaBootScreen>;
+    return <SpaBootScreen subtitle="Conductor · Salta">Preparando tu jornada…</SpaBootScreen>;
   }
 
   if (!driver) {
