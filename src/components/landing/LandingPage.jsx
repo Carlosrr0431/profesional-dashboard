@@ -112,26 +112,26 @@ function HeroStoreButton({ href, label, sublabel, variant = 'passenger' }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className={`group flex h-full min-h-[52px] w-full touch-manipulation items-center gap-3 rounded-2xl border px-3.5 py-3 transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-900/30 focus-visible:ring-offset-2 sm:px-4 sm:py-3.5 ${
+      className={`group flex h-full min-h-11 w-full touch-manipulation items-center gap-2.5 rounded-2xl border px-3 py-2 transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-900/30 focus-visible:ring-offset-2 ${
         isPassenger
-          ? 'border-light-300 bg-white text-navy-900 shadow-[0_8px_30px_-8px_rgba(15,23,42,0.12)] hover:border-accent/25 hover:shadow-[0_12px_40px_-8px_rgba(36,95,141,0.18)]'
-          : 'border-navy-900 bg-navy-900 text-white shadow-[0_8px_30px_-8px_rgba(15,23,42,0.25)] hover:bg-navy-800'
+          ? 'border-light-300 bg-white text-navy-900 shadow-[0_8px_24px_-10px_rgba(15,23,42,0.12)] hover:border-accent/25'
+          : 'border-navy-900 bg-navy-900 text-white shadow-[0_8px_24px_-10px_rgba(15,23,42,0.25)] hover:bg-navy-800'
       }`}
     >
       <span
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105 ${
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-transform duration-200 group-hover:scale-105 ${
           isPassenger ? 'bg-navy-900 text-white' : 'bg-white/15 text-white'
         }`}
       >
-        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M3.609 1.814L13.792 12 3.61 22.186a1.003 1.003 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 010 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.802 8.99l-2.303 2.303-8.635-8.635z" />
         </svg>
       </span>
       <span className="min-w-0 flex-1 text-left">
-        <span className={`block text-[10px] font-semibold uppercase tracking-wider ${isPassenger ? 'text-slate-500' : 'text-white/65'}`}>
+        <span className={`block text-[9px] font-semibold uppercase tracking-wider ${isPassenger ? 'text-slate-500' : 'text-white/65'}`}>
           {sublabel}
         </span>
-        <span className="block truncate text-sm font-bold leading-snug">{label}</span>
+        <span className="block truncate text-[13px] font-bold leading-snug">{label}</span>
       </span>
     </a>
   );
@@ -157,7 +157,7 @@ export default function LandingPage() {
       <main id="contenido">
 
       {/* Hero */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-white via-light-50 to-light-100">
+      <section className="landing-hero relative flex flex-col overflow-hidden bg-gradient-to-b from-white via-light-50 to-light-100">
         <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
           <div className="absolute -left-24 top-0 h-[380px] w-[380px] rounded-full bg-[#245f8d]/[0.07] blur-[90px] landing-animate-glow" />
           <div className="absolute -right-16 top-24 h-[320px] w-[320px] rounded-full bg-accent/[0.06] blur-[80px] landing-animate-glow" />
@@ -172,11 +172,11 @@ export default function LandingPage() {
           />
         </div>
 
-        <div className="relative mx-auto w-full max-w-6xl px-4 pb-[calc(5rem+env(safe-area-inset-bottom))] pt-6 sm:px-6 sm:pb-24 sm:pt-12 lg:px-8 lg:pt-16">
-          <div className="flex flex-col gap-8 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)] lg:items-center lg:gap-12 xl:gap-16">
+        <div className="relative mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
+          <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)] lg:items-center lg:gap-8 xl:gap-10">
             <div className="min-w-0">
-              <div className="landing-hero-enter mb-6 flex justify-start sm:mb-8">
-                <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-1.5 sm:px-4">
+              <div className="landing-hero-enter mb-3 flex justify-start sm:mb-4">
+                <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-1 sm:px-3.5">
                   <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
                   <span className="text-[11px] font-semibold tracking-wide text-emerald-800 sm:text-xs">
                     Salta Capital · Argentina
@@ -184,58 +184,49 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              <h1 className="landing-hero-enter landing-hero-enter-delay-1 max-w-4xl text-balance text-[1.75rem] font-extrabold leading-[1.1] tracking-tight text-navy-900 min-[380px]:text-[2rem] sm:text-5xl lg:text-6xl">
+              <h1 className="landing-hero-enter landing-hero-enter-delay-1 max-w-4xl text-balance text-[1.65rem] font-extrabold leading-[1.12] tracking-tight text-navy-900 min-[380px]:text-[1.85rem] sm:text-4xl lg:text-[2.55rem]">
                 Tu viaje en Salta,{' '}
                 <span className="landing-shimmer-text">más simple</span>
                 {' '}que nunca
               </h1>
 
-              <p className="landing-hero-enter landing-hero-enter-delay-2 mt-4 max-w-2xl text-[15px] leading-relaxed text-slate-600 sm:mt-6 sm:text-lg lg:text-xl">
+              <p className="landing-hero-enter landing-hero-enter-delay-2 mt-2 max-w-xl text-pretty text-[14px] leading-relaxed text-slate-600 sm:mt-3 sm:text-[15px] lg:text-base">
                 Pedí un auto desde el navegador o descargá la app. Si sos conductor, también podés trabajar desde la web.
                 Todo conectado en tiempo real en Salta Capital.
               </p>
 
-              <div className="landing-hero-enter landing-hero-enter-delay-3 mt-6 flex flex-col items-stretch gap-3 sm:mt-8">
+              <div className="landing-hero-enter landing-hero-enter-delay-3 mt-4 flex flex-col items-stretch gap-2.5 sm:mt-5">
                 <Link
                   href="/pasajero"
-                  className="group inline-flex min-h-[52px] w-full touch-manipulation items-center justify-center gap-2 rounded-full bg-navy-900 px-6 py-3.5 text-sm font-semibold tracking-tight text-white shadow-[0_12px_32px_-12px_rgba(15,23,42,0.5)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:bg-navy-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-900/35 focus-visible:ring-offset-2 sm:w-auto sm:self-start"
+                  className="group inline-flex min-h-11 w-full touch-manipulation items-center justify-center gap-2 rounded-full bg-navy-900 px-5 py-2.5 text-sm font-semibold tracking-tight text-white shadow-[0_12px_32px_-12px_rgba(15,23,42,0.5)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:bg-navy-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-900/35 focus-visible:ring-offset-2 sm:w-auto sm:self-start"
                 >
                   Pedir viaje
                   <svg className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                   </svg>
                 </Link>
-                <div className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 sm:max-w-[34rem]">
+                <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:max-w-[32rem]">
                   <HeroStoreButton href={PLAY_PASSENGER} sublabel="App para pasajeros" label="Profesional Pasajero" variant="passenger" />
                   <HeroStoreButton href={PLAY_DRIVER} sublabel="App para conductores" label="Profesional Conductor" variant="driver" />
                 </div>
               </div>
 
-              <div className="landing-hero-enter landing-hero-enter-delay-4 mt-8 grid grid-cols-2 gap-2.5 sm:mt-10 sm:grid-cols-4 sm:gap-3 lg:gap-4">
-                {STATS.map((stat) => {
-                  const isLongValue = stat.value.length > 5;
-                  return (
-                    <div
-                      key={stat.label}
-                      className="min-w-0 rounded-2xl border border-light-300/80 bg-white/80 px-3.5 py-3 shadow-sm backdrop-blur-sm sm:px-4 sm:py-4 lg:px-5"
-                    >
-                      <p
-                        className={`font-bold leading-tight text-navy-900 ${
-                          isLongValue ? 'text-[15px] sm:text-lg lg:text-xl' : 'text-base sm:text-2xl'
-                        }`}
-                      >
-                        {stat.value}
-                      </p>
-                      <p className="mt-1 text-[9px] font-semibold uppercase tracking-wider text-slate-500 sm:text-xs">
-                        {stat.label}
-                      </p>
-                    </div>
-                  );
-                })}
+              <div className="landing-hero-enter landing-hero-enter-delay-4 mt-4 flex flex-wrap gap-2 sm:mt-5">
+                {STATS.map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="inline-flex min-w-0 items-baseline gap-1.5 rounded-full border border-light-300/80 bg-white/80 px-2.5 py-1 shadow-sm backdrop-blur-sm sm:px-3 sm:py-1.5"
+                  >
+                    <span className="text-[13px] font-bold leading-none text-navy-900 sm:text-sm">{stat.value}</span>
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-500 sm:text-[10px]">
+                      {stat.label}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
 
-            <div className="min-w-0 w-full lg:mt-0">
+            <div className="hidden min-w-0 w-full lg:block">
               <HeroMapRoute />
             </div>
           </div>

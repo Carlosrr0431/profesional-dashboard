@@ -289,6 +289,16 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   width: 100%;
 }
 
+.landing-hero {
+  min-height: calc(100dvh - 4rem - env(safe-area-inset-top, 0px));
+}
+
+@media (min-width: 640px) {
+  .landing-hero {
+    min-height: calc(100dvh - 4.25rem - env(safe-area-inset-top, 0px));
+  }
+}
+
 @keyframes landing-float {
   0%, 100% { transform: translateY(0px); }
   50% { transform: translateY(-14px); }

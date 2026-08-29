@@ -57,17 +57,17 @@ export default function HeroMapRoute() {
   return (
     <div className="landing-hero-map landing-hero-enter landing-hero-enter-delay-2 relative mx-auto w-full max-w-full sm:max-w-[440px] lg:mx-0 lg:max-w-none">
       <div className="landing-hero-map-float relative overflow-hidden rounded-[1.25rem] border border-light-300/80 bg-white/90 shadow-[0_24px_60px_-20px_rgba(36,95,141,0.25)] backdrop-blur-md sm:rounded-[2rem] sm:shadow-[0_32px_80px_-24px_rgba(36,95,141,0.28)]">
-        <div className="flex items-center justify-between gap-2 border-b border-light-300/70 bg-light-100/60 px-3 py-2.5 sm:px-4 sm:py-3">
+        <div className="flex items-center justify-between gap-2 border-b border-light-300/70 bg-light-100/60 px-3 py-2 sm:px-4">
           <div className="flex min-w-0 items-center gap-2">
             <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500 landing-hero-live-dot" />
             <span className="truncate text-[11px] font-semibold text-navy-900 sm:text-xs">Viaje en curso</span>
           </div>
-          <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent sm:px-2.5 sm:py-1 sm:text-[10px]">
+          <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent sm:px-2.5 sm:text-[10px]">
             Salta
           </span>
         </div>
 
-        <div className="relative aspect-[5/4] w-full max-w-full bg-[#e8edf4]">
+        <div className="relative h-[clamp(180px,32dvh,260px)] w-full max-w-full bg-[#e8edf4] xl:h-[clamp(200px,36dvh,300px)]">
           {/* ETA compacta — esquina superior izquierda del mapa */}
           <div className="landing-hero-eta absolute left-2 top-2 z-10 w-[max(42%,9.5rem)] max-w-[148px] sm:left-3 sm:top-3 sm:max-w-[158px]">
             <DriverEtaCard />
