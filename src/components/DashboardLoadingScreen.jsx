@@ -3,7 +3,7 @@
 import DashboardBrand from './DashboardBrand';
 
 /**
- * Pantalla de carga del dashboard: minimalista, centrada y con marca.
+ * Splash del dashboard: marca nítida (isotipo + wordmark) sobre el mismo navy del login.
  */
 export default function DashboardLoadingScreen({
   message = 'Cargando operaciones…',
@@ -13,70 +13,67 @@ export default function DashboardLoadingScreen({
     <div
       className={`${
         fullScreen ? 'h-screen min-h-dvh' : 'min-h-[50vh]'
-      } relative flex items-center justify-center overflow-hidden bg-[#f6f7fa]`}
+      } relative flex items-center justify-center overflow-hidden bg-[#0a1220]`}
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
-      {/* Atmósfera suave */}
       <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            'radial-gradient(ellipse 70% 50% at 50% 42%, rgba(37, 99, 235, 0.07) 0%, transparent 60%), linear-gradient(180deg, #fbfcfe 0%, #eef1f6 100%)',
-        }}
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_55%_at_50%_38%,rgba(59,94,140,0.38),transparent_62%)]"
       />
       <div
-        className="pointer-events-none absolute left-1/2 top-[38%] h-56 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl"
-        style={{ background: 'rgba(15, 23, 42, 0.04)' }}
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_50%_40%_at_50%_100%,rgba(0,0,0,0.45),transparent_70%)]"
       />
 
-      <div className="relative z-10 flex w-full max-w-[280px] flex-col items-center px-6">
-        {/* Marca con halo sutil */}
-        <div className="relative mb-8 flex items-center justify-center">
-          <div
-            className="absolute inset-[-18px] rounded-full"
-            style={{
-              background: 'radial-gradient(circle, rgba(255,255,255,0.95) 0%, transparent 70%)',
-              animation: 'dashLoadPulse 2.4s ease-in-out infinite',
-            }}
+      <div className="relative z-10 flex flex-col items-center px-6">
+        <div className="relative mb-5 flex h-[4.5rem] w-[4.5rem] items-center justify-center">
+          <span
+            aria-hidden
+            className="dash-load-ring pointer-events-none absolute inset-[-8px] rounded-full"
           />
-          <div
-            className="relative"
-            style={{ animation: 'dashLoadFloat 2.8s ease-in-out infinite' }}
-          >
-            <DashboardBrand
-              className="justify-center"
-              imageClassName="h-11 w-auto max-w-[168px] object-contain drop-shadow-sm"
-            />
-          </div>
-        </div>
-
-        {/* Barra de progreso fina */}
-        <div className="mb-4 h-[2px] w-28 overflow-hidden rounded-full bg-navy-900/8">
-          <div
-            className="h-full w-1/2 rounded-full bg-navy-900/70"
-            style={{ animation: 'dashLoadBar 1.15s ease-in-out infinite' }}
+          <DashboardBrand
+            src="/logo-mark.svg?v=2"
+            className="justify-center"
+            imageClassName="h-11 w-11 object-contain"
           />
         </div>
 
-        <p className="text-[11px] font-medium tracking-[0.18em] text-navy-900/35 uppercase">
+        <p className="text-[28px] font-semibold leading-none tracking-tight text-white sm:text-[32px]">
+          Profesional
+        </p>
+
+        <div className="mt-8 h-[2px] w-40 overflow-hidden rounded-full bg-white/10">
+          <div className="dash-load-bar h-full w-1/2 rounded-full bg-white/80" />
+        </div>
+
+        <p className="mt-4 text-[13px] font-medium text-white/50">
           {message}
         </p>
       </div>
 
       <style>{`
-        @keyframes dashLoadPulse {
-          0%, 100% { opacity: 0.55; transform: scale(0.96); }
-          50% { opacity: 1; transform: scale(1.04); }
+        .dash-load-ring {
+          background: conic-gradient(from 0deg, transparent 0 62%, rgba(255,255,255,0.55) 78%, transparent 100%);
+          -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
+          animation: dashLoadSpin 1.15s linear infinite;
         }
-        @keyframes dashLoadFloat {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-3px); }
+        .dash-load-bar {
+          animation: dashLoadBar 1.2s ease-in-out infinite;
+        }
+        @keyframes dashLoadSpin {
+          to { transform: rotate(360deg); }
         }
         @keyframes dashLoadBar {
           0% { transform: translateX(-120%); }
           100% { transform: translateX(240%); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .dash-load-ring,
+          .dash-load-bar { animation: none; }
+          .dash-load-ring { opacity: 0.35; }
         }
       `}</style>
     </div>

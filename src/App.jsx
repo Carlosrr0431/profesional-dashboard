@@ -519,11 +519,11 @@ export default function App() {
       ══════════════════════════════════════════════════════════════════════ */}
       <aside className="app-sidebar hidden lg:flex lg:flex-col">
         {/* Brand */}
-        <div className="flex-shrink-0 flex items-center px-2 py-3 border-b border-white/8">
+        <div className="flex-shrink-0 flex items-center px-2 py-3.5 border-b border-white/8">
           <span className="app-sidebar-icon-wrap">
-            <DashboardBrand src="/logo-mark.svg?v=2" imageClassName="h-7 w-7 object-contain" />
+            <DashboardBrand src="/logo-mark.svg?v=2" imageClassName="h-8 w-8 object-contain" />
           </span>
-          <span className="app-sidebar-label flex-1 text-[13px] font-bold text-white tracking-tight">Profesional</span>
+          <span className="app-sidebar-label flex-1 text-[20px] font-semibold leading-none text-white tracking-tight">Profesional</span>
         </div>
         {/* Navegación */}
         <nav className="flex-1 px-2 py-3 flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden min-h-0 scrollbar-none">
