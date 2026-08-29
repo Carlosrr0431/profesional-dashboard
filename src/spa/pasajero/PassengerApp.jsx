@@ -15,7 +15,7 @@ import {
 } from '../shared/geo';
 import { calculateTripPrice, formatArs, resolvePassengerTariff } from '../shared/money';
 import { normalizePassengerPhone } from '../shared/phone';
-import { clearPassengerSession, readPassengerSession, writePassengerSession } from '../shared/storage';
+import { clearPassengerSession, readPassengerSession, writePassengerSession, readPassengerCredentialCache, writePassengerCredentialCache } from '../shared/storage';
 import { isLiveNavTrip, isOpenTripStatus, passengerStatusMeta } from '../shared/tripStatus';
 import { tripDropoffPoint, tripNavTarget, tripPickupPoint } from '../shared/tripPoints';
 import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../shared/coverage';
@@ -57,8 +57,8 @@ export default function PassengerApp() {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
-  const [loginPhone, setLoginPhone] = useState('');
-  const [loginName, setLoginName] = useState('');
+  const [loginPhone, setLoginPhone] = useState(() => readPassengerCredentialCache()?.phone || '');
+  const [loginName, setLoginName] = useState(() => readPassengerCredentialCache()?.name || '');
   const [otp, setOtp] = useState('');
   const [otpStep, setOtpStep] = useState('phone');
   const [busy, setBusy] = useState(false);
@@ -313,12 +313,14 @@ export default function PassengerApp() {
       return;
     }
     if (data.bypass && data.sessionToken) {
-      persistSession({
+      const next = {
         phone: data.phone,
         sessionToken: data.sessionToken,
         sessionExpiresAt: data.sessionExpiresAt,
         name: loginName.trim() || data.name || '',
-      });
+      };
+      persistSession(next);
+      writePassengerCredentialCache(next.name, next.phone);
       return;
     }
     setOtpStep('code');
@@ -350,6 +352,7 @@ export default function PassengerApp() {
       name: loginName.trim() || data.name || '',
     };
     persistSession(next);
+    writePassengerCredentialCache(next.name, next.phone);
     setInfo('');
     setOtp('');
     setOtpStep('phone');
