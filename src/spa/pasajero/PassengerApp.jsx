@@ -19,7 +19,8 @@ import { clearPassengerSession, readPassengerSession, writePassengerSession, rea
 import { isLiveNavTrip, isOpenTripStatus, passengerStatusMeta } from '../shared/tripStatus';
 import { tripDropoffPoint, tripNavTarget, tripPickupPoint } from '../shared/tripPoints';
 import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../shared/coverage';
-import { SpaBackHome, SpaBrand, SpaButton, SpaEmpty, SpaNotice, SpaPanel, SpaSheet, SpaTabs, SpaTripRow, spaFieldClass } from '../shared/ui';
+import { SpaBackHome, SpaBrand, SpaButton, SpaEmpty, SpaNotice, OtpCountdown, SpaPanel, SpaSheet, SpaTabs, SpaTripRow, spaFieldClass } from '../shared/ui';
+import { OTP_RESEND_SECONDS, formatOtpClock, isOtpCooldownWait, resolveOtpRetrySeconds } from '../shared/otpUi';
 import { SpaAuthScreen, SpaBootScreen, SpaMapScreen } from '../shared/SpaShell';
 import InstallAppButton from '../shared/InstallAppButton';
 import LocationBanner from '../shared/LocationBanner';
@@ -62,6 +63,7 @@ export default function PassengerApp() {
   const [otp, setOtp] = useState('');
   const [otpStep, setOtpStep] = useState('phone');
   const [busy, setBusy] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
 
   const [pickupText, setPickupText] = useState('');
   const [pickup, setPickup] = useState(null);
@@ -293,23 +295,40 @@ export default function PassengerApp() {
     };
   }, [active?.id, active?.status, active?.origin_lat, active?.destination_lat, driver?.lat != null]);
 
+  const waitingResend = resendSeconds > 0;
+  useEffect(() => {
+    if (!waitingResend) return undefined;
+    const timer = setInterval(() => {
+      setResendSeconds((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [waitingResend]);
+
   const sendOtp = async (event) => {
-    event.preventDefault();
+    event?.preventDefault?.();
+    if (busy || resendSeconds > 0) return;
     setError('');
+    setInfo('');
     const phone = normalizePassengerPhone(loginPhone);
     if (!phone) {
-      setError('Ingresá un teléfono válido de Argentina, con código de área.');
+      setError('Ingresá un teléfono de Argentina con código de área. Ejemplo: 387 123 4567.');
       return;
     }
     setBusy(true);
-    const { ok, data } = await spaJson('/api/auth/passenger/send-otp', {
+    const { ok, status, data } = await spaJson('/api/auth/passenger/send-otp', {
       method: 'POST',
       headers: passengerHeaders(),
       body: { phone, client: PASSENGER_CLIENT },
     });
     setBusy(false);
+    const wait = resolveOtpRetrySeconds(data, status);
+    if (wait) setResendSeconds(wait);
     if (!ok || !data?.ok) {
-      setError(data?.message || 'No pudimos enviar el código.');
+      if (isOtpCooldownWait(data, status)) {
+        setError('');
+        return;
+      }
+      setError(data?.message || 'No se pudo enviar el código. Reintentá en un momento.');
       return;
     }
     if (data.bypass && data.sessionToken) {
@@ -324,7 +343,8 @@ export default function PassengerApp() {
       return;
     }
     setOtpStep('code');
-    setInfo(data.message || 'Te enviamos un código de 4 dígitos por WhatsApp.');
+    setResendSeconds(wait || OTP_RESEND_SECONDS);
+    setInfo('Revisá WhatsApp. El código de 4 dígitos llega en unos segundos.');
   };
 
   const verifyOtp = async (event) => {
@@ -342,7 +362,7 @@ export default function PassengerApp() {
     });
     setBusy(false);
     if (!ok || !data?.ok) {
-      setError(data?.message || 'Código incorrecto o expirado.');
+      setError(data?.message || 'El código no coincide o ya venció. Pedí uno nuevo.');
       return;
     }
     const next = {
@@ -614,19 +634,47 @@ export default function PassengerApp() {
                   />
                 </label>
               ) : null}
-              {error ? <SpaNotice tone="error">{error}</SpaNotice> : null}
-              {info ? <SpaNotice>{info}</SpaNotice> : null}
-              <SpaButton type="submit" disabled={busy}>
-                {busy ? 'Enviando…' : otpStep === 'phone' ? 'Enviar código' : 'Ingresar'}
+              {resendSeconds > 0 ? (
+                <OtpCountdown seconds={resendSeconds} total={OTP_RESEND_SECONDS} />
+              ) : null}
+              {error ? (
+                <SpaNotice tone="error" title="No se pudo completar">
+                  {error}
+                </SpaNotice>
+              ) : null}
+              {info && !error ? <SpaNotice tone="success">{info}</SpaNotice> : null}
+              <SpaButton type="submit" disabled={busy || (otpStep === 'phone' && resendSeconds > 0)}>
+                {busy
+                  ? (otpStep === 'phone' ? 'Enviando…' : 'Verificando…')
+                  : otpStep === 'phone'
+                    ? (resendSeconds > 0 ? `Reenviar en ${formatOtpClock(resendSeconds)}` : 'Enviar código')
+                    : 'Ingresar'}
               </SpaButton>
               {otpStep === 'code' ? (
-                <button
-                  type="button"
-                  className="touch-manipulation rounded-lg text-sm font-medium text-accent transition-colors duration-150 hover:text-accent-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 focus-visible:ring-offset-2"
-                  onClick={() => setOtpStep('phone')}
-                >
-                  Cambiar número
-                </button>
+                <div className="grid gap-2">
+                  <button
+                    type="button"
+                    disabled={busy || resendSeconds > 0}
+                    className="touch-manipulation rounded-lg text-sm font-semibold text-accent transition-colors duration-150 hover:text-accent-light disabled:cursor-not-allowed disabled:text-slate-400"
+                    onClick={sendOtp}
+                  >
+                    {resendSeconds > 0
+                      ? `Reenviar código en ${formatOtpClock(resendSeconds)}`
+                      : 'Reenviar código'}
+                  </button>
+                  <button
+                    type="button"
+                    className="touch-manipulation rounded-lg text-sm font-medium text-slate-500 transition-colors duration-150 hover:text-navy-900"
+                    onClick={() => {
+                      setOtpStep('phone');
+                      setOtp('');
+                      setError('');
+                      setInfo('');
+                    }}
+                  >
+                    Cambiar número
+                  </button>
+                </div>
               ) : null}
             </form>
           </div>

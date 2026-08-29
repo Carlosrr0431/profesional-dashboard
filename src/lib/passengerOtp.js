@@ -166,7 +166,15 @@ export async function assertCanSendOtp(supabase, phone) {
     throw recentError;
   }
   if (recent?.length) {
-    return { ok: false, status: 429, message: 'Esperá un minuto antes de pedir otro código.' };
+    const createdAt = new Date(recent[0].created_at).getTime();
+    const remainingMs = OTP_RESEND_COOLDOWN_MS - (now - createdAt);
+    const retryAfterSeconds = Math.max(1, Math.ceil(remainingMs / 1000));
+    return {
+      ok: false,
+      status: 429,
+      message: 'Podés pedir otro código cuando termine la espera.',
+      retryAfterSeconds,
+    };
   }
 
   const { count, error: countError } = await supabase
@@ -180,7 +188,11 @@ export async function assertCanSendOtp(supabase, phone) {
     throw countError;
   }
   if ((count || 0) >= OTP_MAX_PER_HOUR) {
-    return { ok: false, status: 429, message: 'Demasiados intentos. Probá de nuevo en una hora.' };
+    return {
+      ok: false,
+      status: 429,
+      message: 'Llegaste al límite de códigos por hora. Probá más tarde.',
+    };
   }
 
   return { ok: true };
@@ -276,11 +288,10 @@ export async function createAndSendOtp(rawPhone) {
       ok: false,
       status: waResult.jidMissing ? 422 : 502,
       message: waResult.jidMissing
-        ? 'Ese número no tiene WhatsApp o está mal escrito. Usá los 10 dígitos locales (ej. 387…), sin 0, 9 ni 54.'
-        : waResult.lineDown
-          ? 'WhatsApp de la app está desconectado. Reintentá en unos minutos.'
-          : 'No pudimos enviar el código por WhatsApp. Verificá el número e intentá de nuevo.',
+        ? 'Ese número no tiene WhatsApp. Usá los 10 dígitos con área, sin 0 ni 54.'
+        : 'No se pudo entregar el código por WhatsApp. Reintentá cuando termine la espera.',
       reason: waResult.reason,
+      retryAfterSeconds: OTP_RESEND_COOLDOWN_MS / 1000,
     };
   }
 

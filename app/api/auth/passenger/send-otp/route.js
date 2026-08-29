@@ -76,7 +76,11 @@ export async function POST(req) {
         client,
       }));
       return NextResponse.json(
-        { ok: false, message: 'Demasiados intentos desde esta red. Esperá un minuto.' },
+        {
+          ok: false,
+          message: 'Hay varios intentos desde esta red. Esperá un momento.',
+          retryAfterSeconds: 60,
+        },
         { status: 429 }
       );
     }
@@ -91,7 +95,12 @@ export async function POST(req) {
     const result = await createAndSendOtp(phone);
     if (!result.ok) {
       return NextResponse.json(
-        { ok: false, message: result.message, reason: result.reason || null },
+        {
+          ok: false,
+          message: result.message,
+          reason: result.reason || null,
+          retryAfterSeconds: result.retryAfterSeconds || null,
+        },
         { status: result.status || 400 }
       );
     }

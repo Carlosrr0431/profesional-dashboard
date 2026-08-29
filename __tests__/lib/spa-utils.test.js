@@ -1,4 +1,9 @@
 const {
+  formatOtpClock,
+  isOtpCooldownWait,
+  resolveOtpRetrySeconds,
+} = require('../../src/spa/shared/otpUi');
+const {
   normalizePassengerPhone,
   getPassengerPhoneVariants,
   normalizeDriverPhone,
@@ -6,6 +11,20 @@ const {
 const { calculateTripPrice, resolvePassengerTariff } = require('../../src/spa/shared/money');
 const { isOpenTripStatus, isLiveNavTrip, passengerStatusMeta } = require('../../src/spa/shared/tripStatus');
 const { isPickupInActiveZones } = require('../../src/spa/shared/coverage');
+
+describe('OTP countdown', () => {
+  it('formatea el reloj mm:ss', () => {
+    expect(formatOtpClock(60)).toBe('1:00');
+    expect(formatOtpClock(47)).toBe('0:47');
+    expect(formatOtpClock(0)).toBe('0:00');
+  });
+
+  it('usa retryAfterSeconds del API y trata 429 como espera', () => {
+    expect(resolveOtpRetrySeconds({ retryAfterSeconds: 41 }, 429)).toBe(41);
+    expect(isOtpCooldownWait({ retryAfterSeconds: 41 }, 429)).toBe(true);
+    expect(isOtpCooldownWait({ retryAfterSeconds: 60 }, 502)).toBe(false);
+  });
+});
 
 describe('SPA passenger phone', () => {
   it('normaliza local, 54 y 549 al canónico 54 + 10', () => {

@@ -107,17 +107,48 @@ export function SpaBrand({ subtitle }) {
   );
 }
 
-export function SpaNotice({ tone = 'info', children }) {
+export function OtpCountdown({ seconds, total = 60 }) {
+  const safe = Math.max(0, Number(seconds) || 0);
+  const max = Math.max(1, Number(total) || 60);
+  const progress = Math.min(1, safe / max);
+  const clock = `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, '0')}`;
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-slate-50 px-3.5 py-3">
+      <div
+        className="grid h-12 w-12 shrink-0 place-items-center rounded-full"
+        style={{ background: `conic-gradient(#10233d ${progress * 360}deg, #e2e8f0 0deg)` }}
+        aria-hidden="true"
+      >
+        <span className="grid h-9 w-9 place-items-center rounded-full bg-white text-[11px] font-semibold tabular-nums text-navy-900">
+          {clock}
+        </span>
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold tracking-tight text-navy-900">
+          Reenviar en {clock}
+        </p>
+        <p className="text-[12px] leading-relaxed text-slate-500">
+          El código llega por WhatsApp. Cuando llegue a 0:00 podés pedir otro.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export function SpaNotice({ tone = 'info', title, children }) {
   const tones = {
-    info: 'bg-accent-dim text-accent',
-    error: 'bg-red-50 text-red-700',
-    success: 'bg-emerald-50 text-emerald-800',
-    warn: 'bg-amber-50 text-amber-800',
+    info: 'border-sky-100 bg-sky-50/80 text-sky-900',
+    error: 'border-rose-100 bg-rose-50/90 text-rose-900',
+    success: 'border-emerald-100 bg-emerald-50/90 text-emerald-900',
+    warn: 'border-amber-100 bg-amber-50/90 text-amber-900',
   };
   return (
-    <p className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${tones[tone] || tones.info}`}>
-      {children}
-    </p>
+    <div className={`rounded-2xl border px-3.5 py-3 ${tones[tone] || tones.info}`}>
+      {title ? <p className="text-[13px] font-semibold tracking-tight">{title}</p> : null}
+      <p className={`text-sm leading-relaxed ${title ? 'mt-0.5 text-[13px] opacity-80' : ''}`}>
+        {children}
+      </p>
+    </div>
   );
 }
 
