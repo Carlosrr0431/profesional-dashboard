@@ -205,7 +205,7 @@ export default function PassengerApp() {
         const [metrics, line, tariffRes] = await Promise.all([
           fetchRouteMetrics(pickup, destination),
           fetchRouteLine(pickup, destination),
-          spaJson('/api/tariff-settings'),
+          spaJson(`/api/tariff-settings?lat=${pickup.lat}&lng=${pickup.lng}`),
         ]);
         if (cancelled) return;
         const tariff = resolvePassengerTariff(tariffRes.data?.data || {});

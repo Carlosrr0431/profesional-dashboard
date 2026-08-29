@@ -26,6 +26,7 @@ import {
   priceFromTariff,
   resolveChannelTariff,
 } from './resolveTariff';
+import { applyFareSurcharge, resolveHotZoneSurchargeForPoint } from './hotZones';
 
 const TARIFF_KEYS = [
   'platform_tariff_per_km',
@@ -457,10 +458,16 @@ async function quoteFare(args = {}, settingsMap = {}) {
   }
 
   let windows = [];
+  let surchargePercent = 0;
   try {
-    windows = await fetchTariffWindows(getSupabaseAdmin());
+    const db = getSupabaseAdmin();
+    [windows, surchargePercent] = await Promise.all([
+      fetchTariffWindows(db),
+      resolveHotZoneSurchargeForPoint(db, route.originLat, route.originLng),
+    ]);
   } catch {
     windows = [];
+    surchargePercent = 0;
   }
 
   const tariff = resolveChannelTariff({
@@ -469,8 +476,12 @@ async function quoteFare(args = {}, settingsMap = {}) {
     channel: 'platform',
     at: new Date(),
   });
-  const price = priceFromTariff(tariff, distanceKm);
-  const priced = (tariff.perKm > 0 || tariff.base > 0) && price != null;
+  const pricedTariff = {
+    ...tariff,
+    perKm: applyFareSurcharge(tariff.perKm, surchargePercent),
+  };
+  const price = priceFromTariff(pricedTariff, distanceKm);
+  const priced = (pricedTariff.perKm > 0 || pricedTariff.base > 0) && price != null;
   return {
     priced,
     origin: route.originResolved || origin,
@@ -478,8 +489,8 @@ async function quoteFare(args = {}, settingsMap = {}) {
     distance_km: distanceKm,
     duration_minutes: route.durationMinutes ?? null,
     price: priced ? price : null,
-    tariff_base: tariff.base,
-    tariff_per_km: tariff.perKm,
+    tariff_base: pricedTariff.base,
+    tariff_per_km: pricedTariff.perKm,
   };
 }
 

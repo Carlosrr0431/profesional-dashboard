@@ -70,6 +70,10 @@ import { isDriverEligibleForDispatch } from '../../../shared/driver-billing.js';
 import { selectDriversCompat } from '../../../src/lib/driversBillingSelect';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
 import {
+  applyFareSurcharge,
+  resolveHotZoneSurchargePercent,
+} from '../../../src/lib/hotZones';
+import {
   reverseGeocode as nominatimReverseGeocode,
   getRouteMetrics as osrmGetRouteMetrics,
   getRouteMetricsByAddress as osrmGetRouteMetricsByAddress,
@@ -6444,26 +6448,30 @@ async function getSettingsMap() {
   return map;
 }
 
-function calculateWhatsAppTripPricing(settings, route, windows = [], at = new Date()) {
+function calculateWhatsAppTripPricing(settings, route, windows = [], at = new Date(), surchargePercent = 0) {
   const tariff = resolveChannelTariff({
     settingsMap: settings,
     windows,
     channel: 'platform',
     at,
   });
+  const pricedTariff = {
+    ...tariff,
+    perKm: applyFareSurcharge(tariff.perKm, surchargePercent),
+  };
 
-  const price = route.distanceKm == null ? null : priceFromTariff(tariff, route.distanceKm);
+  const price = route.distanceKm == null ? null : priceFromTariff(pricedTariff, route.distanceKm);
   const commissionAmount = price == null
     ? null
-    : commissionFromPrice(price, tariff.commissionPercent);
+    : commissionFromPrice(price, pricedTariff.commissionPercent);
 
   return {
     price,
     commissionAmount,
     pricingMode: 'platform',
-    tariffPerKm: tariff.perKm,
-    tariffBase: tariff.base,
-    commissionPercent: tariff.commissionPercent,
+    tariffPerKm: pricedTariff.perKm,
+    tariffBase: pricedTariff.base,
+    commissionPercent: pricedTariff.commissionPercent,
   };
 }
 
@@ -6490,15 +6498,17 @@ async function resolvePassengerRouteFare(pickupLocation, finalDestinationGeo) {
     );
     if (route.distanceKm == null) return null;
 
-    const [settings, windows] = await Promise.all([
+    const [settings, windows, surchargePercent] = await Promise.all([
       getSettingsMap(),
       fetchTariffWindows(getSupabase()),
+      resolveHotZoneSurchargeAt(pickupLat, pickupLng),
     ]);
-    const pricing = calculateWhatsAppTripPricing(settings, route, windows);
+    const pricing = calculateWhatsAppTripPricing(settings, route, windows, new Date(), surchargePercent);
     logWebhook('trip_passenger_route_fare_resolved', {
       distanceKm: route.distanceKm,
       durationMinutes: route.durationMinutes,
       price: pricing.price,
+      hotSurchargePercent: surchargePercent,
     });
     return {
       distance_km: route.distanceKm,
@@ -7608,6 +7618,30 @@ function isPointInPolygon(lat, lng, coordinates) {
     }
   }
   return inside;
+}
+
+async function getActiveHotZones() {
+  try {
+    const { data, error } = await getSupabase()
+      .from('hot_zones')
+      .select('id, name, coordinates, fare_surcharge_percent, is_active')
+      .eq('is_active', true);
+    if (error) {
+      logWebhook('hot_zones_load_error', { error: error.message || 'unknown' });
+      return [];
+    }
+    return (data || []).filter(
+      (z) => Array.isArray(z.coordinates) && z.coordinates.length >= 3
+    );
+  } catch (err) {
+    logWebhook('hot_zones_load_exception', { error: err?.message || 'unknown' });
+    return [];
+  }
+}
+
+async function resolveHotZoneSurchargeAt(lat, lng) {
+  const zones = await getActiveHotZones();
+  return resolveHotZoneSurchargePercent(zones, Number(lat), Number(lng));
 }
 
 async function getActiveServiceZones() {
@@ -10822,11 +10856,12 @@ async function processClaimedConversation(batch) {
       };
     }
 
-    const [settings, windows] = await Promise.all([
+    const [settings, windows, surchargePercent] = await Promise.all([
       getSettingsMap(),
       fetchTariffWindows(getSupabase()),
+      resolveHotZoneSurchargeAt(priceRoute.originLat, priceRoute.originLng),
     ]);
-    const pricing = calculateWhatsAppTripPricing(settings, priceRoute, windows);
+    const pricing = calculateWhatsAppTripPricing(settings, priceRoute, windows, new Date(), surchargePercent);
 
     const resolvedOrigin = priceRoute.originResolved || originQuery;
     const resolvedDest = priceRoute.destinationResolved || destQuery;

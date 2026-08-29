@@ -28,6 +28,10 @@ import {
   priceFromTariff,
   resolveChannelTariff,
 } from './resolveTariff';
+import {
+  applyFareSurcharge,
+  resolveHotZoneSurchargeForPoint,
+} from './hotZones';
 
 function sanitizeText(value, maxLen = 500) {
   return String(value || '').trim().slice(0, maxLen);
@@ -139,7 +143,7 @@ async function getRouteMetrics(origin, destination, waypoints = []) {
   }
 }
 
-function calculateTripPricing(settingsMap, route, windows = [], { source, at } = {}) {
+function calculateTripPricing(settingsMap, route, windows = [], { source, at, surchargePercent = 0 } = {}) {
   if (route?.distanceKm == null) return null;
 
   const tariff = resolveChannelTariff({
@@ -148,7 +152,11 @@ function calculateTripPricing(settingsMap, route, windows = [], { source, at } =
     channel: channelFromTripSource(source),
     at: at || new Date(),
   });
-  const price = priceFromTariff(tariff, route.distanceKm);
+  const pricedTariff = {
+    ...tariff,
+    perKm: applyFareSurcharge(tariff.perKm, surchargePercent),
+  };
+  const price = priceFromTariff(pricedTariff, route.distanceKm);
   if (price == null) return null;
 
   return {
@@ -175,8 +183,11 @@ export async function resolvePassengerRouteFare(
   );
   if (!route) return null;
 
-  const { settingsMap, windows } = await loadTariffContext(supabase);
-  return calculateTripPricing(settingsMap, route, windows, { source, at });
+  const [{ settingsMap, windows }, surchargePercent] = await Promise.all([
+    loadTariffContext(supabase),
+    resolveHotZoneSurchargeForPoint(supabase, pickupLocation.lat, pickupLocation.lng),
+  ]);
+  return calculateTripPricing(settingsMap, route, windows, { source, at, surchargePercent });
 }
 
 /** Intenta obtener destino final por geocode o por ruta OSRM entre direcciones. */

@@ -5,6 +5,7 @@ import {
   overlayResolvedTariffSettings,
   fetchTariffWindows,
 } from '../../../src/lib/resolveTariff';
+import { applyFareSurcharge, resolveHotZoneSurchargeForPoint } from '../../../src/lib/hotZones';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +31,7 @@ function getSupabaseAdmin() {
   });
 }
 
-export async function GET() {
+export async function GET(request) {
   try {
     const supabase = getSupabaseAdmin();
     const [{ data, error }, windows] = await Promise.all([
@@ -46,12 +47,29 @@ export async function GET() {
     });
 
     const resolved = overlayResolvedTariffSettings(defaults, windows, new Date());
+    const { searchParams } = new URL(request.url);
+    const lat = Number(searchParams.get('lat'));
+    const lng = Number(searchParams.get('lng'));
+    const hotSurchargePercent = await resolveHotZoneSurchargeForPoint(supabase, lat, lng);
+
+    if (hotSurchargePercent > 0) {
+      for (const key of [
+        'platform_tariff_per_km',
+        'passenger_app_tariff_per_km',
+        'passenger_web_tariff_per_km',
+      ]) {
+        if (resolved[key] != null) {
+          resolved[key] = String(applyFareSurcharge(resolved[key], hotSurchargePercent));
+        }
+      }
+    }
 
     return NextResponse.json({
       ok: true,
       data: resolved,
       defaults,
       windows,
+      hotSurchargePercent,
       activeSource: 'platform',
       platformKeys: PLATFORM_TARIFF_KEYS,
       passengerAppKeys: PASSENGER_APP_TARIFF_KEYS,
