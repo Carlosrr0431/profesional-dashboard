@@ -511,6 +511,7 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   white-space: nowrap;
   max-width: 0;
   opacity: 0;
+  margin-left: 0;
   transform: translateX(-6px);
   transition:
     max-width 0.2s cubic-bezier(0.4, 0, 0.2, 1),
@@ -530,7 +531,7 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   gap: 0;
   width: 100%;
   min-height: 38px;
-  padding: 0 10px 0 0;
+  padding: 0;
   border-radius: 10px;
   font-size: 12.5px;
   font-weight: 600;
@@ -562,8 +563,13 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 56px;
-  min-height: 38px;
+  /* 56px rail − px-2 (8+8) = 40px. El ícono queda centrado en el recuadro. */
+  width: 40px;
+  height: 38px;
+}
+
+.app-sidebar:hover .app-sidebar-label.flex-1 {
+  margin-left: 8px;
 }
 
 /* Apps web pasajero / conductor */

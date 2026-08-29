@@ -519,9 +519,10 @@ export default function App() {
       ══════════════════════════════════════════════════════════════════════ */}
       <aside className="app-sidebar hidden lg:flex lg:flex-col">
         {/* Brand */}
-        <div className="flex-shrink-0 flex items-center gap-2.5 px-[14px] py-3.5 border-b border-white/8">
-          <DashboardBrand imageClassName="h-7 w-7 min-w-[28px] flex-shrink-0 object-contain rounded-lg" style={{ filter: 'brightness(0) invert(1)' }} />
-          <span className="app-sidebar-label text-[13px] font-bold text-white/90 tracking-tight">Profesional</span>
+        <div className="flex-shrink-0 flex items-center px-2 py-3 border-b border-white/8">
+          <span className="app-sidebar-icon-wrap">
+            <DashboardBrand src="/logo-mark.svg" imageClassName="h-7 w-7 object-contain rounded-lg" />
+          </span>
         </div>
         {/* Navegación */}
         <nav className="flex-1 px-2 py-3 flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden min-h-0 scrollbar-none">
@@ -1186,7 +1187,7 @@ function SideNavItem({ icon, label, active, onClick, badge, badgeColor = 'warnin
   return (
     <button type="button" onClick={onClick} className={baseClass}>
       <span className="app-sidebar-icon-wrap">{icon}</span>
-      <span className="app-sidebar-label flex-1 text-left truncate ml-2">{label}</span>
+      <span className="app-sidebar-label flex-1 text-left truncate">{label}</span>
       {badge != null && badge > 0 && (
         <span className={`app-sidebar-label mr-1 flex-shrink-0 min-w-[18px] h-[18px] rounded-full text-[9px] font-bold flex items-center justify-center px-1 ${
           active ? 'bg-white/20 text-white' : (badgeStyles[badgeColor] || badgeStyles.warning)
