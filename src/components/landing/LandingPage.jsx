@@ -112,18 +112,18 @@ function HeroStoreButton({ href, label, sublabel, variant = 'passenger' }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className={`group inline-flex w-full min-h-[52px] items-center gap-3 rounded-2xl border px-4 py-3.5 transition-all duration-300 sm:min-h-0 sm:w-auto ${
+      className={`group flex h-full min-h-[52px] w-full touch-manipulation items-center gap-3 rounded-2xl border px-3.5 py-3 transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-900/30 focus-visible:ring-offset-2 sm:px-4 sm:py-3.5 ${
         isPassenger
           ? 'border-light-300 bg-white text-navy-900 shadow-[0_8px_30px_-8px_rgba(15,23,42,0.12)] hover:border-accent/25 hover:shadow-[0_12px_40px_-8px_rgba(36,95,141,0.18)]'
-          : 'border-navy-700/10 bg-navy-900 text-white shadow-[0_8px_30px_-8px_rgba(15,23,42,0.25)] hover:bg-navy-800'
+          : 'border-navy-900 bg-navy-900 text-white shadow-[0_8px_30px_-8px_rgba(15,23,42,0.25)] hover:bg-navy-800'
       }`}
     >
       <span
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition group-hover:scale-105 ${
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105 ${
           isPassenger ? 'bg-navy-900 text-white' : 'bg-white/15 text-white'
         }`}
       >
-        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M3.609 1.814L13.792 12 3.61 22.186a1.003 1.003 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 010 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.802 8.99l-2.303 2.303-8.635-8.635z" />
         </svg>
       </span>
@@ -131,7 +131,7 @@ function HeroStoreButton({ href, label, sublabel, variant = 'passenger' }) {
         <span className={`block text-[10px] font-semibold uppercase tracking-wider ${isPassenger ? 'text-slate-500' : 'text-white/65'}`}>
           {sublabel}
         </span>
-        <span className="block text-sm font-bold leading-snug">{label}</span>
+        <span className="block truncate text-sm font-bold leading-snug">{label}</span>
       </span>
     </a>
   );
@@ -195,18 +195,20 @@ export default function LandingPage() {
                 Todo conectado en tiempo real en Salta Capital.
               </p>
 
-              <div className="landing-hero-enter landing-hero-enter-delay-3 mt-6 flex flex-col gap-3 sm:mt-8 sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="landing-hero-enter landing-hero-enter-delay-3 mt-6 flex flex-col items-stretch gap-3 sm:mt-8">
                 <Link
                   href="/pasajero"
-                  className="group inline-flex min-h-[52px] w-full touch-manipulation items-center justify-center gap-2 rounded-full bg-navy-900 px-6 py-3.5 text-sm font-semibold tracking-tight text-white shadow-[0_12px_32px_-12px_rgba(15,23,42,0.5)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:bg-navy-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-900/35 focus-visible:ring-offset-2 sm:w-auto"
+                  className="group inline-flex min-h-[52px] w-full touch-manipulation items-center justify-center gap-2 rounded-full bg-navy-900 px-6 py-3.5 text-sm font-semibold tracking-tight text-white shadow-[0_12px_32px_-12px_rgba(15,23,42,0.5)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:bg-navy-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-900/35 focus-visible:ring-offset-2 sm:w-auto sm:self-start"
                 >
                   Pedir viaje
                   <svg className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                   </svg>
                 </Link>
-                <HeroStoreButton href={PLAY_PASSENGER} sublabel="App para pasajeros" label="Profesional Pasajero" variant="passenger" />
-                <HeroStoreButton href={PLAY_DRIVER} sublabel="App para conductores" label="Profesional Conductor" variant="driver" />
+                <div className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 sm:max-w-[34rem]">
+                  <HeroStoreButton href={PLAY_PASSENGER} sublabel="App para pasajeros" label="Profesional Pasajero" variant="passenger" />
+                  <HeroStoreButton href={PLAY_DRIVER} sublabel="App para conductores" label="Profesional Conductor" variant="driver" />
+                </div>
               </div>
 
               <div className="landing-hero-enter landing-hero-enter-delay-4 mt-8 grid grid-cols-2 gap-2.5 sm:mt-10 sm:grid-cols-4 sm:gap-3 lg:gap-4">
