@@ -253,7 +253,7 @@ const MapView = memo(function MapView({
         collectResourceTiming={mapLibreOptions.collectResourceTiming}
         refreshExpiredTiles={mapLibreOptions.refreshExpiredTiles}
       >
-        <NavigationControl position="top-left" showCompass={false} />
+        <NavigationControl position="top-right" showCompass={false} />
 
         {routeGeoJSON && (
           <Source id="route-source" type="geojson" data={routeGeoJSON}>
