@@ -1,4 +1,4 @@
-const { isPassengerOtpBypassPhone } = require('../../src/lib/passengerOtp');
+const { isAppReviewDemoPhone, isPassengerOtpBypassPhone } = require('../../src/lib/passengerOtp');
 
 describe('passenger OTP bypass phone', () => {
   const original = process.env.PASSENGER_OTP_BYPASS_PHONE;
@@ -12,6 +12,13 @@ describe('passenger OTP bypass phone', () => {
     delete process.env.PASSENGER_OTP_BYPASS_PHONE;
     expect(isPassengerOtpBypassPhone('3878630173')).toBe(false);
     expect(isPassengerOtpBypassPhone('543878630173')).toBe(false);
+  });
+
+  test('el número de App Review se reconoce aunque no haya bypass por env', () => {
+    delete process.env.PASSENGER_OTP_BYPASS_PHONE;
+    expect(isAppReviewDemoPhone('3878630173')).toBe(true);
+    expect(isAppReviewDemoPhone('543878630173')).toBe(true);
+    expect(isAppReviewDemoPhone('3871234567')).toBe(false);
   });
 
   test('con env acepta solo ese número en cualquier formato válido', () => {

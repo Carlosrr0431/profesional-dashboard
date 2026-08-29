@@ -18,6 +18,9 @@ const OTP_MAX_PER_HOUR = 5;
 const OTP_MAX_ATTEMPTS = 5;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
+const APP_REVIEW_DEMO_LOCAL = '3878630173';
+const APP_REVIEW_DEMO_OTP = '2580';
+
 function configuredOtpBypassLocal() {
   return extractLocalArMobileDigits(process.env.PASSENGER_OTP_BYPASS_PHONE || '');
 }
@@ -27,6 +30,11 @@ export function isPassengerOtpBypassPhone(rawPhone) {
   const configured = configuredOtpBypassLocal();
   if (!configured) return false;
   return extractLocalArMobileDigits(rawPhone) === configured;
+}
+
+/** Cuenta de App Review / Play pre-launch. Nunca se manda WhatsApp. */
+export function isAppReviewDemoPhone(rawPhone) {
+  return extractLocalArMobileDigits(rawPhone) === APP_REVIEW_DEMO_LOCAL;
 }
 
 function isMissingOtpTableError(error) {
@@ -187,6 +195,36 @@ export async function createAndSendOtp(rawPhone) {
     };
   }
 
+  // App Review: código fijo 2580, sin WhatsApp. Play pre-launch pide este número solo.
+  if (isAppReviewDemoPhone(phone)) {
+    const supabase = getSupabaseAdmin();
+    const canSend = await assertCanSendOtp(supabase, phone);
+    if (!canSend.ok) return canSend;
+
+    const expiresAt = new Date(Date.now() + OTP_TTL_MS).toISOString();
+    const { error: insertError } = await supabase.from('passenger_otp_codes').insert({
+      phone,
+      code: APP_REVIEW_DEMO_OTP,
+      expires_at: expiresAt,
+    });
+    if (insertError) {
+      if (isMissingOtpTableError(insertError)) return missingOtpTableResponse();
+      throw insertError;
+    }
+
+    console.info('[passenger-otp]', JSON.stringify({
+      stage: 'app_review_otp_silent',
+      phone,
+    }));
+
+    return {
+      ok: true,
+      phone,
+      maskedPhone: maskPhone(phone),
+      expiresInSeconds: Math.floor(OTP_TTL_MS / 1000),
+    };
+  }
+
   const supabase = getSupabaseAdmin();
   const canSend = await assertCanSendOtp(supabase, phone);
   if (!canSend.ok) return canSend;
@@ -299,6 +337,11 @@ export async function verifyOtpAndCreateSession(rawPhone, rawCode) {
   }
   if (!/^\d{4}$/.test(code)) {
     return { ok: false, status: 400, message: 'Ingresá el código de 4 dígitos.' };
+  }
+
+  if (isAppReviewDemoPhone(phone) && code === APP_REVIEW_DEMO_OTP) {
+    const supabase = getSupabaseAdmin();
+    return createPassengerSession(supabase, phone);
   }
 
   const supabase = getSupabaseAdmin();

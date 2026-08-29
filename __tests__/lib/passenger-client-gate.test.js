@@ -30,6 +30,7 @@ describe('passengerClientGate', () => {
 
   it('detecta IPs de scanners Google', () => {
     expect(isLikelyAutomatedScannerIp('66.102.8.230')).toBe(true);
+    expect(isLikelyAutomatedScannerIp('66.249.88.199')).toBe(true);
     expect(isLikelyAutomatedScannerIp('181.15.10.2')).toBe(false);
   });
 });

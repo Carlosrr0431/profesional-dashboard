@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createAndSendOtp } from '../../../../../src/lib/passengerOtp';
+import { createAndSendOtp, isAppReviewDemoPhone } from '../../../../../src/lib/passengerOtp';
 import {
   isLikelyAutomatedScannerIp,
   resolvePassengerClient,
@@ -52,9 +52,9 @@ export async function POST(req) {
       userAgent: userAgent || null,
     }));
 
-    // Builds viejas de Play no mandan header: no bloquear usuarios reales.
-    // Sí cortar scanners de Google sin cliente identificado.
-    if (!clientGate.ok && isLikelyAutomatedScannerIp(ip)) {
+    // Play pre-launch / Googlebot: IPs 66.249.* con header de la app real.
+    // No mandar WhatsApp. El número de review puede seguir (código 2580, sin WA).
+    if (isLikelyAutomatedScannerIp(ip) && !isAppReviewDemoPhone(phone)) {
       console.info('[passenger-otp]', JSON.stringify({
         stage: 'rejected_scanner',
         ip,
