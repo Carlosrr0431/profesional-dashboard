@@ -82,19 +82,39 @@ function parseJsonLines() {
   }
 }
 
+function isDedicatedPassengerOtpLine(line) {
+  const code = String(line?.agentCode || '').toLowerCase();
+  const phone = digitsOnly(line?.phone);
+  if (/pasajero|passenger|\botp\b/.test(code)) return true;
+  // Línea pública de la app pasajero (ver .env.example).
+  return phone.endsWith('3872138777');
+}
+
 /**
  * Línea dedicada a OTPs y comunicaciones de la passenger-app.
- * Por convención es la primera línea (index 1). Se puede sobreescribir
- * con la variable WHATSMEOW_OTP_AGENT_CODE para apuntar a un agentCode específico.
+ * Prioridad: WHATSMEOW_OTP_AGENT_CODE → agent/phone de pasajeros → primera línea.
  */
 export function getPassengerWhatsmeowLine() {
+  const all = listWhatsmeowLines();
   const override = String(process.env.WHATSMEOW_OTP_AGENT_CODE || '').trim();
   if (override) {
-    const all = listWhatsmeowLines();
     const found = all.find((l) => l.agentCode.toLowerCase() === override.toLowerCase());
     if (found) return found;
   }
-  return listWhatsmeowLines()[0] || null;
+  return all.find(isDedicatedPassengerOtpLine) || all[0] || null;
+}
+
+/** Línea de OTP primero; el resto como fallback si esa sesión está caída. */
+export function listOtpWhatsmeowCandidateLines() {
+  const preferred = getPassengerWhatsmeowLine();
+  const ordered = [];
+  if (preferred) ordered.push(preferred);
+  for (const line of listWhatsmeowLines()) {
+    if (!ordered.some((item) => item.agentCode === line.agentCode)) {
+      ordered.push(line);
+    }
+  }
+  return ordered;
 }
 
 /** @returns {{ phone: string, agentCode: string, apiKey: string, label: string, index: number }[]} */

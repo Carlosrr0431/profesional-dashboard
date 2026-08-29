@@ -7,7 +7,8 @@ import {
   toWhatsAppJid,
 } from './passengerAuthPhone';
 import { sendWhatsmeowText, getWhatsmeowApiKey } from './whatsmeowClient';
-import { getPassengerWhatsmeowLine } from './whatsmeowLines';
+import { listOtpWhatsmeowCandidateLines } from './whatsmeowLines';
+import { isWhatsappTransientDisconnect } from './whatsappAntiBan';
 
 /** Prioridad alta en whatsapp_outbound_queue (ver OUTBOUND_PRIORITY.OTP). */
 const OTP_OUTBOUND_PRIORITY = 100;
@@ -70,10 +71,15 @@ export function generateOtpCode() {
   return String(randomInt(1000, 10000));
 }
 
+function isOtpLineDisconnected(reason) {
+  const msg = String(reason || '').toLowerCase();
+  return isWhatsappTransientDisconnect(reason) || /logged.?out/.test(msg);
+}
+
 export async function sendWhatsAppOtp(phone, code) {
-  const line = getPassengerWhatsmeowLine();
   const apiKey = getWhatsmeowApiKey();
-  if (!apiKey || !line?.agentCode) {
+  const lines = listOtpWhatsmeowCandidateLines();
+  if (!apiKey || !lines[0]?.agentCode) {
     return { ok: false, reason: 'missing_whatsmeow_config' };
   }
 
@@ -87,44 +93,58 @@ export async function sendWhatsAppOtp(phone, code) {
     + 'Válido por 10 minutos. No lo compartas con nadie.';
 
   const phoneDigits = String(phone || '').replace(/\D/g, '');
-  const logBase = {
-    phone: phoneDigits,
-    jid: to,
-    agentCode: line.agentCode,
-  };
+  let lastReason = 'whatsmeow_send_failed';
 
-  console.info('[passenger-otp]', JSON.stringify({
-    stage: 'send_attempt',
-    ...logBase,
-  }));
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const logBase = {
+      phone: phoneDigits,
+      jid: to,
+      agentCode: line.agentCode,
+      attempt: i + 1,
+    };
 
-  const result = await sendWhatsmeowText(line.agentCode, phone, text, {
-    apiKey,
-    bypassQueue: true,
-    priority: OTP_OUTBOUND_PRIORITY,
-    meta: { source: 'passenger_otp' },
-  });
+    console.info('[passenger-otp]', JSON.stringify({
+      stage: 'send_attempt',
+      ...logBase,
+    }));
 
-  if (!result.success) {
+    const result = await sendWhatsmeowText(line.agentCode, phone, text, {
+      apiKey,
+      bypassQueue: true,
+      priority: OTP_OUTBOUND_PRIORITY,
+      meta: { source: 'passenger_otp' },
+    });
+
+    if (result.success) {
+      console.info('[passenger-otp]', JSON.stringify({
+        stage: result.queued ? 'queued' : 'send_ok',
+        ...logBase,
+        queueId: result.queueId || null,
+        messageId: result.messageId || null,
+      }));
+      return {
+        ok: true,
+        queued: Boolean(result.queued),
+        queueId: result.queueId || null,
+        messageId: result.messageId || null,
+      };
+    }
+
+    lastReason = result.error || 'whatsmeow_send_failed';
     console.warn('[passenger-otp]', JSON.stringify({
       stage: 'send_fail',
       ...logBase,
-      error: result.error || null,
+      error: lastReason,
     }));
-    return { ok: false, reason: result.error || 'whatsmeow_send_failed' };
+
+    if (!isOtpLineDisconnected(lastReason)) break;
   }
 
-  console.info('[passenger-otp]', JSON.stringify({
-    stage: result.queued ? 'queued' : 'send_ok',
-    ...logBase,
-    queueId: result.queueId || null,
-    messageId: result.messageId || null,
-  }));
   return {
-    ok: true,
-    queued: Boolean(result.queued),
-    queueId: result.queueId || null,
-    messageId: result.messageId || null,
+    ok: false,
+    reason: lastReason,
+    lineDown: isOtpLineDisconnected(lastReason),
   };
 }
 
@@ -257,7 +277,9 @@ export async function createAndSendOtp(rawPhone) {
       status: waResult.jidMissing ? 422 : 502,
       message: waResult.jidMissing
         ? 'Ese número no tiene WhatsApp o está mal escrito. Usá los 10 dígitos locales (ej. 387…), sin 0, 9 ni 54.'
-        : 'No pudimos enviar el código por WhatsApp. Verificá el número e intentá de nuevo.',
+        : waResult.lineDown
+          ? 'WhatsApp de la app está desconectado. Reintentá en unos minutos.'
+          : 'No pudimos enviar el código por WhatsApp. Verificá el número e intentá de nuevo.',
       reason: waResult.reason,
     };
   }

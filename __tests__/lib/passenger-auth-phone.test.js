@@ -56,6 +56,12 @@ describe('passengerAuthPhone', () => {
     expect(normalizePassengerPhoneForDb('9387863017')).toBe('');
   });
 
+  it('normaliza 3875105250 al JID de WhatsApp correcto', () => {
+    expect(extractLocalArMobileDigits('3875105250')).toBe('3875105250');
+    expect(normalizePassengerPhoneForDb('3875105250')).toBe('543875105250');
+    expect(toWhatsAppJid('3875105250')).toBe('5493875105250@s.whatsapp.net');
+  });
+
   it('limpia formato viejo con 15 tras el área', () => {
     expect(normalizePhoneForWhatsApp('549387158630173')).toBe('5493878630173');
     expect(normalizePassengerPhoneForDb('549387158630173')).toBe('543878630173');
