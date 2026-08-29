@@ -324,7 +324,7 @@ export default function NewTripModal({
     <div
       style={asPopover ? {
         position: 'fixed', bottom: 76, right: 16, zIndex: 9999,
-        width: 'min(500px, calc(100vw - 80px))',
+        width: 'min(440px, calc(100vw - 80px))',
       } : {
         position: 'fixed', inset: 0, zIndex: 9999,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -334,40 +334,45 @@ export default function NewTripModal({
     >
       <style>{MODAL_STYLES}</style>
       <div style={{
-        background: '#FFFFFF', borderRadius: 20,
+        background: '#FFFFFF', borderRadius: asPopover ? 16 : 20,
         width: '100%', maxWidth: asPopover ? 'none' : 520,
         maxHeight: asPopover ? 'calc(100vh - 110px)' : '92vh', overflowY: 'auto',
         boxShadow: asPopover
-          ? '0 16px 48px rgba(0,0,0,0.18), 0 4px 12px rgba(0,0,0,0.08)'
+          ? '0 12px 40px rgba(0,0,0,0.14), 0 3px 10px rgba(0,0,0,0.07)'
           : '0 24px 64px rgba(0,0,0,0.28)',
         border: asPopover ? '1px solid rgba(226,232,240,0.7)' : 'none',
         animation: '_ntm_fade 0.18s ease',
       }}>
         {/* Header */}
         <div style={{
-          padding: '16px 20px', borderBottom: '1px solid #F1F5F9',
+          padding: asPopover ? '11px 14px' : '16px 20px',
+          borderBottom: '1px solid #F1F5F9',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           position: 'sticky', top: 0, background: '#FFFFFF', zIndex: 10,
-          borderRadius: '20px 20px 0 0',
+          borderRadius: asPopover ? '16px 16px 0 0' : '20px 20px 0 0',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: asPopover ? 8 : 10 }}>
             <div style={{
-              width: 36, height: 36,
+              width: asPopover ? 28 : 36, height: asPopover ? 28 : 36,
               background: 'linear-gradient(135deg, #EF4444, #B91C1C)',
-              borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
+              borderRadius: asPopover ? 8 : 10,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: asPopover ? 13 : 16,
             }}>🚖</div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Nuevo viaje</div>
-              <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>
-                Se encola y el sistema asigna chofer automáticamente
-              </div>
+              <div style={{ fontSize: asPopover ? 13 : 15, fontWeight: 700, color: '#0F172A' }}>Nuevo viaje</div>
+              {!asPopover && (
+                <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>
+                  Se encola y el sistema asigna chofer automáticamente
+                </div>
+              )}
             </div>
           </div>
           <button
             onClick={onClose}
             style={{
-              width: 32, height: 32, background: '#F1F5F9', border: 'none', borderRadius: 8,
-              color: '#64748B', fontSize: 14, cursor: 'pointer',
+              width: 28, height: 28, background: '#F1F5F9', border: 'none',
+              borderRadius: 7, color: '#64748B', fontSize: 13, cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
             onMouseEnter={(e) => { e.currentTarget.style.background = '#E2E8F0'; }}
@@ -375,14 +380,15 @@ export default function NewTripModal({
           >✕</button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ padding: '20px' }}>
+        <form onSubmit={handleSubmit} style={{ padding: asPopover ? '12px' : '20px' }}>
           {/* Inputs */}
           <div style={{
             background: '#F8FAFC', border: '1px solid #E2E8F0',
-            borderRadius: 14, padding: '4px 0', marginBottom: 16,
+            borderRadius: asPopover ? 10 : 14,
+            padding: '4px 0', marginBottom: asPopover ? 10 : 16,
           }}>
             {/* Recogida */}
-            <div style={{ padding: '10px 14px' }}>
+            <div style={{ padding: asPopover ? '8px 10px' : '10px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                 <OriginDot />
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>RECOGIDA</span>

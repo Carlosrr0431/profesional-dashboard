@@ -98,7 +98,6 @@ export default function App() {
   const [selectedId,      setSelectedId]      = useState(null);
   const [panelDriverId,   setPanelDriverId]   = useState(null);
   const [tripModalDriver, setTripModalDriver] = useState(null);
-  const [showNewTripModal, setShowNewTripModal] = useState(false);
   const [showAiAgentModal, setShowAiAgentModal] = useState(false);
   const [showWhatsAppSessionModal, setShowWhatsAppSessionModal] = useState(false);
   const [whatsappSessionStatus, setWhatsappSessionStatus] = useState('unknown');
@@ -118,6 +117,18 @@ export default function App() {
   const [fleetDrawerOpen,   setFleetDrawerOpen] = useState(false);
   const [isDesktopLayout,   setIsDesktopLayout] = useState(false);
   const [mapPopover,        setMapPopover]       = useState(null);
+
+  const closePopover = useCallback(() => {
+    setMapPopover(null);
+    setPreviewRoute(null);
+  }, []);
+
+  useEffect(() => {
+    if (!mapPopover) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') closePopover(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mapPopover, closePopover]);
 
   const mapRef = useRef(null);
   const whatsappConnected = whatsappSessionStatus === 'connected';
@@ -307,7 +318,8 @@ export default function App() {
   }, [currentView]);
 
   const handleNewTripSuccess = useCallback(() => {
-    setShowNewTripModal(false);
+    setMapPopover(null);
+    setPreviewRoute(null);
     setTripsDate(toLocalDateInputValue());
     queueData.refetch?.();
     liveTripsData.refetch?.();
@@ -527,7 +539,7 @@ export default function App() {
         </nav>
         {/* Acciones */}
         <div className="flex-shrink-0 border-t border-white/8 px-2 py-2.5 flex flex-col gap-0.5">
-          <SideNavItem active={false} onClick={() => setShowNewTripModal(true)}
+          <SideNavItem active={false} onClick={() => setMapPopover('new-trip')}
             icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4"/></svg>}
             label="Nuevo viaje" variant="primary-sidebar" />
           <SideNavItem active={false} onClick={() => setShowAiAgentModal(true)}
@@ -621,7 +633,7 @@ export default function App() {
 
           <button
             type="button"
-            onClick={() => setShowNewTripModal(true)}
+            onClick={() => setMapPopover('new-trip')}
             className="flex h-8 items-center gap-1.5 rounded-full bg-navy-900 px-4 text-[12px] font-semibold text-white shadow-[0_1px_3px_rgba(15,23,42,0.25),0_0_0_1px_rgba(15,23,42,0.1)] transition-all hover:bg-navy-900/90 hover:shadow-[0_2px_8px_rgba(15,23,42,0.3)] active:scale-[0.97]"
             title="Agregar viaje a la cola"
           >
@@ -872,7 +884,7 @@ export default function App() {
 
               {/* ── Indicadores flotantes + acciones ──────────────────── */}
               {mapPopover ? (
-                <div className="fixed inset-0 z-[9]" onClick={() => setMapPopover(null)} aria-hidden="true" />
+                <div className="fixed inset-0 z-[9998]" onClick={closePopover} aria-hidden="true" />
               ) : null}
               <div className="pointer-events-none absolute bottom-4 right-4 z-10 flex flex-col items-end gap-2">
                 {/* Popovers */}
@@ -992,8 +1004,12 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowNewTripModal(true)}
-                    className="flex h-10 items-center gap-2 rounded-full bg-navy-900 px-4 text-[12px] font-semibold text-white shadow-xl shadow-navy-900/30 transition-all hover:bg-navy-800 hover:shadow-2xl active:scale-[0.97]"
+                    onClick={() => setMapPopover(mapPopover === 'new-trip' ? null : 'new-trip')}
+                    className={`flex h-10 items-center gap-2 rounded-full px-4 text-[12px] font-semibold shadow-xl transition-all hover:shadow-2xl active:scale-[0.97] ${
+                      mapPopover === 'new-trip'
+                        ? 'bg-navy-800 text-white shadow-navy-900/35'
+                        : 'bg-navy-900 text-white shadow-navy-900/30 hover:bg-navy-800'
+                    }`}
                     title="Nuevo viaje"
                   >
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1033,10 +1049,10 @@ export default function App() {
         />
       )}
 
-      {showNewTripModal && (
+      {mapPopover === 'new-trip' && (
         <NewTripModal
           asPopover
-          onClose={() => { setShowNewTripModal(false); setPreviewRoute(null); }}
+          onClose={closePopover}
           onSuccess={handleNewTripSuccess}
           onRouteChange={setPreviewRoute}
           calculatePrice={calculatePrice}
