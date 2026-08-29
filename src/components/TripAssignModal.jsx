@@ -266,7 +266,7 @@ export default function TripAssignModal({
         finalOriginLat = r.lat; finalOriginLng = r.lng; finalOriginAddress = r.formatted;
         setOriginLat(r.lat); setOriginLng(r.lng); setOriginAddress(r.formatted);
       } else {
-        setError('No se pudo encontrar la dirección de recogida. Probá con otra.');
+        setError('No se pudo encontrar la dirección de origen. Probá con otra.');
         return;
       }
     }
@@ -283,7 +283,7 @@ export default function TripAssignModal({
     }
 
     if (!finalOriginAddress || !finalOriginLat || !finalOriginLng) {
-      setError('Ingresá la dirección de recogida del pasajero');
+      setError('Ingresá la dirección de origen del pasajero');
       return;
     }
 
@@ -545,7 +545,7 @@ export default function TripAssignModal({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <OriginDot />
                   <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>
-                    RECOGIDA
+                    ORIGEN
                   </span>
                 </div>
                 <button

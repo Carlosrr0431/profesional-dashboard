@@ -972,16 +972,16 @@ export default function App() {
                 <div className="pointer-events-auto flex items-center gap-2">
                   {queueData.stats.inQueue > 0 && (
                     <button
-                      className={`flex h-10 items-center gap-2 rounded-full border px-3.5 text-[12px] font-semibold backdrop-blur-sm shadow-lg transition-all hover:shadow-xl active:scale-[0.97] ${
+                      className={`flex h-11 items-center gap-2.5 rounded-full px-4 text-[12.5px] font-bold shadow-xl active:scale-[0.97] transition-all ${
                         mapPopover === 'queue'
-                          ? 'bg-amber-500 text-white border-amber-500 shadow-amber-500/25'
-                          : 'bg-white/95 text-amber-600 border-amber-300/60 hover:border-amber-400/80'
+                          ? 'bg-amber-500 text-white shadow-amber-500/40 scale-[1.02]'
+                          : 'bg-amber-500 text-white shadow-amber-400/35 hover:bg-amber-400 hover:shadow-amber-400/50 hover:scale-[1.02]'
                       }`}
                       onClick={() => setMapPopover(mapPopover === 'queue' ? null : 'queue')}
                     >
-                      <span className="relative flex h-2 w-2 shrink-0">
-                        {mapPopover !== 'queue' && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-60" />}
-                        <span className="relative inline-flex h-2 w-2 rounded-full bg-current" />
+                      <span className="relative flex h-2.5 w-2.5 shrink-0">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-60" />
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
                       </span>
                       {queueData.stats.inQueue} en cola
                     </button>
@@ -989,10 +989,10 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setMapPopover(mapPopover === 'trips' ? null : 'trips')}
-                    className={`flex h-10 items-center gap-2 rounded-full border px-3.5 text-[12px] font-semibold backdrop-blur-sm shadow-lg transition-all hover:shadow-xl active:scale-[0.97] ${
+                    className={`flex h-11 items-center gap-2 rounded-full px-4 text-[12.5px] font-bold shadow-xl active:scale-[0.97] transition-all ${
                       mapPopover === 'trips'
-                        ? 'bg-navy-900 text-white border-navy-900 shadow-navy-900/25'
-                        : 'bg-white/95 border-slate-200/70 text-slate-700 hover:bg-white'
+                        ? 'bg-accent text-white shadow-accent/35'
+                        : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
                     }`}
                     title="Ver viajes"
                   >
@@ -1005,14 +1005,14 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setMapPopover(mapPopover === 'new-trip' ? null : 'new-trip')}
-                    className={`flex h-10 items-center gap-2 rounded-full px-4 text-[12px] font-semibold shadow-xl transition-all hover:shadow-2xl active:scale-[0.97] ${
+                    className={`flex h-11 items-center gap-2.5 rounded-full px-5 text-[13px] font-bold shadow-2xl active:scale-[0.97] transition-all ${
                       mapPopover === 'new-trip'
-                        ? 'bg-navy-800 text-white shadow-navy-900/35'
-                        : 'bg-navy-900 text-white shadow-navy-900/30 hover:bg-navy-800'
+                        ? 'bg-navy-800 text-white shadow-navy-900/45'
+                        : 'bg-navy-900 text-white shadow-navy-900/35 hover:bg-navy-800 hover:shadow-navy-900/50 hover:scale-[1.01]'
                     }`}
                     title="Nuevo viaje"
                   >
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
                     </svg>
                     <span className="hidden sm:inline">Nuevo viaje</span>

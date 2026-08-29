@@ -164,7 +164,7 @@ export default function NewTripModal({
     const lat = Number(place?.lat);
     const lng = Number(place?.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setError('No se pudo ubicar la dirección de recogida. Elegila de nuevo de la lista.');
+      setError('No se pudo ubicar la dirección de origen. Elegila de nuevo de la lista.');
       setPickupLat(null); setPickupLng(null); setPlaceId(''); setPickupLabel('');
       setPickupTitle(''); setPickupSubtitle(''); setPickupGeocodeSource(null);
       return;
@@ -191,7 +191,7 @@ export default function NewTripModal({
 
     const currentPickupText = pickupInputRef.current?.value?.trim() || pickupLabel.trim();
     if (!currentPickupText) {
-      setError('Ingresá la dirección de recogida del pasajero.');
+      setError('Ingresá la dirección de origen del pasajero.');
       return;
     }
 
@@ -391,7 +391,7 @@ export default function NewTripModal({
             <div style={{ padding: asPopover ? '8px 10px' : '10px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                 <OriginDot />
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>RECOGIDA</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>ORIGEN</span>
               </div>
               <AddressAutocomplete
                 id="new-trip-pickup"
@@ -584,8 +584,8 @@ export default function NewTripModal({
                 disabled={!canShowOnMap || routeLoading}
                 title={
                   !canShowOnMap
-                    ? 'Confirmá la dirección de recogida para verla en el mapa'
-                    : (hasFullRoute ? 'Ver ruta en el mapa' : 'Ver punto de recogida en el mapa')
+                    ? 'Confirmá la dirección de origen para verla en el mapa'
+                    : (hasFullRoute ? 'Ver ruta en el mapa' : 'Ver punto de origen en el mapa')
                 }
                 style={{
                   flex: 1, padding: '10px 14px',
