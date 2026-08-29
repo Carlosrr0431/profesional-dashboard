@@ -127,12 +127,12 @@ export default function Sidebar({
   });
 
   return (
-    <div className="flex h-full w-full flex-col border-r border-light-300/40 bg-gradient-to-b from-white to-light-100/40 shadow-[4px_0_24px_rgba(15,23,42,0.04)] lg:w-[340px] lg:max-w-[340px]">
+    <div className="flex h-full w-full flex-col border-r border-slate-200/60 bg-white lg:w-[340px] lg:max-w-[340px]">
       {/* Header compacto */}
-      <div className="shrink-0 border-b border-light-300/40 px-3 pb-2 pt-2">
-        <div className="mb-1.5 flex items-center gap-2">
-          <h2 className="text-sm font-bold tracking-tight text-navy-900">Flota activa</h2>
-          <span className="text-[10px] tabular-nums text-gray-400">{driversLive.length}</span>
+      <div className="shrink-0 border-b border-slate-100 px-3.5 pb-3 pt-3">
+        <div className="mb-2 flex items-center gap-2">
+          <h2 className="text-sm font-bold tracking-tight text-slate-900">Flota activa</h2>
+          <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-slate-100 px-1.5 text-[10px] font-bold tabular-nums text-slate-500">{driversLive.length}</span>
           <span className="relative ml-auto flex h-1.5 w-1.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-50" />
             <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -141,7 +141,7 @@ export default function Sidebar({
             <button
               type="button"
               onClick={onClose}
-              className="ml-1 flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-light-200 hover:text-navy-900 lg:hidden"
+              className="ml-1 flex h-7 w-7 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 lg:hidden"
               aria-label="Cerrar flota"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -151,8 +151,8 @@ export default function Sidebar({
           ) : null}
         </div>
 
-        <div className="relative mb-1.5">
-          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="relative mb-2">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
@@ -160,7 +160,7 @@ export default function Sidebar({
             placeholder="Buscar nombre o móvil…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-light-200/50 border border-light-300/50 rounded-lg pl-8 pr-3 py-1.5 text-xs text-navy-900 placeholder-gray-400 focus:outline-none focus:border-navy-700/20 focus:bg-white transition-all"
+            className="w-full rounded-xl border border-slate-200/60 bg-slate-50 pl-8 pr-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 transition-all focus:border-accent/30 focus:bg-white focus:outline-none focus:ring-1 focus:ring-accent/20"
           />
         </div>
 
@@ -174,14 +174,14 @@ export default function Sidebar({
             <button
               key={f.key}
               onClick={() => setFilter(f.key)}
-              className={`min-w-[4.5rem] flex-1 text-[10px] font-semibold px-1.5 py-1.5 rounded-md transition-all whitespace-nowrap ${
+              className={`flex-1 text-[10px] font-semibold px-1.5 py-1.5 rounded-xl transition-all whitespace-nowrap text-center ${
                 filter === f.key
-                  ? 'bg-navy-900 text-white'
-                  : 'text-gray-500 hover:text-navy-800 hover:bg-light-200/80'
+                  ? 'bg-navy-900 text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
               }`}
             >
               {f.label}
-              <span className={`ml-0.5 tabular-nums ${filter === f.key ? 'text-white/70' : 'text-gray-400'}`}>
+              <span className={`ml-0.5 tabular-nums ${filter === f.key ? 'text-white/65' : 'text-slate-400'}`}>
                 {f.count}
               </span>
             </button>
@@ -190,7 +190,7 @@ export default function Sidebar({
       </div>
 
       {/* Driver list */}
-      <div className="flex-1 overflow-y-auto px-2 py-1.5 space-y-1.5 min-h-0">
+      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1 min-h-0">
         {filtered.length === 0 ? (
           <div className="p-8 text-center">
             <svg className="w-10 h-10 mx-auto mb-3 text-light-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -215,17 +215,17 @@ export default function Sidebar({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-light-300/50">
+      <div className="border-t border-slate-100">
         {/* Tariff config toggle */}
         <button
           onClick={() => setShowTariff(!showTariff)}
-          className="w-full px-4 py-2.5 flex items-center justify-between text-xs hover:bg-light-200/80 transition-all"
+          className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 transition-all"
         >
           <div className="flex items-center gap-2 text-gray-400">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span className="font-semibold">${tariffPerKm}/km · Comisión {commissionPercent}%</span>
+            <span className="font-semibold text-slate-500">${tariffPerKm}/km · Comisión {commissionPercent}%</span>
           </div>
           <svg className={`w-3.5 h-3.5 text-gray-500 transition-transform ${showTariff ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -321,11 +321,11 @@ export default function Sidebar({
           </div>
         )}
 
-        <div className="px-3 py-2 flex items-center justify-between">
-          <p className="text-xs text-gray-500">
+        <div className="px-3.5 py-2 flex items-center justify-between">
+          <p className="text-xs font-medium text-slate-500">
             {filtered.length} chofer{filtered.length !== 1 ? 'es' : ''}
           </p>
-          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+          <div className="flex items-center gap-1.5 text-xs text-slate-400">
             <span className="relative flex h-1.5 w-1.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-online opacity-75" />
               <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-online" />
@@ -342,10 +342,10 @@ function DriverRow({ driver, isSelected, onClick }) {
   const tripStatus = driver.activeTrip ? getTripStatus(driver.activeTrip.status) : null;
 
   const statusTone = tripStatus
-    ? `${tripStatus.bg} ${tripStatus.color} border-transparent`
+    ? `${tripStatus.bg} ${tripStatus.color}`
     : driver.isOnline
-      ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/15'
-      : 'bg-light-200 text-gray-500 border-light-300/60';
+      ? 'bg-emerald-500/12 text-emerald-700'
+      : 'bg-slate-100 text-slate-500';
 
   const statusLabel = tripStatus
     ? tripStatus.label
@@ -354,10 +354,10 @@ function DriverRow({ driver, isSelected, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all duration-200 sm:items-center ${
+      className={`flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all duration-150 sm:items-center ${
         isSelected
-          ? 'bg-white border-accent/25 shadow-md shadow-accent/10 ring-1 ring-accent/10'
-          : 'bg-white/70 border-light-300/40 hover:bg-white hover:border-light-300/80'
+          ? 'border-accent/25 bg-accent/5 ring-1 ring-accent/15 shadow-sm'
+          : 'border-slate-100 bg-transparent hover:bg-slate-50/80 hover:border-slate-200'
       }`}
     >
       <div className="relative flex-shrink-0">
@@ -417,10 +417,10 @@ function DriverRow({ driver, isSelected, onClick }) {
 
       {/* Status */}
       <div className="flex shrink-0 flex-col items-end sm:text-right">
-        <span className={`inline-block text-[9px] font-semibold px-2 py-0.5 rounded-full border ${statusTone}`}>
+        <span className={`inline-flex items-center text-[9px] font-semibold px-2 py-0.5 rounded-full ${statusTone}`}>
           {statusLabel}
         </span>
-        <p className="text-[9px] text-gray-400 mt-1">{timeAgo(driver.updatedAt)}</p>
+        <p className="text-[9px] text-slate-400 mt-0.5">{timeAgo(driver.updatedAt)}</p>
       </div>
     </button>
   );

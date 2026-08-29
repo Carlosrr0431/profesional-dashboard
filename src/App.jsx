@@ -461,8 +461,8 @@ export default function App() {
       {/* ══════════════════════════════════════════════════════════════════════
           BARRA DE NAVEGACIÓN SUPERIOR
       ══════════════════════════════════════════════════════════════════════ */}
-      <header className="z-30 shrink-0 border-b border-gray-100 bg-white">
-        <div className="flex h-12 items-center gap-2 px-3 lg:h-14 lg:gap-4 lg:px-5">
+      <header className="z-30 shrink-0 border-b border-slate-200/70 bg-white/98 backdrop-blur-xl">
+        <div className="flex h-12 items-center gap-2 px-3 lg:h-14 lg:gap-3 lg:px-5">
 
         {/* ── Logo ─────────────────────────────────────────────────────── */}
         <div className="flex shrink-0 items-center">
@@ -470,7 +470,7 @@ export default function App() {
         </div>
 
         <nav className="hidden flex-1 items-center justify-center lg:flex">
-          <div className="flex items-center gap-1.5 rounded-xl border border-gray-200/70 bg-gray-100/80 p-1">
+          <div className="flex items-center gap-0.5 rounded-2xl bg-slate-100/90 p-1">
             {renderNavigation(false)}
           </div>
         </nav>
@@ -480,10 +480,10 @@ export default function App() {
           <button
             type="button"
             onClick={() => setShowAiAgentModal(true)}
-            className={`flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] font-semibold transition-all lg:px-3 ${
+            className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold transition-all ${
               whatsappAgentEnabled
-                ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                ? 'bg-emerald-500/10 text-emerald-700 ring-1 ring-emerald-500/25 hover:bg-emerald-500/18'
+                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
             }`}
             title={whatsappAgentEnabled ? 'Desactivar agente IA de WhatsApp' : 'Activar agente IA de WhatsApp'}
           >
@@ -505,10 +505,10 @@ export default function App() {
             onClick={() => {
               window.location.href = '/admin/whatsapp';
             }}
-            className={`flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] font-semibold transition-all lg:px-3 ${
+            className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold transition-all ${
               whatsappConnected
-                ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                ? 'bg-emerald-500/10 text-emerald-700 ring-1 ring-emerald-500/25 hover:bg-emerald-500/18'
+                : 'bg-red-500/10 text-red-600 ring-1 ring-red-500/25 hover:bg-red-500/15'
             }`}
             title={
               whatsappConnected
@@ -534,7 +534,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setShowNewTripModal(true)}
-            className="flex h-8 items-center gap-1.5 rounded-lg bg-navy-900 px-2.5 text-[12px] font-semibold text-white transition-colors hover:bg-navy-900/85 lg:px-3.5"
+            className="flex h-8 items-center gap-1.5 rounded-full bg-navy-900 px-4 text-[12px] font-semibold text-white shadow-[0_1px_3px_rgba(15,23,42,0.25),0_0_0_1px_rgba(15,23,42,0.1)] transition-all hover:bg-navy-900/90 hover:shadow-[0_2px_8px_rgba(15,23,42,0.3)] active:scale-[0.97]"
             title="Agregar viaje a la cola"
           >
             <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -597,9 +597,9 @@ export default function App() {
         </div>
         </div>
 
-        <nav className="border-t border-gray-100 px-2 py-2 lg:hidden">
+        <nav className="border-t border-slate-200/60 px-2 py-1.5 lg:hidden">
           <div className="overflow-x-auto pb-0.5 scrollbar-none">
-            <div className="flex w-max items-center gap-1 rounded-xl border border-gray-200/70 bg-gray-100/80 p-1">
+            <div className="flex w-max items-center gap-0.5 rounded-2xl bg-slate-100/90 p-1">
               {renderNavigation(true)}
             </div>
           </div>
@@ -935,12 +935,12 @@ function NavTab({ children, icon, active, onClick, badge, badgeColor = 'warning'
     <button
       type="button"
       onClick={onClick}
-      className={`relative flex items-center gap-1.5 rounded-lg font-semibold transition-all duration-150 select-none border whitespace-nowrap ${
-        compact ? 'px-2.5 py-1.5 text-[11px]' : 'px-3.5 py-2 text-[12.5px]'
+      className={`relative flex items-center gap-1.5 rounded-xl font-semibold transition-all duration-150 select-none whitespace-nowrap ${
+        compact ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-1.5 text-[12.5px]'
       } ${
         active
-          ? 'bg-navy-900 text-white border-navy-900 shadow-sm'
-          : 'bg-white text-gray-600 border-gray-200/90 shadow-sm hover:text-navy-900 hover:border-gray-300 hover:bg-gray-50 active:scale-[0.98]'
+          ? 'bg-navy-900 text-white shadow-[0_1px_3px_rgba(15,23,42,0.22),0_0_0_1px_rgba(15,23,42,0.08)]'
+          : 'bg-transparent text-slate-500 hover:bg-white/70 hover:text-slate-800 active:scale-[0.97]'
       }`}
     >
       {icon}
@@ -961,10 +961,10 @@ function IconAction({ children, active, onClick, title, badge = 0 }) {
     <button
       onClick={onClick}
       title={title}
-      className={`relative w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150 ${
+      className={`relative flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-150 ${
         active
-          ? 'bg-navy-900 text-white'
-          : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
+          ? 'bg-navy-900 text-white shadow-sm'
+          : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
       }`}
     >
       {children}
