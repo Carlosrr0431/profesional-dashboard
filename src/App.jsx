@@ -521,22 +521,13 @@ export default function App() {
         {/* Brand */}
         <div className="flex-shrink-0 flex items-center px-2 py-3 border-b border-white/8">
           <span className="app-sidebar-icon-wrap">
-            <DashboardBrand src="/logo-mark.svg" imageClassName="h-7 w-7 object-contain rounded-lg" />
+            <DashboardBrand src="/logo-mark.svg?v=2" imageClassName="h-7 w-7 object-contain" />
           </span>
+          <span className="app-sidebar-label flex-1 text-[13px] font-bold text-white tracking-tight">Profesional</span>
         </div>
         {/* Navegación */}
         <nav className="flex-1 px-2 py-3 flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden min-h-0 scrollbar-none">
           {renderSideNavigation()}
-          <div className="my-2 mx-1 h-px bg-white/10 flex-shrink-0" />
-          <SideNavItem active={multiSelectMode}
-            onClick={() => { if (multiSelectMode) clearMultiSelect(); else { setMultiSelectMode(true); setPanelDriverId(null); setSelectedId(null); setVoiceChatDriver(null); } }}
-            badge={multiSelectMode && multiSelectedIds.size > 0 ? multiSelectedIds.size : null} badgeColor="violet"
-            icon={<svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>}
-            label={multiSelectMode ? `Selección (${multiSelectedIds.size})` : 'Multi-selección'} />
-          <SideNavItem active={showBroadcast}
-            onClick={() => { setMultiSelectMode(true); selectAllAvailable(); setShowBroadcast(true); setVoiceChatDriver(null); setPanelDriverId(null); setSelectedId(null); }}
-            icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>}
-            label="Audio masivo" />
         </nav>
         {/* Acciones */}
         <div className="flex-shrink-0 border-t border-white/8 px-2 py-2.5 flex flex-col gap-0.5">
@@ -643,48 +634,6 @@ export default function App() {
             </svg>
             <span className="hidden sm:inline">Nuevo viaje</span>
           </button>
-
-          <div className="hidden items-center gap-1.5 md:flex">
-          <IconAction
-            active={multiSelectMode}
-            title={multiSelectMode ? `Selección activa (${multiSelectedIds.size})` : 'Selección múltiple'}
-            badge={multiSelectMode && multiSelectedIds.size > 0 ? multiSelectedIds.size : 0}
-            onClick={() => {
-              if (multiSelectMode) clearMultiSelect();
-              else {
-                setMultiSelectMode(true);
-                setPanelDriverId(null);
-                setSelectedId(null);
-                setVoiceChatDriver(null);
-              }
-            }}
-          >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-            </svg>
-          </IconAction>
-
-          <IconAction
-            active={showBroadcast}
-            title="Audio masivo a choferes disponibles"
-            onClick={() => {
-              setMultiSelectMode(true);
-              selectAllAvailable();
-              setShowBroadcast(true);
-              setVoiceChatDriver(null);
-              setPanelDriverId(null);
-              setSelectedId(null);
-            }}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
-            </svg>
-          </IconAction>
-          </div>
-
-          <div className="hidden h-5 w-px bg-gray-200 md:block" />
 
           <IconAction
             title="Cerrar sesión"
@@ -1017,6 +966,60 @@ export default function App() {
                     {scheduledData.stats.imminent} inminente{scheduledData.stats.imminent !== 1 ? 's' : ''}
                   </button>
                 )}
+
+                {/* Multi-selección y audio masivo */}
+                <div className="pointer-events-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    title={multiSelectMode ? `Selección activa (${multiSelectedIds.size})` : 'Selección múltiple'}
+                    onClick={() => {
+                      if (multiSelectMode) clearMultiSelect();
+                      else {
+                        setMultiSelectMode(true);
+                        setPanelDriverId(null);
+                        setSelectedId(null);
+                        setVoiceChatDriver(null);
+                      }
+                    }}
+                    className={`relative flex h-11 w-11 items-center justify-center rounded-full shadow-xl active:scale-[0.97] transition-all ${
+                      multiSelectMode
+                        ? 'bg-navy-900 text-white shadow-navy-900/35'
+                        : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
+                    }`}
+                  >
+                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+                    </svg>
+                    {multiSelectMode && multiSelectedIds.size > 0 ? (
+                      <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-500 px-0.5 text-[9px] font-bold text-white">
+                        {multiSelectedIds.size > 9 ? '9+' : multiSelectedIds.size}
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    title="Audio masivo a choferes disponibles"
+                    onClick={() => {
+                      setMultiSelectMode(true);
+                      selectAllAvailable();
+                      setShowBroadcast(true);
+                      setVoiceChatDriver(null);
+                      setPanelDriverId(null);
+                      setSelectedId(null);
+                    }}
+                    className={`flex h-11 w-11 items-center justify-center rounded-full shadow-xl active:scale-[0.97] transition-all ${
+                      showBroadcast
+                        ? 'bg-navy-900 text-white shadow-navy-900/35'
+                        : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
+                    }`}
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
+                    </svg>
+                  </button>
+                </div>
 
                 {/* CTAs */}
                 <div className="pointer-events-auto flex items-center gap-2">
