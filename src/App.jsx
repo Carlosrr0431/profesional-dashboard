@@ -709,7 +709,7 @@ export default function App() {
       {/* ══════════════════════════════════════════════════════════════════════
           CONTENIDO PRINCIPAL
       ══════════════════════════════════════════════════════════════════════ */}
-      <main className="flex-1 min-h-0 flex overflow-hidden">
+      <main className="flex-1 min-h-0 flex overflow-hidden lg:pl-[76px]">
 
         {currentView === VIEWS.management ? (
           <DriverManagement onBack={() => goTo(VIEWS.map)} />
@@ -778,7 +778,7 @@ export default function App() {
                   />
                 ) : null}
                 <div className={isDesktopLayout
-                  ? 'absolute top-3 bottom-3 left-[76px] z-20 flex flex-col rounded-2xl overflow-hidden shadow-2xl shadow-navy-900/20 ring-1 ring-black/[0.06]'
+                  ? 'absolute top-3 bottom-3 left-0 z-20 flex flex-col rounded-2xl overflow-hidden shadow-2xl shadow-navy-900/20 ring-1 ring-black/[0.06]'
                   : 'fixed inset-0 z-50 flex'}>
                   <Sidebar
                     drivers={drivers}
