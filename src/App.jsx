@@ -519,7 +519,7 @@ export default function App() {
       ══════════════════════════════════════════════════════════════════════ */}
       <aside className="app-sidebar hidden lg:flex lg:flex-col">
         {/* Brand */}
-        <div className="flex-shrink-0 flex items-center gap-2.5 px-[17px] py-3.5 border-b border-white/8">
+        <div className="flex-shrink-0 flex items-center gap-2.5 px-[14px] py-3.5 border-b border-white/8">
           <DashboardBrand imageClassName="h-7 w-7 min-w-[28px] flex-shrink-0 object-contain rounded-lg" style={{ filter: 'brightness(0) invert(1)' }} />
           <span className="app-sidebar-label text-[13px] font-bold text-white/90 tracking-tight">Profesional</span>
         </div>
