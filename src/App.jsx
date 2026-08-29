@@ -455,13 +455,100 @@ export default function App() {
 
   const showFleetSidebar = isDesktopLayout || fleetDrawerOpen;
 
+  const renderSideNavigation = () => (
+    <>
+      <SideNavItem active={currentView === VIEWS.map} onClick={() => goTo(VIEWS.map)}
+        icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>}
+        label="Mapa" />
+      <SideNavItem active={currentView === VIEWS.trips}
+        onClick={() => { if (currentView === VIEWS.trips) goTo(VIEWS.map); else { setTripsDate(toLocalDateInputValue()); goTo(VIEWS.trips); } }}
+        badge={queueData.stats.inQueue > 0 ? queueData.stats.inQueue : null} badgeColor="warning"
+        icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10m16 0V8a1 1 0 00-1-1h-3.5M6 8h2" /></svg>}
+        label="Viajes" />
+      <SideNavItem active={currentView === VIEWS.scheduled}
+        onClick={() => goTo(currentView === VIEWS.scheduled ? VIEWS.map : VIEWS.scheduled)}
+        badge={scheduledData.stats.total > 0 ? scheduledData.stats.total : null}
+        badgeColor={scheduledData.stats.imminent > 0 ? 'warning-pulse' : 'violet'}
+        icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
+        label="Programados" />
+      <SideNavItem active={currentView === VIEWS.management}
+        onClick={() => goTo(currentView === VIEWS.management ? VIEWS.map : VIEWS.management)}
+        icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
+        label="Choferes" />
+      <SideNavItem active={currentView === VIEWS.statistics}
+        onClick={() => goTo(currentView === VIEWS.statistics ? VIEWS.map : VIEWS.statistics)}
+        icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
+        label="Estadística" />
+      <SideNavItem active={currentView === VIEWS.zones}
+        onClick={() => goTo(currentView === VIEWS.zones ? VIEWS.map : VIEWS.zones)}
+        icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z" /></svg>}
+        label="Zonas" />
+      {isSuperAdmin ? (
+        <SideNavItem active={currentView === VIEWS.emulatorGps}
+          onClick={() => goTo(currentView === VIEWS.emulatorGps ? VIEWS.map : VIEWS.emulatorGps)}
+          icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>}
+          label="Sim. GPS" />
+      ) : null}
+      {isSuperAdmin ? (
+        <SideNavItem active={currentView === VIEWS.adminUsers}
+          onClick={() => goTo(currentView === VIEWS.adminUsers ? VIEWS.map : VIEWS.adminUsers)}
+          icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>}
+          label="Usuarios" />
+      ) : null}
+    </>
+  );
+
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#f8f9fc_0%,#eef1f6_100%)]">
+    <div className="flex h-full min-h-0 overflow-hidden bg-[linear-gradient(180deg,#f8f9fc_0%,#eef1f6_100%)]">
 
       {/* ══════════════════════════════════════════════════════════════════════
-          BARRA DE NAVEGACIÓN SUPERIOR
+          SIDEBAR LATERAL (desktop — se pliega / despliega con hover)
       ══════════════════════════════════════════════════════════════════════ */}
-      <header className="z-30 shrink-0 border-b border-slate-200/70 bg-white/98 backdrop-blur-xl">
+      <aside className="app-sidebar hidden lg:flex lg:flex-col">
+        {/* Brand */}
+        <div className="flex-shrink-0 flex items-center gap-2.5 px-[17px] py-3.5 border-b border-slate-100">
+          <DashboardBrand imageClassName="h-7 w-7 min-w-[28px] flex-shrink-0 object-contain rounded-lg" />
+          <span className="app-sidebar-label text-[13px] font-bold text-navy-900 tracking-tight">Profesional</span>
+        </div>
+        {/* Navegación */}
+        <nav className="flex-1 px-2 py-3 flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden min-h-0 scrollbar-none">
+          {renderSideNavigation()}
+          <div className="my-2 mx-1 h-px bg-slate-100 flex-shrink-0" />
+          <SideNavItem active={multiSelectMode}
+            onClick={() => { if (multiSelectMode) clearMultiSelect(); else { setMultiSelectMode(true); setPanelDriverId(null); setSelectedId(null); setVoiceChatDriver(null); } }}
+            badge={multiSelectMode && multiSelectedIds.size > 0 ? multiSelectedIds.size : null} badgeColor="violet"
+            icon={<svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>}
+            label={multiSelectMode ? `Selección (${multiSelectedIds.size})` : 'Multi-selección'} />
+          <SideNavItem active={showBroadcast}
+            onClick={() => { setMultiSelectMode(true); selectAllAvailable(); setShowBroadcast(true); setVoiceChatDriver(null); setPanelDriverId(null); setSelectedId(null); }}
+            icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>}
+            label="Audio masivo" />
+        </nav>
+        {/* Acciones */}
+        <div className="flex-shrink-0 border-t border-slate-100 px-2 py-2.5 flex flex-col gap-0.5">
+          <SideNavItem active={false} onClick={() => setShowNewTripModal(true)}
+            icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4"/></svg>}
+            label="Nuevo viaje" variant="primary" />
+          <SideNavItem active={false} onClick={() => setShowAiAgentModal(true)}
+            icon={<span className="relative flex h-4 w-4 flex-shrink-0 items-center justify-center">{whatsappAgentEnabled ? <><span className="animate-ping absolute h-2 w-2 rounded-full bg-emerald-500 opacity-60"/><span className="relative h-2 w-2 rounded-full bg-emerald-500"/></> : <span className="h-2 w-2 rounded-full bg-slate-400"/>}</span>}
+            label="Agente IA" toneClass={whatsappAgentEnabled ? 'text-emerald-700 bg-emerald-500/10 hover:bg-emerald-500/15' : ''} />
+          <SideNavItem active={false} onClick={() => { window.location.href = '/admin/whatsapp'; }}
+            icon={<span className="relative flex h-4 w-4 flex-shrink-0 items-center justify-center"><span className={`relative h-2 w-2 rounded-full ${whatsappConnected ? 'bg-emerald-500' : 'bg-red-500'}`}/></span>}
+            label="WhatsApp" toneClass={whatsappConnected ? 'text-emerald-700' : 'text-red-500'} />
+          <div className="my-0.5 mx-1 h-px bg-slate-100 flex-shrink-0" />
+          <SideNavItem active={false} onClick={handleSignOut}
+            icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1"/></svg>}
+            label="Cerrar sesión" />
+        </div>
+      </aside>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          ÁREA PRINCIPAL
+      ══════════════════════════════════════════════════════════════════════ */}
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+
+      {/* BARRA SUPERIOR (solo en móvil / tablet) */}
+      <header className="z-30 shrink-0 border-b border-slate-200/70 bg-white/98 backdrop-blur-xl lg:hidden">
         <div className="flex h-12 items-center gap-2 px-3 lg:h-14 lg:gap-3 lg:px-5">
 
         {/* ── Logo ─────────────────────────────────────────────────────── */}
@@ -836,6 +923,7 @@ export default function App() {
           </div>
         )}
       </main>
+      </div>{/* end main area */}
 
       {/* ── Modal de asignación de viaje ───────────────────────────────────── */}
       {tripModalDriver && (
@@ -922,6 +1010,31 @@ export default function App() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Componentes de navegación
 // ─────────────────────────────────────────────────────────────────────────────
+
+function SideNavItem({ icon, label, active, onClick, badge, badgeColor = 'warning', variant = 'default', toneClass = '' }) {
+  const badgeStyles = {
+    warning:         'bg-amber-500 text-white',
+    'warning-pulse': 'bg-amber-500 text-white animate-pulse',
+    violet:          'bg-violet-500 text-white',
+    accent:          'bg-accent text-white',
+  };
+  const baseClass = variant === 'primary'
+    ? 'app-sidebar-nav-item !bg-navy-900 !text-white hover:!bg-navy-900/90'
+    : `app-sidebar-nav-item${active ? ' active' : ''}${toneClass ? ` ${toneClass}` : ''}`;
+  return (
+    <button type="button" onClick={onClick} className={baseClass}>
+      {icon}
+      <span className="app-sidebar-label flex-1 text-left truncate">{label}</span>
+      {badge != null && badge > 0 && (
+        <span className={`app-sidebar-label ml-auto flex-shrink-0 min-w-[18px] h-[18px] rounded-full text-[9px] font-bold flex items-center justify-center px-1 ${
+          active ? 'bg-white/20 text-white' : (badgeStyles[badgeColor] || badgeStyles.warning)
+        }`}>
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
+    </button>
+  );
+}
 
 function NavTab({ children, icon, active, onClick, badge, badgeColor = 'warning', compact = false }) {
   const badgeStyles = {
