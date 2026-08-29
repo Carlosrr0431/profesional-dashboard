@@ -216,110 +216,53 @@ export default function Sidebar({
 
       {/* Footer */}
       <div className="border-t border-slate-100">
-        {/* Tariff config toggle */}
         <button
-          onClick={() => setShowTariff(!showTariff)}
-          className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 transition-all"
+          type="button"
+          onClick={() => setShowTariff((open) => !open)}
+          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition hover:bg-slate-50"
         >
-          <div className="flex items-center gap-2 text-gray-400">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-navy-900 text-white">
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span className="font-semibold text-slate-500">${tariffPerKm}/km · Comisión {commissionPercent}%</span>
-          </div>
-          <svg className={`w-3.5 h-3.5 text-gray-500 transition-transform ${showTariff ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[11px] font-bold tracking-tight text-navy-900">Tarifas</span>
+            <span className="block truncate text-[10px] font-medium text-slate-500">
+              ${tariffPerKm}/km · comisión {commissionPercent}%
+            </span>
+          </span>
+          <svg className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${showTariff ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
         </button>
 
-        {showTariff && (
-          <div className="px-4 pb-3 space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500 mb-1">Viaje por plataforma</p>
-            <p className="text-[10px] text-gray-400 mb-2">Precio de plataforma activo para todos los viajes operativos.</p>
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label className="text-[10px] text-gray-500 font-semibold block mb-1">$/KM</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={String(tariffPerKm)}
-                  onChange={(e) => onUpdateSetting('platform_tariff_per_km', e.target.value.replace(/\D/g, ''))}
-                  className="w-full bg-light-200 border border-light-300/50 rounded-lg px-3 py-1.5 text-sm text-navy-900 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
-                />
-              </div>
-              <div className="flex-1">
-                <label className="text-[10px] text-gray-500 font-semibold block mb-1">BASE ($)</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={String(tariffBase)}
-                  onChange={(e) => onUpdateSetting('platform_tariff_base', e.target.value.replace(/\D/g, ''))}
-                  className="w-full bg-light-200 border border-light-300/50 rounded-lg px-3 py-1.5 text-sm text-navy-900 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
-                />
-              </div>
-              <div className="flex-1">
-                <label className="text-[10px] text-gray-500 font-semibold block mb-1">COMISIÓN %</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={String(commissionPercent)}
-                  onChange={(e) => onUpdateSetting('platform_commission_percent', e.target.value.replace(/\D/g, ''))}
-                  className="w-full bg-light-200 border border-light-300/50 rounded-lg px-3 py-1.5 text-sm text-navy-900 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
-                />
-              </div>
-            </div>
-            <p className="text-[10px] text-gray-500">
-              Ej: 5km = {tariffBase > 0 ? `${tariffBase} + ` : ''}{tariffPerKm} × 5 = <span className="text-accent font-semibold">${Math.round(tariffBase + tariffPerKm * 5).toLocaleString('es-AR')}</span>
-              {' · '}Comisión: <span className="text-amber-400 font-semibold">${Math.round((tariffBase + tariffPerKm * 5) * commissionPercent / 100).toLocaleString('es-AR')}</span>
-            </p>
-            <div className="pt-2 border-t border-light-300/50">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500 mb-1">Viajes por aplicación pasajeros</p>
-              <p className="text-[10px] text-gray-400 mb-2">Tarifas activas para viajes solicitados desde la app de pasajeros.</p>
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <label className="text-[10px] text-gray-500 font-semibold block mb-1">$/KM</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={String(passengerAppTariffPerKm)}
-                    onChange={(e) => onUpdateSetting('passenger_app_tariff_per_km', e.target.value.replace(/\D/g, ''))}
-                    className="w-full bg-light-200 border border-light-300/50 rounded-lg px-3 py-1.5 text-sm text-navy-900 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="text-[10px] text-gray-500 font-semibold block mb-1">BASE ($)</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={String(passengerAppTariffBase)}
-                    onChange={(e) => onUpdateSetting('passenger_app_tariff_base', e.target.value.replace(/\D/g, ''))}
-                    className="w-full bg-light-200 border border-light-300/50 rounded-lg px-3 py-1.5 text-sm text-navy-900 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="text-[10px] text-gray-500 font-semibold block mb-1">COMISIÓN %</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={String(passengerAppCommissionPercent)}
-                    onChange={(e) => onUpdateSetting('passenger_app_commission_percent', e.target.value.replace(/\D/g, ''))}
-                    className="w-full bg-light-200 border border-light-300/50 rounded-lg px-3 py-1.5 text-sm text-navy-900 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
-                  />
-                </div>
-              </div>
-              <p className="text-[10px] text-gray-500 mt-2">
-                Ej: 5km = {passengerAppTariffBase > 0 ? `${passengerAppTariffBase} + ` : ''}{passengerAppTariffPerKm} × 5 = <span className="text-accent font-semibold">${Math.round(passengerAppTariffBase + passengerAppTariffPerKm * 5).toLocaleString('es-AR')}</span>
-                {' · '}Comisión: <span className="text-amber-400 font-semibold">${Math.round((passengerAppTariffBase + passengerAppTariffPerKm * 5) * passengerAppCommissionPercent / 100).toLocaleString('es-AR')}</span>
-              </p>
-            </div>
+        {showTariff ? (
+          <div className="space-y-2.5 px-3 pb-3">
+            <TariffPlanCard
+              title="Plataforma"
+              description="WhatsApp y panel. Vale para los viajes operativos."
+              tone="navy"
+              perKm={tariffPerKm}
+              base={tariffBase}
+              commission={commissionPercent}
+              onPerKm={(v) => onUpdateSetting('platform_tariff_per_km', v)}
+              onBase={(v) => onUpdateSetting('platform_tariff_base', v)}
+              onCommission={(v) => onUpdateSetting('platform_commission_percent', v)}
+            />
+            <TariffPlanCard
+              title="App pasajeros"
+              description="Solo viajes pedidos desde la app."
+              tone="accent"
+              perKm={passengerAppTariffPerKm}
+              base={passengerAppTariffBase}
+              commission={passengerAppCommissionPercent}
+              onPerKm={(v) => onUpdateSetting('passenger_app_tariff_per_km', v)}
+              onBase={(v) => onUpdateSetting('passenger_app_tariff_base', v)}
+              onCommission={(v) => onUpdateSetting('passenger_app_commission_percent', v)}
+            />
           </div>
-        )}
+        ) : null}
 
         <div className="px-3.5 py-2 flex items-center justify-between">
           <p className="text-xs font-medium text-slate-500">
@@ -333,6 +276,68 @@ export default function Sidebar({
             Tiempo real
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+}
+
+function moneyAr(n) {
+  return `$${Math.round(Number(n) || 0).toLocaleString('es-AR')}`;
+}
+
+function TariffField({ label, prefix, value, onChange }) {
+  return (
+    <label className="flex min-w-0 flex-1 flex-col gap-1">
+      <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{label}</span>
+      <span className="relative block">
+        {prefix ? (
+          <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400">
+            {prefix}
+          </span>
+        ) : null}
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={String(value)}
+          onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))}
+          className={`h-9 w-full rounded-xl border border-slate-200 bg-slate-50 text-center text-[13px] font-bold tabular-nums text-navy-900 outline-none transition focus:border-navy-900/35 focus:bg-white focus:ring-2 focus:ring-navy-900/10 ${prefix ? 'pl-5 pr-2' : 'px-2'}`}
+        />
+      </span>
+    </label>
+  );
+}
+
+function TariffPlanCard({ title, description, tone, perKm, base, commission, onPerKm, onBase, onCommission }) {
+  const total = Math.round((Number(base) || 0) + (Number(perKm) || 0) * 5);
+  const cut = Math.round(total * (Number(commission) || 0) / 100);
+  const isNavy = tone === 'navy';
+
+  return (
+    <div className={`overflow-hidden rounded-2xl border ${isNavy ? 'border-navy-900/12 bg-slate-50/80' : 'border-accent/15 bg-accent/[0.04]'}`}>
+      <div className="px-3 pt-3">
+        <div className="flex items-center gap-2">
+          <span className={`h-1.5 w-1.5 rounded-full ${isNavy ? 'bg-navy-900' : 'bg-accent'}`} />
+          <p className="text-[12px] font-bold tracking-tight text-navy-900">{title}</p>
+        </div>
+        <p className="mt-0.5 text-[10px] leading-snug text-slate-500">{description}</p>
+      </div>
+      <div className="flex gap-1.5 px-3 pt-2.5">
+        <TariffField label="$ / km" prefix="$" value={perKm} onChange={onPerKm} />
+        <TariffField label="Base" prefix="$" value={base} onChange={onBase} />
+        <TariffField label="Comisión %" value={commission} onChange={onCommission} />
+      </div>
+      <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-black/[0.04] px-3 py-2">
+        <p className="text-[10px] text-slate-400">Ejemplo 5 km</p>
+        <p className="flex items-center gap-1.5 text-[11px] font-semibold tabular-nums">
+          <span className="text-navy-900">{moneyAr(total)}</span>
+          <span className="text-[9px] font-medium text-slate-400">viaje</span>
+          <span className="text-slate-300">·</span>
+          <span className="text-amber-600">{moneyAr(cut)}</span>
+          <span className="text-[9px] font-medium text-slate-400">comisión</span>
+        </p>
       </div>
     </div>
   );
