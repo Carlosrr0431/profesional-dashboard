@@ -99,6 +99,20 @@ export function looksLikeFreshTripRequest(text) {
   return looksLikeTripRequest(raw) && looksLikeAddressText(raw);
 }
 
+/**
+ * Si el batch junta varios mensajes (voto de encuesta + pedido nuevo), prioriza
+ * la última línea cuando es un pedido fresco de móvil.
+ */
+export function pickIntentClassificationText(combinedText) {
+  const raw = String(combinedText || '').trim();
+  if (!raw) return '';
+  const lines = raw.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length <= 1) return raw;
+  const lastLine = lines[lines.length - 1];
+  if (looksLikeFreshTripRequest(lastLine)) return lastLine;
+  return raw;
+}
+
 export function isPriceInquiryCollecting(context) {
   return Boolean(
     context?.price_inquiry
@@ -330,6 +344,9 @@ export function classifyWhatsAppIncomingText(text, { messageType = 'text' } = {}
   if (isShortAck(content)) {
     return { category: 'acknowledgment', intentHint: 'other' };
   }
+  if (looksLikeFreshTripRequest(content)) {
+    return { category: 'trip_request', intentHint: 'trip_request' };
+  }
   if (messageRequestsTripCancel(content)) {
     return { category: 'cancel_trip', intentHint: 'cancel_trip' };
   }
@@ -384,6 +401,7 @@ export function buildPatternTripExtraction({
   heuristics = null,
 }) {
   const text = String(combinedText || '').trim();
+  const intentSource = pickIntentClassificationText(text);
   const passengerName = context?.passenger_name || pushName || null;
   const base = emptyExtraction(passengerName);
 
@@ -391,8 +409,26 @@ export function buildPatternTripExtraction({
     return { ...base, confidence: 0 };
   }
 
+  if (looksLikeFreshTripRequest(intentSource)) {
+    const classifiedFresh = classifyWhatsAppIncomingText(intentSource);
+    if (classifiedFresh.intentHint === 'trip_request' || classifiedFresh.category === 'address_reply') {
+      const pickup = heuristics?.pickup || null;
+      const destination = heuristics?.destination || null;
+      const hasAddress = Boolean(pickup || destination || looksLikeAddressText(intentSource));
+      return {
+        ...base,
+        intent: 'trip_request',
+        pickup_location: pickup,
+        destination,
+        confidence: pickup ? 0.93 : (hasAddress ? 0.88 : 0.74),
+        missing_fields: pickup ? [] : ['pickup_location'],
+        reply: pickup ? null : '¿Desde qué dirección te buscamos?',
+      };
+    }
+  }
+
   if (context.pending_cancel_confirm) {
-    if (messageConfirmsTripCancel(text)) {
+    if (messageConfirmsTripCancel(intentSource)) {
       return {
         ...base,
         intent: 'cancel_trip',
@@ -400,12 +436,12 @@ export function buildPatternTripExtraction({
         confidence: 0.98,
       };
     }
-    if (messageDeniesTripCancel(text)) {
+    if (messageDeniesTripCancel(intentSource)) {
       return { ...base, intent: 'other', confidence: 0.95 };
     }
   }
 
-  if (messageRequestsTripCancel(text)) {
+  if (messageRequestsTripCancel(intentSource)) {
     return {
       ...base,
       intent: 'cancel_trip',
@@ -414,7 +450,7 @@ export function buildPatternTripExtraction({
     };
   }
 
-  const classified = classifyWhatsAppIncomingText(text);
+  const classified = classifyWhatsAppIncomingText(intentSource);
   const lastBotReply = context.last_bot_reply || null;
   const collectingPrice = isPriceInquiryCollecting(context) || lastBotAskedForTripPrice(lastBotReply);
   const stayOnPriceQuote =

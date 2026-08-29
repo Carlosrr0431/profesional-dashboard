@@ -65,6 +65,10 @@ describe('passengerCancelIntent', () => {
     it('respeta no cancelar', () => {
       expect(messageRequestsTripCancel('no cancelar')).toBe(false);
     });
+
+    it('no confunde pedido de móvil con cancelación', () => {
+      expect(messageRequestsTripCancel('hola, me mandas a mitre al 360')).toBe(false);
+    });
   });
 
   describe('messageConfirmsTripCancel', () => {

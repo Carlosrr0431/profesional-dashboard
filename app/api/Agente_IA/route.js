@@ -141,6 +141,7 @@ import {
   lastBotAskedForTripPrice,
   looksLikeExplicitVehicleDispatch,
   looksLikeFreshTripRequest,
+  pickIntentClassificationText,
   looksLikeTripRequest as messageLooksLikeTripRequest,
   parseOriginDestinationPair,
   shouldPreservePriceQuoteAfterTripReset,
@@ -10033,7 +10034,8 @@ async function processClaimedConversation(batch) {
     }
 
     // ─ Detección liviana de intent de cancelación ─────────────────────────────
-    if (messageRequestsTripCancel(fastText)) {
+    const fastIntentText = pickIntentClassificationText(fastText);
+    if (messageRequestsTripCancel(fastIntentText) && !looksLikeFreshTripRequest(fastIntentText)) {
       await sendCancelConfirmationPoll(batch.phone, openTripByPhone);
       logWebhook('conversation_fast_path_cancel_requested', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
       return {
@@ -10138,6 +10140,12 @@ async function processClaimedConversation(batch) {
             }
           : {}),
       };
+
+  if (!openTripByPhone) {
+    delete context.pending_cancel_confirm;
+    delete context.cancel_poll_msg_id;
+    delete context.cancel_poll_wa_key_id;
+  }
 
   const pendingContents = pendingMessages
     .map((item) => String(item?.contenido || '').trim())
@@ -10247,6 +10255,20 @@ async function processClaimedConversation(batch) {
     }
   }
 
+  const intentSlice = pickIntentClassificationText(combinedText);
+  if (
+    extracted.intent === 'cancel_trip'
+    && !(openTripByPhone && isOpenTripStatus(openTripByPhone.status))
+    && looksLikeFreshTripRequest(intentSlice)
+  ) {
+    logWebhook('conversation_cancel_overridden_new_trip', {
+      conversationId: batch?.id || null,
+      intentSlice: intentSlice.slice(0, 120),
+    });
+    extracted.intent = 'trip_request';
+    extracted.cancel_confirmed = false;
+  }
+
   let reuseOpenTripId = null;
   if (shouldStartNewTrip(
     extracted,
@@ -10255,7 +10277,7 @@ async function processClaimedConversation(batch) {
     {
       hasOpenTrip: Boolean(openTripByPhone && shouldBlockForOpenTrip(openTripByPhone)),
       replaceableOpenTrip: isReplaceableOpenTrip(openTripByPhone),
-      looksLikeFreshTripRequest: looksLikeFreshTripRequest(combinedText),
+      looksLikeFreshTripRequest: looksLikeFreshTripRequest(pickIntentClassificationText(combinedText)),
     },
   )) {
     const passengerName =

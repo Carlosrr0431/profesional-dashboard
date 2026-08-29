@@ -6,6 +6,7 @@ import {
   looksLikePriceInquiry,
   looksLikeTripRequest,
   parseOriginDestinationPair,
+  pickIntentClassificationText,
   shouldPreservePriceQuoteAfterTripReset,
   shouldUsePatternExtraction,
 } from '../../src/lib/whatsappTripIntentPatterns';
@@ -224,5 +225,38 @@ describe('whatsappTripIntentPatterns', () => {
       last_bot_reply: 'Para darte el precio necesito las dos direcciones. ¿Cuál es el *origen* del viaje? (calle y número)',
     })).toBe(true);
     expect(shouldPreservePriceQuoteAfterTripReset({})).toBe(false);
+  });
+
+  it('prioriza pedido nuevo sobre cancelación en batch', () => {
+    const batched = 'voy a cancelar el viaje\nhola, me mandas a mitre al 360';
+    expect(pickIntentClassificationText(batched)).toBe('hola, me mandas a mitre al 360');
+    const extraction = buildPatternTripExtraction({
+      combinedText: batched,
+      context: {},
+      heuristics: { pickup: 'Mitre 360', destination: null, looksLikeTripRequest: true },
+    });
+    expect(extraction.intent).toBe('trip_request');
+    expect(shouldUsePatternExtraction(extraction)).toBe(true);
+  });
+
+  it('ignora voto de encuesta cancelar si el último mensaje es pedido nuevo', () => {
+    const batched = 'Sí, cancelar\nhola, me mandas a mitre al 360';
+    const extraction = buildPatternTripExtraction({
+      combinedText: batched,
+      context: { pending_cancel_confirm: true },
+      heuristics: { pickup: 'Mitre 360', destination: null, looksLikeTripRequest: true },
+    });
+    expect(extraction.intent).toBe('trip_request');
+  });
+
+  it('no clasifica pedido de móvil como cancelación', () => {
+    const text = 'hola, me mandas a mitre al 360';
+    expect(classifyWhatsAppIncomingText(text).intentHint).toBe('trip_request');
+    const extraction = buildPatternTripExtraction({
+      combinedText: text,
+      context: {},
+      heuristics: { pickup: 'Mitre 360', destination: null, looksLikeTripRequest: true },
+    });
+    expect(extraction.intent).toBe('trip_request');
   });
 });
