@@ -244,31 +244,31 @@ export default function DriverManagement({ onBack }) {
   }
 
   return (
-    <div className="h-full min-h-0 flex overflow-hidden bg-light-100">
+    <div className="h-full min-h-0 flex overflow-hidden bg-slate-50">
       {/* Main content — ancho completo en vista global de pagos */}
       <div className={`min-h-0 flex flex-col overflow-hidden ${mainView === 'payments' ? 'flex-1 w-full' : 'flex-1'}`}>
         {/* Header */}
-        <div className="bg-light-50 border-b border-light-300/50 px-4 py-3 lg:px-6 lg:py-4">
+        <div className="bg-white border-b border-slate-200/70 px-4 py-3.5 lg:px-6 lg:py-4">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3 min-w-0">
-              <button onClick={onBack} className="w-9 h-9 shrink-0 rounded-xl bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all">
+              <button onClick={onBack} className="w-9 h-9 shrink-0 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:text-accent hover:bg-accent/8 transition-all">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               </button>
               <div className="min-w-0">
-                <h1 className="text-lg font-bold text-navy-900 truncate sm:text-xl">Gestión de Choferes</h1>
-                <p className="text-xs text-gray-500">{drivers.length} choferes registrados</p>
+                <h1 className="text-lg font-bold text-slate-900 truncate sm:text-xl">Gestión de Choferes</h1>
+                <p className="text-xs text-slate-400 font-medium mt-0.5">{drivers.length} choferes registrados</p>
               </div>
             </div>
             <button
               onClick={handleNewDriver}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent to-accent-light px-4 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-accent/20 sm:w-auto"
+              className="flex w-full items-center justify-center gap-2 rounded-full bg-navy-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(15,23,42,0.22)] transition-all hover:bg-navy-900/90 hover:shadow-[0_2px_8px_rgba(15,23,42,0.28)] active:scale-[0.97] sm:w-auto"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
               Nuevo Chofer
             </button>
           </div>
 
-          <div className="mb-4 flex w-full gap-1 overflow-x-auto rounded-xl bg-light-300/60 p-1 scrollbar-none sm:w-fit">
+          <div className="mb-4 flex w-full gap-0.5 overflow-x-auto rounded-2xl bg-slate-100 p-1 scrollbar-none sm:w-fit">
             {[
               { key: 'drivers', label: 'Choferes' },
               { key: 'payments', label: 'Pagos de comisión' },
@@ -277,10 +277,10 @@ export default function DriverManagement({ onBack }) {
                 key={view.key}
                 type="button"
                 onClick={() => handleMainViewChange(view.key)}
-                className={`px-4 py-2 text-xs font-medium rounded-lg transition-all ${
+                className={`px-4 py-1.5 text-xs font-semibold rounded-xl transition-all ${
                   mainView === view.key
-                    ? 'bg-navy-900 text-white shadow-md'
-                    : 'text-gray-400 hover:text-navy-900'
+                    ? 'bg-navy-900 text-white shadow-[0_1px_3px_rgba(15,23,42,0.2)]'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-white/70'
                 }`}
               >
                 {view.label}
@@ -301,10 +301,10 @@ export default function DriverManagement({ onBack }) {
                 placeholder="Buscar por nombre, móvil, teléfono o patente..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full bg-light-200 border border-light-300/50 rounded-xl pl-9 pr-3 py-2.5 text-sm text-navy-900 placeholder-gray-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
+                className="w-full rounded-xl border border-slate-200/70 bg-slate-50 pl-9 pr-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-accent/40 focus:bg-white focus:outline-none focus:ring-1 focus:ring-accent/25 transition-all"
               />
             </div>
-            <div className="flex gap-1 overflow-x-auto rounded-xl bg-light-300/60 p-1 scrollbar-none">
+            <div className="flex gap-0.5 overflow-x-auto rounded-2xl bg-slate-100 p-1 scrollbar-none">
               {[
                 { key: 'all', label: 'Todos' },
                 { key: 'active', label: 'Activos' },
@@ -316,8 +316,10 @@ export default function DriverManagement({ onBack }) {
                 <button
                   key={f.key}
                   onClick={() => setFilter(f.key)}
-                  className={`whitespace-nowrap px-3 py-2 text-xs font-medium rounded-lg transition-all sm:px-4 ${
-                    filter === f.key ? 'bg-accent text-white shadow-md shadow-accent/20' : 'text-gray-400 hover:text-navy-900'
+                  className={`whitespace-nowrap px-3 py-1.5 text-xs font-semibold rounded-xl transition-all sm:px-4 ${
+                    filter === f.key
+                      ? 'bg-navy-900 text-white shadow-[0_1px_3px_rgba(15,23,42,0.2)]'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-white/70'
                   }`}
                 >
                   {f.label}
@@ -349,17 +351,17 @@ export default function DriverManagement({ onBack }) {
               <p className="text-sm">No se encontraron choferes</p>
             </div>
           ) : (
-            <div className="bg-light-50 rounded-2xl border border-light-300/50 overflow-hidden">
+            <div className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden shadow-sm">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-light-300/50">
-                    <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Chofer</th>
-                    <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Contacto</th>
-                    <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Vehículo</th>
-                    <th className="text-center px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Viajes</th>
-                    <th className="text-center px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Rating</th>
-                    <th className="text-center px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Estado</th>
-                    <th className="text-right px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Acciones</th>
+                  <tr className="border-b border-slate-200/60 bg-slate-50/80">
+                    <th className="text-left px-4 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Chofer</th>
+                    <th className="text-left px-4 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Contacto</th>
+                    <th className="text-left px-4 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Vehículo</th>
+                    <th className="text-center px-4 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Viajes</th>
+                    <th className="text-center px-4 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Rating</th>
+                    <th className="text-center px-4 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Estado</th>
+                    <th className="text-right px-4 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -459,14 +461,14 @@ function DriverManagementLoading({ onBack }) {
   const rows = Array.from({ length: 7 });
 
   return (
-    <div className="h-full flex bg-light-100">
+    <div className="h-full flex bg-slate-50">
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="bg-light-50 border-b border-light-300/50 px-6 py-4">
+        <div className="bg-white border-b border-slate-200/70 px-6 py-4">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <button
+                <button
                 onClick={onBack}
-                className="w-9 h-9 rounded-xl bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all"
+                className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:text-accent hover:bg-accent/8 transition-all"
                 title="Volver"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
@@ -490,22 +492,22 @@ function DriverManagementLoading({ onBack }) {
         </div>
 
         <div className="flex-1 overflow-auto p-6">
-          <div className="bg-light-50 rounded-2xl border border-light-300/50 overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden shadow-sm">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-light-300/50">
-                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Chofer</th>
-                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Contacto</th>
-                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Vehículo</th>
-                  <th className="text-center px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Viajes</th>
-                  <th className="text-center px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Rating</th>
-                  <th className="text-center px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Estado</th>
-                  <th className="text-right px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Acciones</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Chofer</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Contacto</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Vehículo</th>
+                  <th className="text-center px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Viajes</th>
+                  <th className="text-center px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Rating</th>
+                  <th className="text-center px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Estado</th>
+                  <th className="text-right px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((_, index) => (
-                  <tr key={`driver-loading-${index}`} className="border-b border-light-300/30">
+                  <tr key={`driver-loading-${index}`} className="border-b border-slate-100">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-light-200/90 animate-pulse" />
@@ -668,8 +670,8 @@ function DriverTableRow({
 
   return (
     <tr
-      className={`border-b border-light-300/30 transition-all cursor-pointer ${
-        isSelected ? 'bg-accent/5' : assigned ? 'bg-indigo-50/40 hover:bg-indigo-50/70' : 'hover:bg-light-200/50'
+      className={`border-b border-slate-100 transition-colors cursor-pointer ${
+        isSelected ? 'bg-accent/5' : assigned ? 'bg-indigo-50/25 hover:bg-indigo-50/55' : 'hover:bg-slate-50/80'
       }`}
       onClick={onView}
     >
@@ -687,7 +689,7 @@ function DriverTableRow({
             <div className="flex flex-wrap items-center gap-1.5">
               <p className="text-sm font-semibold text-navy-900 truncate">{driver.full_name}</p>
               {driver.driver_number ? (
-                <span className="text-[10px] font-bold text-accent bg-accent/15 px-1.5 py-0.5 rounded-md">
+                <span className="text-[10px] font-bold text-accent bg-accent/12 px-1.5 py-0.5 rounded-lg">
                   #{driver.driver_number}
                 </span>
               ) : null}
@@ -751,7 +753,7 @@ function DriverTableRow({
       {/* Status */}
       <td className="px-4 py-3 text-center">
         <div className="flex flex-col items-center gap-1">
-          <span className={`inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full ${
+          <span className={`inline-flex items-center text-[10px] font-semibold px-2.5 py-1 rounded-full ${
             dispatchBlocked
               ? 'bg-danger/15 text-danger'
               : driver.is_available
@@ -781,10 +783,10 @@ function DriverTableRow({
             <button
               onClick={() => onToggleManualDispatchBlock()}
               disabled={blockingDispatch}
-              className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-all disabled:opacity-50 ${
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all disabled:opacity-50 ${
                 driver.commission_blocked
-                  ? 'bg-online/10 border-online/30 text-online hover:bg-online/20'
-                  : 'bg-danger/10 border-danger/30 text-danger hover:bg-danger/20'
+                  ? 'bg-online/10 text-online hover:bg-online/20'
+                  : 'bg-danger/10 text-danger hover:bg-danger/20'
               }`}
               title={driver.commission_blocked ? 'Desbloquear viajes' : 'Bloquear viajes (manual)'}
             >
@@ -800,7 +802,7 @@ function DriverTableRow({
           {driver.pending_commission > 0 && (
             <button
               onClick={() => onToggleBlock()}
-              className="w-8 h-8 rounded-lg border flex items-center justify-center transition-all bg-online/10 border-online/30 text-online hover:bg-online/20"
+              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all bg-online/10 text-online hover:bg-online/20"
               title="Marcar comision pagada"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6-1a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -808,14 +810,14 @@ function DriverTableRow({
           )}
           <button
             onClick={onView}
-            className="w-8 h-8 rounded-lg bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-accent hover:border-accent/30 transition-all"
+            className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:text-accent hover:bg-accent/10 transition-all"
             title="Ver detalle"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
           </button>
           <button
             onClick={onEdit}
-            className="w-8 h-8 rounded-lg bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-400 hover:text-navy-900 hover:border-navy-500/30 transition-all"
+            className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-900 hover:bg-slate-200 transition-all"
             title="Editar"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
