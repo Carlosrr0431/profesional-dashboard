@@ -82,39 +82,45 @@ function parseJsonLines() {
   }
 }
 
+/** Línea fija de OTP / app pasajero. No usar Profesional_1 ni otras. */
+export const PASSENGER_OTP_AGENT_CODE = 'Profesional_Pasajeros';
+export const PASSENGER_OTP_LINE_PHONE = '5493872138777';
+
 function isDedicatedPassengerOtpLine(line) {
   const code = String(line?.agentCode || '').toLowerCase();
   const phone = digitsOnly(line?.phone);
-  if (/pasajero|passenger|\botp\b/.test(code)) return true;
-  // Línea pública de la app pasajero (ver .env.example).
-  return phone.endsWith('3872138777');
+  return code === PASSENGER_OTP_AGENT_CODE.toLowerCase() || phone.endsWith('3872138777');
 }
 
 /**
- * Línea dedicada a OTPs y comunicaciones de la passenger-app.
- * Prioridad: WHATSMEOW_OTP_AGENT_CODE → agent/phone de pasajeros → primera línea.
+ * Siempre Profesional_Pasajeros (+54 9 3872 13-8777).
+ * WHATSMEOW_OTP_AGENT_CODE solo si apunta a esa misma línea.
  */
 export function getPassengerWhatsmeowLine() {
   const all = listWhatsmeowLines();
   const override = String(process.env.WHATSMEOW_OTP_AGENT_CODE || '').trim();
   if (override) {
     const found = all.find((l) => l.agentCode.toLowerCase() === override.toLowerCase());
-    if (found) return found;
+    if (found && isDedicatedPassengerOtpLine(found)) return found;
   }
-  return all.find(isDedicatedPassengerOtpLine) || all[0] || null;
+  const listed = all.find(isDedicatedPassengerOtpLine);
+  if (listed) return listed;
+
+  const apiKey = getWhatsmeowApiKey();
+  if (!apiKey) return null;
+  return {
+    phone: PASSENGER_OTP_LINE_PHONE,
+    agentCode: PASSENGER_OTP_AGENT_CODE,
+    apiKey,
+    label: PASSENGER_OTP_LINE_PHONE,
+    index: 0,
+  };
 }
 
-/** Línea de OTP primero; el resto como fallback si esa sesión está caída. */
+/** Solo la línea de pasajeros: el OTP no debe salir por otra sesión. */
 export function listOtpWhatsmeowCandidateLines() {
-  const preferred = getPassengerWhatsmeowLine();
-  const ordered = [];
-  if (preferred) ordered.push(preferred);
-  for (const line of listWhatsmeowLines()) {
-    if (!ordered.some((item) => item.agentCode === line.agentCode)) {
-      ordered.push(line);
-    }
-  }
-  return ordered;
+  const line = getPassengerWhatsmeowLine();
+  return line ? [line] : [];
 }
 
 /** @returns {{ phone: string, agentCode: string, apiKey: string, label: string, index: number }[]} */

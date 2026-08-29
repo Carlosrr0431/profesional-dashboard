@@ -29,6 +29,8 @@ export {
   resolveWhatsmeowLineForPassenger,
   getPassengerWhatsmeowLine,
   listOtpWhatsmeowCandidateLines,
+  PASSENGER_OTP_AGENT_CODE,
+  PASSENGER_OTP_LINE_PHONE,
   hasAnyWhatsmeowConfig,
   getWhatsmeowLinesHealth,
 } from './whatsmeowLines';

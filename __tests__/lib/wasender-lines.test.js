@@ -170,7 +170,7 @@ describe('whatsmeowLines (compat wasenderLines)', () => {
     expect(line?.agentCode).toBe('Profesional_Pasajeros');
   });
 
-  test('OTP usa la línea de pasajeros aunque no sea la primera', () => {
+  test('OTP usa solo Profesional_Pasajeros aunque no sea la primera línea', () => {
     process.env.WHATSMEOW_API_KEY = 'shared-key';
     process.env.WHATSMEOW_PHONE = '5493873088777';
     process.env.WHATSMEOW_AGENT_CODE = 'Profesional_1';
@@ -179,11 +179,28 @@ describe('whatsmeowLines (compat wasenderLines)', () => {
     delete process.env.WHATSMEOW_LINES;
     delete process.env.WHATSMEOW_OTP_AGENT_CODE;
 
-    expect(getPassengerWhatsmeowLine()?.agentCode).toBe('Profesional_Pasajeros');
+    expect(getPassengerWhatsmeowLine()).toMatchObject({
+      agentCode: 'Profesional_Pasajeros',
+      phone: '5493872138777',
+    });
     expect(listOtpWhatsmeowCandidateLines().map((line) => line.agentCode)).toEqual([
       'Profesional_Pasajeros',
-      'Profesional_1',
     ]);
+  });
+
+  test('OTP construye Profesional_Pasajeros si esa línea no está en env', () => {
+    process.env.WHATSMEOW_API_KEY = 'shared-key';
+    process.env.WHATSMEOW_PHONE = '5493873088777';
+    process.env.WHATSMEOW_AGENT_CODE = 'Profesional_1';
+    delete process.env.WHATSMEOW_PHONE_2;
+    delete process.env.WHATSMEOW_AGENT_CODE_2;
+    delete process.env.WHATSMEOW_LINES;
+    delete process.env.WHATSMEOW_OTP_AGENT_CODE;
+
+    expect(getPassengerWhatsmeowLine()).toMatchObject({
+      agentCode: 'Profesional_Pasajeros',
+      phone: '5493872138777',
+    });
   });
 
   test('hasAnyWasenderApiKey requiere API key + agent', () => {
