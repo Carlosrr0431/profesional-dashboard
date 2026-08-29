@@ -967,11 +967,10 @@ export default function App() {
                   </button>
                 )}
 
-                {/* Multi-selección y audio masivo */}
                 <div className="pointer-events-auto flex items-center gap-2">
                   <button
                     type="button"
-                    title={multiSelectMode ? `Selección activa (${multiSelectedIds.size})` : 'Selección múltiple'}
+                    title={multiSelectMode ? `Selección activa (${multiSelectedIds.size})` : 'Audio a choferes'}
                     onClick={() => {
                       if (multiSelectMode) clearMultiSelect();
                       else {
@@ -981,7 +980,7 @@ export default function App() {
                         setVoiceChatDriver(null);
                       }
                     }}
-                    className={`relative flex h-11 w-11 items-center justify-center rounded-full shadow-xl active:scale-[0.97] transition-all ${
+                    className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full shadow-xl active:scale-[0.97] transition-all ${
                       multiSelectMode
                         ? 'bg-navy-900 text-white shadow-navy-900/35'
                         : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
@@ -997,32 +996,6 @@ export default function App() {
                       </span>
                     ) : null}
                   </button>
-                  <button
-                    type="button"
-                    title="Audio masivo a choferes disponibles"
-                    onClick={() => {
-                      setMultiSelectMode(true);
-                      selectAllAvailable();
-                      setShowBroadcast(true);
-                      setVoiceChatDriver(null);
-                      setPanelDriverId(null);
-                      setSelectedId(null);
-                    }}
-                    className={`flex h-11 w-11 items-center justify-center rounded-full shadow-xl active:scale-[0.97] transition-all ${
-                      showBroadcast
-                        ? 'bg-navy-900 text-white shadow-navy-900/35'
-                        : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
-                    }`}
-                  >
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
-                    </svg>
-                  </button>
-                </div>
-
-                {/* CTAs */}
-                <div className="pointer-events-auto flex items-center gap-2">
                   {queueData.stats.inQueue > 0 && (
                     <button
                       className={`flex h-11 items-center gap-2.5 rounded-full px-4 text-[12.5px] font-bold shadow-xl active:scale-[0.97] transition-all ${
