@@ -117,6 +117,7 @@ export default function App() {
   const [previewRoute,    setPreviewRoute]    = useState(null);
   const [fleetDrawerOpen,   setFleetDrawerOpen] = useState(false);
   const [isDesktopLayout,   setIsDesktopLayout] = useState(false);
+  const [mapPopover,        setMapPopover]       = useState(null);
 
   const mapRef = useRef(null);
   const whatsappConnected = whatsappSessionStatus === 'connected';
@@ -499,7 +500,7 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden bg-[linear-gradient(180deg,#f8f9fc_0%,#eef1f6_100%)]">
+    <div className="relative flex h-full min-h-0 overflow-hidden bg-[linear-gradient(180deg,#f8f9fc_0%,#eef1f6_100%)]">
 
       {/* ══════════════════════════════════════════════════════════════════════
           SIDEBAR LATERAL (desktop — se pliega / despliega con hover)
@@ -507,7 +508,7 @@ export default function App() {
       <aside className="app-sidebar hidden lg:flex lg:flex-col">
         {/* Brand */}
         <div className="flex-shrink-0 flex items-center gap-2.5 px-[17px] py-3.5 border-b border-white/8">
-          <DashboardBrand imageClassName="h-7 w-7 min-w-[28px] flex-shrink-0 object-contain rounded-lg" />
+          <DashboardBrand imageClassName="h-7 w-7 min-w-[28px] flex-shrink-0 object-contain rounded-lg" style={{ filter: 'brightness(0) invert(1)' }} />
           <span className="app-sidebar-label text-[13px] font-bold text-white/90 tracking-tight">Profesional</span>
         </div>
         {/* Navegación */}
@@ -528,7 +529,7 @@ export default function App() {
         <div className="flex-shrink-0 border-t border-white/8 px-2 py-2.5 flex flex-col gap-0.5">
           <SideNavItem active={false} onClick={() => setShowNewTripModal(true)}
             icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4"/></svg>}
-            label="Nuevo viaje" variant="primary" />
+            label="Nuevo viaje" variant="primary-sidebar" />
           <SideNavItem active={false} onClick={() => setShowAiAgentModal(true)}
             icon={<span className="relative flex h-4 w-4 flex-shrink-0 items-center justify-center">{whatsappAgentEnabled ? <><span className="animate-ping absolute h-2 w-2 rounded-full bg-emerald-500 opacity-60"/><span className="relative h-2 w-2 rounded-full bg-emerald-500"/></> : <span className="h-2 w-2 rounded-full bg-slate-400"/>}</span>}
             label="Agente IA" toneClass={whatsappAgentEnabled ? 'text-emerald-400' : 'text-slate-400'} />
@@ -870,10 +871,81 @@ export default function App() {
               )}
 
               {/* ── Indicadores flotantes + acciones ──────────────────── */}
+              {mapPopover ? (
+                <div className="fixed inset-0 z-[9]" onClick={() => setMapPopover(null)} aria-hidden="true" />
+              ) : null}
               <div className="pointer-events-none absolute bottom-4 right-4 z-10 flex flex-col items-end gap-2">
+                {/* Popovers */}
+                {mapPopover === 'queue' && (
+                  <div className="pointer-events-auto mb-1 w-80 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/98 shadow-2xl shadow-navy-900/18 backdrop-blur-xl">
+                    <div className="flex items-center justify-between border-b border-slate-100 px-3.5 py-2.5">
+                      <p className="text-[12px] font-bold text-slate-900">Cola de espera</p>
+                      <span className="text-[10px] font-medium text-slate-400">{queueData.stats.inQueue} pasajeros · espera media {queueData.stats.avgWaitMinutes}min</span>
+                    </div>
+                    <div className="max-h-60 overflow-y-auto">
+                      {queueData.queuedList.length === 0 ? (
+                        <p className="py-6 text-center text-xs text-slate-400">Cola vacía</p>
+                      ) : (
+                        queueData.queuedList.map((item, i) => (
+                          <div key={item.id || i} className="border-b border-slate-50 px-3.5 py-2.5 last:border-0 hover:bg-slate-50/80">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="truncate text-[12px] font-semibold text-slate-900">{item.passengerName}</p>
+                              <span className="shrink-0 text-[10px] font-semibold text-amber-600">{item.waitMinutes}min</span>
+                            </div>
+                            <p className="mt-0.5 truncate text-[11px] text-slate-500">{item.destination_address || item.driverOrigin || '—'}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <button
+                      onClick={() => { setMapPopover(null); setTripsDate(toLocalDateInputValue()); goTo(VIEWS.trips); }}
+                      className="w-full border-t border-slate-100 px-3.5 py-2.5 text-[11px] font-semibold text-accent transition-all hover:bg-accent/5"
+                    >
+                      Ver panel completo →
+                    </button>
+                  </div>
+                )}
+                {mapPopover === 'trips' && (
+                  <div className="pointer-events-auto mb-1 w-80 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/98 shadow-2xl shadow-navy-900/18 backdrop-blur-xl">
+                    <div className="flex items-center justify-between border-b border-slate-100 px-3.5 py-2.5">
+                      <p className="text-[12px] font-bold text-slate-900">Viajes activos</p>
+                      <span className="text-[10px] font-medium text-slate-400">{liveTripsData.allTrips.filter((t) => t.isActive).length} en curso</span>
+                    </div>
+                    <div className="max-h-60 overflow-y-auto">
+                      {liveTripsData.allTrips.filter((t) => t.isActive || t.isQueued).length === 0 ? (
+                        <p className="py-6 text-center text-xs text-slate-400">Sin viajes activos</p>
+                      ) : (
+                        liveTripsData.allTrips.filter((t) => t.isActive || t.isQueued).slice(0, 8).map((trip, i) => {
+                          const statusLabel = trip.status === 'in_progress' ? 'En curso' : trip.status === 'going_to_pickup' ? 'En camino' : trip.status === 'accepted' ? 'Asignado' : trip.status === 'pending' ? 'Pendiente' : 'En cola';
+                          const statusCls = trip.status === 'in_progress' ? 'bg-emerald-500/12 text-emerald-700' : trip.status === 'going_to_pickup' || trip.status === 'accepted' ? 'bg-blue-500/12 text-blue-700' : 'bg-amber-500/12 text-amber-700';
+                          return (
+                            <div key={trip.id || i} className="border-b border-slate-50 px-3.5 py-2.5 last:border-0 hover:bg-slate-50/80">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="truncate text-[12px] font-semibold text-slate-900">{trip.passengerName}</p>
+                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold ${statusCls}`}>{statusLabel}</span>
+                              </div>
+                              <p className="mt-0.5 truncate text-[11px] text-slate-500">{trip.pickupAddress || trip.destination || '—'}</p>
+                              {trip.driver ? (
+                                <p className="mt-0.5 truncate text-[10px] text-slate-400">🚗 {trip.driver.fullName || trip.driver.full_name || String(trip.driver)}</p>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                    <button
+                      onClick={() => { setMapPopover(null); setTripsDate(toLocalDateInputValue()); goTo(VIEWS.trips); }}
+                      className="w-full border-t border-slate-100 px-3.5 py-2.5 text-[11px] font-semibold text-accent transition-all hover:bg-accent/5"
+                    >
+                      Ver panel completo →
+                    </button>
+                  </div>
+                )}
+
+                {/* Alertas */}
                 {scheduledData.stats.imminent > 0 && (
                   <button
-                    className="pointer-events-auto flex items-center gap-2 rounded-full border border-warning/35 bg-white/95 backdrop-blur-sm px-3.5 py-2 text-[12px] font-semibold text-warning shadow-lg shadow-warning/12 transition-all hover:shadow-xl hover:border-warning/55"
+                    className="pointer-events-auto flex items-center gap-2 rounded-full border border-warning/35 bg-white/95 backdrop-blur-sm px-3.5 py-2 text-[12px] font-semibold text-warning shadow-lg transition-all hover:shadow-xl hover:border-warning/55"
                     onClick={() => goTo(VIEWS.scheduled)}
                   >
                     <span className="relative flex h-2 w-2 shrink-0">
@@ -883,23 +955,33 @@ export default function App() {
                     {scheduledData.stats.imminent} inminente{scheduledData.stats.imminent !== 1 ? 's' : ''}
                   </button>
                 )}
-                {queueData.stats.inQueue > 0 && (
-                  <button
-                    className="pointer-events-auto flex items-center gap-2 rounded-full border border-accent/25 bg-white/95 backdrop-blur-sm px-3.5 py-2 text-[12px] font-semibold text-accent shadow-lg shadow-accent/8 transition-all hover:shadow-xl hover:border-accent/45"
-                    onClick={() => { setTripsDate(toLocalDateInputValue()); goTo(VIEWS.trips); }}
-                  >
-                    <span className="relative flex h-2 w-2 shrink-0">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
-                    </span>
-                    {queueData.stats.inQueue} en cola
-                  </button>
-                )}
+
+                {/* CTAs */}
                 <div className="pointer-events-auto flex items-center gap-2">
+                  {queueData.stats.inQueue > 0 && (
+                    <button
+                      className={`flex h-10 items-center gap-2 rounded-full border px-3.5 text-[12px] font-semibold backdrop-blur-sm shadow-lg transition-all hover:shadow-xl active:scale-[0.97] ${
+                        mapPopover === 'queue'
+                          ? 'bg-amber-500 text-white border-amber-500 shadow-amber-500/25'
+                          : 'bg-white/95 text-amber-600 border-amber-300/60 hover:border-amber-400/80'
+                      }`}
+                      onClick={() => setMapPopover(mapPopover === 'queue' ? null : 'queue')}
+                    >
+                      <span className="relative flex h-2 w-2 shrink-0">
+                        {mapPopover !== 'queue' && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-60" />}
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-current" />
+                      </span>
+                      {queueData.stats.inQueue} en cola
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => { setTripsDate(toLocalDateInputValue()); goTo(VIEWS.trips); }}
-                    className="flex h-10 items-center gap-2 rounded-full bg-white/95 backdrop-blur-sm border border-slate-200/70 px-4 text-[12px] font-semibold text-slate-700 shadow-lg transition-all hover:bg-white hover:shadow-xl active:scale-[0.97]"
+                    onClick={() => setMapPopover(mapPopover === 'trips' ? null : 'trips')}
+                    className={`flex h-10 items-center gap-2 rounded-full border px-3.5 text-[12px] font-semibold backdrop-blur-sm shadow-lg transition-all hover:shadow-xl active:scale-[0.97] ${
+                      mapPopover === 'trips'
+                        ? 'bg-navy-900 text-white border-navy-900 shadow-navy-900/25'
+                        : 'bg-white/95 border-slate-200/70 text-slate-700 hover:bg-white'
+                    }`}
                     title="Ver viajes"
                   >
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1032,6 +1114,8 @@ function SideNavItem({ icon, label, active, onClick, badge, badgeColor = 'warnin
   };
   const baseClass = variant === 'primary'
     ? 'app-sidebar-nav-item !bg-navy-900 !text-white hover:!bg-navy-900/90'
+    : variant === 'primary-sidebar'
+    ? 'app-sidebar-nav-item !bg-white/15 !text-white hover:!bg-white/22'
     : `app-sidebar-nav-item${active ? ' active' : ''}${toneClass ? ` ${toneClass}` : ''}`;
   return (
     <button type="button" onClick={onClick} className={baseClass}>
