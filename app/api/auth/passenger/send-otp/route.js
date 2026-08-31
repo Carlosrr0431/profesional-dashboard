@@ -7,12 +7,14 @@ import {
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+/** awaitDelivery del OTP puede esperar el throttle de la cola (~15s). */
+export const maxDuration = 60;
 
 /** Rate limit simple por IP (protege abuso del endpoint público). */
 const ipHits = new Map();
 const IP_WINDOW_MS = 60 * 1000;
-const IP_MAX_HITS = 8;
-const IP_MAX_HITS_ANON = 3;
+const IP_MAX_HITS = 4;
+const IP_MAX_HITS_ANON = 2;
 
 function getClientIp(req) {
   const forwarded = req.headers.get('x-forwarded-for') || '';

@@ -4,18 +4,25 @@ import {
   extractLocalArMobileDigits,
   maskPhone,
   normalizePassengerPhoneForDb,
+  normalizePhoneForWhatsApp,
   toWhatsAppJid,
 } from './passengerAuthPhone';
 import { sendWhatsmeowText, getWhatsmeowApiKey } from './whatsmeowClient';
 import { listOtpWhatsmeowCandidateLines } from './whatsmeowLines';
-import { isWhatsappTransientDisconnect } from './whatsappAntiBan';
+import {
+  isWhatsappLineProtectivePause,
+  isWhatsappQueueTimeoutError,
+  isWhatsappTransientDisconnect,
+} from './whatsappAntiBan';
+import { WHATSAPP_OUTBOUND_INTERVAL_MS } from './whatsappOutboundQueue';
 
 /** Prioridad alta en whatsapp_outbound_queue (ver OUTBOUND_PRIORITY.OTP). */
 const OTP_OUTBOUND_PRIORITY = 100;
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
-const OTP_MAX_PER_HOUR = 5;
+const OTP_MAX_PER_HOUR = 3;
+const OTP_MAX_GLOBAL_PER_HOUR = 40;
 const OTP_MAX_ATTEMPTS = 5;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -76,6 +83,34 @@ function isOtpLineDisconnected(reason) {
   return isWhatsappTransientDisconnect(reason) || /logged.?out/.test(msg);
 }
 
+/**
+ * Texto corto, sin “código de verificación” ni markdown: ese patrón es el que
+ * Meta marca como spam en sesiones no oficiales.
+ */
+export function buildPassengerOtpMessage(code) {
+  const digits = String(code || '').replace(/\D/g, '').padStart(4, '0').slice(-4);
+  const variants = [
+    `Hola, para entrar a la app de Profesional usá ${digits}. Sirve 10 minutos.`,
+    `Hola! En Profesional Pasajero poné ${digits} para continuar.`,
+    `Buenas, tu acceso a la app es ${digits}. Vence en un rato.`,
+  ];
+  return variants[Number(digits) % variants.length];
+}
+
+async function readOtpLinePause(agentCode) {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data } = await supabase
+      .from('whatsapp_line_throttle')
+      .select('last_sent_at, interval_ms')
+      .eq('agent_code', agentCode)
+      .maybeSingle();
+    return isWhatsappLineProtectivePause(data, Date.now(), WHATSAPP_OUTBOUND_INTERVAL_MS);
+  } catch {
+    return { paused: false, retryAfterSeconds: 0 };
+  }
+}
+
 export async function sendWhatsAppOtp(phone, code) {
   const apiKey = getWhatsmeowApiKey();
   const lines = listOtpWhatsmeowCandidateLines();
@@ -83,20 +118,28 @@ export async function sendWhatsAppOtp(phone, code) {
     return { ok: false, reason: 'missing_whatsmeow_config' };
   }
 
+  const dest = normalizePhoneForWhatsApp(phone);
   const to = toWhatsAppJid(phone);
-  if (!to) {
+  if (!dest || !to) {
     return { ok: false, reason: 'invalid_phone' };
   }
 
-  const text =
-    `Tu código de verificación de *Profesional Pasajero* es: *${code}*\n\n`
-    + 'Válido por 10 minutos. No lo compartas con nadie.';
-
+  const text = buildPassengerOtpMessage(code);
   const phoneDigits = String(phone || '').replace(/\D/g, '');
   let lastReason = 'whatsmeow_send_failed';
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
+    const pause = await readOtpLinePause(line.agentCode);
+    if (pause.paused) {
+      return {
+        ok: false,
+        reason: 'whatsapp_line_paused',
+        lineDown: true,
+        retryAfterSeconds: pause.retryAfterSeconds,
+      };
+    }
+
     const logBase = {
       phone: phoneDigits,
       jid: to,
@@ -109,23 +152,23 @@ export async function sendWhatsAppOtp(phone, code) {
       ...logBase,
     }));
 
-    const result = await sendWhatsmeowText(line.agentCode, phone, text, {
+    const result = await sendWhatsmeowText(line.agentCode, dest, text, {
       apiKey,
-      bypassQueue: true,
+      awaitDelivery: true,
       priority: OTP_OUTBOUND_PRIORITY,
       meta: { source: 'passenger_otp' },
     });
 
-    if (result.success) {
+    if (result.success || (isWhatsappQueueTimeoutError(result.error) && result.queueId)) {
       console.info('[passenger-otp]', JSON.stringify({
-        stage: result.queued ? 'queued' : 'send_ok',
+        stage: result.success ? (result.queued ? 'queued' : 'send_ok') : 'queued_await_timeout',
         ...logBase,
         queueId: result.queueId || null,
         messageId: result.messageId || null,
       }));
       return {
         ok: true,
-        queued: Boolean(result.queued),
+        queued: Boolean(result.queued || !result.success),
         queueId: result.queueId || null,
         messageId: result.messageId || null,
       };
@@ -195,6 +238,24 @@ export async function assertCanSendOtp(supabase, phone) {
     };
   }
 
+  const { count: globalCount, error: globalError } = await supabase
+    .from('passenger_otp_codes')
+    .select('id', { count: 'exact', head: true })
+    .gte('created_at', hourSince);
+
+  if (globalError) {
+    if (isMissingOtpTableError(globalError)) return missingOtpTableResponse();
+    throw globalError;
+  }
+  if ((globalCount || 0) >= OTP_MAX_GLOBAL_PER_HOUR) {
+    return {
+      ok: false,
+      status: 429,
+      message: 'Hay muchos pedidos de código ahora. Probá más tarde.',
+      retryAfterSeconds: 60,
+    };
+  }
+
   return { ok: true };
 }
 
@@ -261,6 +322,20 @@ export async function createAndSendOtp(rawPhone) {
   const canSend = await assertCanSendOtp(supabase, phone);
   if (!canSend.ok) return canSend;
 
+  const otpLine = listOtpWhatsmeowCandidateLines()[0];
+  if (otpLine?.agentCode) {
+    const pause = await readOtpLinePause(otpLine.agentCode);
+    if (pause.paused) {
+      return {
+        ok: false,
+        status: 502,
+        message: 'WhatsApp está en pausa de protección. Reintentá en un rato.',
+        reason: 'whatsapp_line_paused',
+        retryAfterSeconds: Math.min(120, pause.retryAfterSeconds || 60),
+      };
+    }
+  }
+
   const code = generateOtpCode();
   const expiresAt = new Date(Date.now() + OTP_TTL_MS).toISOString();
 
@@ -291,7 +366,7 @@ export async function createAndSendOtp(rawPhone) {
         ? 'Ese número no tiene WhatsApp. Usá los 10 dígitos con área, sin 0 ni 54.'
         : 'No se pudo entregar el código por WhatsApp. Reintentá cuando termine la espera.',
       reason: waResult.reason,
-      retryAfterSeconds: OTP_RESEND_COOLDOWN_MS / 1000,
+      retryAfterSeconds: waResult.retryAfterSeconds || OTP_RESEND_COOLDOWN_MS / 1000,
     };
   }
 

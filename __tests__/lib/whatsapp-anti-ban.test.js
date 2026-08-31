@@ -31,4 +31,26 @@ describe('whatsappAntiBan', () => {
     expect(isWhatsappTransientDisconnect('websocket not connected')).toBe(true);
     expect(isWhatsappBanLikeError('websocket not connected')).toBe(false);
   });
+
+  test('timeout de cola no es ban', () => {
+    const { isWhatsappQueueTimeoutError } = require('../../src/lib/whatsappAntiBan');
+    expect(isWhatsappQueueTimeoutError('timeout_esperando_envio_en_cola')).toBe(true);
+    expect(isWhatsappBanLikeError('timeout_esperando_envio_en_cola')).toBe(false);
+  });
+
+  test('pausa protectora solo con interval largo vigente', () => {
+    const { isWhatsappLineProtectivePause } = require('../../src/lib/whatsappAntiBan');
+    const now = Date.parse('2026-08-31T20:00:00.000Z');
+    expect(isWhatsappLineProtectivePause(null, now)).toEqual({ paused: false, retryAfterSeconds: 0 });
+    expect(isWhatsappLineProtectivePause({
+      last_sent_at: '2026-08-31T19:59:50.000Z',
+      interval_ms: 15_000,
+    }, now)).toEqual({ paused: false, retryAfterSeconds: 0 });
+    const pause = isWhatsappLineProtectivePause({
+      last_sent_at: '2026-08-31T19:50:00.000Z',
+      interval_ms: 45 * 60_000,
+    }, now);
+    expect(pause.paused).toBe(true);
+    expect(pause.retryAfterSeconds).toBe(35 * 60);
+  });
 });

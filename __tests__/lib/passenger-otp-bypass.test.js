@@ -1,4 +1,8 @@
-const { isAppReviewDemoPhone, isPassengerOtpBypassPhone } = require('../../src/lib/passengerOtp');
+const {
+  isAppReviewDemoPhone,
+  isPassengerOtpBypassPhone,
+  buildPassengerOtpMessage,
+} = require('../../src/lib/passengerOtp');
 
 describe('passenger OTP bypass phone', () => {
   const original = process.env.PASSENGER_OTP_BYPASS_PHONE;
@@ -30,5 +34,20 @@ describe('passenger OTP bypass phone', () => {
     expect(isPassengerOtpBypassPhone('3871234567')).toBe(false);
     expect(isPassengerOtpBypassPhone('5493871234567')).toBe(false);
     expect(isPassengerOtpBypassPhone('')).toBe(false);
+  });
+});
+
+describe('buildPassengerOtpMessage', () => {
+  test('incluye el código y evita el texto de verificación que Meta marca como spam', () => {
+    const text = buildPassengerOtpMessage('2580');
+    expect(text).toContain('2580');
+    expect(text.toLowerCase()).not.toMatch(/verificaci[oó]n/);
+    expect(text.toLowerCase()).not.toMatch(/\botp\b/);
+    expect(text.toLowerCase()).not.toContain('no lo compartas');
+    expect(text).not.toContain('*');
+  });
+
+  test('varía el texto según el código', () => {
+    expect(buildPassengerOtpMessage('1000')).not.toBe(buildPassengerOtpMessage('1001'));
   });
 });

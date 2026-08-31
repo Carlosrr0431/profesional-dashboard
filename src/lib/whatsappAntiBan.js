@@ -33,3 +33,29 @@ export function isWhatsappTransientDisconnect(error) {
   if (isWhatsappBanLikeError(msg)) return false;
   return /websocket not connected|whatsapp not connected|not connected for this agent/.test(msg);
 }
+
+export function isWhatsappQueueTimeoutError(error) {
+  return /timeout_esperando_envio_en_cola/.test(String(error || ''));
+}
+
+/**
+ * Pausa anti-ban / desconexión: interval_ms mucho mayor al gap normal de 15s.
+ * No trata el throttle habitual como “línea caída”.
+ */
+export function isWhatsappLineProtectivePause(row, now = Date.now(), normalIntervalMs = 15_000) {
+  if (!row?.last_sent_at) {
+    return { paused: false, retryAfterSeconds: 0 };
+  }
+  const interval = Number(row.interval_ms) || 0;
+  if (interval <= Number(normalIntervalMs) + 5_000) {
+    return { paused: false, retryAfterSeconds: 0 };
+  }
+  const elapsed = now - new Date(row.last_sent_at).getTime();
+  if (!Number.isFinite(elapsed) || elapsed >= interval) {
+    return { paused: false, retryAfterSeconds: 0 };
+  }
+  return {
+    paused: true,
+    retryAfterSeconds: Math.max(1, Math.ceil((interval - elapsed) / 1000)),
+  };
+}
