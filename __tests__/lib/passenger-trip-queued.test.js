@@ -4,6 +4,7 @@ const {
   buildPassengerQueuedTripPayload,
   fareFromClientPayload,
   mergePassengerRouteFare,
+  resolveQueuedTripSource,
 } = require('../../src/lib/passengerTripQueued');
 
 describe('passengerTripQueued', () => {
@@ -35,6 +36,67 @@ describe('passengerTripQueued', () => {
       destinationLng: finalDest.lng,
     });
     expect(resolved).toEqual(finalDest);
+  });
+
+  it('resolveFinalDestinationFromClient acepta destLat/destLng del panel', () => {
+    const resolved = resolveFinalDestinationFromClient({
+      destinationHint: finalDest.formattedAddress,
+      destLat: finalDest.lat,
+      destLng: finalDest.lng,
+    });
+    expect(resolved).toEqual(finalDest);
+  });
+
+  it('resolveQueuedTripSource respeta canales y cae a dashboard', () => {
+    expect(resolveQueuedTripSource('passenger_web')).toBe('passenger_web');
+    expect(resolveQueuedTripSource('passenger_app')).toBe('passenger_app');
+    expect(resolveQueuedTripSource('whatsapp')).toBe('whatsapp');
+    expect(resolveQueuedTripSource('dashboard')).toBe('dashboard');
+    expect(resolveQueuedTripSource(undefined)).toBe('dashboard');
+    expect(resolveQueuedTripSource('otro')).toBe('dashboard');
+  });
+
+  it('dashboard solo origen: destination_* vacío y notes approach-only', () => {
+    const payload = buildPassengerQueuedTripPayload({
+      pickupLocation: pickup,
+      finalDestinationLocation: null,
+      passengerName: 'Operador',
+      passengerPhone: null,
+      source: 'dashboard',
+      fare: null,
+    });
+
+    expect(payload.origin_address).toBe(pickup.formattedAddress);
+    expect(payload.origin_lat).toBe(pickup.lat);
+    expect(payload.destination_address).toBeNull();
+    expect(payload.destination_lat).toBeNull();
+    expect(payload.destination_lng).toBeNull();
+    expect(payload.price).toBeNull();
+    expect(payload.notes).toContain('[APPROACH_ONLY]');
+    expect(payload.notes).toContain('[DASHBOARD]');
+    expect(payload.notes).toContain('[PICKUP_JSON:');
+    expect(payload.notes).not.toContain('[FINAL_DEST_JSON:');
+    expect(payload.notes).not.toContain('[PASSENGER_APP]');
+  });
+
+  it('passenger_app sin destino lanza', () => {
+    expect(() => buildPassengerQueuedTripPayload({
+      pickupLocation: pickup,
+      finalDestinationLocation: null,
+      passengerName: 'Carlos',
+      passengerPhone: '543878630173',
+      source: 'passenger_app',
+    })).toThrow('finalDestinationLocation requerida para passenger_app');
+  });
+
+  it('passenger_web sin destino lanza', () => {
+    expect(() => buildPassengerQueuedTripPayload({
+      pickupLocation: pickup,
+      finalDestinationLocation: null,
+      passengerName: 'Carlos',
+      passengerPhone: '543878630173',
+      source: 'passenger_web',
+    })).toThrow('finalDestinationLocation requerida para passenger_app');
   });
 
   it('fareFromClientPayload aplica precio estimado de la app', () => {

@@ -201,6 +201,7 @@ export default function NewTripModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          source: 'dashboard',
           pickupAddress: currentPickupText,
           pickupLat,
           pickupLng,
@@ -208,10 +209,15 @@ export default function NewTripModal({
           passengerName: passengerName.trim() || null,
           passengerPhone: passengerPhone.trim() || null,
           destinationHint: destLabel.trim() || null,
+          destinationLat: destLat || null,
+          destinationLng: destLng || null,
           destLat: destLat || null,
           destLng: destLng || null,
           notes: notes.trim() || null,
+          estimatedPrice: autoPrice || null,
           price: autoPrice || null,
+          distanceKm: routeInfo?.distanceKm || null,
+          durationMinutes: routeInfo?.durationMinutes || null,
           distance_km: routeInfo?.distanceKm || null,
           duration_minutes: routeInfo?.durationMinutes || null,
         }),
@@ -470,6 +476,9 @@ export default function NewTripModal({
                   setError('');
                 }}
               />
+              <p style={{ margin: '6px 0 0', fontSize: 10, color: '#94A3B8' }}>
+                Si lo dejás vacío, el chofer lo define al subir.
+              </p>
             </div>
           </div>
 

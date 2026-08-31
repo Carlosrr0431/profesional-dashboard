@@ -49,8 +49,8 @@ export function buildFinalDestJsonTag(location) {
 /** Destino final enviado por la app (coordenadas) sin llamar a geocodificación. */
 export function resolveFinalDestinationFromClient(payload) {
   const address = sanitizeText(payload?.destinationAddress || payload?.destinationHint);
-  const lat = Number(payload?.destinationLat);
-  const lng = Number(payload?.destinationLng);
+  const lat = Number(payload?.destinationLat ?? payload?.destLat);
+  const lng = Number(payload?.destinationLng ?? payload?.destLng);
   if (!address || !Number.isFinite(lat) || !Number.isFinite(lng)) {
     return null;
   }
@@ -251,8 +251,12 @@ export async function resolveWaypointsFromClient(payload) {
   return resolved;
 }
 
-function resolveQueuedPassengerSource(source) {
-  return source === 'passenger_web' ? 'passenger_web' : 'passenger_app';
+/** App/web de pasajeros siguen exigiendo destino. Panel y WhatsApp pueden ser solo origen. */
+export function resolveQueuedTripSource(source) {
+  if (source === 'passenger_web') return 'passenger_web';
+  if (source === 'passenger_app') return 'passenger_app';
+  if (source === 'whatsapp') return 'whatsapp';
+  return 'dashboard';
 }
 
 /**
@@ -278,7 +282,7 @@ export function buildPassengerQueuedTripPayload({
     passengerName,
     passengerPhone,
     fare,
-    source: resolveQueuedPassengerSource(source),
+    source: resolveQueuedTripSource(source),
     destinationHint,
     extraNotes: sanitizeText(notes) || null,
     waypoints,

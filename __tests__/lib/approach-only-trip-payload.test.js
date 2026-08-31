@@ -99,6 +99,26 @@ describe('approachOnlyTripPayload', () => {
     expect((payload.notes.match(/\[PASSENGER_WEB\]/g) || []).length).toBe(1);
   });
 
+  it('payload dashboard solo origen: destination_* vacío y [DASHBOARD]', () => {
+    const payload = buildPassengerQueuedTripPayload({
+      pickupLocation: pickup,
+      finalDestinationLocation: null,
+      passengerName: 'Operador',
+      source: undefined,
+    });
+
+    expect(payload.origin_address).toBe(pickup.formattedAddress);
+    expect(payload.origin_lat).toBe(pickup.lat);
+    expect(payload.destination_address).toBeNull();
+    expect(payload.destination_lat).toBeNull();
+    expect(payload.destination_lng).toBeNull();
+    expect(payload.notes).toContain('[APPROACH_ONLY]');
+    expect(payload.notes).toContain('[DASHBOARD]');
+    expect(payload.notes).toContain('[PICKUP_JSON:');
+    expect(payload.notes).not.toContain('[FINAL_DEST_JSON:');
+    expect(payload.notes).not.toContain('[PASSENGER_APP]');
+  });
+
   it('payload WhatsApp solo retiro: origin_* = recogida, destination_* vacío', () => {
     const payload = buildApproachOnlyTripInsertPayload({
       pickupLocation: pickup,

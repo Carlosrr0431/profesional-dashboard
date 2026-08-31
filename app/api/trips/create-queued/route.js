@@ -10,6 +10,7 @@ import {
   buildPassengerQueuedTripPayload,
   fareFromClientPayload,
   mergePassengerRouteFare,
+  resolveQueuedTripSource,
 } from '../../../../src/lib/passengerTripQueued';
 
 export const runtime = 'nodejs';
@@ -51,6 +52,16 @@ export async function POST(req) {
       payload?.destinationAddress || payload?.destinationHint,
       500
     );
+    const source = resolveQueuedTripSource(payload?.source);
+    const destLat = payload?.destinationLat ?? payload?.destLat;
+    const destLng = payload?.destinationLng ?? payload?.destLng;
+    const normalizedPayload = payload
+      ? { ...payload, source, destinationLat: destLat, destinationLng: destLng }
+      : payload;
+    const wantsDestination = Boolean(
+      destinationAddress
+      || (Number.isFinite(Number(destLat)) && Number.isFinite(Number(destLng)))
+    );
 
     const pickupLocation = await resolveTripLocation({
       address: pickupAddress,
@@ -77,7 +88,7 @@ export async function POST(req) {
       );
     }
 
-    if (!destinationAddress) {
+    if (isPassengerChannelSource(source) && !wantsDestination) {
       return NextResponse.json(
         {
           ok: false,
@@ -88,9 +99,11 @@ export async function POST(req) {
       );
     }
 
-    const finalDestinationLocation = await resolveFinalDestination(pickupLocation, payload);
+    const finalDestinationLocation = wantsDestination
+      ? await resolveFinalDestination(pickupLocation, normalizedPayload)
+      : null;
 
-    if (!finalDestinationLocation) {
+    if (wantsDestination && !finalDestinationLocation) {
       return NextResponse.json(
         {
           ok: false,
@@ -101,7 +114,7 @@ export async function POST(req) {
       );
     }
 
-    const resolvedWaypoints = await resolveWaypointsFromClient(payload);
+    const resolvedWaypoints = await resolveWaypointsFromClient(normalizedPayload);
     if (Array.isArray(payload?.waypoints) && payload.waypoints.length > 0 && !resolvedWaypoints) {
       return NextResponse.json(
         {
@@ -125,7 +138,7 @@ export async function POST(req) {
       && scheduledForDate.getTime() > Date.now() + 60_000;
     const scheduledDisplay = sanitizeText(payload?.scheduledDisplay || payload?.scheduled_display, 120) || null;
 
-    if (passengerPhone && isPassengerChannelSource(payload?.source) && !isScheduled) {
+    if (passengerPhone && isPassengerChannelSource(source) && !isScheduled) {
       const localDigits = passengerPhone.startsWith('549')
         ? passengerPhone.slice(3)
         : passengerPhone.startsWith('54')
@@ -153,11 +166,11 @@ export async function POST(req) {
       finalDestinationLocation,
       resolvedWaypoints || [],
       {
-        source: payload?.source,
+        source,
         at: isScheduled ? scheduledForDate : new Date(),
       },
     );
-    const fare = mergePassengerRouteFare(serverFare, fareFromClientPayload(payload));
+    const fare = mergePassengerRouteFare(serverFare, fareFromClientPayload(normalizedPayload));
 
     const tripPayload = buildPassengerQueuedTripPayload({
       pickupLocation,
@@ -165,10 +178,10 @@ export async function POST(req) {
       passengerName: sanitizeText(payload?.passengerName, 120) || null,
       passengerPhone: normalizePhone(payload?.passengerPhone),
       notes: sanitizeText(payload?.notes, 500) || null,
-      destinationHint: destinationAddress,
+      destinationHint: destinationAddress || null,
       fare,
-      source: payload?.source,
-      payload,
+      source,
+      payload: normalizedPayload,
       waypoints: resolvedWaypoints || [],
       scheduledFor: isScheduled ? scheduledForDate : null,
       scheduledDisplay: isScheduled ? scheduledDisplay : null,
