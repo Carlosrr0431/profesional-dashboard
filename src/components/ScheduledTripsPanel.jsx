@@ -516,7 +516,7 @@ export default function ScheduledTripsPanel({
           {/* Nota informativa */}
           <div className="mt-3 p-3 bg-violet-50 border border-violet-100 rounded-xl flex-shrink-0">
             <p className="text-[10px] text-violet-600 font-medium leading-relaxed">
-              🚕 Los viajes programados pasan a cola automáticamente 5 minutos antes de la hora reservada (cron dispatch-worker). Las reservas por WhatsApp reciben aviso; las de la app no.
+              🚕 Los viajes programados (dashboard, WhatsApp o app) pasan a cola automáticamente 20 minutos antes de la hora reservada y empiezan a buscar chofer. Las reservas por WhatsApp reciben aviso; las de la app no.
             </p>
           </div>
         </div>

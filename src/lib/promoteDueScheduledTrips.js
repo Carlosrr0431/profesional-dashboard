@@ -3,10 +3,31 @@
  * Usado por dispatch-worker en cada ciclo de cron.
  */
 
-export const DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS = 5 * 60 * 1000;
+/** Anticipación con la que un viaje programado pasa a cola y empieza a buscar chofer. */
+export const DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS = 20 * 60 * 1000;
 
 /** Argentina (Salta): UTC-3, mismo criterio que Agente_IA/route.js */
-const AR_UTC_OFFSET_H = -3;
+export const AR_UTC_OFFSET_H = -3;
+
+/**
+ * Interpreta fecha+hora local de Argentina (inputs `YYYY-MM-DD` + `HH:MM`) como Date UTC.
+ * @returns {Date | null}
+ */
+export function arLocalDateTimeToUtcDate(dateStr, timeStr) {
+  const dateMatch = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const timeMatch = String(timeStr || '').match(/^(\d{1,2}):(\d{2})$/);
+  if (!dateMatch || !timeMatch) return null;
+
+  const year = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const day = Number(dateMatch[3]);
+  const hour = Number(timeMatch[1]);
+  const minute = Number(timeMatch[2]);
+  if (![year, month, day, hour, minute].every(Number.isFinite)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return null;
+
+  return new Date(Date.UTC(year, month - 1, day, hour - AR_UTC_OFFSET_H, minute, 0, 0));
+}
 
 /** Ej: "lunes 25/05 a las 11:42" (hora Argentina). */
 export function formatArScheduleDisplay(utcDate) {

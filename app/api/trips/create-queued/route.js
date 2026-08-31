@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { triggerDispatchWorker } from '../../../../src/lib/triggerDispatchWorker';
+import { DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS } from '../../../../src/lib/promoteDueScheduledTrips';
 import { isPassengerChannelSource } from '../../../../src/lib/detectTripSource';
 import {
   resolveTripLocation,
@@ -210,9 +211,15 @@ export async function POST(req) {
 
     if (error) throw error;
 
-    // Viajes programados se despachan luego vía cron (promoteDueScheduledTrips).
-    if (!isScheduled) {
-      triggerDispatchWorker({ reason: 'dashboard_trip_created', tripId: trip.id });
+    // Inmediatos: despacho ya. Programados dentro de la ventana de 20 min: el worker
+    // los promueve a cola en este mismo ciclo. El resto espera al cron.
+    const dueForDispatch = isScheduled
+      && scheduledForDate.getTime() <= Date.now() + DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS;
+    if (!isScheduled || dueForDispatch) {
+      triggerDispatchWorker({
+        reason: isScheduled ? 'scheduled_trip_due' : 'dashboard_trip_created',
+        tripId: trip.id,
+      });
     }
 
     return NextResponse.json({ ok: true, trip });

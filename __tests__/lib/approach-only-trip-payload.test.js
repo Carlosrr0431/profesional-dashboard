@@ -215,4 +215,26 @@ describe('approachOnlyTripPayload', () => {
     expect(payload.notes).not.toContain('[PASSENGER_APP]');
     expect(payload.notes).not.toContain('[SCHEDULED_SOURCE] passenger_app');
   });
+
+  it('payload dashboard programado sin destino: scheduled + origin only', () => {
+    const scheduledFor = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const payload = buildApproachOnlyTripInsertPayload({
+      pickupLocation: pickup,
+      finalDestinationLocation: null,
+      passengerName: 'Luis',
+      passengerPhone: '543871234567',
+      source: 'dashboard',
+      scheduledFor,
+      scheduledDisplay: 'lunes 20/07 a las 15:30',
+    });
+
+    expect(payload.status).toBe('scheduled');
+    expect(payload.dispatch_status).toBe('idle');
+    expect(payload.origin_address).toBe(pickup.formattedAddress);
+    expect(payload.destination_address).toBeNull();
+    expect(payload.notes).toContain('[DASHBOARD]');
+    expect(payload.notes).toContain('[SCHEDULED_FOR]');
+    expect(payload.notes).toContain('[SCHEDULED_DISPLAY] lunes 20/07 a las 15:30');
+    expect(payload.notes).not.toContain('[PASSENGER_APP]');
+  });
 });

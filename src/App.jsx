@@ -31,6 +31,7 @@ import DashboardLoadingScreen from './components/DashboardLoadingScreen';
 import { useTripStatistics } from './hooks/useTripStatistics';
 import { useLiveTrips, toLocalDateInputValue } from './hooks/useLiveTrips';
 import { isSuperAdminUser } from './lib/adminSuperUser';
+import { DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS } from './lib/promoteDueScheduledTrips';
 
 // ─── Vista activa ─────────────────────────────────────────────────────────────
 const VIEWS = {
@@ -120,6 +121,8 @@ export default function App() {
   const [fleetDrawerOpen,   setFleetDrawerOpen] = useState(false);
   const [isDesktopLayout,   setIsDesktopLayout] = useState(false);
   const [mapPopover,        setMapPopover]       = useState(null);
+  const dispatchNotifiedIdsRef = useRef(new Set());
+  const dispatchNotifyReadyRef = useRef(false);
 
   const closePopover = useCallback(() => {
     setMapPopover(null);
@@ -320,15 +323,40 @@ export default function App() {
     if (currentView !== VIEWS.map) setFleetDrawerOpen(false);
   }, [currentView]);
 
-  const handleNewTripSuccess = useCallback(() => {
+  useEffect(() => {
+    const dueTrips = scheduledData.dispatchSoonTrips || [];
+    if (scheduledData.loading && dueTrips.length === 0 && scheduledData.trips.length === 0) {
+      return;
+    }
+    if (!dispatchNotifyReadyRef.current) {
+      dueTrips.forEach((trip) => dispatchNotifiedIdsRef.current.add(trip.id));
+      dispatchNotifyReadyRef.current = true;
+      return;
+    }
+    for (const trip of dueTrips) {
+      if (dispatchNotifiedIdsRef.current.has(trip.id)) continue;
+      dispatchNotifiedIdsRef.current.add(trip.id);
+      const name = trip.passenger_name || 'Pasajero';
+      toast.warning(`Viaje programado de ${name} ${trip.countdown}. Buscando chofer.`);
+    }
+  }, [scheduledData.dispatchSoonTrips, scheduledData.loading, scheduledData.trips.length, toast]);
+
+  const handleNewTripSuccess = useCallback((trip) => {
     setMapPopover(null);
     setPreviewRoute(null);
-    setTripsDate(toLocalDateInputValue());
+    const isScheduled = trip?.status === 'scheduled';
+    scheduledData.refetch?.();
     queueData.refetch?.();
     liveTripsData.refetch?.();
+    if (isScheduled) {
+      goTo(VIEWS.scheduled);
+      toast.success('Viaje programado. Se busca chofer 20 minutos antes.');
+      return;
+    }
+    setTripsDate(toLocalDateInputValue());
     goTo(VIEWS.trips);
     toast.success('Viaje encolado correctamente');
-  }, [queueData, liveTripsData, goTo, toast]);
+  }, [queueData, liveTripsData, scheduledData, goTo, toast]);
 
   const renderNavigation = (compact = false) => (
     <>
@@ -375,7 +403,7 @@ export default function App() {
         active={currentView === VIEWS.scheduled}
         onClick={() => goTo(currentView === VIEWS.scheduled ? VIEWS.map : VIEWS.scheduled)}
         badge={scheduledData.stats.total > 0 ? scheduledData.stats.total : null}
-        badgeColor={scheduledData.stats.imminent > 0 ? 'warning-pulse' : 'violet'}
+        badgeColor={scheduledData.stats.dispatchSoon > 0 ? 'warning-pulse' : 'violet'}
         icon={
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -484,7 +512,7 @@ export default function App() {
       <SideNavItem active={currentView === VIEWS.scheduled}
         onClick={() => goTo(currentView === VIEWS.scheduled ? VIEWS.map : VIEWS.scheduled)}
         badge={scheduledData.stats.total > 0 ? scheduledData.stats.total : null}
-        badgeColor={scheduledData.stats.imminent > 0 ? 'warning-pulse' : 'violet'}
+        badgeColor={scheduledData.stats.dispatchSoon > 0 ? 'warning-pulse' : 'violet'}
         icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
         label="Programados" />
       <SideNavItem active={currentView === VIEWS.management}
@@ -963,19 +991,56 @@ export default function App() {
                     </button>
                   </div>
                 )}
-
-                {/* Alertas */}
-                {scheduledData.stats.imminent > 0 && (
-                  <button
-                    className="pointer-events-auto flex items-center gap-2 rounded-full border border-warning/35 bg-white/95 backdrop-blur-sm px-3.5 py-2 text-[12px] font-semibold text-warning shadow-lg transition-all hover:shadow-xl hover:border-warning/55"
-                    onClick={() => goTo(VIEWS.scheduled)}
-                  >
-                    <span className="relative flex h-2 w-2 shrink-0">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-75" />
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-warning" />
-                    </span>
-                    {scheduledData.stats.imminent} inminente{scheduledData.stats.imminent !== 1 ? 's' : ''}
-                  </button>
+                {mapPopover === 'scheduled-due' && (
+                  <div className="pointer-events-auto mb-1 w-[340px] overflow-hidden rounded-2xl border border-violet-200/80 bg-white/98 shadow-2xl shadow-navy-900/18 backdrop-blur-xl">
+                    <div className="flex items-center justify-between border-b border-violet-100 px-3.5 py-2.5">
+                      <p className="text-[12px] font-bold text-slate-900">Programados a despachar</p>
+                      <span className="text-[10px] font-medium text-violet-500">
+                        {scheduledData.stats.dispatchSoon} {scheduledData.stats.dispatchSoon === 1 ? 'viaje' : 'viajes'} · {DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS / 60000} min
+                      </span>
+                    </div>
+                    <div className="max-h-[min(340px,48vh)] overflow-y-auto overscroll-contain">
+                      {(scheduledData.dispatchSoonTrips || []).length === 0 ? (
+                        <p className="py-6 text-center text-xs text-slate-400">Sin viajes en ventana</p>
+                      ) : (
+                        (scheduledData.dispatchSoonTrips || []).map((item, i) => (
+                          <div key={item.id || i} className="border-b border-violet-50 px-3.5 py-3 last:border-0 hover:bg-violet-50/60 transition-colors">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-[12.5px] font-bold text-slate-900">{item.passenger_name || 'Pasajero'}</p>
+                                {item.phone ? (
+                                  <p className="mt-0.5 text-[10.5px] text-slate-400">
+                                    {String(item.phone).length > 6 ? `···${String(item.phone).slice(-4)}` : item.phone}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <span className="shrink-0 rounded-full bg-violet-500/12 px-2 py-0.5 text-[10.5px] font-bold text-violet-700">
+                                {item.countdown}
+                              </span>
+                            </div>
+                            <div className="mt-2 space-y-1">
+                              <div className="flex items-start gap-1.5">
+                                <span className="mt-[3px] h-2 w-2 flex-shrink-0 rounded-full bg-violet-500" />
+                                <p className="truncate text-[11px] text-slate-600">{item.origin_address || item.destination_address || '—'}</p>
+                              </div>
+                              {item.destination_address && item.origin_address ? (
+                                <div className="flex items-start gap-1.5">
+                                  <span className="mt-[3px] h-2 w-2 flex-shrink-0 rounded bg-navy-900" />
+                                  <p className="truncate text-[11px] text-slate-600">{item.destination_address}</p>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <button
+                      onClick={() => { setMapPopover(null); goTo(VIEWS.scheduled); }}
+                      className="w-full border-t border-violet-100 px-3.5 py-2.5 text-[11px] font-semibold text-violet-600 transition-all hover:bg-violet-50"
+                    >
+                      Ver agenda completa →
+                    </button>
+                  </div>
                 )}
 
                 <div className="pointer-events-auto flex items-center gap-2">
@@ -1021,6 +1086,22 @@ export default function App() {
                         <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
                       </span>
                       {queueData.stats.inQueue} en cola
+                    </button>
+                  )}
+                  {scheduledData.stats.dispatchSoon > 0 && (
+                    <button
+                      className={`flex h-11 items-center gap-2.5 rounded-full px-4 text-[12.5px] font-bold shadow-xl active:scale-[0.97] transition-all ${
+                        mapPopover === 'scheduled-due'
+                          ? 'bg-violet-600 text-white shadow-violet-600/40 scale-[1.02]'
+                          : 'bg-violet-600 text-white shadow-violet-500/35 hover:bg-violet-500 hover:shadow-violet-500/50 hover:scale-[1.02]'
+                      }`}
+                      onClick={() => setMapPopover(mapPopover === 'scheduled-due' ? null : 'scheduled-due')}
+                    >
+                      <span className="relative flex h-2.5 w-2.5 shrink-0">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-60" />
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
+                      </span>
+                      {scheduledData.stats.dispatchSoon} programado{scheduledData.stats.dispatchSoon !== 1 ? 's' : ''}
                     </button>
                   )}
                   <button

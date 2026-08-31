@@ -5,6 +5,12 @@ import { formatError } from '../lib/errorFormat';
 import { isWithinSaltaCapital } from '../lib/constants';
 import { useToast } from '../context/ToastContext';
 import AddressAutocomplete from './AddressAutocomplete';
+import {
+  AR_UTC_OFFSET_H,
+  DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS,
+  arLocalDateTimeToUtcDate,
+  formatArScheduleDisplay,
+} from '../lib/promoteDueScheduledTrips';
 
 /* ── Estilos globales ─────────────────────────────────────────────────────── */
 const MODAL_STYLES = `
@@ -33,6 +39,16 @@ function Spinner({ size = 14, color = '#DC2626' }) {
       flexShrink: 0,
     }} />
   );
+}
+
+function defaultScheduleParts() {
+  const ar = new Date(Date.now() + AR_UTC_OFFSET_H * 3_600_000 + 60 * 60 * 1000);
+  const yyyy = ar.getUTCFullYear();
+  const mm = String(ar.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(ar.getUTCDate()).padStart(2, '0');
+  const hh = String(ar.getUTCHours()).padStart(2, '0');
+  const min = String(ar.getUTCMinutes()).padStart(2, '0');
+  return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}:${min}` };
 }
 
 /* ── Componente principal ─────────────────────────────────────────────────── */
@@ -68,6 +84,9 @@ export default function NewTripModal({
   const [passengerPhone, setPassengerPhone] = useState('');
   const [notes, setNotes] = useState('');
   const [showOptional, setShowOptional] = useState(false);
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
 
   /* Ruta */
   const [routeLoading, setRouteLoading] = useState(false);
@@ -184,6 +203,18 @@ export default function NewTripModal({
     setError('');
   };
 
+  const toggleScheduled = () => {
+    setIsScheduled((prev) => {
+      const next = !prev;
+      if (next) {
+        const parts = defaultScheduleParts();
+        setScheduleDate((current) => current || parts.date);
+        setScheduleTime((current) => current || parts.time);
+      }
+      return next;
+    });
+  };
+
   /* ── Submit ───────────────────────────────────────────────────────────── */
   const handleSubmit = async (e) => {
     e?.preventDefault();
@@ -193,6 +224,34 @@ export default function NewTripModal({
     if (!currentPickupText) {
       setError('Ingresá la dirección de origen del pasajero.');
       return;
+    }
+
+    let scheduledForIso = null;
+    let scheduledDisplay = null;
+    if (isScheduled) {
+      if (!scheduleDate || !scheduleTime) {
+        setError('Completá el día y la hora del viaje programado.');
+        return;
+      }
+      if (!passengerName.trim()) {
+        setError('Ingresá el nombre del pasajero.');
+        return;
+      }
+      if (!passengerPhone.trim() || passengerPhone.replace(/\D/g, '').length < 8) {
+        setError('Ingresá el teléfono del pasajero.');
+        return;
+      }
+      const scheduledUtc = arLocalDateTimeToUtcDate(scheduleDate, scheduleTime);
+      if (!scheduledUtc) {
+        setError('La fecha u hora no es válida.');
+        return;
+      }
+      if (scheduledUtc.getTime() <= Date.now() + 60_000) {
+        setError('La hora programada tiene que ser al menos 2 minutos más adelante.');
+        return;
+      }
+      scheduledForIso = scheduledUtc.toISOString();
+      scheduledDisplay = formatArScheduleDisplay(scheduledUtc);
     }
 
     setLoading(true);
@@ -220,6 +279,10 @@ export default function NewTripModal({
           durationMinutes: routeInfo?.durationMinutes || null,
           distance_km: routeInfo?.distanceKm || null,
           duration_minutes: routeInfo?.durationMinutes || null,
+          ...(scheduledForIso ? {
+            scheduledFor: scheduledForIso,
+            scheduledDisplay,
+          } : {}),
         }),
       });
 
@@ -366,10 +429,14 @@ export default function NewTripModal({
               fontSize: asPopover ? 13 : 16,
             }}>🚖</div>
             <div>
-              <div style={{ fontSize: asPopover ? 13 : 15, fontWeight: 700, color: '#0F172A' }}>Nuevo viaje</div>
+              <div style={{ fontSize: asPopover ? 13 : 15, fontWeight: 700, color: '#0F172A' }}>
+                {isScheduled ? 'Programar viaje' : 'Nuevo viaje'}
+              </div>
               {!asPopover && (
                 <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>
-                  Se encola y el sistema asigna chofer automáticamente
+                  {isScheduled
+                    ? `Se busca chofer ${DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS / 60000} minutos antes`
+                    : 'Se encola y el sistema asigna chofer automáticamente'}
                 </div>
               )}
             </div>
@@ -482,6 +549,74 @@ export default function NewTripModal({
             </div>
           </div>
 
+          <button
+            type="button"
+            onClick={toggleScheduled}
+            style={{
+              width: '100%', marginBottom: isScheduled ? 10 : 12,
+              padding: '8px 12px',
+              background: isScheduled ? '#F5F3FF' : '#FFFFFF',
+              border: isScheduled ? '1.5px solid #DDD6FE' : '1.5px dashed #E2E8F0',
+              borderRadius: 10,
+              color: isScheduled ? '#6D28D9' : '#64748B',
+              fontSize: 12, fontWeight: 700,
+              cursor: 'pointer', textAlign: 'left',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}
+          >
+            <span style={{
+              width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+              border: isScheduled ? 'none' : '1.5px solid #CBD5E1',
+              background: isScheduled ? '#7C3AED' : '#FFFFFF',
+              color: '#fff', fontSize: 11, fontWeight: 800,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            }}>{isScheduled ? '✓' : ''}</span>
+            Programar para un día y hora
+          </button>
+
+          {isScheduled ? (
+            <div style={{
+              background: '#F5F3FF', border: '1px solid #DDD6FE',
+              borderRadius: 12, padding: 12, marginBottom: 12,
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6D28D9', marginBottom: 5, letterSpacing: '0.04em' }}>📅 DÍA</label>
+                  <input
+                    type="date"
+                    required
+                    value={scheduleDate}
+                    onChange={(e) => setScheduleDate(e.target.value)}
+                    style={optInputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6D28D9', marginBottom: 5, letterSpacing: '0.04em' }}>⏰ HORA</label>
+                  <input
+                    type="time"
+                    required
+                    value={scheduleTime}
+                    onChange={(e) => setScheduleTime(e.target.value)}
+                    style={optInputStyle}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6D28D9', marginBottom: 5, letterSpacing: '0.04em' }}>👤 NOMBRE</label>
+                  <input type="text" placeholder="Nombre" value={passengerName} onChange={(e) => setPassengerName(e.target.value)} style={optInputStyle} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6D28D9', marginBottom: 5, letterSpacing: '0.04em' }}>📞 TELÉFONO</label>
+                  <input type="tel" placeholder="Ej: 3874001234" value={passengerPhone} onChange={(e) => setPassengerPhone(e.target.value)} style={optInputStyle} />
+                </div>
+              </div>
+              <p style={{ margin: 0, fontSize: 10, color: '#7C3AED', lineHeight: 1.4 }}>
+                {DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS / 60000} minutos antes aparece en el mapa y empieza a buscar chofer.
+              </p>
+            </div>
+          ) : null}
+
           {/* Tarjeta de ruta */}
           {(routeLoading || routeInfo) && (
             <div style={{
@@ -536,27 +671,29 @@ export default function NewTripModal({
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; }}
           >
             <span style={{ fontSize: 10 }}>{showOptional ? '▲' : '▼'}</span>
-            {showOptional ? 'Ocultar datos opcionales' : '+ Agregar pasajero, teléfono y notas'}
+            {showOptional ? 'Ocultar datos opcionales' : (isScheduled ? '+ Agregar notas' : '+ Agregar pasajero, teléfono y notas')}
           </button>
 
           {showOptional && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>👤 PASAJERO</label>
-                  <input type="text" placeholder="Nombre" value={passengerName} onChange={(e) => setPassengerName(e.target.value)} style={optInputStyle}
-                    onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
-                    onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
-                  />
+              {!isScheduled ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>👤 PASAJERO</label>
+                    <input type="text" placeholder="Nombre" value={passengerName} onChange={(e) => setPassengerName(e.target.value)} style={optInputStyle}
+                      onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
+                      onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>📞 TELÉFONO</label>
+                    <input type="tel" placeholder="Ej: 3874001234" value={passengerPhone} onChange={(e) => setPassengerPhone(e.target.value)} style={optInputStyle}
+                      onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
+                      onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>📞 TELÉFONO</label>
-                  <input type="tel" placeholder="Ej: 3874001234" value={passengerPhone} onChange={(e) => setPassengerPhone(e.target.value)} style={optInputStyle}
-                    onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
-                    onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
-                  />
-                </div>
-              </div>
+              ) : null}
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>📝 NOTAS</label>
                 <input type="text" placeholder="Instrucciones adicionales..." value={notes} onChange={(e) => setNotes(e.target.value)} style={optInputStyle}
@@ -627,7 +764,9 @@ export default function NewTripModal({
                 boxShadow: loading ? 'none' : '0 4px 14px rgba(220,38,38,0.35)',
               }}
             >
-              {loading ? <><Spinner size={14} color="#fff" /> Encolando…</> : '🚖 Encolar viaje'}
+              {loading
+                ? <><Spinner size={14} color="#fff" /> {isScheduled ? 'Programando…' : 'Encolando…'}</>
+                : (isScheduled ? '📅 Programar viaje' : '🚖 Encolar viaje')}
             </button>
           </div>
         </form>

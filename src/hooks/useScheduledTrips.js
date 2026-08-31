@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS } from '../lib/promoteDueScheduledTrips';
 
 const AR_UTC_OFFSET_H = -3;
 
@@ -83,7 +84,7 @@ export function useScheduledTrips() {
       const { data, error } = await supabase
         .from('trips')
         .select(
-          'id, passenger_name, passenger_phone, destination_address, destination_lat, destination_lng, notes, scheduled_for, created_at, status'
+          'id, passenger_name, passenger_phone, origin_address, destination_address, destination_lat, destination_lng, notes, scheduled_for, created_at, status'
         )
         .eq('status', 'scheduled')
         .order('created_at', { ascending: true });
@@ -168,6 +169,9 @@ export function useScheduledTrips() {
   const stats = useMemo(() => ({
     total: enriched.length,
     imminent: enriched.filter((t) => t.urgency === 'imminent').length,
+    dispatchSoon: enriched.filter((t) => (
+      t.msUntil != null && t.msUntil <= DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS
+    )).length,
     soon: enriched.filter((t) => t.urgency === 'soon').length,
     today: enriched.filter((t) => {
       if (!t.scheduledFor) return false;
@@ -178,6 +182,13 @@ export function useScheduledTrips() {
         && arNow.getUTCFullYear() === arTrip.getUTCFullYear();
     }).length,
   }), [enriched]);
+
+  const dispatchSoonTrips = useMemo(
+    () => enriched.filter((t) => (
+      t.msUntil != null && t.msUntil <= DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS
+    )),
+    [enriched],
+  );
 
   async function cancelScheduledTrip(tripId) {
     const { error } = await supabase
@@ -191,6 +202,7 @@ export function useScheduledTrips() {
 
   return {
     trips: enriched,
+    dispatchSoonTrips,
     stats,
     loading,
     lastUpdated,

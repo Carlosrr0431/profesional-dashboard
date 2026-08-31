@@ -2,6 +2,7 @@ const {
   resolveScheduledForFromTrip,
   resolveScheduledDisplayFromTrip,
   formatArScheduleDisplay,
+  arLocalDateTimeToUtcDate,
   buildScheduledDispatchWhatsAppMessage,
   shouldNotifyScheduledTripViaWhatsApp,
   promoteDueScheduledTrips,
@@ -181,5 +182,60 @@ describe('promoteDueScheduledTrips', () => {
 
     expect(result.promoted).toBe(1);
     expect(sendPassengerWhatsApp).not.toHaveBeenCalled();
+  });
+
+  it('DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS es 20 minutos', () => {
+    expect(DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS).toBe(20 * 60 * 1000);
+  });
+
+  it('arLocalDateTimeToUtcDate interpreta hora Argentina', () => {
+    const d = arLocalDateTimeToUtcDate('2026-05-25', '11:42');
+    expect(d.toISOString()).toBe('2026-05-25T14:42:00.000Z');
+  });
+
+  it('no promueve 25 min antes; sí a los 20 min', async () => {
+    const scheduledFor = new Date('2026-05-25T13:50:00.000Z');
+    const trip = {
+      id: 'trip-window',
+      passenger_phone: '5493878630173',
+      notes: `[SCHEDULED_FOR] ${scheduledFor.toISOString()}`,
+      scheduled_for: scheduledFor.toISOString(),
+    };
+
+    function mockSupabase(update) {
+      return {
+        from: jest.fn(() => ({
+          select: jest.fn(() => ({
+            eq: jest.fn(async () => ({ data: [trip], error: null })),
+          })),
+          update,
+        })),
+      };
+    }
+
+    const updateFar = jest.fn();
+    const far = await promoteDueScheduledTrips({
+      supabase: mockSupabase(updateFar),
+      nowMs: scheduledFor.getTime() - 25 * 60 * 1000,
+    });
+    expect(far.promoted).toBe(0);
+    expect(far.skippedNotDue).toBe(1);
+    expect(updateFar).not.toHaveBeenCalled();
+
+    const updateDue = jest.fn(() => ({
+      eq: jest.fn(function secondEq() {
+        return {
+          eq: jest.fn(() => ({
+            select: jest.fn(async () => ({ data: [{ id: 'trip-window' }], error: null })),
+          })),
+        };
+      }),
+    }));
+    const due = await promoteDueScheduledTrips({
+      supabase: mockSupabase(updateDue),
+      nowMs: scheduledFor.getTime() - 20 * 60 * 1000,
+    });
+    expect(due.promoted).toBe(1);
+    expect(updateDue).toHaveBeenCalledWith(expect.objectContaining({ status: 'queued' }));
   });
 });
