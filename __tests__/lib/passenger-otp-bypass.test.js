@@ -39,15 +39,26 @@ describe('passenger OTP bypass phone', () => {
 
 describe('buildPassengerOtpMessage', () => {
   test('incluye el código y evita el texto de verificación que Meta marca como spam', () => {
-    const text = buildPassengerOtpMessage('2580');
+    const text = buildPassengerOtpMessage('2580', 1_000);
     expect(text).toContain('2580');
-    expect(text.toLowerCase()).not.toMatch(/verificaci[oó]n/);
-    expect(text.toLowerCase()).not.toMatch(/\botp\b/);
-    expect(text.toLowerCase()).not.toContain('no lo compartas');
+    expect(text.toLowerCase()).not.toMatch(/verificaci[oó]n|\bcódigo\b|\bcodigo\b|\botp\b|no lo compartas|válido por|valido por/);
     expect(text).not.toContain('*');
+    expect(text).not.toContain('\n');
   });
 
-  test('varía el texto según el código', () => {
-    expect(buildPassengerOtpMessage('1000')).not.toBe(buildPassengerOtpMessage('1001'));
+  test('siempre es una sola frase', () => {
+    for (let i = 0; i < 32; i += 1) {
+      const text = buildPassengerOtpMessage('2580', i * 1000);
+      expect(text).toContain('2580');
+      expect(text).not.toMatch(/\n/);
+      const clauses = text.split(/[.!?]+/).map((part) => part.trim()).filter(Boolean);
+      expect(clauses).toHaveLength(1);
+    }
+  });
+
+  test('un reenvío del mismo código cambia de frase', () => {
+    const first = buildPassengerOtpMessage('2580', 0);
+    const later = buildPassengerOtpMessage('2580', 5_000);
+    expect(first).not.toBe(later);
   });
 });

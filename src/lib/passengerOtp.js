@@ -84,17 +84,34 @@ function isOtpLineDisconnected(reason) {
 }
 
 /**
- * Texto corto, sin “código de verificación” ni markdown: ese patrón es el que
- * Meta marca como spam en sesiones no oficiales.
+ * Una sola frase, tono de chat. Sin “código/verificación/OTP” ni markdown.
+ * El índice mezcla el número con el segundo actual para que un reenvío no
+ * repita la misma plantilla.
  */
-export function buildPassengerOtpMessage(code) {
+const OTP_CHAT_PHRASES = [
+  (n) => `Hola, para entrar a la app de Profesional usá ${n}`,
+  (n) => `Hola, en Profesional Pasajero poné ${n} y seguís`,
+  (n) => `Buenas, en la app de Profesional te pide ${n}`,
+  (n) => `Hola, el número para la app de Profesional es ${n}`,
+  (n) => `Buenas, para seguir en Profesional Pasajero usá ${n}`,
+  (n) => `Hola, en la app poné ${n} y listo`,
+  (n) => `Buenas, te dejo ${n} para entrar a Profesional`,
+  (n) => `Hola, para abrir Profesional Pasajero usá ${n}`,
+  (n) => `Buenas, en Profesional el ingreso es ${n}`,
+  (n) => `Hola, si te pide un número en la app es ${n}`,
+  (n) => `Buenas, para continuar en la app usá ${n}`,
+  (n) => `Hola, te dejo ${n} para la app de Profesional`,
+  (n) => `Buenas, anotá ${n} para entrar a Profesional Pasajero`,
+  (n) => `Hola, en Profesional Pasajero el número es ${n}`,
+  (n) => `Buenas, para subir a la app de Profesional poné ${n}`,
+  (n) => `Hola, si estás en la app de Profesional usá ${n}`,
+];
+
+export function buildPassengerOtpMessage(code, nowMs = Date.now()) {
   const digits = String(code || '').replace(/\D/g, '').padStart(4, '0').slice(-4);
-  const variants = [
-    `Hola, para entrar a la app de Profesional usá ${digits}. Sirve 10 minutos.`,
-    `Hola! En Profesional Pasajero poné ${digits} para continuar.`,
-    `Buenas, tu acceso a la app es ${digits}. Vence en un rato.`,
-  ];
-  return variants[Number(digits) % variants.length];
+  const n = Number(digits) || 0;
+  const idx = Math.abs((n * 31 + Math.floor(Number(nowMs) / 1000)) % OTP_CHAT_PHRASES.length);
+  return OTP_CHAT_PHRASES[idx](digits);
 }
 
 async function readOtpLinePause(agentCode) {
