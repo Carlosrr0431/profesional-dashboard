@@ -7,6 +7,12 @@ import {
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate',
+  Pragma: 'no-cache',
+};
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -23,7 +29,7 @@ export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
     const trips = await fetchScheduledTripsSnapshot(supabase);
-    return NextResponse.json({ ok: true, data: { trips } });
+    return NextResponse.json({ ok: true, data: { trips } }, { headers: NO_STORE_HEADERS });
   } catch (err) {
     return NextResponse.json(
       {
@@ -33,7 +39,7 @@ export async function GET() {
           message: err?.message || 'No se pudieron leer los viajes programados',
         },
       },
-      { status: 500 },
+      { status: 500, headers: NO_STORE_HEADERS },
     );
   }
 }

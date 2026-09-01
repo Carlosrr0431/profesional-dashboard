@@ -24,6 +24,21 @@ function formatWhen(msUntil) {
   return { label: str, color: 'text-gray-500' };
 }
 
+function liveMsUntil(trip) {
+  if (trip?.scheduledFor instanceof Date && Number.isFinite(trip.scheduledFor.getTime())) {
+    return trip.scheduledFor.getTime() - Date.now();
+  }
+  return trip?.msUntil ?? null;
+}
+
+function liveUrgency(ms) {
+  if (ms === null) return 'past';
+  if (ms < 0) return 'past';
+  if (ms < 30 * 60 * 1000) return 'imminent';
+  if (ms < 2 * 60 * 60 * 1000) return 'soon';
+  return 'normal';
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function LiveDot() {
@@ -87,6 +102,9 @@ function UrgencyBadge({ urgency, countdown }) {
 function ScheduledTripCard({ trip, onCancel }) {
   const [cancelling, setCancelling] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const ms = liveMsUntil(trip);
+  const urgency = liveUrgency(ms);
+  const { label: countdown } = formatWhen(ms);
 
   const handleCancel = async () => {
     if (!confirmCancel) { setConfirmCancel(true); return; }
@@ -105,7 +123,7 @@ function ScheduledTripCard({ trip, onCancel }) {
     soon:     'border-blue-300/30 bg-gradient-to-r from-blue-50/60 to-transparent',
     normal:   'border-light-300/60 bg-white/80 hover:border-light-400',
     past:     'border-danger/25 bg-danger/3',
-  }[trip.urgency] || 'border-light-300/60 bg-white/80';
+  }[urgency] || 'border-light-300/60 bg-white/80';
 
   return (
     <div className={`relative rounded-2xl border p-4 transition-all ${urgencyCls}`}>
@@ -114,28 +132,28 @@ function ScheduledTripCard({ trip, onCancel }) {
 
         {/* Date block */}
         <div className={`flex-shrink-0 w-14 rounded-xl overflow-hidden border text-center ${
-          trip.urgency === 'imminent' ? 'border-warning/40 bg-warning/10' :
-          trip.urgency === 'past'     ? 'border-danger/30 bg-danger/8' :
+          urgency === 'imminent' ? 'border-warning/40 bg-warning/10' :
+          urgency === 'past'     ? 'border-danger/30 bg-danger/8' :
                                         'border-light-300 bg-light-100'
         }`}>
           <div className={`py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-            trip.urgency === 'imminent' ? 'bg-warning/20 text-warning' :
-            trip.urgency === 'past'     ? 'bg-danger/15 text-danger' :
+            urgency === 'imminent' ? 'bg-warning/20 text-warning' :
+            urgency === 'past'     ? 'bg-danger/15 text-danger' :
                                           'bg-light-200 text-gray-400'
           }`}>
             {ar?.wday ?? '—'}
           </div>
           <div className={`py-1.5 ${
-            trip.urgency === 'imminent' ? 'text-warning' :
-            trip.urgency === 'past'     ? 'text-danger' :
+            urgency === 'imminent' ? 'text-warning' :
+            urgency === 'past'     ? 'text-danger' :
                                           'text-navy-900'
           }`}>
             <p className="text-lg font-bold leading-none tabular-nums">{ar?.day ?? '—'}</p>
             <p className="text-[10px] font-medium text-gray-400 mt-0.5">{ar?.month ?? '—'}</p>
           </div>
           <div className={`py-1 border-t font-bold tabular-nums text-sm ${
-            trip.urgency === 'imminent' ? 'border-warning/25 text-warning bg-warning/5' :
-            trip.urgency === 'past'     ? 'border-danger/20 text-danger bg-danger/5' :
+            urgency === 'imminent' ? 'border-warning/25 text-warning bg-warning/5' :
+            urgency === 'past'     ? 'border-danger/20 text-danger bg-danger/5' :
                                           'border-light-300/60 text-navy-800 bg-white/50'
           }`}>
             {ar?.time ?? '—'}
@@ -149,7 +167,7 @@ function ScheduledTripCard({ trip, onCancel }) {
               <p className="text-sm font-bold text-navy-900 leading-tight">{trip.passenger_name || 'Pasajero'}</p>
               <p className="text-[11px] text-gray-400 mt-0.5">{maskPhone(trip.phone)}</p>
             </div>
-            <UrgencyBadge urgency={trip.urgency} countdown={trip.countdown} />
+            <UrgencyBadge urgency={urgency} countdown={countdown} />
           </div>
 
           {/* Pickup */}
@@ -215,19 +233,21 @@ function ScheduledTripCard({ trip, onCancel }) {
 
 function TimelineMarker({ trip }) {
   const ar = trip.arFormatted;
-  const { color } = formatWhen(trip.msUntil);
+  const ms = liveMsUntil(trip);
+  const urgency = liveUrgency(ms);
+  const { color, label } = formatWhen(ms);
   return (
-    <div className={`flex items-center gap-2 py-1.5 ${trip.urgency === 'past' ? 'opacity-40' : ''}`}>
+    <div className={`flex items-center gap-2 py-1.5 ${urgency === 'past' ? 'opacity-40' : ''}`}>
       <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-        trip.urgency === 'imminent' ? 'bg-warning animate-pulse' :
-        trip.urgency === 'soon' ? 'bg-blue-500' :
-        trip.urgency === 'past' ? 'bg-danger/50' :
+        urgency === 'imminent' ? 'bg-warning animate-pulse' :
+        urgency === 'soon' ? 'bg-blue-500' :
+        urgency === 'past' ? 'bg-danger/50' :
         'bg-violet-400'
       }`} />
       <span className="text-[11px] font-bold text-navy-900 tabular-nums w-11 flex-shrink-0">{ar?.time ?? '—'}</span>
       <span className="text-[11px] text-navy-800 truncate font-medium">{trip.passenger_name || 'Pasajero'}</span>
       <span className="text-[9px] text-gray-400 flex-shrink-0">{trip.sourceLabel || scheduledSourceLabel(trip.scheduledSource)}</span>
-      <span className={`text-[10px] ml-auto flex-shrink-0 ${color}`}>{trip.countdown}</span>
+      <span className={`text-[10px] ml-auto flex-shrink-0 ${color}`}>{label}</span>
     </div>
   );
 }
@@ -264,11 +284,18 @@ export default function ScheduledTripsPanel({
   const [refreshing, setRefreshing] = useState(false);
   const [tick, setTick] = useState(0);
 
-  // Tick cada segundo para actualizar cuentas regresivas visualmente
+  // Tick cada segundo para cuentas regresivas y agrupación en vivo
   useEffect(() => {
     const t = setInterval(() => setTick((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, []);
+
+  void tick;
+
+  const liveTrips = trips.map((trip) => {
+    const ms = liveMsUntil(trip);
+    return { ...trip, msUntil: ms, urgency: liveUrgency(ms), countdown: formatWhen(ms).label };
+  });
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -288,15 +315,18 @@ export default function ScheduledTripsPanel({
   };
 
   // Separar por urgencia para el orden visual
-  const imminentTrips = trips.filter((t) => t.urgency === 'imminent');
-  const soonTrips     = trips.filter((t) => t.urgency === 'soon');
-  const normalTrips   = trips.filter((t) => t.urgency === 'normal');
-  const pastTrips     = trips.filter((t) => t.urgency === 'past');
+  const imminentTrips = liveTrips.filter((t) => t.urgency === 'imminent');
+  const soonTrips     = liveTrips.filter((t) => t.urgency === 'soon');
+  const normalTrips   = liveTrips.filter((t) => t.urgency === 'normal');
+  const pastTrips     = liveTrips.filter((t) => t.urgency === 'past');
 
   const activeTrips = [...imminentTrips, ...soonTrips, ...normalTrips];
-
-  // void tick usage to prevent lint warning (forces re-render for countdown)
-  void tick;
+  const liveStats = {
+    total: liveTrips.length,
+    imminent: imminentTrips.length,
+    soon: soonTrips.length,
+    today: stats.today,
+  };
 
   return (
     <div className="flex flex-col flex-1 w-full min-h-0 h-full bg-light-100/60 overflow-hidden">
@@ -352,19 +382,19 @@ export default function ScheduledTripsPanel({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 px-4 py-4 flex-shrink-0 w-full lg:px-6">
         <StatCard
           label="Programados"
-          value={loading ? '—' : stats.total}
-          sub={stats.total === 0 ? 'Ninguno pendiente' : `${stats.total} en agenda`}
+          value={loading ? '—' : liveStats.total}
+          sub={liveStats.total === 0 ? 'Ninguno pendiente' : `${liveStats.total} en agenda`}
           color="violet"
         />
         <StatCard
           label="Inminentes"
-          value={loading ? '—' : stats.imminent}
+          value={loading ? '—' : liveStats.imminent}
           sub="< 30 min"
           color="amber"
         />
         <StatCard
           label="Próximas 2h"
-          value={loading ? '—' : stats.soon}
+          value={loading ? '—' : liveStats.soon}
           sub="pronto a despachar"
           color="blue"
         />
@@ -384,14 +414,14 @@ export default function ScheduledTripsPanel({
           <div className="flex items-center justify-between mb-3 flex-shrink-0">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-navy-900">Agenda de viajes</h3>
-              {stats.total > 0 && (
+              {liveStats.total > 0 && (
                 <span className="text-[11px] font-bold text-white bg-violet-500 rounded-full px-1.5 py-0.5 leading-tight">
-                  {stats.total}
+                  {liveStats.total}
                 </span>
               )}
-              {stats.imminent > 0 && (
+              {liveStats.imminent > 0 && (
                 <span className="text-[11px] font-bold text-warning bg-warning/15 border border-warning/30 rounded-full px-1.5 py-0.5 leading-tight animate-pulse">
-                  ⚡ {stats.imminent} inminente{stats.imminent !== 1 ? 's' : ''}
+                  ⚡ {liveStats.imminent} inminente{liveStats.imminent !== 1 ? 's' : ''}
                 </span>
               )}
             </div>
@@ -403,7 +433,7 @@ export default function ScheduledTripsPanel({
               <div className="flex items-center justify-center py-20">
                 <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
               </div>
-            ) : trips.length === 0 ? (
+            ) : liveTrips.length === 0 ? (
               <EmptyScheduled />
             ) : (
               <>

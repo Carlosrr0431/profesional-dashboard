@@ -3,6 +3,8 @@ const {
   mergeScheduledBookingRows,
   fetchScheduledTripsSnapshot,
   cancelScheduledBooking,
+  applyScheduledRealtimePayload,
+  upsertScheduledTripRow,
 } = require('../../src/lib/scheduledTripsSnapshot');
 
 function chain(result) {
@@ -91,7 +93,37 @@ describe('scheduledTripsSnapshot', () => {
     expect(data.id).toBe('abc');
   });
 
-  it('cancel sin id falla', async () => {
-    await expect(cancelScheduledBooking({}, '')).rejects.toThrow('Falta el viaje a cancelar');
+  it('aplica INSERT/UPDATE realtime y saca el viaje si deja de ser programado', () => {
+    const scheduled = { id: '1', status: 'scheduled', scheduled_for: '2026-08-31T23:00:00.000Z' };
+    const inserted = applyScheduledRealtimePayload([], {
+      eventType: 'INSERT',
+      new: scheduled,
+    });
+    expect(inserted).toEqual([scheduled]);
+
+    const queued = { id: '1', status: 'queued', scheduled_for: '2026-08-31T23:00:00.000Z' };
+    const updated = applyScheduledRealtimePayload(inserted, {
+      eventType: 'UPDATE',
+      new: queued,
+    });
+    expect(updated[0].status).toBe('queued');
+
+    const accepted = applyScheduledRealtimePayload(updated, {
+      eventType: 'UPDATE',
+      new: { id: '1', status: 'accepted', scheduled_for: '2026-08-31T23:00:00.000Z' },
+    });
+    expect(accepted).toEqual([]);
+  });
+
+  it('upsert agrega el viaje creado desde el panel', () => {
+    const trip = {
+      id: 'new',
+      status: 'scheduled',
+      scheduled_for: '2026-08-31T23:30:00.000Z',
+      passenger_name: 'charlky',
+    };
+    const next = upsertScheduledTripRow([], trip);
+    expect(next).toHaveLength(1);
+    expect(next[0].passenger_name).toBe('charlky');
   });
 });

@@ -345,7 +345,11 @@ export default function App() {
     setMapPopover(null);
     setPreviewRoute(null);
     const isScheduled = trip?.status === 'scheduled' || Boolean(trip?.scheduled_for);
-    scheduledData.refetch?.();
+    if (isScheduled) {
+      scheduledData.upsertTrip?.(trip);
+    } else {
+      scheduledData.refetch?.();
+    }
     queueData.refetch?.();
     liveTripsData.refetch?.();
     if (isScheduled) {

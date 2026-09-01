@@ -12,6 +12,10 @@ import {
   scheduledPickupAddress,
   scheduledSourceLabel,
 } from '../lib/scheduledTripSource';
+import {
+  applyScheduledRealtimePayload,
+  upsertScheduledTripRow,
+} from '../lib/scheduledTripsSnapshot';
 
 const AR_UTC_OFFSET_H = -3;
 
@@ -67,12 +71,13 @@ function formatFetchError(err) {
 }
 
 async function fetchScheduledSnapshot() {
-  let response = await fetch('/api/scheduled-trips', { cache: 'no-store' });
+  const url = `/api/scheduled-trips?ts=${Date.now()}`;
+  let response = await fetch(url, { cache: 'no-store' });
   let contentType = response.headers.get('content-type') || '';
 
   if (!contentType.includes('application/json')) {
     await new Promise((resolve) => setTimeout(resolve, 400));
-    response = await fetch('/api/scheduled-trips', { cache: 'no-store' });
+    response = await fetch(`/api/scheduled-trips?ts=${Date.now()}`, { cache: 'no-store' });
     contentType = response.headers.get('content-type') || '';
   }
 
@@ -97,24 +102,46 @@ export function useScheduledTrips() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [tick, setTick] = useState(() => Date.now());
   const channelRef = useRef(null);
+  const fetchGenRef = useRef(0);
+  const lastUpsertAtRef = useRef(0);
 
   const fetchTrips = useCallback(async () => {
+    const gen = ++fetchGenRef.current;
     try {
       const result = await fetchScheduledSnapshot();
+      if (gen !== fetchGenRef.current) return;
       if (result.skipped) return;
       if (result.error) {
         console.error('[useScheduledTrips] Error:', result.error);
         return;
       }
 
-      setTrips(result.trips || []);
+      const next = result.trips || [];
+      if (next.length === 0 && Date.now() - lastUpsertAtRef.current < 2000) {
+        setLastUpdated(new Date());
+        return;
+      }
+
+      setTrips(next);
       setLastUpdated(new Date());
     } catch (err) {
+      if (gen !== fetchGenRef.current) return;
       console.error('[useScheduledTrips] Error fetching:', formatFetchError(err));
     } finally {
-      setLoading(false);
+      if (gen === fetchGenRef.current) setLoading(false);
     }
   }, []);
+
+  const upsertTrip = useCallback((trip) => {
+    lastUpsertAtRef.current = Date.now();
+    setTrips((prev) => upsertScheduledTripRow(prev, trip));
+    setLoading(false);
+    setLastUpdated(new Date());
+    void fetchTrips();
+    setTimeout(() => {
+      void fetchTrips();
+    }, 800);
+  }, [fetchTrips]);
 
   useEffect(() => {
     fetchTrips();
@@ -124,13 +151,23 @@ export function useScheduledTrips() {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         fetchTrips();
-      }, 250);
+      }, 150);
+    };
+
+    const applyPayload = (payload) => {
+      setTrips((prev) => applyScheduledRealtimePayload(prev, payload));
+      setLastUpdated(new Date());
+      scheduleFetch();
     };
 
     const channel = supabase
-      .channel('scheduled-trips-monitor-v3')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, scheduleFetch)
+      .channel(`scheduled-trips-monitor-v4-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, applyPayload)
       .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          fetchTrips();
+          return;
+        }
         if (status !== 'CHANNEL_ERROR') return;
         const message = String(err?.message || status);
         if (/1006|socket closed/i.test(message)) {
@@ -141,7 +178,7 @@ export function useScheduledTrips() {
       });
 
     channelRef.current = channel;
-    const fallbackPoll = setInterval(fetchTrips, 30_000);
+    const fallbackPoll = setInterval(fetchTrips, 10_000);
 
     return () => {
       clearInterval(fallbackPoll);
@@ -223,6 +260,7 @@ export function useScheduledTrips() {
     if (!response.ok || payload?.ok === false) {
       throw new Error(payload?.error?.message || 'No se pudo cancelar el viaje');
     }
+    setTrips((prev) => prev.filter((item) => item.id !== tripId));
     await fetchTrips();
   }
 
@@ -233,6 +271,7 @@ export function useScheduledTrips() {
     loading,
     lastUpdated,
     refetch: fetchTrips,
+    upsertTrip,
     cancelScheduledTrip,
   };
 }

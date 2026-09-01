@@ -24,6 +24,36 @@ export function mergeScheduledBookingRows(...groups) {
   return [...byId.values()];
 }
 
+export function upsertScheduledTripRow(trips, trip) {
+  const list = Array.isArray(trips) ? trips : [];
+  if (!trip?.id) return list;
+  if (!isVisibleScheduledBooking(trip)) {
+    return list.filter((item) => item.id !== trip.id);
+  }
+  return mergeScheduledBookingRows(list, [trip]);
+}
+
+export function applyScheduledRealtimePayload(trips, payload) {
+  const list = Array.isArray(trips) ? trips : [];
+  const event = String(payload?.eventType || payload?.event || '').toUpperCase();
+  const row = payload?.new && typeof payload.new === 'object' ? payload.new : null;
+  const previous = payload?.old && typeof payload.old === 'object' ? payload.old : null;
+
+  if (event === 'DELETE') {
+    const id = previous?.id || row?.id;
+    if (!id) return list;
+    return list.filter((item) => item.id !== id);
+  }
+
+  if (!row?.id) return list;
+
+  if (isVisibleScheduledBooking(row)) {
+    return mergeScheduledBookingRows(list, [row]);
+  }
+
+  return list.filter((item) => item.id !== row.id);
+}
+
 function unwrap(result, fallbackMessage) {
   if (result?.error) {
     const err = new Error(result.error.message || fallbackMessage);
