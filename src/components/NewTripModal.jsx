@@ -5,6 +5,7 @@ import { formatError } from '../lib/errorFormat';
 import { isWithinSaltaCapital } from '../lib/constants';
 import { useToast } from '../context/ToastContext';
 import AddressAutocomplete from './AddressAutocomplete';
+import { ScheduleDatePicker, ScheduleTimePicker } from './ScheduleDateTimePickers';
 import {
   AR_UTC_OFFSET_H,
   DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS,
@@ -587,23 +588,11 @@ export default function NewTripModal({
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                 <div>
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6D28D9', marginBottom: 5, letterSpacing: '0.04em' }}>📅 DÍA</label>
-                  <input
-                    type="date"
-                    required
-                    value={scheduleDate}
-                    onChange={(e) => setScheduleDate(e.target.value)}
-                    style={optInputStyle}
-                  />
+                  <ScheduleDatePicker value={scheduleDate} onChange={setScheduleDate} />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6D28D9', marginBottom: 5, letterSpacing: '0.04em' }}>⏰ HORA</label>
-                  <input
-                    type="time"
-                    required
-                    value={scheduleTime}
-                    onChange={(e) => setScheduleTime(e.target.value)}
-                    style={optInputStyle}
-                  />
+                  <ScheduleTimePicker value={scheduleTime} onChange={setScheduleTime} />
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
