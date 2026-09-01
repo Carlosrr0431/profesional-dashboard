@@ -65,6 +65,8 @@ export default function NewTripModal({
 }) {
   const toast = useToast();
   const pickupInputRef = useRef(null);
+  const modalScrollRef = useRef(null);
+  const scheduleSectionRef = useRef(null);
 
   /* Recogida */
   const [pickupLabel, setPickupLabel] = useState('');
@@ -215,6 +217,22 @@ export default function NewTripModal({
       return next;
     });
   };
+
+  useEffect(() => {
+    if (!isScheduled) return undefined;
+    const timer = window.setTimeout(() => {
+      const modal = modalScrollRef.current;
+      const section = scheduleSectionRef.current;
+      if (!modal || !section) return;
+      const modalRect = modal.getBoundingClientRect();
+      const sectionRect = section.getBoundingClientRect();
+      const hiddenBottom = sectionRect.bottom - modalRect.bottom + 18;
+      if (hiddenBottom > 4) {
+        modal.scrollTo({ top: modal.scrollTop + hiddenBottom, behavior: 'smooth' });
+      }
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [isScheduled]);
 
   /* ── Submit ───────────────────────────────────────────────────────────── */
   const handleSubmit = async (e) => {
@@ -418,7 +436,7 @@ export default function NewTripModal({
       onClick={asPopover ? undefined : ((e) => e.target === e.currentTarget && onClose())}
     >
       <style>{MODAL_STYLES}</style>
-      <div style={{
+      <div ref={modalScrollRef} style={{
         background: '#FFFFFF', borderRadius: asPopover ? 16 : 20,
         width: '100%', maxWidth: asPopover ? 'none' : 520,
         maxHeight: asPopover ? 'calc(100vh - 110px)' : '92vh', overflowY: 'auto',
@@ -599,7 +617,9 @@ export default function NewTripModal({
           </div>
 
           {isScheduled ? (
-            <div style={{
+            <div
+              ref={scheduleSectionRef}
+              style={{
               background: '#FAFBFC', border: '1px solid #E8EEF4',
               borderRadius: 14, padding: 12, marginBottom: 12,
             }}>

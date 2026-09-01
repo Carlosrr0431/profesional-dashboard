@@ -55,10 +55,28 @@ function parseTimeParts(value) {
   };
 }
 
-function scrollChildIntoView(el) {
-  const parent = el?.parentElement;
-  if (!el || !parent) return;
-  parent.scrollTop = el.offsetTop - parent.clientHeight / 2 + el.clientHeight / 2;
+function scrollChildIntoView(el, scroller) {
+  if (!el) return;
+  const parent = scroller || el.parentElement;
+  if (!parent) return;
+  const parentRect = parent.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  if (parentRect.height < 8) return;
+  parent.scrollTop += (elRect.top + elRect.height / 2) - (parentRect.top + parent.clientHeight / 2);
+}
+
+function currentArTimeParts() {
+  const formatted = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Argentina/Salta',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date());
+  const [hour, minute] = formatted.split(':');
+  return {
+    hour: String(hour || '00').padStart(2, '0'),
+    minute: String(minute || '00').padStart(2, '0'),
+  };
 }
 
 function useAnchoredPopover(open, onClose) {
@@ -256,12 +274,28 @@ export function ScheduleTimePicker({ value, onChange }) {
   const { hour, minute } = parseTimeParts(value);
   const hourRefs = useRef({});
   const minuteRefs = useRef({});
+  const hourListRef = useRef(null);
+  const minuteListRef = useRef(null);
 
   useLayoutEffect(() => {
-    if (!open) return;
-    scrollChildIntoView(hourRefs.current[hour]);
-    scrollChildIntoView(minuteRefs.current[minute]);
-  }, [open, hour, minute]);
+    if (!open || !coords) return undefined;
+    const now = currentArTimeParts();
+    let cancelled = false;
+    let innerFrame = 0;
+    const run = () => {
+      if (cancelled) return;
+      scrollChildIntoView(hourRefs.current[hour] || hourRefs.current[now.hour], hourListRef.current);
+      scrollChildIntoView(minuteRefs.current[minute] || minuteRefs.current[now.minute], minuteListRef.current);
+    };
+    const outerFrame = window.requestAnimationFrame(() => {
+      innerFrame = window.requestAnimationFrame(run);
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(outerFrame);
+      window.cancelAnimationFrame(innerFrame);
+    };
+  }, [open, coords, hour, minute]);
 
   const pick = (nextHour, nextMinute) => {
     onChange(`${nextHour}:${nextMinute}`);
@@ -281,7 +315,7 @@ export function ScheduleTimePicker({ value, onChange }) {
           <span>Min</span>
         </div>
         <div className="grid grid-cols-2">
-          <div className="max-h-[220px] overflow-y-auto overscroll-contain border-r border-violet-100 py-1">
+          <div ref={hourListRef} className="max-h-[220px] overflow-y-auto overscroll-contain border-r border-violet-100 py-[88px]">
             {HOURS_24.map((h) => {
               const selected = h === hour;
               return (
@@ -301,7 +335,7 @@ export function ScheduleTimePicker({ value, onChange }) {
               );
             })}
           </div>
-          <div className="max-h-[220px] overflow-y-auto overscroll-contain py-1">
+          <div ref={minuteListRef} className="max-h-[220px] overflow-y-auto overscroll-contain py-[88px]">
             {MINUTES.map((m) => {
               const selected = m === minute;
               return (
