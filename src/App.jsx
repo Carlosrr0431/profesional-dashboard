@@ -22,6 +22,7 @@ import BroadcastVoiceChat from './components/BroadcastVoiceChat';
 import VoiceChat from './components/VoiceChat';
 import ViajesPanel from './components/ViajesPanel';
 import ScheduledTripsPanel from './components/ScheduledTripsPanel';
+import AssignFreeDriverPicker from './components/AssignFreeDriverPicker';
 import StatisticsPanel from './components/StatisticsPanel';
 import GeocodeErrorsPanel from './components/GeocodeErrorsPanel';
 import EmulatorGpsSimulator from './components/EmulatorGpsSimulator';
@@ -347,20 +348,14 @@ export default function App() {
     const isScheduled = trip?.status === 'scheduled' || Boolean(trip?.scheduled_for);
     if (isScheduled) {
       scheduledData.upsertTrip?.(trip);
+      toast.success('Viaje programado. Se busca chofer 20 minutos antes.');
     } else {
       scheduledData.refetch?.();
+      toast.success('Viaje encolado correctamente');
     }
     queueData.refetch?.();
     liveTripsData.refetch?.();
-    if (isScheduled) {
-      goTo(VIEWS.scheduled);
-      toast.success('Viaje programado. Se busca chofer 20 minutos antes.');
-      return;
-    }
-    setTripsDate(toLocalDateInputValue());
-    goTo(VIEWS.trips);
-    toast.success('Viaje encolado correctamente');
-  }, [queueData, liveTripsData, scheduledData, goTo, toast]);
+  }, [queueData, liveTripsData, scheduledData, toast]);
 
   const renderNavigation = (compact = false) => (
     <>
@@ -719,6 +714,7 @@ export default function App() {
           <div className="flex-1 w-full min-w-0 min-h-0 flex flex-col">
             <ScheduledTripsPanel
               {...scheduledData}
+              drivers={drivers}
               onBack={() => goTo(VIEWS.map)}
             />
           </div>
@@ -1037,6 +1033,12 @@ export default function App() {
                                 </div>
                               ) : null}
                             </div>
+                            <AssignFreeDriverPicker
+                              compact
+                              trip={item}
+                              drivers={drivers}
+                              onAssigned={() => scheduledData.refetch?.()}
+                            />
                           </div>
                         ))
                       )}

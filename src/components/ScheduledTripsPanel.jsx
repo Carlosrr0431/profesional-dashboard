@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useToast } from '../context/ToastContext';
 import { scheduledSourceBadgeClass, scheduledSourceLabel } from '../lib/scheduledTripSource';
+import AssignFreeDriverPicker from './AssignFreeDriverPicker';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -99,7 +100,7 @@ function UrgencyBadge({ urgency, countdown }) {
   );
 }
 
-function ScheduledTripCard({ trip, onCancel }) {
+function ScheduledTripCard({ trip, onCancel, drivers, onAssigned }) {
   const [cancelling, setCancelling] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const ms = liveMsUntil(trip);
@@ -198,33 +199,39 @@ function ScheduledTripCard({ trip, onCancel }) {
           </div>
 
           {/* ID + timestamp */}
-          <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-light-200/70">
+          <div className="flex items-center justify-between gap-2 mt-2.5 pt-2.5 border-t border-light-200/70">
             <p className="text-[10px] text-gray-300">
               #{String(trip.id).slice(0, 8)} · Reservado {new Date(trip.created_at).toLocaleString('es-AR', {
                 day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
               })}
             </p>
-            {/* Cancel */}
-            <button
-              onClick={handleCancel}
-              disabled={cancelling}
-              className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-all ${
-                confirmCancel
-                  ? 'bg-danger text-white hover:bg-danger/80'
-                  : 'text-danger/70 hover:text-danger hover:bg-danger/8 border border-transparent hover:border-danger/20'
-              } disabled:opacity-50`}
-            >
-              {cancelling ? '...' : confirmCancel ? '¿Confirmar cancelación?' : 'Cancelar'}
-            </button>
-            {confirmCancel && !cancelling && (
+            <div className="flex items-center gap-1.5 flex-shrink-0">
               <button
-                onClick={() => setConfirmCancel(false)}
-                className="text-[11px] text-gray-400 hover:text-gray-600 px-2 py-1"
+                onClick={handleCancel}
+                disabled={cancelling}
+                className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-all ${
+                  confirmCancel
+                    ? 'bg-danger text-white hover:bg-danger/80'
+                    : 'text-danger/70 hover:text-danger hover:bg-danger/8 border border-transparent hover:border-danger/20'
+                } disabled:opacity-50`}
               >
-                No
+                {cancelling ? '...' : confirmCancel ? '¿Confirmar cancelación?' : 'Cancelar'}
               </button>
-            )}
+              {confirmCancel && !cancelling && (
+                <button
+                  onClick={() => setConfirmCancel(false)}
+                  className="text-[11px] text-gray-400 hover:text-gray-600 px-2 py-1"
+                >
+                  No
+                </button>
+              )}
+            </div>
           </div>
+          <AssignFreeDriverPicker
+            trip={trip}
+            drivers={drivers}
+            onAssigned={onAssigned}
+          />
         </div>
       </div>
     </div>
@@ -278,6 +285,7 @@ export default function ScheduledTripsPanel({
   lastUpdated,
   refetch,
   cancelScheduledTrip,
+  drivers,
   onBack,
 }) {
   const toast = useToast();
@@ -446,7 +454,7 @@ export default function ScheduledTripsPanel({
                     </p>
                     <div className="space-y-2.5">
                       {imminentTrips.map((t) => (
-                        <ScheduledTripCard key={t.id} trip={t} onCancel={handleCancelTrip} />
+                        <ScheduledTripCard key={t.id} trip={t} onCancel={handleCancelTrip} drivers={drivers} onAssigned={refetch} />
                       ))}
                     </div>
                   </div>
@@ -461,7 +469,7 @@ export default function ScheduledTripsPanel({
                     </p>
                     <div className="space-y-2.5">
                       {soonTrips.map((t) => (
-                        <ScheduledTripCard key={t.id} trip={t} onCancel={handleCancelTrip} />
+                        <ScheduledTripCard key={t.id} trip={t} onCancel={handleCancelTrip} drivers={drivers} onAssigned={refetch} />
                       ))}
                     </div>
                   </div>
@@ -476,7 +484,7 @@ export default function ScheduledTripsPanel({
                     </p>
                     <div className="space-y-2.5">
                       {normalTrips.map((t) => (
-                        <ScheduledTripCard key={t.id} trip={t} onCancel={handleCancelTrip} />
+                        <ScheduledTripCard key={t.id} trip={t} onCancel={handleCancelTrip} drivers={drivers} onAssigned={refetch} />
                       ))}
                     </div>
                   </div>
@@ -491,7 +499,7 @@ export default function ScheduledTripsPanel({
                     </p>
                     <div className="space-y-2.5">
                       {pastTrips.map((t) => (
-                        <ScheduledTripCard key={t.id} trip={t} onCancel={handleCancelTrip} />
+                        <ScheduledTripCard key={t.id} trip={t} onCancel={handleCancelTrip} drivers={drivers} onAssigned={refetch} />
                       ))}
                     </div>
                   </div>
