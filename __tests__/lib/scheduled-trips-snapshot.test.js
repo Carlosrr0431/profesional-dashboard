@@ -18,6 +18,7 @@ function chain(result) {
     order: () => query,
     limit: () => Promise.resolve(result),
     update: () => query,
+    delete: () => query,
     maybeSingle: () => Promise.resolve(result),
   };
   return query;
@@ -87,7 +88,10 @@ describe('scheduledTripsSnapshot', () => {
 
   it('cancel actualiza scheduled y queued', async () => {
     const supabase = {
-      from: () => chain({ data: { id: 'abc' }, error: null }),
+      from: () => chain({
+        data: { id: 'abc', status: 'scheduled', driver_id: null },
+        error: null,
+      }),
     };
     const data = await cancelScheduledBooking(supabase, 'abc');
     expect(data.id).toBe('abc');

@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import {
-  cancelScheduledBooking,
-  fetchScheduledTripsSnapshot,
-} from '../../../src/lib/scheduledTripsSnapshot';
+import { cancelTripAsOperator } from '../../../src/lib/cancelTripAsOperator';
+import { notifyOperatorCancelledTrip } from '../../../src/lib/notifyOperatorCancelledTrip';
+import { fetchScheduledTripsSnapshot } from '../../../src/lib/scheduledTripsSnapshot';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,11 +55,21 @@ export async function POST(req) {
     }
 
     const supabase = getSupabaseAdmin();
-    const data = await cancelScheduledBooking(supabase, body?.tripId);
-    return NextResponse.json({ ok: true, data });
+    const result = await cancelTripAsOperator(supabase, body?.tripId);
+    if (!result.alreadyCancelled) {
+      try {
+        await notifyOperatorCancelledTrip(supabase, result.trip);
+      } catch (notifyError) {
+        console.error('[scheduled-trips] notify', notifyError);
+      }
+    }
+    return NextResponse.json({ ok: true, data: { id: result.trip.id } });
   } catch (err) {
     const code = err?.code || 'SERVER_ERROR';
-    const status = code === 'missing_trip_id' ? 400 : code === 'not_cancellable' ? 409 : 500;
+    const status = code === 'missing_trip_id' ? 400
+      : code === 'trip_not_found' ? 404
+      : code === 'not_cancellable' ? 409
+      : 500;
     return NextResponse.json(
       {
         ok: false,

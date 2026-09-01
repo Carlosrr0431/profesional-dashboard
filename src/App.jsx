@@ -23,6 +23,7 @@ import VoiceChat from './components/VoiceChat';
 import ViajesPanel from './components/ViajesPanel';
 import ScheduledTripsPanel from './components/ScheduledTripsPanel';
 import AssignFreeDriverPicker from './components/AssignFreeDriverPicker';
+import CancelTripButton from './components/CancelTripButton';
 import StatisticsPanel from './components/StatisticsPanel';
 import GeocodeErrorsPanel from './components/GeocodeErrorsPanel';
 import EmulatorGpsSimulator from './components/EmulatorGpsSimulator';
@@ -341,6 +342,12 @@ export default function App() {
       toast.warning(`Viaje programado de ${name} ${trip.countdown}. Buscando chofer.`);
     }
   }, [scheduledData.dispatchSoonTrips, scheduledData.loading, scheduledData.trips.length, toast]);
+
+  const refetchTripSurfaces = useCallback(() => {
+    queueData.refetch?.();
+    liveTripsData.refetch?.();
+    scheduledData.refetch?.();
+  }, [queueData, liveTripsData, scheduledData]);
 
   const handleNewTripSuccess = useCallback((trip) => {
     setMapPopover(null);
@@ -943,6 +950,12 @@ export default function App() {
                                 <span className="text-[10.5px] text-slate-400">{item.dispatchAttempts} intento{item.dispatchAttempts !== 1 ? 's' : ''}</span>
                               ) : null}
                             </div>
+                            <CancelTripButton
+                              compact
+                              className="mt-2"
+                              tripId={item.id}
+                              onCancelled={refetchTripSurfaces}
+                            />
                           </div>
                         ))
                       )}
@@ -977,6 +990,14 @@ export default function App() {
                               <p className="mt-0.5 truncate text-[11px] text-slate-500">{trip.pickupAddress || trip.destination || '—'}</p>
                               {trip.driver ? (
                                 <p className="mt-0.5 truncate text-[10px] text-slate-400">🚗 {trip.driver.fullName || trip.driver.full_name || String(trip.driver)}</p>
+                              ) : null}
+                              {trip.status === 'queued' || trip.status === 'pending' || trip.status === 'scheduled' ? (
+                                <CancelTripButton
+                                  compact
+                                  className="mt-1.5"
+                                  tripId={trip.id}
+                                  onCancelled={refetchTripSurfaces}
+                                />
                               ) : null}
                             </div>
                           );
@@ -1038,6 +1059,12 @@ export default function App() {
                               trip={item}
                               drivers={drivers}
                               onAssigned={() => scheduledData.refetch?.()}
+                            />
+                            <CancelTripButton
+                              compact
+                              className="mt-1.5"
+                              tripId={item.id}
+                              onCancelled={refetchTripSurfaces}
                             />
                           </div>
                         ))

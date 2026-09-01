@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useToast } from '../context/ToastContext';
 import { toLocalDateInputValue } from '../hooks/useLiveTrips';
+import { canOperatorCancelTrip } from '../lib/passengerTripCancel';
 import {
   resolveTripsViewRange,
   shiftTripsAnchor,
   toAnchorString,
 } from '../lib/commissionPaymentPeriods';
+import CancelTripButton from './CancelTripButton';
 import TripsRangePicker from './TripsRangePicker';
 
 const STATUS_FILTERS = [
@@ -140,7 +142,7 @@ function MiniStat({ label, value, tone = 'slate', onClick, active }) {
   );
 }
 
-function QueueCard({ item, isFirst }) {
+function QueueCard({ item, isFirst, onCancelled }) {
   const urgent = item.waitMinutes >= 10;
   return (
     <article
@@ -172,13 +174,14 @@ function QueueCard({ item, isFirst }) {
           <p className="mt-0.5 text-[11px] text-slate-500">{formatPhone(item.phone)}</p>
           <p className="mt-1.5 text-[12px] font-medium leading-snug text-navy-800">{item.pickupAddress}</p>
           <p className="mt-1 text-[10px] text-slate-400">En cola desde {formatDateTime(item.queuedAt)}</p>
+          <CancelTripButton className="mt-2" tripId={item.id} onCancelled={onCancelled} />
         </div>
       </div>
     </article>
   );
 }
 
-function TripCard({ trip }) {
+function TripCard({ trip, onCancelled }) {
   const { label, color, bar } = tripStatusInfo(trip.status);
   const driverName = trip.driver?.full_name || null;
   const driverPlate = trip.driver?.vehicle_plate || '';
@@ -234,6 +237,10 @@ function TripCard({ trip }) {
 
       {trip.cancelReason ? (
         <p className="mt-2 pl-1 text-[11px] text-rose-600">Cancelado: {trip.cancelReason}</p>
+      ) : null}
+
+      {canOperatorCancelTrip(trip) ? (
+        <CancelTripButton className="mt-2 pl-1" tripId={trip.id} onCancelled={onCancelled} />
       ) : null}
     </article>
   );
@@ -318,6 +325,11 @@ export default function ViajesPanel({
     } finally {
       setRefreshing(false);
     }
+  };
+
+  const handleTripCancelled = () => {
+    queueData?.refetch?.();
+    liveTripsData?.refetch?.();
   };
 
   const shiftRange = (delta) => {
@@ -631,7 +643,7 @@ export default function ViajesPanel({
               ) : (
                 <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
                   {queuedList.map((item, index) => (
-                    <QueueCard key={item.id} item={item} isFirst={index === 0} />
+                    <QueueCard key={item.id} item={item} isFirst={index === 0} onCancelled={handleTripCancelled} />
                   ))}
                 </div>
               )}
@@ -659,7 +671,7 @@ export default function ViajesPanel({
               ) : (
                 <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
                   {filteredTrips.map((trip) => (
-                    <TripCard key={trip.id} trip={trip} />
+                    <TripCard key={trip.id} trip={trip} onCancelled={handleTripCancelled} />
                   ))}
                 </div>
               )}

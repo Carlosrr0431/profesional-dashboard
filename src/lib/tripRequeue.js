@@ -1,4 +1,4 @@
-import { isPassengerInitiatedCancellation } from './passengerTripCancel';
+import { isPassengerInitiatedCancellation, isOperatorInitiatedCancellation } from './passengerTripCancel';
 import {
   isPassengerAppTrip,
   isApproachOnlyTrip,
@@ -130,6 +130,7 @@ export function canRequeuePendingTrip(trip) {
   if (!trip) return false;
   if (String(trip.status || '').toLowerCase() !== 'pending') return false;
   if (isPassengerInitiatedCancellation(trip)) return false;
+  if (isOperatorInitiatedCancellation(trip)) return false;
   return true;
 }
 

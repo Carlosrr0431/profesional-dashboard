@@ -16,6 +16,7 @@ import {
   applyScheduledRealtimePayload,
   upsertScheduledTripRow,
 } from '../lib/scheduledTripsSnapshot';
+import { cancelTripAsOperator } from '../lib/cancelTripAsOperatorClient';
 
 const AR_UTC_OFFSET_H = -3;
 
@@ -251,15 +252,7 @@ export function useScheduledTrips() {
   );
 
   async function cancelScheduledTrip(tripId) {
-    const response = await fetch('/api/scheduled-trips', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'cancel', tripId }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || payload?.ok === false) {
-      throw new Error(payload?.error?.message || 'No se pudo cancelar el viaje');
-    }
+    await cancelTripAsOperator(tripId);
     setTrips((prev) => prev.filter((item) => item.id !== tripId));
     await fetchTrips();
   }

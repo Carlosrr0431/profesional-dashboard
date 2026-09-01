@@ -1,3 +1,4 @@
+import { cancelTripAsOperator } from './cancelTripAsOperator';
 import { resolveScheduledForFromTrip } from './promoteDueScheduledTrips';
 
 export const SCHEDULED_TRIP_SELECT =
@@ -97,29 +98,6 @@ export async function fetchScheduledTripsSnapshot(supabase) {
 }
 
 export async function cancelScheduledBooking(supabase, tripId) {
-  const id = String(tripId || '').trim();
-  if (!id) {
-    const err = new Error('Falta el viaje a cancelar.');
-    err.code = 'missing_trip_id';
-    throw err;
-  }
-
-  const { data, error } = await supabase
-    .from('trips')
-    .update({
-      status: 'cancelled',
-      cancel_reason: 'Cancelado desde viajes programados',
-    })
-    .eq('id', id)
-    .in('status', CANCELLABLE_SCHEDULED_STATUSES)
-    .select('id')
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) {
-    const err = new Error('El viaje ya no se puede cancelar desde acá (fue asignado o cancelado).');
-    err.code = 'not_cancellable';
-    throw err;
-  }
-  return data;
+  const result = await cancelTripAsOperator(supabase, tripId);
+  return { id: result.trip.id };
 }

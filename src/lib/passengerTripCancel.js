@@ -1,5 +1,6 @@
 export const PASSENGER_CANCEL_REASON = '[PASSENGER_APP] Cancelado por el pasajero';
 export const WHATSAPP_CANCEL_REASON = 'Pasajero canceló por WhatsApp';
+export const OPERATOR_CANCEL_REASON = '[MANUAL_CANCEL] Cancelado por operador';
 
 const PASSENGER_CANCEL_MARKERS = [
   'passenger_app',
@@ -44,6 +45,13 @@ export const PASSENGER_CANCELLABLE_STATUSES = [
   'going_to_pickup',
 ];
 
+/** Estados en los que el operador puede cancelar desde el dashboard. */
+export const OPERATOR_CANCELLABLE_STATUSES = [
+  'scheduled',
+  'queued',
+  'pending',
+];
+
 /**
  * Payload de cancelación.
  * Conserva driver_id cuando el viaje ya estaba asignado, para que Realtime
@@ -74,4 +82,15 @@ export function buildWhatsAppCancelledTripUpdate(existing = {}, extra = {}) {
     wa_context: null,
     ...extra,
   });
+}
+
+export function buildOperatorCancelledTripUpdate(existing = {}, extra = {}) {
+  return buildPassengerCancelledTripUpdate(existing, {
+    cancel_reason: OPERATOR_CANCEL_REASON,
+    ...extra,
+  });
+}
+
+export function canOperatorCancelTrip(trip) {
+  return OPERATOR_CANCELLABLE_STATUSES.includes(String(trip?.status || '').toLowerCase());
 }
