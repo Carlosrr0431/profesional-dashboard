@@ -3980,6 +3980,7 @@ function buildScheduledTripNotes({ scheduleInfo, batch, extracted, conversationT
   return [
     `[SCHEDULED_FOR] ${scheduleInfo.date.toISOString()}`,
     `[SCHEDULED_DISPLAY] ${scheduleInfo.displayText}`,
+    `[SCHEDULED_SOURCE] whatsapp`,
     `[PASSENGER_PHONE] ${batch.phone}`,
     `[CONVERSATION_ID] ${batch.id}`,
     extracted?.notes ? extracted.notes : null,

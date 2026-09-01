@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useToast } from '../context/ToastContext';
+import { scheduledSourceBadgeClass, scheduledSourceLabel } from '../lib/scheduledTripSource';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,14 @@ function StatCard({ label, value, sub, color = 'violet' }) {
   );
 }
 
+function SourceBadge({ source }) {
+  return (
+    <span className={`inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border ${scheduledSourceBadgeClass(source)}`}>
+      {scheduledSourceLabel(source)}
+    </span>
+  );
+}
+
 function UrgencyBadge({ urgency, countdown }) {
   const styles = {
     imminent: 'bg-warning/15 text-warning border-warning/35',
@@ -78,7 +87,6 @@ function UrgencyBadge({ urgency, countdown }) {
 function ScheduledTripCard({ trip, onCancel }) {
   const [cancelling, setCancelling] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const { label: whenLabel, color: whenColor } = formatWhen(trip.msUntil);
 
   const handleCancel = async () => {
     if (!confirmCancel) { setConfirmCancel(true); return; }
@@ -149,28 +157,27 @@ function ScheduledTripCard({ trip, onCancel }) {
             <svg className="w-3.5 h-3.5 text-violet-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
             </svg>
-            <p className="text-[12px] font-medium text-navy-800 leading-snug">{trip.destination_address || '—'}</p>
+            <p className="text-[12px] font-medium text-navy-800 leading-snug">{trip.pickupAddress || trip.origin_address || trip.destination_address || '—'}</p>
           </div>
+          {trip.dropoffAddress ? (
+            <div className="flex items-start gap-1.5 mt-1">
+              <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-sm bg-navy-800" />
+              <p className="text-[12px] text-navy-700 leading-snug">{trip.dropoffAddress}</p>
+            </div>
+          ) : null}
 
           {/* Display text / confirmación */}
           {trip.displayText && (
             <p className="text-[11px] text-gray-400 mt-1.5 italic">"{trip.displayText}"</p>
           )}
-          <p className="mt-1.5">
-            <span className={`inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-              trip.scheduledSource === 'passenger_web'
-                ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
-                : trip.scheduledSource === 'passenger_app'
-                  ? 'bg-sky-50 text-sky-700 border-sky-200'
-                  : 'bg-violet-50 text-violet-700 border-violet-200'
-            }`}>
-              {trip.scheduledSource === 'passenger_web'
-                ? 'Web pasajeros'
-                : trip.scheduledSource === 'passenger_app'
-                  ? 'App pasajeros'
-                  : 'WhatsApp'}
-            </span>
-          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <SourceBadge source={trip.scheduledSource} />
+            {trip.isDispatching ? (
+              <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200">
+                Buscando chofer
+              </span>
+            ) : null}
+          </div>
 
           {/* ID + timestamp */}
           <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-light-200/70">
@@ -180,19 +187,17 @@ function ScheduledTripCard({ trip, onCancel }) {
               })}
             </p>
             {/* Cancel */}
-            {trip.urgency !== 'past' && (
-              <button
-                onClick={handleCancel}
-                disabled={cancelling}
-                className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-all ${
-                  confirmCancel
-                    ? 'bg-danger text-white hover:bg-danger/80'
-                    : 'text-danger/70 hover:text-danger hover:bg-danger/8 border border-transparent hover:border-danger/20'
-                } disabled:opacity-50`}
-              >
-                {cancelling ? '...' : confirmCancel ? '¿Confirmar cancelación?' : 'Cancelar'}
-              </button>
-            )}
+            <button
+              onClick={handleCancel}
+              disabled={cancelling}
+              className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-all ${
+                confirmCancel
+                  ? 'bg-danger text-white hover:bg-danger/80'
+                  : 'text-danger/70 hover:text-danger hover:bg-danger/8 border border-transparent hover:border-danger/20'
+              } disabled:opacity-50`}
+            >
+              {cancelling ? '...' : confirmCancel ? '¿Confirmar cancelación?' : 'Cancelar'}
+            </button>
             {confirmCancel && !cancelling && (
               <button
                 onClick={() => setConfirmCancel(false)}
@@ -221,6 +226,7 @@ function TimelineMarker({ trip }) {
       }`} />
       <span className="text-[11px] font-bold text-navy-900 tabular-nums w-11 flex-shrink-0">{ar?.time ?? '—'}</span>
       <span className="text-[11px] text-navy-800 truncate font-medium">{trip.passenger_name || 'Pasajero'}</span>
+      <span className="text-[9px] text-gray-400 flex-shrink-0">{trip.sourceLabel || scheduledSourceLabel(trip.scheduledSource)}</span>
       <span className={`text-[10px] ml-auto flex-shrink-0 ${color}`}>{trip.countdown}</span>
     </div>
   );
@@ -236,8 +242,8 @@ function EmptyScheduled() {
         </svg>
       </div>
       <p className="text-sm font-semibold text-navy-800">Sin viajes programados</p>
-      <p className="text-xs text-gray-400 mt-1.5 max-w-[200px]">
-        Los viajes agendados por WhatsApp o la app de pasajeros aparecerán acá automáticamente
+      <p className="text-xs text-gray-400 mt-1.5 max-w-[240px]">
+        Los viajes agendados por el panel, WhatsApp o la app de pasajeros aparecen acá, aunque falten menos de 20 minutos
       </p>
     </div>
   );
@@ -318,7 +324,7 @@ export default function ScheduledTripsPanel({
           <div className="min-w-0">
             <h2 className="text-navy-900 font-bold text-base leading-tight">Viajes programados</h2>
             <p className="hidden text-[11px] text-gray-400 sm:block">
-              Reservas por WhatsApp y app · Suscripto en tiempo real ·{' '}
+              Panel, WhatsApp y app · Siguen visibles al buscar chofer ·{' '}
               {lastUpdated
                 ? `Actualizado ${lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
                 : 'Cargando...'}
@@ -516,7 +522,7 @@ export default function ScheduledTripsPanel({
           {/* Nota informativa */}
           <div className="mt-3 p-3 bg-violet-50 border border-violet-100 rounded-xl flex-shrink-0">
             <p className="text-[10px] text-violet-600 font-medium leading-relaxed">
-              🚕 Los viajes programados (dashboard, WhatsApp o app) pasan a cola automáticamente 20 minutos antes de la hora reservada y empiezan a buscar chofer. Las reservas por WhatsApp reciben aviso; las de la app no.
+              🚕 Los viajes programados (panel, WhatsApp o app) siguen visibles acá con el tiempo que falta. 20 minutos antes pasan a cola y buscan chofer; el aviso por WhatsApp solo llega a reservas de WhatsApp.
             </p>
           </div>
         </div>

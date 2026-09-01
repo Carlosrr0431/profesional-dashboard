@@ -159,8 +159,8 @@ export function buildApproachOnlyTripInsertPayload({
     ? [
         `[SCHEDULED_FOR] ${scheduledDate.toISOString()}`,
         `[SCHEDULED_DISPLAY] ${String(scheduledDisplay || '').trim() || scheduledDate.toISOString()}`,
-        isPassengerChannel ? `[SCHEDULED_SOURCE] ${source}` : null,
-      ].filter(Boolean)
+        `[SCHEDULED_SOURCE] ${source || 'whatsapp'}`,
+      ]
     : [];
 
   const locationFields = isPassengerChannel

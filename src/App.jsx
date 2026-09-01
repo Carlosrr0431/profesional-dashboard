@@ -344,7 +344,7 @@ export default function App() {
   const handleNewTripSuccess = useCallback((trip) => {
     setMapPopover(null);
     setPreviewRoute(null);
-    const isScheduled = trip?.status === 'scheduled';
+    const isScheduled = trip?.status === 'scheduled' || Boolean(trip?.scheduled_for);
     scheduledData.refetch?.();
     queueData.refetch?.();
     liveTripsData.refetch?.();
@@ -1018,10 +1018,13 @@ export default function App() {
                                 {item.countdown}
                               </span>
                             </div>
+                            {item.sourceLabel ? (
+                              <p className="mt-1 text-[10px] font-semibold text-slate-500">{item.sourceLabel}{item.isDispatching ? ' · Buscando chofer' : ''}</p>
+                            ) : null}
                             <div className="mt-2 space-y-1">
                               <div className="flex items-start gap-1.5">
                                 <span className="mt-[3px] h-2 w-2 flex-shrink-0 rounded-full bg-violet-500" />
-                                <p className="truncate text-[11px] text-slate-600">{item.origin_address || item.destination_address || '—'}</p>
+                                <p className="truncate text-[11px] text-slate-600">{item.pickupAddress || item.origin_address || item.destination_address || '—'}</p>
                               </div>
                               {item.destination_address && item.origin_address ? (
                                 <div className="flex items-start gap-1.5">

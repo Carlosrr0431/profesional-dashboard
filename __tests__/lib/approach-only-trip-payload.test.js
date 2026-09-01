@@ -212,6 +212,7 @@ describe('approachOnlyTripPayload', () => {
 
     expect(payload.status).toBe('scheduled');
     expect(payload.notes).toContain('[SCHEDULED_FOR]');
+    expect(payload.notes).toContain('[SCHEDULED_SOURCE] whatsapp');
     expect(payload.notes).not.toContain('[PASSENGER_APP]');
     expect(payload.notes).not.toContain('[SCHEDULED_SOURCE] passenger_app');
   });
@@ -235,6 +236,7 @@ describe('approachOnlyTripPayload', () => {
     expect(payload.notes).toContain('[DASHBOARD]');
     expect(payload.notes).toContain('[SCHEDULED_FOR]');
     expect(payload.notes).toContain('[SCHEDULED_DISPLAY] lunes 20/07 a las 15:30');
+    expect(payload.notes).toContain('[SCHEDULED_SOURCE] dashboard');
     expect(payload.notes).not.toContain('[PASSENGER_APP]');
   });
 });

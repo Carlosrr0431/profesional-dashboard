@@ -1,40 +1,24 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS } from '../lib/promoteDueScheduledTrips';
+import {
+  DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS,
+  resolveScheduledDisplayFromTrip,
+  resolveScheduledForFromTrip,
+} from '../lib/promoteDueScheduledTrips';
+import {
+  isScheduledDispatchingStatus,
+  parseScheduledSource,
+  scheduledDestinationAddress,
+  scheduledPickupAddress,
+  scheduledSourceLabel,
+} from '../lib/scheduledTripSource';
 
 const AR_UTC_OFFSET_H = -3;
-
-function parseScheduledFor(trip) {
-  const fromColumn = trip?.scheduled_for ? new Date(trip.scheduled_for) : null;
-  if (fromColumn && !isNaN(fromColumn.getTime())) return fromColumn;
-
-  const notes = trip?.notes;
-  if (!notes) return null;
-  const m = notes.match(/\[SCHEDULED_FOR\] (\S+)/);
-  if (!m) return null;
-  const d = new Date(m[1]);
-  return isNaN(d.getTime()) ? null : d;
-}
-
-function parseScheduledDisplay(notes) {
-  if (!notes) return null;
-  const m = notes.match(/\[SCHEDULED_DISPLAY\] ([^\n]+)/);
-  return m ? m[1].trim() : null;
-}
 
 function parsePassengerPhone(notes) {
   if (!notes) return null;
   const m = notes.match(/\[PASSENGER_PHONE\] ([^\n]+)/);
   return m ? m[1].trim() : null;
-}
-
-function parseScheduledSource(trip) {
-  const notes = String(trip?.notes || '');
-  const sourceMatch = notes.match(/\[SCHEDULED_SOURCE\]\s*([a-z_]+)/i);
-  if (sourceMatch?.[1]) return sourceMatch[1].toLowerCase();
-  if (notes.includes('[PASSENGER_WEB]')) return 'passenger_web';
-  if (notes.includes('[PASSENGER_APP]')) return 'passenger_app';
-  return 'whatsapp';
 }
 
 function msUntil(date) {
@@ -67,9 +51,44 @@ function formatArDate(utcDate) {
 function urgency(ms) {
   if (ms === null) return 'past';
   if (ms < 0) return 'past';
-  if (ms < 30 * 60 * 1000) return 'imminent';   // < 30 min
-  if (ms < 2 * 60 * 60 * 1000) return 'soon';   // < 2h
+  if (ms < 30 * 60 * 1000) return 'imminent';
+  if (ms < 2 * 60 * 60 * 1000) return 'soon';
   return 'normal';
+}
+
+function formatFetchError(err) {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === 'string' && err.trim()) return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return 'Error desconocido';
+  }
+}
+
+async function fetchScheduledSnapshot() {
+  let response = await fetch('/api/scheduled-trips', { cache: 'no-store' });
+  let contentType = response.headers.get('content-type') || '';
+
+  if (!contentType.includes('application/json')) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    response = await fetch('/api/scheduled-trips', { cache: 'no-store' });
+    contentType = response.headers.get('content-type') || '';
+  }
+
+  if (!contentType.includes('application/json')) {
+    return { skipped: true };
+  }
+
+  const payload = await response.json();
+  if (!response.ok || payload?.ok === false) {
+    return {
+      error: payload?.error?.message || `HTTP ${response.status}`,
+      status: response.status,
+    };
+  }
+
+  return { trips: payload?.data?.trips || [] };
 }
 
 export function useScheduledTrips() {
@@ -81,20 +100,17 @@ export function useScheduledTrips() {
 
   const fetchTrips = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('trips')
-        .select(
-          'id, passenger_name, passenger_phone, origin_address, destination_address, destination_lat, destination_lng, notes, scheduled_for, created_at, status'
-        )
-        .eq('status', 'scheduled')
-        .order('created_at', { ascending: true });
+      const result = await fetchScheduledSnapshot();
+      if (result.skipped) return;
+      if (result.error) {
+        console.error('[useScheduledTrips] Error:', result.error);
+        return;
+      }
 
-      if (error) throw error;
-
-      setTrips(data || []);
+      setTrips(result.trips || []);
       setLastUpdated(new Date());
     } catch (err) {
-      console.error('[useScheduledTrips] Error fetching:', err?.message);
+      console.error('[useScheduledTrips] Error fetching:', formatFetchError(err));
     } finally {
       setLoading(false);
     }
@@ -103,17 +119,20 @@ export function useScheduledTrips() {
   useEffect(() => {
     fetchTrips();
 
-    // Realtime: cualquier cambio en trips (al pasar scheduled→queued, old.status suele no venir)
-    const channel = supabase
-      .channel('scheduled-trips-monitor-v2')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => {
+    let debounceTimer = null;
+    const scheduleFetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
         fetchTrips();
-      })
+      }, 250);
+    };
+
+    const channel = supabase
+      .channel('scheduled-trips-monitor-v3')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, scheduleFetch)
       .subscribe((status, err) => {
         if (status !== 'CHANNEL_ERROR') return;
         const message = String(err?.message || status);
-        // 1006 = corte de red / idle; el cliente reconecta solo. console.error
-        // dispara el overlay rojo de Next aunque el dashboard siga andando.
         if (/1006|socket closed/i.test(message)) {
           fetchTrips();
           return;
@@ -122,17 +141,15 @@ export function useScheduledTrips() {
       });
 
     channelRef.current = channel;
-
-    // Polling de respaldo (misma estrategia que useQueuedPassengers)
     const fallbackPoll = setInterval(fetchTrips, 30_000);
 
     return () => {
       clearInterval(fallbackPoll);
+      if (debounceTimer) clearTimeout(debounceTimer);
       if (channelRef.current) supabase.removeChannel(channelRef.current);
     };
   }, [fetchTrips]);
 
-  // Tick cada 15s para cuenta regresiva / urgencia sin esperar al poll
   useEffect(() => {
     const t = setInterval(() => setTick(Date.now()), 15_000);
     return () => clearInterval(t);
@@ -141,11 +158,13 @@ export function useScheduledTrips() {
   const enriched = useMemo(() => {
     return trips
       .map((t) => {
-        const scheduledFor = parseScheduledFor(t);
-        const displayText = parseScheduledDisplay(t.notes) || (scheduledFor ? formatArDate(scheduledFor).time : '—');
+        const scheduledFor = resolveScheduledForFromTrip(t);
+        const displayText = resolveScheduledDisplayFromTrip(t, scheduledFor)
+          || (scheduledFor ? formatArDate(scheduledFor).time : '—');
         const phone = parsePassengerPhone(t.notes) || t.passenger_phone || null;
         const ms = msUntil(scheduledFor);
         const arFormatted = scheduledFor ? formatArDate(scheduledFor) : null;
+        const scheduledSource = parseScheduledSource(t);
         return {
           ...t,
           scheduledFor,
@@ -155,7 +174,11 @@ export function useScheduledTrips() {
           countdown: formatCountdown(ms),
           urgency: urgency(ms),
           arFormatted,
-          scheduledSource: parseScheduledSource(t),
+          scheduledSource,
+          sourceLabel: scheduledSourceLabel(scheduledSource),
+          isDispatching: isScheduledDispatchingStatus(t.status),
+          pickupAddress: scheduledPickupAddress(t),
+          dropoffAddress: scheduledDestinationAddress(t),
           _tick: tick,
         };
       })
@@ -191,12 +214,15 @@ export function useScheduledTrips() {
   );
 
   async function cancelScheduledTrip(tripId) {
-    const { error } = await supabase
-      .from('trips')
-      .update({ status: 'cancelled' })
-      .eq('id', tripId)
-      .eq('status', 'scheduled');
-    if (error) throw error;
+    const response = await fetch('/api/scheduled-trips', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cancel', tripId }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.ok === false) {
+      throw new Error(payload?.error?.message || 'No se pudo cancelar el viaje');
+    }
     await fetchTrips();
   }
 

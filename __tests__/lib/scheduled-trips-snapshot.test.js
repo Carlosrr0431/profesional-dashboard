@@ -1,0 +1,97 @@
+const {
+  isVisibleScheduledBooking,
+  mergeScheduledBookingRows,
+  fetchScheduledTripsSnapshot,
+  cancelScheduledBooking,
+} = require('../../src/lib/scheduledTripsSnapshot');
+
+function chain(result) {
+  const query = {
+    select: () => query,
+    eq: () => query,
+    in: () => query,
+    not: () => query,
+    is: () => query,
+    ilike: () => query,
+    order: () => query,
+    limit: () => Promise.resolve(result),
+    update: () => query,
+    maybeSingle: () => Promise.resolve(result),
+  };
+  return query;
+}
+
+describe('scheduledTripsSnapshot', () => {
+  it('muestra scheduled y también queued/pending con hora reservada', () => {
+    expect(isVisibleScheduledBooking({
+      id: 'a',
+      status: 'scheduled',
+      scheduled_for: '2026-08-31T23:00:00.000Z',
+    })).toBe(true);
+
+    expect(isVisibleScheduledBooking({
+      id: 'b',
+      status: 'queued',
+      scheduled_for: '2026-08-31T21:10:00.000Z',
+    })).toBe(true);
+
+    expect(isVisibleScheduledBooking({
+      id: 'c',
+      status: 'pending',
+      notes: '[SCHEDULED_FOR] 2026-08-31T21:10:00.000Z',
+    })).toBe(true);
+
+    expect(isVisibleScheduledBooking({
+      id: 'd',
+      status: 'queued',
+      scheduled_for: null,
+      notes: 'En cola de espera. Retiro confirmado.',
+    })).toBe(false);
+
+    expect(isVisibleScheduledBooking({
+      id: 'e',
+      status: 'accepted',
+      scheduled_for: '2026-08-31T21:10:00.000Z',
+    })).toBe(false);
+  });
+
+  it('deduplica filas y descarta viajes inmediatos de cola', () => {
+    const merged = mergeScheduledBookingRows(
+      [{ id: '1', status: 'scheduled', scheduled_for: '2026-08-31T23:00:00.000Z' }],
+      [
+        { id: '1', status: 'queued', scheduled_for: '2026-08-31T23:00:00.000Z' },
+        { id: '2', status: 'queued', scheduled_for: null, notes: 'inmediato' },
+        { id: '3', status: 'queued', scheduled_for: '2026-08-31T21:20:00.000Z' },
+      ],
+    );
+    expect(merged.map((row) => row.id).sort()).toEqual(['1', '3']);
+    expect(merged.find((row) => row.id === '1').status).toBe('queued');
+  });
+
+  it('fetch une scheduled + despachando y fallback por notes', async () => {
+    const results = [
+      { data: [{ id: 's1', status: 'scheduled', scheduled_for: '2026-08-31T23:00:00.000Z' }], error: null },
+      { data: [{ id: 'q1', status: 'queued', scheduled_for: '2026-08-31T21:05:00.000Z' }], error: null },
+      { data: [{ id: 'n1', status: 'pending', scheduled_for: null, notes: '[SCHEDULED_FOR] 2026-08-31T22:00:00.000Z' }], error: null },
+    ];
+    let call = 0;
+    const supabase = {
+      from: () => chain(results[call++]),
+    };
+
+    const rows = await fetchScheduledTripsSnapshot(supabase);
+    expect(rows.map((row) => row.id).sort()).toEqual(['n1', 'q1', 's1']);
+  });
+
+  it('cancel actualiza scheduled y queued', async () => {
+    const supabase = {
+      from: () => chain({ data: { id: 'abc' }, error: null }),
+    };
+    const data = await cancelScheduledBooking(supabase, 'abc');
+    expect(data.id).toBe('abc');
+  });
+
+  it('cancel sin id falla', async () => {
+    await expect(cancelScheduledBooking({}, '')).rejects.toThrow('Falta el viaje a cancelar');
+  });
+});
