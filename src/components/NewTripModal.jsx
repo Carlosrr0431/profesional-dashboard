@@ -204,9 +204,9 @@ export default function NewTripModal({
     setError('');
   };
 
-  const toggleScheduled = () => {
+  const setScheduledMode = (next) => {
     setIsScheduled((prev) => {
-      const next = !prev;
+      if (prev === next) return prev;
       if (next) {
         const parts = defaultScheduleParts();
         setScheduleDate((current) => current || parts.date);
@@ -374,14 +374,24 @@ export default function NewTripModal({
               onClick={handleSubmit}
               style={{
                 flex: 2, padding: '9px 16px',
-                background: loading ? '#CBD5E1' : 'linear-gradient(135deg,#EF4444 0%,#B91C1C 100%)',
+                background: loading
+                  ? '#CBD5E1'
+                  : (isScheduled
+                    ? 'linear-gradient(135deg,#1E293B 0%,#0F172A 100%)'
+                    : 'linear-gradient(135deg,#EF4444 0%,#B91C1C 100%)'),
                 border: 'none', borderRadius: 10, color: '#FFFFFF',
                 fontSize: 13, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                boxShadow: loading ? 'none' : '0 4px 14px rgba(220,38,38,0.35)',
+                boxShadow: loading
+                  ? 'none'
+                  : (isScheduled ? '0 4px 14px rgba(15,23,42,0.28)' : '0 4px 14px rgba(220,38,38,0.35)'),
               }}
             >
-              {loading ? <><Spinner size={13} color="#fff" /> Encolando…</> : '🚖 Encolar viaje'}
+              {loading
+                ? <><Spinner size={13} color="#fff" /> {isScheduled ? 'Programando…' : 'Encolando…'}</>
+                : (isScheduled
+                  ? <><CalendarIcon size={14} color="#FFFFFF" /> Programar viaje</>
+                  : '🚖 Encolar viaje')}
             </button>
           </div>
           {error && (
@@ -555,58 +565,66 @@ export default function NewTripModal({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={toggleScheduled}
+          <div
+            role="group"
+            aria-label="Cuándo sale el viaje"
             style={{
-              width: '100%', marginBottom: isScheduled ? 10 : 12,
-              padding: '8px 12px',
-              background: isScheduled ? '#F5F3FF' : '#FFFFFF',
-              border: isScheduled ? '1.5px solid #DDD6FE' : '1.5px dashed #E2E8F0',
-              borderRadius: 10,
-              color: isScheduled ? '#6D28D9' : '#64748B',
-              fontSize: 12, fontWeight: 700,
-              cursor: 'pointer', textAlign: 'left',
-              display: 'flex', alignItems: 'center', gap: 8,
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 3,
+              padding: 3,
+              marginBottom: isScheduled ? 10 : 12,
+              background: '#F1F5F9',
+              border: '1px solid #E8EEF4',
+              borderRadius: 14,
             }}
           >
-            <span style={{
-              width: 16, height: 16, borderRadius: 4, flexShrink: 0,
-              border: isScheduled ? 'none' : '1.5px solid #CBD5E1',
-              background: isScheduled ? '#7C3AED' : '#FFFFFF',
-              color: '#fff', fontSize: 11, fontWeight: 800,
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            }}>{isScheduled ? '✓' : ''}</span>
-            Programar para un día y hora
-          </button>
+            <button
+              type="button"
+              aria-pressed={!isScheduled}
+              onClick={() => setScheduledMode(false)}
+              style={scheduleModeBtnStyle(!isScheduled, false)}
+            >
+              Ahora
+            </button>
+            <button
+              type="button"
+              aria-pressed={isScheduled}
+              onClick={() => setScheduledMode(true)}
+              style={scheduleModeBtnStyle(isScheduled, true)}
+            >
+              <CalendarIcon size={13} color={isScheduled ? '#FFFFFF' : '#64748B'} />
+              Programar
+            </button>
+          </div>
 
           {isScheduled ? (
             <div style={{
-              background: '#F5F3FF', border: '1px solid #DDD6FE',
-              borderRadius: 12, padding: 12, marginBottom: 12,
+              background: '#FAFBFC', border: '1px solid #E8EEF4',
+              borderRadius: 14, padding: 12, marginBottom: 12,
             }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6D28D9', marginBottom: 5, letterSpacing: '0.04em' }}>📅 DÍA</label>
+                  <label style={scheduleFieldLabelStyle}>Día</label>
                   <ScheduleDatePicker value={scheduleDate} onChange={setScheduleDate} />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6D28D9', marginBottom: 5, letterSpacing: '0.04em' }}>⏰ HORA</label>
+                  <label style={scheduleFieldLabelStyle}>Hora</label>
                   <ScheduleTimePicker value={scheduleTime} onChange={setScheduleTime} />
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6D28D9', marginBottom: 5, letterSpacing: '0.04em' }}>👤 NOMBRE</label>
+                  <label style={scheduleFieldLabelStyle}>Nombre</label>
                   <input type="text" placeholder="Nombre" value={passengerName} onChange={(e) => setPassengerName(e.target.value)} style={optInputStyle} />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6D28D9', marginBottom: 5, letterSpacing: '0.04em' }}>📞 TELÉFONO</label>
+                  <label style={scheduleFieldLabelStyle}>Teléfono</label>
                   <input type="tel" placeholder="Ej: 3874001234" value={passengerPhone} onChange={(e) => setPassengerPhone(e.target.value)} style={optInputStyle} />
                 </div>
               </div>
-              <p style={{ margin: 0, fontSize: 10, color: '#7C3AED', lineHeight: 1.4 }}>
-                {DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS / 60000} minutos antes aparece en el mapa y empieza a buscar chofer.
+              <p style={{ margin: 0, fontSize: 11, color: '#64748B', lineHeight: 1.45 }}>
+                Se busca chofer {DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS / 60000} minutos antes.
               </p>
             </div>
           ) : null}
@@ -750,17 +768,25 @@ export default function NewTripModal({
               type="submit" disabled={loading}
               style={{
                 width: '100%', padding: '12px 16px',
-                background: loading ? '#CBD5E1' : 'linear-gradient(135deg, #EF4444 0%, #B91C1C 100%)',
+                background: loading
+                  ? '#CBD5E1'
+                  : (isScheduled
+                    ? 'linear-gradient(135deg, #1E293B 0%, #0F172A 100%)'
+                    : 'linear-gradient(135deg, #EF4444 0%, #B91C1C 100%)'),
                 border: 'none', borderRadius: 12, color: '#FFFFFF',
                 fontSize: 14, fontWeight: 700,
                 cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.75 : 1,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                boxShadow: loading ? 'none' : '0 4px 14px rgba(220,38,38,0.35)',
+                boxShadow: loading
+                  ? 'none'
+                  : (isScheduled ? '0 4px 14px rgba(15,23,42,0.28)' : '0 4px 14px rgba(220,38,38,0.35)'),
               }}
             >
               {loading
                 ? <><Spinner size={14} color="#fff" /> {isScheduled ? 'Programando…' : 'Encolando…'}</>
-                : (isScheduled ? '📅 Programar viaje' : '🚖 Encolar viaje')}
+                : (isScheduled
+                  ? <><CalendarIcon size={15} color="#FFFFFF" /> Programar viaje</>
+                  : '🚖 Encolar viaje')}
             </button>
           </div>
         </form>
@@ -770,6 +796,44 @@ export default function NewTripModal({
 }
 
 /* ── Sub-componentes ──────────────────────────────────────────────────────── */
+function CalendarIcon({ size = 14, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3.5" y="5" width="17" height="15.5" rx="3" stroke={color} strokeWidth="1.8" />
+      <path d="M8 3.5v4M16 3.5v4M3.5 10h17" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function scheduleModeBtnStyle(active, isScheduleTab) {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    padding: '9px 10px',
+    border: 'none',
+    borderRadius: 11,
+    background: active ? (isScheduleTab ? '#0F172A' : '#FFFFFF') : 'transparent',
+    color: active ? (isScheduleTab ? '#FFFFFF' : '#0F172A') : '#64748B',
+    fontSize: 12.5,
+    fontWeight: 700,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    boxShadow: active ? (isScheduleTab ? '0 4px 12px rgba(15,23,42,0.22)' : '0 1px 3px rgba(15,23,42,0.08)') : 'none',
+    transition: 'background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease',
+  };
+}
+
+const scheduleFieldLabelStyle = {
+  display: 'block',
+  fontSize: 11,
+  fontWeight: 700,
+  color: '#64748B',
+  marginBottom: 5,
+  letterSpacing: '0.04em',
+};
+
 function OriginDot() {
   return <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#DC2626', border: '2px solid #FCA5A5', flexShrink: 0 }} />;
 }
