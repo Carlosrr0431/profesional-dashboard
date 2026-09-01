@@ -267,11 +267,16 @@ export default function NewTripModal({
           placeId: placeId || null,
           passengerName: passengerName.trim() || null,
           passengerPhone: passengerPhone.trim() || null,
-          destinationHint: destLabel.trim() || null,
-          destinationLat: destLat || null,
-          destinationLng: destLng || null,
-          destLat: destLat || null,
-          destLng: destLng || null,
+          ...(destLabel.trim() ? { destinationHint: destLabel.trim() } : {}),
+          ...(destLat != null && destLng != null
+            && Number.isFinite(Number(destLat)) && Number.isFinite(Number(destLng))
+            ? {
+              destinationLat: destLat,
+              destinationLng: destLng,
+              destLat,
+              destLng,
+            }
+            : {}),
           notes: notes.trim() || null,
           estimatedPrice: autoPrice || null,
           price: autoPrice || null,

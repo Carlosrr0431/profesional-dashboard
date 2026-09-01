@@ -12,6 +12,7 @@ import {
   fareFromClientPayload,
   mergePassengerRouteFare,
   resolveQueuedTripSource,
+  hasFiniteLatLng,
 } from '../../../../src/lib/passengerTripQueued';
 
 export const runtime = 'nodejs';
@@ -60,8 +61,7 @@ export async function POST(req) {
       ? { ...payload, source, destinationLat: destLat, destinationLng: destLng }
       : payload;
     const wantsDestination = Boolean(
-      destinationAddress
-      || (Number.isFinite(Number(destLat)) && Number.isFinite(Number(destLng)))
+      destinationAddress || hasFiniteLatLng(destLat, destLng)
     );
 
     const pickupLocation = await resolveTripLocation({

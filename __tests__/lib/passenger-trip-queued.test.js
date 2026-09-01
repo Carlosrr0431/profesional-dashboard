@@ -5,6 +5,7 @@ const {
   fareFromClientPayload,
   mergePassengerRouteFare,
   resolveQueuedTripSource,
+  hasFiniteLatLng,
 } = require('../../src/lib/passengerTripQueued');
 
 describe('passengerTripQueued', () => {
@@ -27,6 +28,21 @@ describe('passengerTripQueued', () => {
     expect(json.address).toContain('Mitre');
     expect(json.lat).toBe(-24.791);
     expect(json.lng).toBe(-65.375);
+  });
+
+  it('hasFiniteLatLng no trata null ni vacío como destino', () => {
+    expect(hasFiniteLatLng(null, null)).toBe(false);
+    expect(hasFiniteLatLng(undefined, undefined)).toBe(false);
+    expect(hasFiniteLatLng('', '')).toBe(false);
+    expect(hasFiniteLatLng(-24.78, -65.42)).toBe(true);
+  });
+
+  it('resolveFinalDestinationFromClient ignora destLat/destLng null', () => {
+    expect(resolveFinalDestinationFromClient({
+      destinationHint: null,
+      destLat: null,
+      destLng: null,
+    })).toBeNull();
   });
 
   it('resolveFinalDestinationFromClient usa coords del payload', () => {

@@ -37,6 +37,16 @@ function sanitizeText(value, maxLen = 500) {
   return String(value || '').trim().slice(0, maxLen);
 }
 
+/** `Number(null)` es 0: no tratar null/'' como coordenadas reales. */
+export function hasFiniteLatLng(lat, lng) {
+  if (lat == null || lng == null) return false;
+  if (typeof lat === 'string' && !lat.trim()) return false;
+  if (typeof lng === 'string' && !lng.trim()) return false;
+  const nLat = Number(lat);
+  const nLng = Number(lng);
+  return Number.isFinite(nLat) && Number.isFinite(nLng);
+}
+
 export function buildFinalDestJsonTag(location) {
   if (!location) return null;
   return buildFinalDestJsonMarker({
@@ -49,11 +59,13 @@ export function buildFinalDestJsonTag(location) {
 /** Destino final enviado por la app (coordenadas) sin llamar a geocodificación. */
 export function resolveFinalDestinationFromClient(payload) {
   const address = sanitizeText(payload?.destinationAddress || payload?.destinationHint);
-  const lat = Number(payload?.destinationLat ?? payload?.destLat);
-  const lng = Number(payload?.destinationLng ?? payload?.destLng);
-  if (!address || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+  const rawLat = payload?.destinationLat ?? payload?.destLat;
+  const rawLng = payload?.destinationLng ?? payload?.destLng;
+  if (!address || !hasFiniteLatLng(rawLat, rawLng)) {
     return null;
   }
+  const lat = Number(rawLat);
+  const lng = Number(rawLng);
   if (!isWithinSaltaCapital(lat, lng)) {
     return null;
   }
