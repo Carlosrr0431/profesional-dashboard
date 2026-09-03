@@ -24,6 +24,21 @@ export function normalizePhoneDigits(phone) {
 }
 
 /**
+ * Play pre-launch y bots mandan 1231231231 / 1111111111.
+ * Enviar OTP a esos JIDs inexistentes es de las señales que Meta más penaliza.
+ */
+export function isImplausibleArMobileLocal(local) {
+  const digits = String(local || '');
+  if (!/^\d{10}$/.test(digits)) return true;
+  if (/^(\d)\1{9}$/.test(digits)) return true;
+  if (/^(\d{2})\1{4}$/.test(digits)) return true;
+  if (/^(\d{3})\1{2}\d$/.test(digits)) return true;
+  if (/^(0123456789|1234567890|0987654321|9876543210)$/.test(digits)) return true;
+  if (new Set(digits).size <= 2) return true;
+  return false;
+}
+
+/**
  * Extrae los 10 dígitos locales del móvil AR (área + número).
  * Devuelve '' si no se puede resolver con confianza.
  */
@@ -71,6 +86,7 @@ export function extractLocalArMobileDigits(value) {
   // El "9" de móvil AR solo va en E.164 (549…), nunca como primer dígito local.
   // "59…" suele ser basura tipo 5+9+número truncado (ej. 5938786301 → JID inexistente).
   if (local.startsWith('9') || local.startsWith('59')) return '';
+  if (isImplausibleArMobileLocal(local)) return '';
 
   return local;
 }

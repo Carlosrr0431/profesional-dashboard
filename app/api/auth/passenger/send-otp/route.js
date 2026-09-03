@@ -14,7 +14,6 @@ export const maxDuration = 60;
 const ipHits = new Map();
 const IP_WINDOW_MS = 60 * 1000;
 const IP_MAX_HITS = 4;
-const IP_MAX_HITS_ANON = 2;
 
 function getClientIp(req) {
   const forwarded = req.headers.get('x-forwarded-for') || '';
@@ -54,6 +53,20 @@ export async function POST(req) {
       userAgent: userAgent || null,
     }));
 
+    // Sin header de la app: no gastar la línea de WhatsApp en scrapers.
+    if (!clientGate.ok) {
+      console.info('[passenger-otp]', JSON.stringify({
+        stage: 'rejected_client',
+        ip,
+        userAgent: userAgent || null,
+        rawPhone: phone,
+      }));
+      return NextResponse.json(
+        { ok: false, message: 'Cliente no autorizado.' },
+        { status: 403 }
+      );
+    }
+
     // Play pre-launch / Googlebot: IPs 66.249.* con header de la app real.
     // No mandar WhatsApp a números random. El número de review (si hay env) puede seguir.
     if (isLikelyAutomatedScannerIp(ip) && !isAppReviewDemoPhone(phone)) {
@@ -70,7 +83,7 @@ export async function POST(req) {
       );
     }
 
-    const ipGate = assertIpAllowed(ip, clientGate.ok ? IP_MAX_HITS : IP_MAX_HITS_ANON);
+    const ipGate = assertIpAllowed(ip, IP_MAX_HITS);
     if (!ipGate.ok) {
       console.info('[passenger-otp]', JSON.stringify({
         stage: 'rate_limited_ip',

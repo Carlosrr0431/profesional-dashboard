@@ -66,4 +66,14 @@ describe('passengerAuthPhone', () => {
     expect(normalizePhoneForWhatsApp('549387158630173')).toBe('5493878630173');
     expect(normalizePassengerPhoneForDb('549387158630173')).toBe('543878630173');
   });
+
+  it('rechaza números de prueba / patrón que Meta ve como scraping', () => {
+    expect(extractLocalArMobileDigits('1231231231')).toBe('');
+    expect(normalizePhoneForWhatsApp('541231231231')).toBe('');
+    expect(toWhatsAppJid('541231231231')).toBeNull();
+    expect(extractLocalArMobileDigits('1111111111')).toBe('');
+    expect(extractLocalArMobileDigits('1212121212')).toBe('');
+    expect(extractLocalArMobileDigits('1234567890')).toBe('');
+    expect(extractLocalArMobileDigits('3878630173')).toBe('3878630173');
+  });
 });

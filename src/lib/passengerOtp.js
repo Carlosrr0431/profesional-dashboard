@@ -100,20 +100,20 @@ function isOtpLineDisconnected(reason) {
 const OTP_CHAT_PHRASES = [
   (n) => `Hola, para entrar a la app de Profesional usá ${n}`,
   (n) => `Hola, en Profesional Pasajero poné ${n} y seguís`,
-  (n) => `Buenas, en la app de Profesional te pide ${n}`,
-  (n) => `Hola, el número para la app de Profesional es ${n}`,
+  (n) => `Buenas, en la app de Profesional anotás ${n}`,
   (n) => `Buenas, para seguir en Profesional Pasajero usá ${n}`,
   (n) => `Hola, en la app poné ${n} y listo`,
   (n) => `Buenas, te dejo ${n} para entrar a Profesional`,
   (n) => `Hola, para abrir Profesional Pasajero usá ${n}`,
   (n) => `Buenas, en Profesional el ingreso es ${n}`,
-  (n) => `Hola, si te pide un número en la app es ${n}`,
   (n) => `Buenas, para continuar en la app usá ${n}`,
   (n) => `Hola, te dejo ${n} para la app de Profesional`,
   (n) => `Buenas, anotá ${n} para entrar a Profesional Pasajero`,
-  (n) => `Hola, en Profesional Pasajero el número es ${n}`,
-  (n) => `Buenas, para subir a la app de Profesional poné ${n}`,
   (n) => `Hola, si estás en la app de Profesional usá ${n}`,
+  (n) => `Buenas, para subir a la app de Profesional poné ${n}`,
+  (n) => `Hola, con ${n} entras a Profesional Pasajero`,
+  (n) => `Buenas, ${n} y seguís en la app de Profesional`,
+  (n) => `Hola, en Profesional Pasajero poné ${n}`,
 ];
 
 export function buildPassengerOtpMessage(code, nowMs = Date.now()) {

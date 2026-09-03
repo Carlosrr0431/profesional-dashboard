@@ -53,7 +53,7 @@ describe('buildPassengerOtpMessage', () => {
   test('incluye el código y evita el texto de verificación que Meta marca como spam', () => {
     const text = buildPassengerOtpMessage('2580', 1_000);
     expect(text).toContain('2580');
-    expect(text.toLowerCase()).not.toMatch(/verificaci[oó]n|\bcódigo\b|\bcodigo\b|\botp\b|no lo compartas|válido por|valido por/);
+    expect(text.toLowerCase()).not.toMatch(/verificaci[oó]n|\bcódigo\b|\bcodigo\b|\botp\b|\bnúmero\b|\bnumero\b|te pide|no lo compartas|válido por|valido por/);
     expect(text).not.toContain('*');
     expect(text).not.toContain('\n');
   });

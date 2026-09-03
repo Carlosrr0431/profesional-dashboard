@@ -22,11 +22,18 @@ export function isLikelyAutomatedScannerIp(ip) {
   const value = String(ip || '');
   if (!value || value === 'unknown') return false;
   return (
-    value.startsWith('66.102.') // Google (logs OTP)
-    || value.startsWith('66.249.') // Googlebot
+    value.startsWith('66.102.')
+    || value.startsWith('66.249.')
     || value.startsWith('64.233.')
     || value.startsWith('72.14.')
     || value.startsWith('74.125.')
+    || value.startsWith('35.191.')
+    || value.startsWith('108.177.')
+    || value.startsWith('142.250.')
+    || value.startsWith('172.217.')
+    || value.startsWith('173.194.')
+    || value.startsWith('209.85.')
+    || value.startsWith('216.58.')
   );
 }
 
