@@ -132,11 +132,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!mapPopover) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') closePopover(); };
+    if (!mapPopover && !tripModalDriver) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (tripModalDriver) {
+        setTripModalDriver(null);
+        setPreviewRoute(null);
+        return;
+      }
+      closePopover();
+    };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [mapPopover, closePopover]);
+  }, [mapPopover, tripModalDriver, closePopover]);
 
   const mapRef = useRef(null);
   const whatsappConnected = whatsappSessionStatus === 'connected';
@@ -262,7 +270,10 @@ export default function App() {
     );
   }, [drivers]);
 
-  const handleAssignTrip = useCallback((driver) => setTripModalDriver(driver), []);
+  const handleAssignTrip = useCallback((driver) => {
+    setMapPopover(null);
+    setTripModalDriver(driver);
+  }, []);
   const handleTripSuccess = useCallback(() => {
     setTripModalDriver(null);
     toast.success('Viaje asignado al chofer correctamente');
@@ -349,13 +360,23 @@ export default function App() {
     scheduledData.refetch?.();
   }, [queueData, liveTripsData, scheduledData]);
 
-  const handleNewTripSuccess = useCallback((trip) => {
+  const handleNewTripSuccess = useCallback((trip, meta) => {
     setMapPopover(null);
     setPreviewRoute(null);
     const isScheduled = trip?.status === 'scheduled' || Boolean(trip?.scheduled_for);
+    const assignedDriver = meta?.assignedDriver;
+    const mobileLabel = assignedDriver?.driverNumber != null
+      ? `móvil #${assignedDriver.driverNumber}`
+      : null;
     if (isScheduled) {
       scheduledData.upsertTrip?.(trip);
-      toast.success('Viaje programado. Se busca chofer 20 minutos antes.');
+      toast.success(
+        mobileLabel
+          ? `Viaje programado para el ${mobileLabel}. Se busca 20 minutos antes.`
+          : 'Viaje programado. Se busca chofer 20 minutos antes.',
+      );
+    } else if (trip?.driver_id && mobileLabel) {
+      toast.success(`Viaje encolado para el ${mobileLabel}`);
     } else {
       scheduledData.refetch?.();
       toast.success('Viaje encolado correctamente');
@@ -1158,7 +1179,10 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setMapPopover(mapPopover === 'new-trip' ? null : 'new-trip')}
+                    onClick={() => {
+                      setTripModalDriver(null);
+                      setMapPopover(mapPopover === 'new-trip' ? null : 'new-trip');
+                    }}
                     className={`flex h-11 items-center gap-2.5 rounded-full px-5 text-[13px] font-bold shadow-2xl active:scale-[0.97] transition-all ${
                       mapPopover === 'new-trip'
                         ? 'bg-navy-800 text-white shadow-navy-900/45'
@@ -1192,6 +1216,7 @@ export default function App() {
       {/* ── Modal de asignación de viaje ───────────────────────────────────── */}
       {tripModalDriver && (
         <TripAssignModal
+          asPopover
           driver={tripModalDriver}
           onClose={() => { setTripModalDriver(null); setPreviewRoute(null); }}
           onSuccess={handleTripSuccess}
@@ -1206,6 +1231,7 @@ export default function App() {
       {mapPopover === 'new-trip' && (
         <NewTripModal
           asPopover
+          drivers={drivers}
           onClose={closePopover}
           onSuccess={handleNewTripSuccess}
           onRouteChange={setPreviewRoute}

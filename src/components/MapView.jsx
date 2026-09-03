@@ -369,7 +369,7 @@ const MapView = memo(function MapView({
             >
               <DriverInfoWindow
                 driver={activeInfo.data}
-                onAssignTrip={(d) => { setActiveInfo(null); onAssignTrip?.(d); }}
+                onAssignTrip={(d) => { onAssignTrip?.(d); }}
                 onSendAudio={onSendAudio ? (d) => {
                   setActiveInfo(null);
                   onSendAudio(d);

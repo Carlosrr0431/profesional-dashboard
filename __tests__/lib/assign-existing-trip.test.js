@@ -4,6 +4,11 @@ const {
   listFreeDashboardDrivers,
   buildAssignExistingTripUpdate,
   hasValidDriverGps,
+  parseDriverNumberInput,
+  findDashboardDriversByNumber,
+  resolvePreferredDriverId,
+  mergePreferredDriverWaContext,
+  dashboardDriverAvailability,
 } = require('../../src/lib/assignExistingTrip');
 
 describe('assignExistingTrip', () => {
@@ -57,5 +62,34 @@ describe('assignExistingTrip', () => {
   it('detecta GPS inválido en 0,0', () => {
     expect(hasValidDriverGps({ current_lat: 0, current_lng: 0 })).toBe(false);
     expect(hasValidDriverGps({ lat: -24.7, lng: -65.4 })).toBe(true);
+  });
+
+  it('busca choferes por número de móvil', () => {
+    expect(parseDriverNumberInput('  #12 ')).toBe(12);
+    expect(parseDriverNumberInput('abc')).toBeNull();
+    const drivers = [
+      { id: 'a', driverNumber: 12, fullName: 'Ana', isOnline: true, dispatchBlocked: false, activeTrip: null },
+      { id: 'b', driverNumber: 7, fullName: 'Beto', isOnline: false, dispatchBlocked: false, activeTrip: null },
+      { id: 'c', driverNumber: 12, fullName: 'Cata', isOnline: true, dispatchBlocked: false, activeTrip: { id: 't1' } },
+    ];
+    expect(findDashboardDriversByNumber(drivers, '12').map((d) => d.id)).toEqual(['a', 'c']);
+    expect(findDashboardDriversByNumber(drivers, '99')).toEqual([]);
+    expect(dashboardDriverAvailability(drivers[0]).canAssign).toBe(true);
+    expect(dashboardDriverAvailability(drivers[1])).toEqual({
+      code: 'offline',
+      label: 'Desconectado',
+      canAssign: false,
+    });
+    expect(dashboardDriverAvailability(drivers[2]).code).toBe('busy');
+  });
+
+  it('guarda y lee el chofer preferido en wa_context', () => {
+    expect(resolvePreferredDriverId(null)).toBeNull();
+    expect(resolvePreferredDriverId({ preferred_driver_id: 'drv-9' })).toBe('drv-9');
+    expect(resolvePreferredDriverId('{"preferred_driver_id":"drv-9"}')).toBe('drv-9');
+    expect(mergePreferredDriverWaContext({ source: 'dashboard' }, 'drv-9')).toEqual({
+      source: 'dashboard',
+      preferred_driver_id: 'drv-9',
+    });
   });
 });

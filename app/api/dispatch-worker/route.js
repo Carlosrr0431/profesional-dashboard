@@ -46,6 +46,7 @@ import {
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 import { isDriverEligibleForDispatch } from '../../../shared/driver-billing.js';
 import { selectDriversCompat } from '../../../src/lib/driversBillingSelect';
+import { resolvePreferredDriverId } from '../../../src/lib/assignExistingTrip';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -799,6 +800,32 @@ async function chooseDriverForClaim(
       allowedRadiiKm: allowedRadii,
     });
     return null;
+  }
+
+  const preferredDriverId = resolvePreferredDriverId(trip?.wa_context);
+  if (preferredDriverId) {
+    const preferred = reachableDrivers.find((driver) => driver.id === preferredDriverId);
+    if (preferred) {
+      const distanceKm = haversineKm(
+        Number(preferred.current_lat),
+        Number(preferred.current_lng),
+        pickupLat,
+        pickupLng,
+      );
+      logWorker('driver_selected_preferred', {
+        tripId: trip?.id || null,
+        driverId: preferred.id,
+        distanceKm: Number(distanceKm.toFixed(3)),
+      });
+      return {
+        driver: preferred,
+        distanceKm,
+        scoreKm: distanceKm,
+        radiusKm: allowedRadii[allowedRadii.length - 1] ?? null,
+        allowedRadiiKm: allowedRadii,
+        preferred: true,
+      };
+    }
   }
 
   const scored = reachableDrivers

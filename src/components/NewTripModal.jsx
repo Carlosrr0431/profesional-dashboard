@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { formatError } from '../lib/errorFormat';
 import { isWithinSaltaCapital } from '../lib/constants';
 import { useToast } from '../context/ToastContext';
@@ -12,6 +12,12 @@ import {
   arLocalDateTimeToUtcDate,
   formatArScheduleDisplay,
 } from '../lib/promoteDueScheduledTrips';
+import { assignExistingTripToDriver } from '../lib/assignExistingTripClient';
+import {
+  findDashboardDriversByNumber,
+  dashboardDriverAvailability,
+  driverDisplayName,
+} from '../lib/assignExistingTrip';
 
 /* ── Estilos globales ─────────────────────────────────────────────────────── */
 const MODAL_STYLES = `
@@ -62,6 +68,7 @@ export default function NewTripModal({
   commissionPercent,
   onRouteChange,
   asPopover = false,
+  drivers = [],
 }) {
   const toast = useToast();
   const pickupInputRef = useRef(null);
@@ -90,6 +97,9 @@ export default function NewTripModal({
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
+  const [driverMode, setDriverMode] = useState('nearest');
+  const [driverNumberQuery, setDriverNumberQuery] = useState('');
+  const [selectedDriverId, setSelectedDriverId] = useState(null);
 
   /* Ruta */
   const [routeLoading, setRouteLoading] = useState(false);
@@ -218,6 +228,28 @@ export default function NewTripModal({
     });
   };
 
+  const driverMatches = useMemo(
+    () => (driverMode === 'choose' ? findDashboardDriversByNumber(drivers, driverNumberQuery) : []),
+    [driverMode, drivers, driverNumberQuery],
+  );
+
+  useEffect(() => {
+    if (driverMode !== 'choose') {
+      setSelectedDriverId(null);
+      return;
+    }
+    if (driverMatches.length === 1) {
+      setSelectedDriverId(driverMatches[0].id);
+      return;
+    }
+    setSelectedDriverId((prev) => (
+      driverMatches.some((driver) => driver.id === prev) ? prev : null
+    ));
+  }, [driverMode, driverMatches]);
+
+  const selectedDriver = driverMatches.find((driver) => driver.id === selectedDriverId) || null;
+  const selectedAvailability = selectedDriver ? dashboardDriverAvailability(selectedDriver) : null;
+
   useEffect(() => {
     if (!isScheduled) return undefined;
     const timer = window.setTimeout(() => {
@@ -273,6 +305,17 @@ export default function NewTripModal({
       scheduledDisplay = formatArScheduleDisplay(scheduledUtc);
     }
 
+    if (driverMode === 'choose') {
+      if (!selectedDriver?.id) {
+        setError('Ingresá el número de móvil y seleccioná el chofer.');
+        return;
+      }
+      if (!isScheduled && selectedAvailability && !selectedAvailability.canAssign) {
+        setError(`Ese móvil no está libre ahora (${selectedAvailability.label}).`);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const response = await fetch('/api/trips/create-queued', {
@@ -307,6 +350,9 @@ export default function NewTripModal({
             scheduledFor: scheduledForIso,
             scheduledDisplay,
           } : {}),
+          ...(driverMode === 'choose' && selectedDriver?.id
+            ? { preferredDriverId: selectedDriver.id }
+            : {}),
         }),
       });
 
@@ -315,7 +361,20 @@ export default function NewTripModal({
         throw new Error(result?.message || 'No se pudo encolar el viaje.');
       }
 
-      if (onSuccess) onSuccess(result.trip);
+      let trip = result.trip;
+      if (driverMode === 'choose' && selectedDriver?.id && trip?.id && !isScheduled) {
+        try {
+          const assigned = await assignExistingTripToDriver({
+            tripId: trip.id,
+            driverId: selectedDriver.id,
+          });
+          trip = assigned?.trip || trip;
+        } catch (assignErr) {
+          toast.warning(assignErr?.message || 'El viaje quedó en cola. Asignalo desde Viajes.');
+        }
+      }
+
+      if (onSuccess) onSuccess(trip, { assignedDriver: driverMode === 'choose' ? selectedDriver : null });
       onClose();
     } catch (err) {
       console.error('Error creating queued trip:', formatError(err));
@@ -409,7 +468,7 @@ export default function NewTripModal({
                 ? <><Spinner size={13} color="#fff" /> {isScheduled ? 'Programando…' : 'Encolando…'}</>
                 : (isScheduled
                   ? <><CalendarIcon size={14} color="#FFFFFF" /> Programar viaje</>
-                  : '🚖 Encolar viaje')}
+                  : `🚖 ${enqueueActionLabel(driverMode, selectedDriver)}`)}
             </button>
           </div>
           {error && (
@@ -649,6 +708,116 @@ export default function NewTripModal({
             </div>
           ) : null}
 
+          <div
+            role="group"
+            aria-label="Quién toma el viaje"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 3,
+              padding: 3,
+              marginBottom: driverMode === 'choose' ? 10 : 12,
+              background: '#F1F5F9',
+              border: '1px solid #E8EEF4',
+              borderRadius: 14,
+            }}
+          >
+            <button
+              type="button"
+              aria-pressed={driverMode === 'nearest'}
+              onClick={() => { setDriverMode('nearest'); setDriverNumberQuery(''); }}
+              style={scheduleModeBtnStyle(driverMode === 'nearest', false)}
+            >
+              Más cercano
+            </button>
+            <button
+              type="button"
+              aria-pressed={driverMode === 'choose'}
+              onClick={() => setDriverMode('choose')}
+              style={scheduleModeBtnStyle(driverMode === 'choose', true)}
+            >
+              Elegir chofer
+            </button>
+          </div>
+
+          {driverMode === 'choose' ? (
+            <div style={{
+              background: '#FAFBFC', border: '1px solid #E8EEF4',
+              borderRadius: 14, padding: 12, marginBottom: 12,
+            }}>
+              <label style={scheduleFieldLabelStyle}>NÚMERO DE MÓVIL</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Ej: 12"
+                value={driverNumberQuery}
+                onChange={(e) => setDriverNumberQuery(e.target.value)}
+                style={optInputStyle}
+                onFocus={(e) => { e.target.style.borderColor = '#0F172A'; e.target.style.boxShadow = '0 0 0 3px rgba(15,23,42,0.08)'; }}
+                onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
+              />
+              {!String(driverNumberQuery || '').trim() ? (
+                <p style={{ margin: '8px 0 0', fontSize: 11, color: '#64748B', lineHeight: 1.45 }}>
+                  Escribí el número de móvil para ver quién es y encolarlo a ese chofer.
+                </p>
+              ) : driverMatches.length === 0 ? (
+                <p style={{ margin: '8px 0 0', fontSize: 11, color: '#DC2626' }}>
+                  No hay un móvil con ese número.
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                  {driverMatches.map((driver) => {
+                    const availability = dashboardDriverAvailability(driver);
+                    const selected = selectedDriverId === driver.id;
+                    const vehicle = [driver.vehicleBrand, driver.vehicleModel].filter(Boolean).join(' ');
+                    return (
+                      <button
+                        key={driver.id}
+                        type="button"
+                        onClick={() => setSelectedDriverId(driver.id)}
+                        style={{
+                          width: '100%',
+                          textAlign: 'left',
+                          padding: '9px 11px',
+                          borderRadius: 12,
+                          border: selected ? '1.5px solid #0F172A' : '1px solid #E2E8F0',
+                          background: selected ? '#FFFFFF' : '#F8FAFC',
+                          boxShadow: selected ? '0 1px 3px rgba(15,23,42,0.08)' : 'none',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
+                            {driverDisplayName(driver)}
+                          </span>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, letterSpacing: '0.03em',
+                            padding: '3px 7px', borderRadius: 999,
+                            background: availability.canAssign ? '#ECFDF5' : '#FEF2F2',
+                            color: availability.canAssign ? '#047857' : '#B91C1C',
+                          }}>
+                            {availability.label}
+                          </span>
+                        </div>
+                        <div style={{ marginTop: 3, fontSize: 11, color: '#64748B' }}>
+                          Móvil #{driver.driverNumber}
+                          {vehicle ? ` · ${vehicle}` : ''}
+                          {driver.vehiclePlate ? ` · ${driver.vehiclePlate}` : ''}
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {isScheduled ? (
+                    <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748B', lineHeight: 1.45 }}>
+                      A la hora de despacho se ofrece primero a este móvil. Si no está libre, se busca el más cercano.
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          ) : null}
+
           {/* Tarjeta de ruta */}
           {(routeLoading || routeInfo) && (
             <div style={{
@@ -806,7 +975,7 @@ export default function NewTripModal({
                 ? <><Spinner size={14} color="#fff" /> {isScheduled ? 'Programando…' : 'Encolando…'}</>
                 : (isScheduled
                   ? <><CalendarIcon size={15} color="#FFFFFF" /> Programar viaje</>
-                  : '🚖 Encolar viaje')}
+                  : `🚖 ${enqueueActionLabel(driverMode, selectedDriver)}`)}
             </button>
           </div>
         </form>
@@ -816,6 +985,14 @@ export default function NewTripModal({
 }
 
 /* ── Sub-componentes ──────────────────────────────────────────────────────── */
+function enqueueActionLabel(driverMode, selectedDriver) {
+  if (driverMode === 'choose' && selectedDriver) {
+    const n = Number(selectedDriver.driverNumber);
+    return Number.isFinite(n) ? `Encolar a móvil #${n}` : 'Encolar a este chofer';
+  }
+  return 'Encolar viaje';
+}
+
 function CalendarIcon({ size = 14, color = 'currentColor' }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">

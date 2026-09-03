@@ -93,6 +93,7 @@ export default function TripAssignModal({
   tariffBase,
   commissionPercent,
   onRouteChange,
+  asPopover = false,
 }) {
   const toast = useToast();
 
@@ -465,10 +466,15 @@ export default function TripAssignModal({
     );
   }
 
-  /* ── Render modal completo ────────────────────────────────────────────── */
+  /* ── Render modal / popover ───────────────────────────────────────────── */
   return (
     <div
-      style={{
+      style={asPopover ? {
+        position: 'fixed', inset: 0, zIndex: 9999,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 16,
+        background: 'rgba(15,23,42,0.18)',
+      } : {
         position: 'fixed', inset: 0, zIndex: 9999,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(6px)',
@@ -480,35 +486,39 @@ export default function TripAssignModal({
       <div
         style={{
           background: '#FFFFFF',
-          borderRadius: 20,
+          borderRadius: asPopover ? 16 : 20,
           width: '100%',
-          maxWidth: 520,
-          maxHeight: '92vh',
+          maxWidth: asPopover ? 400 : 520,
+          maxHeight: asPopover ? 'min(86vh, 720px)' : '92vh',
           overflowY: 'auto',
-          boxShadow: '0 24px 64px rgba(0,0,0,0.28)',
+          boxShadow: asPopover
+            ? '0 16px 48px rgba(15,23,42,0.18), 0 4px 12px rgba(15,23,42,0.08)'
+            : '0 24px 64px rgba(0,0,0,0.28)',
+          border: asPopover ? '1px solid rgba(226,232,240,0.9)' : 'none',
           animation: '_tm_fade 0.18s ease',
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <div style={{
-          padding: '16px 20px',
+          padding: asPopover ? '12px 14px' : '16px 20px',
           borderBottom: '1px solid #F1F5F9',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           position: 'sticky', top: 0, background: '#FFFFFF', zIndex: 10,
-          borderRadius: '20px 20px 0 0',
+          borderRadius: asPopover ? '16px 16px 0 0' : '20px 20px 0 0',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: asPopover ? 8 : 10 }}>
             <div style={{
-              width: 36, height: 36,
+              width: asPopover ? 28 : 36, height: asPopover ? 28 : 36,
               background: 'linear-gradient(135deg, #EF4444, #B91C1C)',
-              borderRadius: 10,
+              borderRadius: asPopover ? 8 : 10,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 16,
+              fontSize: asPopover ? 13 : 16,
             }}>
               🚖
             </div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Asignar Viaje</div>
+              <div style={{ fontSize: asPopover ? 13 : 15, fontWeight: 700, color: '#0F172A' }}>Asignar viaje</div>
               <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>
                 Chofer: <strong style={{ color: '#475569' }}>{driver?.fullName || driver?.full_name || '—'}</strong>
               </div>
@@ -517,9 +527,9 @@ export default function TripAssignModal({
           <button
             onClick={onClose}
             style={{
-              width: 32, height: 32,
-              background: '#F1F5F9', border: 'none', borderRadius: 8,
-              color: '#64748B', fontSize: 14, cursor: 'pointer', display: 'flex',
+              width: asPopover ? 28 : 32, height: asPopover ? 28 : 32,
+              background: '#F1F5F9', border: 'none', borderRadius: asPopover ? 7 : 8,
+              color: '#64748B', fontSize: asPopover ? 13 : 14, cursor: 'pointer', display: 'flex',
               alignItems: 'center', justifyContent: 'center',
               transition: 'background 0.1s',
             }}
@@ -530,7 +540,7 @@ export default function TripAssignModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ padding: '20px' }}>
+        <form onSubmit={handleSubmit} style={{ padding: asPopover ? '12px' : '20px' }}>
           {/* ── Inputs de dirección ──────────────────────────────────────── */}
           <div style={{
             background: '#F8FAFC',

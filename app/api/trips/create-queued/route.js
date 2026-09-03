@@ -14,6 +14,7 @@ import {
   resolveQueuedTripSource,
   hasFiniteLatLng,
 } from '../../../../src/lib/passengerTripQueued';
+import { mergePreferredDriverWaContext } from '../../../../src/lib/assignExistingTrip';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -188,6 +189,16 @@ export async function POST(req) {
       scheduledDisplay: isScheduled ? scheduledDisplay : null,
     });
 
+    const preferredDriverId = source === 'dashboard'
+      ? sanitizeText(payload?.preferredDriverId || payload?.driverId, 80)
+      : '';
+    if (preferredDriverId) {
+      tripPayload.wa_context = mergePreferredDriverWaContext(
+        tripPayload.wa_context,
+        preferredDriverId,
+      );
+    }
+
     if (
       String(tripPayload.notes || '').includes('[PASSENGER_APP]')
       && !Number.isFinite(Number(tripPayload.origin_lat))
@@ -213,9 +224,12 @@ export async function POST(req) {
 
     // Inmediatos: despacho ya. Programados dentro de la ventana de 20 min: el worker
     // los promueve a cola en este mismo ciclo. El resto espera al cron.
+    // Si el operador eligió un móvil, no disparamos nearest: el cliente lo asigna
+    // con assign-existing. En programados el worker prefiere ese chofer al vencer.
     const dueForDispatch = isScheduled
       && scheduledForDate.getTime() <= Date.now() + DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS;
-    if (!isScheduled || dueForDispatch) {
+    const skipNearestDispatch = Boolean(preferredDriverId) && !isScheduled;
+    if ((!isScheduled || dueForDispatch) && !skipNearestDispatch) {
       triggerDispatchWorker({
         reason: isScheduled ? 'scheduled_trip_due' : 'dashboard_trip_created',
         tripId: trip.id,
