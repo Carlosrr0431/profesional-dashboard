@@ -96,6 +96,12 @@ export async function POST(req) {
 
     const result = await createAndSendOtp(phone);
     if (!result.ok) {
+      console.info('[passenger-otp]', JSON.stringify({
+        stage: 'response_fail',
+        status: result.status || 400,
+        reason: result.reason || null,
+        message: result.message || null,
+      }));
       return NextResponse.json(
         {
           ok: false,

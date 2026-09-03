@@ -241,6 +241,7 @@ export async function assertCanSendOtp(supabase, phone) {
     return {
       ok: false,
       status: 429,
+      reason: 'otp_cooldown',
       message: 'Podés pedir otro código cuando termine la espera.',
       retryAfterSeconds,
     };
@@ -260,6 +261,7 @@ export async function assertCanSendOtp(supabase, phone) {
     return {
       ok: false,
       status: 429,
+      reason: 'otp_hourly_limit',
       message: 'Llegaste al límite de códigos por hora. Probá más tarde.',
     };
   }
@@ -277,6 +279,7 @@ export async function assertCanSendOtp(supabase, phone) {
     return {
       ok: false,
       status: 429,
+      reason: 'otp_global_hourly_limit',
       message: 'Hay muchos pedidos de código ahora. Probá más tarde.',
       retryAfterSeconds: 60,
     };
@@ -318,7 +321,16 @@ export async function createAndSendOtp(rawPhone) {
   if (isAppReviewDemoPhone(phone)) {
     const supabase = getSupabaseAdmin();
     const canSend = await assertCanSendOtp(supabase, phone);
-    if (!canSend.ok) return canSend;
+    if (!canSend.ok) {
+      console.info('[passenger-otp]', JSON.stringify({
+        stage: 'blocked',
+        phone,
+        reason: canSend.reason || 'otp_blocked',
+        status: canSend.status || 429,
+        retryAfterSeconds: canSend.retryAfterSeconds || null,
+      }));
+      return canSend;
+    }
 
     const expiresAt = new Date(Date.now() + OTP_TTL_MS).toISOString();
     const { error: insertError } = await supabase.from('passenger_otp_codes').insert({
@@ -346,12 +358,27 @@ export async function createAndSendOtp(rawPhone) {
 
   const supabase = getSupabaseAdmin();
   const canSend = await assertCanSendOtp(supabase, phone);
-  if (!canSend.ok) return canSend;
+  if (!canSend.ok) {
+    console.info('[passenger-otp]', JSON.stringify({
+      stage: 'blocked',
+      phone,
+      reason: canSend.reason || 'otp_blocked',
+      status: canSend.status || 429,
+      retryAfterSeconds: canSend.retryAfterSeconds || null,
+    }));
+    return canSend;
+  }
 
   const otpLine = listOtpWhatsmeowCandidateLines()[0];
   if (otpLine?.agentCode) {
     const pause = await readOtpLinePause(otpLine.agentCode);
     if (pause.paused) {
+      console.info('[passenger-otp]', JSON.stringify({
+        stage: 'blocked',
+        phone,
+        reason: 'whatsapp_line_paused',
+        retryAfterSeconds: pause.retryAfterSeconds || null,
+      }));
       return {
         ok: false,
         status: 502,
