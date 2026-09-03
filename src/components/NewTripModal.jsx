@@ -23,16 +23,12 @@ import {
 const MODAL_STYLES = `
 @keyframes _ntm_spin { to { transform: rotate(360deg); } }
 @keyframes _ntm_fade { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
-@keyframes _ntm_shimmer {
-  0%   { background-position: -400px 0; }
-  100% { background-position:  400px 0; }
+._ntm_scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #E2E8F0 transparent;
 }
-._ntm_shimmer {
-  background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
-  background-size: 800px 100%;
-  animation: _ntm_shimmer 1.4s infinite;
-  border-radius: 6px;
-}
+._ntm_scroll::-webkit-scrollbar { width: 6px; }
+._ntm_scroll::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 99px; }
 `;
 
 function Spinner({ size = 14, color = '#DC2626' }) {
@@ -495,69 +491,66 @@ export default function NewTripModal({
       onClick={asPopover ? undefined : ((e) => e.target === e.currentTarget && onClose())}
     >
       <style>{MODAL_STYLES}</style>
-      <div ref={modalScrollRef} style={{
-        background: '#FFFFFF', borderRadius: asPopover ? 16 : 20,
+      <div style={{
+        background: asPopover ? 'rgba(255,255,255,0.94)' : '#FFFFFF',
+        backdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
+        WebkitBackdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
+        borderRadius: asPopover ? 22 : 20,
         width: '100%', maxWidth: asPopover ? 'none' : 520,
-        maxHeight: asPopover ? 'calc(100vh - 110px)' : '92vh', overflowY: 'auto',
+        maxHeight: asPopover ? 'calc(100vh - 96px)' : '92vh',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
         boxShadow: asPopover
-          ? '0 12px 40px rgba(0,0,0,0.14), 0 3px 10px rgba(0,0,0,0.07)'
+          ? '0 18px 50px rgba(15,23,42,0.16), 0 2px 8px rgba(15,23,42,0.06)'
           : '0 24px 64px rgba(0,0,0,0.28)',
-        border: asPopover ? '1px solid rgba(226,232,240,0.7)' : 'none',
+        border: asPopover ? '1px solid rgba(226,232,240,0.85)' : 'none',
         animation: '_ntm_fade 0.18s ease',
       }}>
         {/* Header */}
         <div style={{
-          padding: asPopover ? '11px 14px' : '16px 20px',
-          borderBottom: '1px solid #F1F5F9',
+          padding: asPopover ? '12px 14px 10px' : '16px 20px',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          position: 'sticky', top: 0, background: '#FFFFFF', zIndex: 10,
-          borderRadius: asPopover ? '16px 16px 0 0' : '20px 20px 0 0',
+          flexShrink: 0,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: asPopover ? 8 : 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
-              width: asPopover ? 28 : 36, height: asPopover ? 28 : 36,
-              background: 'linear-gradient(135deg, #EF4444, #B91C1C)',
-              borderRadius: asPopover ? 8 : 10,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: asPopover ? 13 : 16,
-            }}>🚖</div>
-            <div>
-              <div style={{ fontSize: asPopover ? 13 : 15, fontWeight: 700, color: '#0F172A' }}>
-                {isScheduled ? 'Programar viaje' : 'Nuevo viaje'}
-              </div>
-              {!asPopover && (
-                <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>
-                  {isScheduled
-                    ? `Se busca chofer ${DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS / 60000} minutos antes`
-                    : 'Se encola y el sistema asigna chofer automáticamente'}
-                </div>
-              )}
+              width: 8, height: 8, borderRadius: '50%', background: '#E11D48', flexShrink: 0,
+              boxShadow: '0 0 0 4px rgba(225,29,72,0.12)',
+            }} />
+            <div style={{ fontSize: asPopover ? 14 : 15, fontWeight: 600, color: '#0F172A', letterSpacing: '-0.02em' }}>
+              {isScheduled ? 'Programar viaje' : 'Nuevo viaje'}
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Cerrar"
             style={{
-              width: 28, height: 28, background: '#F1F5F9', border: 'none',
-              borderRadius: 7, color: '#64748B', fontSize: 13, cursor: 'pointer',
+              width: 28, height: 28, background: 'transparent', border: 'none',
+              borderRadius: 8, color: '#94A3B8', fontSize: 16, cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#E2E8F0'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = '#F1F5F9'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#F1F5F9'; e.currentTarget.style.color = '#334155'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#94A3B8'; }}
           >✕</button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ padding: asPopover ? '12px' : '20px' }}>
+        <form onSubmit={handleSubmit} style={{
+          display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0,
+        }}>
+          <div ref={modalScrollRef} className="_ntm_scroll" style={{
+            flex: 1, minHeight: 0, overflowY: 'auto',
+            padding: asPopover ? '0 14px 8px' : '0 20px 12px',
+          }}>
           {/* Inputs */}
           <div style={{
-            background: '#F8FAFC', border: '1px solid #E2E8F0',
-            borderRadius: asPopover ? 10 : 14,
-            padding: '4px 0', marginBottom: asPopover ? 10 : 16,
+            background: '#F8FAFC', border: '1px solid #E8EEF4',
+            borderRadius: 16, padding: '2px 0', marginBottom: 10,
           }}>
             {/* Recogida */}
-            <div style={{ padding: asPopover ? '8px 10px' : '10px 14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <div style={{ padding: asPopover ? '8px 12px' : '10px 14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
                 <OriginDot />
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>ORIGEN</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em' }}>ORIGEN</span>
               </div>
               <AddressAutocomplete
                 id="new-trip-pickup"
@@ -603,11 +596,11 @@ export default function NewTripModal({
             </div>
 
             {/* Destino */}
-            <div style={{ padding: '10px 14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <div style={{ padding: asPopover ? '8px 12px 10px' : '10px 14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
                 <DestDot />
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>
-                  DESTINO <span style={{ fontWeight: 400, color: '#94A3B8' }}>(opcional)</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em' }}>
+                  DESTINO <span style={{ fontWeight: 500, color: '#CBD5E1' }}>opcional</span>
                 </span>
               </div>
               <AddressAutocomplete
@@ -636,8 +629,8 @@ export default function NewTripModal({
                   setError('');
                 }}
               />
-              <p style={{ margin: '6px 0 0', fontSize: 10, color: '#94A3B8' }}>
-                Si lo dejás vacío, el chofer lo define al subir.
+              <p style={{ margin: '5px 0 0', fontSize: 10, color: '#94A3B8' }}>
+                Vacío: el chofer lo define al subir.
               </p>
             </div>
           </div>
@@ -648,12 +641,11 @@ export default function NewTripModal({
             style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
-              gap: 3,
+              gap: 2,
               padding: 3,
-              marginBottom: isScheduled ? 10 : 12,
+              marginBottom: isScheduled ? 8 : 8,
               background: '#F1F5F9',
-              border: '1px solid #E8EEF4',
-              borderRadius: 14,
+              borderRadius: 12,
             }}
           >
             <button
@@ -679,8 +671,8 @@ export default function NewTripModal({
             <div
               ref={scheduleSectionRef}
               style={{
-              background: '#FAFBFC', border: '1px solid #E8EEF4',
-              borderRadius: 14, padding: 12, marginBottom: 12,
+              background: '#FAFBFC',
+              borderRadius: 14, padding: 10, marginBottom: 8,
             }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                 <div>
@@ -714,12 +706,11 @@ export default function NewTripModal({
             style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
-              gap: 3,
+              gap: 2,
               padding: 3,
-              marginBottom: driverMode === 'choose' ? 10 : 12,
+              marginBottom: driverMode === 'choose' ? 8 : 8,
               background: '#F1F5F9',
-              border: '1px solid #E8EEF4',
-              borderRadius: 14,
+              borderRadius: 12,
             }}
           >
             <button
@@ -742,8 +733,8 @@ export default function NewTripModal({
 
           {driverMode === 'choose' ? (
             <div style={{
-              background: '#FAFBFC', border: '1px solid #E8EEF4',
-              borderRadius: 14, padding: 12, marginBottom: 12,
+              background: '#FAFBFC',
+              borderRadius: 14, padding: 10, marginBottom: 8,
             }}>
               <label style={scheduleFieldLabelStyle}>NÚMERO DE MÓVIL</label>
               <input
@@ -818,61 +809,52 @@ export default function NewTripModal({
             </div>
           ) : null}
 
-          {/* Tarjeta de ruta */}
-          {(routeLoading || routeInfo) && (
+          {/* Resumen de ruta, una línea */}
+          {(routeLoading || routeInfo) ? (
             <div style={{
-              background: 'linear-gradient(135deg, #FFF5F5 0%, #FFF 100%)',
-              border: '1px solid rgba(220,38,38,0.15)',
-              borderRadius: 12, padding: '12px 16px', marginBottom: 14,
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '8px 10px', marginBottom: 8,
+              background: '#FAFBFC', borderRadius: 12,
             }}>
               {routeLoading ? (
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <Spinner size={15} color="#DC2626" />
+                <>
+                  <Spinner size={13} color="#DC2626" />
                   <span style={{ fontSize: 12, color: '#94A3B8' }}>Calculando ruta…</span>
-                  <div style={{ flex: 1, display: 'flex', gap: 8 }}>
-                    {[60, 50, 70].map((_, i) => (
-                      <div key={i} className="_ntm_shimmer" style={{ height: 28, flex: 1 }} />
-                    ))}
-                  </div>
-                </div>
-              ) : routeInfo && (
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: '#DC2626', letterSpacing: '0.06em', marginBottom: 8 }}>
-                    RESUMEN DEL VIAJE
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
-                    <StatItem icon="📏" label="DISTANCIA" value={`${routeInfo.distanceKm} km`} valueColor="#0F172A" />
-                    <div style={{ width: 1, background: 'rgba(220,38,38,0.15)', alignSelf: 'stretch' }} />
-                    <StatItem icon="⏱️" label="TIEMPO" value={`${routeInfo.durationMinutes} min`} valueColor="#0F172A" />
-                    {autoPrice != null && (
-                      <>
-                        <div style={{ width: 1, background: 'rgba(220,38,38,0.15)', alignSelf: 'stretch' }} />
-                        <StatItem icon="💰" label="PRECIO EST." value={`$${autoPrice.toLocaleString('es-AR')}`} valueColor="#DC2626" />
-                      </>
-                    )}
-                  </div>
-                </div>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#0F172A' }}>{routeInfo.distanceKm} km</span>
+                  <span style={{ color: '#E2E8F0' }}>·</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#0F172A' }}>{routeInfo.durationMinutes} min</span>
+                  {autoPrice != null ? (
+                    <>
+                      <span style={{ color: '#E2E8F0' }}>·</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#DC2626' }}>
+                        ${autoPrice.toLocaleString('es-AR')}
+                      </span>
+                    </>
+                  ) : null}
+                </>
               )}
             </div>
-          )}
+          ) : null}
 
           {/* Opcionales */}
           <button
             type="button"
             onClick={() => setShowOptional((v) => !v)}
             style={{
-              width: '100%', marginBottom: showOptional ? 12 : 4,
-              padding: '7px 12px', background: 'none',
-              border: '1px dashed #E2E8F0', borderRadius: 8,
+              width: '100%', marginBottom: showOptional ? 8 : 2,
+              padding: '4px 2px', background: 'none', border: 'none',
               color: '#64748B', fontSize: 12, fontWeight: 600,
               cursor: 'pointer', textAlign: 'left',
-              display: 'flex', alignItems: 'center', gap: 6,
+              display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#94A3B8'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = '#0F172A'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = '#64748B'; }}
           >
-            <span style={{ fontSize: 10 }}>{showOptional ? '▲' : '▼'}</span>
-            {showOptional ? 'Ocultar datos opcionales' : (isScheduled ? '+ Agregar notas' : '+ Agregar pasajero, teléfono y notas')}
+            <span style={{ fontSize: 9, color: '#94A3B8' }}>{showOptional ? '▲' : '+'}</span>
+            {showOptional ? 'Ocultar datos opcionales' : (isScheduled ? 'Agregar notas' : 'Pasajero, teléfono y notas')}
           </button>
 
           {showOptional && (
@@ -905,78 +887,73 @@ export default function NewTripModal({
             </div>
           )}
 
-          {error && (
-            <div style={{ padding: '9px 14px', background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, color: '#DC2626', fontSize: 12, fontWeight: 500, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>⚠️</span> {error}
-            </div>
-          )}
+          </div>
 
-          {/* Botones */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button" onClick={onClose}
-                style={{
-                  flex: 1, padding: '10px 14px',
-                  background: '#F1F5F9', border: '1px solid #E2E8F0',
-                  borderRadius: 12, color: '#64748B', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#E2E8F0'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = '#F1F5F9'; }}
-              >
-                Cancelar
-              </button>
+          <div style={{
+            flexShrink: 0,
+            padding: asPopover ? '10px 14px 14px' : '12px 20px 18px',
+            borderTop: '1px solid #F1F5F9',
+            background: asPopover
+              ? 'linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.96))'
+              : '#FFFFFF',
+          }}>
+            {error ? (
+              <div style={{
+                padding: '8px 10px', marginBottom: 8,
+                background: '#FEF2F2', borderRadius: 10,
+                color: '#DC2626', fontSize: 12, fontWeight: 500,
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <span>⚠️</span> {error}
+              </div>
+            ) : null}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
               <button
                 type="button" onClick={handleVerRuta}
                 disabled={!canShowOnMap || routeLoading}
+                aria-label="Ver en mapa"
                 title={
                   !canShowOnMap
                     ? 'Confirmá la dirección de origen para verla en el mapa'
                     : (hasFullRoute ? 'Ver ruta en el mapa' : 'Ver punto de origen en el mapa')
                 }
                 style={{
-                  flex: 1, padding: '10px 14px',
-                  background: canShowOnMap
-                    ? 'linear-gradient(135deg,#0EA5E9 0%,#0284C7 100%)'
-                    : '#F1F5F9',
-                  border: canShowOnMap ? 'none' : '1px solid #E2E8F0',
+                  width: 44, flexShrink: 0,
+                  background: canShowOnMap ? '#F8FAFC' : '#F8FAFC',
+                  border: '1px solid #E2E8F0',
                   borderRadius: 12,
-                  color: canShowOnMap ? '#FFFFFF' : '#94A3B8',
-                  fontSize: 13, fontWeight: 700,
+                  color: canShowOnMap ? '#0F172A' : '#CBD5E1',
                   cursor: canShowOnMap && !routeLoading ? 'pointer' : 'not-allowed',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  boxShadow: canShowOnMap ? '0 4px 12px rgba(14,165,233,0.35)' : 'none',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
               >
                 {routeLoading
-                  ? <><Spinner size={13} color={routeInfo ? '#fff' : '#94A3B8'} /> Calculando…</>
-                  : '🗺️ Ver en mapa'}
+                  ? <Spinner size={14} color="#94A3B8" />
+                  : <MapIcon size={18} color={canShowOnMap ? '#0F172A' : '#CBD5E1'} />}
+              </button>
+              <button
+                type="submit" disabled={loading}
+                style={{
+                  flex: 1, padding: '12px 16px',
+                  background: loading
+                    ? '#CBD5E1'
+                    : (isScheduled ? '#0F172A' : '#E11D48'),
+                  border: 'none', borderRadius: 12, color: '#FFFFFF',
+                  fontSize: 14, fontWeight: 700, fontFamily: 'inherit',
+                  cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.75 : 1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  boxShadow: loading
+                    ? 'none'
+                    : (isScheduled ? '0 6px 16px rgba(15,23,42,0.22)' : '0 6px 16px rgba(225,29,72,0.28)'),
+                }}
+              >
+                {loading
+                  ? <><Spinner size={14} color="#fff" /> {isScheduled ? 'Programando…' : 'Encolando…'}</>
+                  : (isScheduled
+                    ? <><CalendarIcon size={15} color="#FFFFFF" /> Programar viaje</>
+                    : enqueueActionLabel(driverMode, selectedDriver))}
               </button>
             </div>
-            <button
-              type="submit" disabled={loading}
-              style={{
-                width: '100%', padding: '12px 16px',
-                background: loading
-                  ? '#CBD5E1'
-                  : (isScheduled
-                    ? 'linear-gradient(135deg, #1E293B 0%, #0F172A 100%)'
-                    : 'linear-gradient(135deg, #EF4444 0%, #B91C1C 100%)'),
-                border: 'none', borderRadius: 12, color: '#FFFFFF',
-                fontSize: 14, fontWeight: 700,
-                cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.75 : 1,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                boxShadow: loading
-                  ? 'none'
-                  : (isScheduled ? '0 4px 14px rgba(15,23,42,0.28)' : '0 4px 14px rgba(220,38,38,0.35)'),
-              }}
-            >
-              {loading
-                ? <><Spinner size={14} color="#fff" /> {isScheduled ? 'Programando…' : 'Encolando…'}</>
-                : (isScheduled
-                  ? <><CalendarIcon size={15} color="#FFFFFF" /> Programar viaje</>
-                  : `🚖 ${enqueueActionLabel(driverMode, selectedDriver)}`)}
-            </button>
           </div>
         </form>
       </div>
@@ -1002,22 +979,31 @@ function CalendarIcon({ size = 14, color = 'currentColor' }) {
   );
 }
 
+function MapIcon({ size = 18, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 21s6.5-5.2 6.5-11A6.5 6.5 0 0 0 5.5 10c0 5.8 6.5 11 6.5 11Z" stroke={color} strokeWidth="1.7" strokeLinejoin="round" />
+      <circle cx="12" cy="10" r="2.2" stroke={color} strokeWidth="1.7" />
+    </svg>
+  );
+}
+
 function scheduleModeBtnStyle(active, isScheduleTab) {
   return {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    padding: '9px 10px',
+    padding: '8px 8px',
     border: 'none',
-    borderRadius: 11,
+    borderRadius: 9,
     background: active ? (isScheduleTab ? '#0F172A' : '#FFFFFF') : 'transparent',
     color: active ? (isScheduleTab ? '#FFFFFF' : '#0F172A') : '#64748B',
-    fontSize: 12.5,
-    fontWeight: 700,
+    fontSize: 12,
+    fontWeight: 600,
     fontFamily: 'inherit',
     cursor: 'pointer',
-    boxShadow: active ? (isScheduleTab ? '0 4px 12px rgba(15,23,42,0.22)' : '0 1px 3px rgba(15,23,42,0.08)') : 'none',
+    boxShadow: active ? (isScheduleTab ? '0 2px 8px rgba(15,23,42,0.18)' : '0 1px 2px rgba(15,23,42,0.06)') : 'none',
     transition: 'background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease',
   };
 }
@@ -1042,16 +1028,6 @@ function DestDot() {
 }
 function DestDotSmall() {
   return <div style={{ width: 8, height: 8, borderRadius: 2, background: '#059669', flexShrink: 0 }} />;
-}
-
-function StatItem({ icon, label, value, valueColor }) {
-  return (
-    <div style={{ flex: 1, textAlign: 'center', padding: '0 8px' }}>
-      <div style={{ fontSize: 13, marginBottom: 2 }}>{icon}</div>
-      <div style={{ fontSize: 9, color: '#94A3B8', fontWeight: 700, letterSpacing: '0.05em', marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 800, color: valueColor, lineHeight: 1 }}>{value}</div>
-    </div>
-  );
 }
 
 const optInputStyle = {

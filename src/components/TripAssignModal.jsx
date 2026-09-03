@@ -21,6 +21,12 @@ const MODAL_STYLES = `
   animation: _tm_shimmer 1.4s infinite;
   border-radius: 6px;
 }
+._tm_scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #E2E8F0 transparent;
+}
+._tm_scroll::-webkit-scrollbar { width: 6px; }
+._tm_scroll::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 99px; }
 `;
 
 /* ── Primitivas UI ────────────────────────────────────────────────────────── */
@@ -485,62 +491,64 @@ export default function TripAssignModal({
 
       <div
         style={{
-          background: '#FFFFFF',
-          borderRadius: asPopover ? 16 : 20,
+          background: asPopover ? 'rgba(255,255,255,0.94)' : '#FFFFFF',
+          backdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
+          WebkitBackdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
+          borderRadius: asPopover ? 22 : 20,
           width: '100%',
           maxWidth: asPopover ? 400 : 520,
           maxHeight: asPopover ? 'min(86vh, 720px)' : '92vh',
-          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
           boxShadow: asPopover
-            ? '0 16px 48px rgba(15,23,42,0.18), 0 4px 12px rgba(15,23,42,0.08)'
+            ? '0 18px 50px rgba(15,23,42,0.16), 0 2px 8px rgba(15,23,42,0.06)'
             : '0 24px 64px rgba(0,0,0,0.28)',
-          border: asPopover ? '1px solid rgba(226,232,240,0.9)' : 'none',
+          border: asPopover ? '1px solid rgba(226,232,240,0.85)' : 'none',
           animation: '_tm_fade 0.18s ease',
         }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <div style={{
-          padding: asPopover ? '12px 14px' : '16px 20px',
-          borderBottom: '1px solid #F1F5F9',
+          padding: asPopover ? '12px 14px 10px' : '16px 20px',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          position: 'sticky', top: 0, background: '#FFFFFF', zIndex: 10,
-          borderRadius: asPopover ? '16px 16px 0 0' : '20px 20px 0 0',
+          flexShrink: 0,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: asPopover ? 8 : 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
-              width: asPopover ? 28 : 36, height: asPopover ? 28 : 36,
-              background: 'linear-gradient(135deg, #EF4444, #B91C1C)',
-              borderRadius: asPopover ? 8 : 10,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: asPopover ? 13 : 16,
-            }}>
-              🚖
-            </div>
+              width: 8, height: 8, borderRadius: '50%', background: '#E11D48', flexShrink: 0,
+              boxShadow: '0 0 0 4px rgba(225,29,72,0.12)',
+            }} />
             <div>
-              <div style={{ fontSize: asPopover ? 13 : 15, fontWeight: 700, color: '#0F172A' }}>Asignar viaje</div>
+              <div style={{ fontSize: asPopover ? 14 : 15, fontWeight: 600, color: '#0F172A', letterSpacing: '-0.02em' }}>Asignar viaje</div>
               <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>
-                Chofer: <strong style={{ color: '#475569' }}>{driver?.fullName || driver?.full_name || '—'}</strong>
+                {driver?.fullName || driver?.full_name || '—'}
               </div>
             </div>
           </div>
           <button
             onClick={onClose}
+            aria-label="Cerrar"
             style={{
-              width: asPopover ? 28 : 32, height: asPopover ? 28 : 32,
-              background: '#F1F5F9', border: 'none', borderRadius: asPopover ? 7 : 8,
-              color: '#64748B', fontSize: asPopover ? 13 : 14, cursor: 'pointer', display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-              transition: 'background 0.1s',
+              width: 28, height: 28, background: 'transparent', border: 'none',
+              borderRadius: 8, color: '#94A3B8', fontSize: 16, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#E2E8F0'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = '#F1F5F9'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#F1F5F9'; e.currentTarget.style.color = '#334155'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#94A3B8'; }}
           >
             ✕
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ padding: asPopover ? '12px' : '20px' }}>
+        <form onSubmit={handleSubmit} style={{
+          display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0,
+        }}>
+          <div className="_tm_scroll" style={{
+            flex: 1, minHeight: 0, overflowY: 'auto',
+            padding: asPopover ? '0 14px 8px' : '0 20px 12px',
+          }}>
           {/* ── Inputs de dirección ──────────────────────────────────────── */}
           <div style={{
             background: '#F8FAFC',
@@ -765,92 +773,72 @@ export default function TripAssignModal({
             </div>
           )}
 
-          {/* ── Error ────────────────────────────────────────────────────── */}
-          {error && (
-            <div style={{
-              padding: '9px 14px',
-              background: '#FEF2F2', border: '1px solid #FCA5A5',
-              borderRadius: 8, color: '#DC2626',
-              fontSize: 12, fontWeight: 500, marginBottom: 12,
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}>
-              <span>⚠️</span> {error}
-            </div>
-          )}
+          </div>
 
-          {/* ── Botones ──────────────────────────────────────────────────── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {/* Fila 1: Cancelar + Ver ruta */}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                onClick={onClose}
-                style={{
-                  flex: 1, padding: '10px 14px',
-                  background: '#F1F5F9', border: '1px solid #E2E8F0',
-                  borderRadius: 12, color: '#64748B',
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  transition: 'all 0.15s',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#E2E8F0'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = '#F1F5F9'; }}
-              >
-                Cancelar
-              </button>
+          <div style={{
+            flexShrink: 0,
+            padding: asPopover ? '10px 14px 14px' : '12px 20px 18px',
+            borderTop: '1px solid #F1F5F9',
+            background: asPopover
+              ? 'linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.96))'
+              : '#FFFFFF',
+          }}>
+            {error ? (
+              <div style={{
+                padding: '8px 10px', marginBottom: 8,
+                background: '#FEF2F2', borderRadius: 10,
+                color: '#DC2626', fontSize: 12, fontWeight: 500,
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <span>⚠️</span> {error}
+              </div>
+            ) : null}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
               <button
                 type="button"
                 onClick={handleVerRuta}
                 disabled={!canShowOnMap || routeLoading}
+                aria-label="Ver en mapa"
                 title={
                   !canShowOnMap
                     ? 'Confirmá el origen para verlo en el mapa'
                     : (hasFullRoute ? 'Ver ruta en el mapa' : 'Ver punto de origen en el mapa')
                 }
                 style={{
-                  flex: 1, padding: '10px 14px',
-                  background: canShowOnMap
-                    ? 'linear-gradient(135deg,#0EA5E9 0%,#0284C7 100%)'
-                    : '#F1F5F9',
-                  border: canShowOnMap ? 'none' : '1px solid #E2E8F0',
+                  width: 44, flexShrink: 0,
+                  background: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
                   borderRadius: 12,
-                  color: canShowOnMap ? '#FFFFFF' : '#94A3B8',
-                  fontSize: 13, fontWeight: 700,
+                  color: canShowOnMap ? '#0F172A' : '#CBD5E1',
                   cursor: canShowOnMap && !routeLoading ? 'pointer' : 'not-allowed',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  boxShadow: canShowOnMap ? '0 4px 12px rgba(14,165,233,0.35)' : 'none',
-                  transition: 'all 0.15s',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
               >
-                {routeLoading ? (
-                  <><Spinner size={13} color={routeInfo ? '#fff' : '#94A3B8'} /> Calculando…</>
+                {routeLoading
+                  ? <Spinner size={14} color="#94A3B8" />
+                  : <AssignMapIcon size={18} color={canShowOnMap ? '#0F172A' : '#CBD5E1'} />}
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                style={{
+                  flex: 1, padding: '12px 16px',
+                  background: submitting ? '#CBD5E1' : '#E11D48',
+                  border: 'none', borderRadius: 12,
+                  color: '#FFFFFF', fontSize: 14, fontWeight: 700, fontFamily: 'inherit',
+                  cursor: submitting ? 'not-allowed' : 'pointer',
+                  opacity: submitting ? 0.75 : 1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  boxShadow: submitting ? 'none' : '0 6px 16px rgba(225,29,72,0.28)',
+                }}
+              >
+                {submitting ? (
+                  <><Spinner size={14} color="#fff" /> Asignando…</>
                 ) : (
-                  '🗺️ Ver en mapa'
+                  'Asignar viaje'
                 )}
               </button>
             </div>
-
-            {/* Fila 2: Asignar viaje (ancho completo) */}
-            <button
-              type="submit"
-              disabled={submitting}
-              style={{
-                width: '100%', padding: '12px 16px',
-                background: submitting ? '#CBD5E1' : 'linear-gradient(135deg, #EF4444 0%, #B91C1C 100%)',
-                border: 'none', borderRadius: 12,
-                color: '#FFFFFF', fontSize: 14, fontWeight: 700,
-                cursor: submitting ? 'not-allowed' : 'pointer',
-                opacity: submitting ? 0.75 : 1,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                boxShadow: submitting ? 'none' : '0 4px 14px rgba(220,38,38,0.35)',
-                transition: 'all 0.15s',
-              }}
-            >
-              {submitting ? (
-                <><Spinner size={14} color="#fff" /> Asignando…</>
-              ) : (
-                '🚖 Asignar Viaje'
-              )}
-            </button>
           </div>
         </form>
       </div>
@@ -859,6 +847,15 @@ export default function TripAssignModal({
 }
 
 /* ── Sub-componentes visuales ─────────────────────────────────────────────── */
+
+function AssignMapIcon({ size = 18, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 21s6.5-5.2 6.5-11A6.5 6.5 0 0 0 5.5 10c0 5.8 6.5 11 6.5 11Z" stroke={color} strokeWidth="1.7" strokeLinejoin="round" />
+      <circle cx="12" cy="10" r="2.2" stroke={color} strokeWidth="1.7" />
+    </svg>
+  );
+}
 
 function OriginDot() {
   return (
