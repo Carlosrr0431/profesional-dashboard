@@ -8,7 +8,7 @@ import {
   toWhatsAppJid,
 } from './passengerAuthPhone';
 import { sendWhatsmeowText, getWhatsmeowApiKey } from './whatsmeowClient';
-import { listOtpWhatsmeowCandidateLines } from './whatsmeowLines';
+import { listOtpWhatsmeowCandidateLines, PASSENGER_OTP_AGENT_CODE } from './whatsmeowLines';
 import {
   isWhatsappLineProtectivePause,
   isWhatsappQueueTimeoutError,
@@ -93,34 +93,91 @@ function isOtpLineDisconnected(reason) {
 }
 
 /**
- * Una sola frase, tono de chat. Sin “código/verificación/OTP” ni markdown.
- * El índice mezcla el número con el segundo actual para que un reenvío no
- * repita la misma plantilla.
+ * Una sola frase, tono de chat. Sin “código/verificación/OTP/número” ni markdown.
+ * Se elige al azar y se excluye la plantilla anterior del mismo destino.
  */
 const OTP_CHAT_PHRASES = [
-  (n) => `Hola, para entrar a la app de Profesional usá ${n}`,
+  (n, g) => `${g}, para entrar a la app de Profesional usá ${n}`,
   (n) => `Hola, en Profesional Pasajero poné ${n} y seguís`,
-  (n) => `Buenas, en la app de Profesional anotás ${n}`,
-  (n) => `Buenas, para seguir en Profesional Pasajero usá ${n}`,
+  (n, g) => `${g}, en la app de Profesional anotás ${n}`,
+  (n) => `Dale, para seguir en Profesional Pasajero usá ${n}`,
   (n) => `Hola, en la app poné ${n} y listo`,
-  (n) => `Buenas, te dejo ${n} para entrar a Profesional`,
+  (n, g) => `${g}, te dejo ${n} para entrar a Profesional`,
   (n) => `Hola, para abrir Profesional Pasajero usá ${n}`,
-  (n) => `Buenas, en Profesional el ingreso es ${n}`,
-  (n) => `Buenas, para continuar en la app usá ${n}`,
+  (n, g) => `${g}, en Profesional el ingreso es ${n}`,
+  (n) => `Listo, para continuar en la app usá ${n}`,
   (n) => `Hola, te dejo ${n} para la app de Profesional`,
-  (n) => `Buenas, anotá ${n} para entrar a Profesional Pasajero`,
+  (n, g) => `${g}, anotá ${n} para entrar a Profesional Pasajero`,
   (n) => `Hola, si estás en la app de Profesional usá ${n}`,
-  (n) => `Buenas, para subir a la app de Profesional poné ${n}`,
+  (n, g) => `${g}, para subir a la app de Profesional poné ${n}`,
   (n) => `Hola, con ${n} entras a Profesional Pasajero`,
-  (n) => `Buenas, ${n} y seguís en la app de Profesional`,
+  (n, g) => `${g}, ${n} y seguís en la app de Profesional`,
   (n) => `Hola, en Profesional Pasajero poné ${n}`,
+  (n) => `Ahí va, en la app de Profesional usá ${n}`,
+  (n, g) => `${g}, poné ${n} en Profesional Pasajero y listo`,
+  (n) => `Hola, seguí en la app con ${n}`,
+  (n, g) => `${g}, para la app de Profesional usá ${n}`,
+  (n) => `Dale, en Profesional Pasajero anotás ${n}`,
+  (n) => `Hola, ya podés entrar a Profesional con ${n}`,
+  (n, g) => `${g}, usá ${n} en la app y seguís`,
+  (n) => `Hola, ${n} para Profesional Pasajero y listo`,
 ];
 
-export function buildPassengerOtpMessage(code, nowMs = Date.now()) {
+const lastOtpTextByDest = new Map();
+
+export function argentinaHour(nowMs = Date.now()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Argentina/Salta',
+      hour: 'numeric',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(nowMs));
+    return Number(parts.find((part) => part.type === 'hour')?.value);
+  } catch {
+    return new Date(nowMs).getUTCHours();
+  }
+}
+
+export function otpGreeting(nowMs = Date.now()) {
+  const hour = argentinaHour(nowMs);
+  if (!Number.isFinite(hour)) return 'Hola';
+  if (hour >= 6 && hour < 12) return 'Buenos días';
+  if (hour >= 12 && hour < 20) return 'Buenas tardes';
+  return 'Buenas noches';
+}
+
+/** Misma plantilla aunque cambie el código de 4 dígitos. */
+export function otpPhraseFingerprint(text) {
+  return String(text || '').replace(/\d{4}/g, '#').trim();
+}
+
+export function buildPassengerOtpMessage(code, nowMs = Date.now(), { previousText } = {}) {
   const digits = String(code || '').replace(/\D/g, '').padStart(4, '0').slice(-4);
-  const n = Number(digits) || 0;
-  const idx = Math.abs((n * 31 + Math.floor(Number(nowMs) / 1000)) % OTP_CHAT_PHRASES.length);
-  return OTP_CHAT_PHRASES[idx](digits);
+  const greeting = otpGreeting(nowMs);
+  const rendered = OTP_CHAT_PHRASES.map((fn) => fn(digits, greeting));
+  const previous = otpPhraseFingerprint(previousText);
+  const pool = previous
+    ? rendered.filter((text) => otpPhraseFingerprint(text) !== previous)
+    : rendered;
+  const source = pool.length ? pool : rendered;
+  return source[randomInt(0, source.length)];
+}
+
+async function readLastOtpOutboundText(dest) {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data } = await supabase
+      .from('whatsapp_outbound_queue')
+      .select('payload')
+      .eq('dest', dest)
+      .eq('agent_code', PASSENGER_OTP_AGENT_CODE)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return String(data?.payload?.text || '').trim();
+  } catch {
+    return '';
+  }
 }
 
 async function readOtpLinePause(agentCode) {
@@ -150,7 +207,8 @@ export async function sendWhatsAppOtp(phone, code) {
     return { ok: false, reason: 'invalid_phone' };
   }
 
-  const text = buildPassengerOtpMessage(code);
+  const previousText = lastOtpTextByDest.get(dest) || await readLastOtpOutboundText(dest);
+  const text = buildPassengerOtpMessage(code, Date.now(), { previousText });
   const phoneDigits = String(phone || '').replace(/\D/g, '');
   let lastReason = 'whatsmeow_send_failed';
 
@@ -186,6 +244,8 @@ export async function sendWhatsAppOtp(phone, code) {
     });
 
     if (result.success || (isWhatsappQueueTimeoutError(result.error) && result.queueId)) {
+      if (lastOtpTextByDest.size > 500) lastOtpTextByDest.clear();
+      lastOtpTextByDest.set(dest, text);
       console.info('[passenger-otp]', JSON.stringify({
         stage: result.success ? (result.queued ? 'queued' : 'send_ok') : 'queued_await_timeout',
         ...logBase,

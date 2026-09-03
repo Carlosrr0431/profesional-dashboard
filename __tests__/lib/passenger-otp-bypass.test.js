@@ -2,6 +2,7 @@ const {
   isAppReviewDemoPhone,
   isPassengerOtpBypassPhone,
   buildPassengerOtpMessage,
+  otpPhraseFingerprint,
 } = require('../../src/lib/passengerOtp');
 
 describe('passenger OTP bypass phone', () => {
@@ -68,9 +69,17 @@ describe('buildPassengerOtpMessage', () => {
     }
   });
 
-  test('un reenvío del mismo código cambia de frase', () => {
-    const first = buildPassengerOtpMessage('2580', 0);
-    const later = buildPassengerOtpMessage('2580', 5_000);
-    expect(first).not.toBe(later);
+  test('un reenvío no reutiliza la misma plantilla', () => {
+    const previous = 'Buenas noches, para subir a la app de Profesional poné 9758';
+    for (let i = 0; i < 24; i += 1) {
+      const next = buildPassengerOtpMessage('4859', Date.now(), { previousText: previous });
+      expect(next).toContain('4859');
+      expect(otpPhraseFingerprint(next)).not.toBe(otpPhraseFingerprint(previous));
+    }
+  });
+
+  test('dos códigos distintos con la misma plantilla tienen la misma huella', () => {
+    expect(otpPhraseFingerprint('Buenas, para subir a la app de Profesional poné 9758'))
+      .toBe(otpPhraseFingerprint('Buenas, para subir a la app de Profesional poné 4859'));
   });
 });
