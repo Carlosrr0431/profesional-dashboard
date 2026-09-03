@@ -5,11 +5,14 @@ const {
 } = require('../../src/lib/passengerOtp');
 
 describe('passenger OTP bypass phone', () => {
-  const original = process.env.PASSENGER_OTP_BYPASS_PHONE;
+  const originalBypass = process.env.PASSENGER_OTP_BYPASS_PHONE;
+  const originalReview = process.env.PASSENGER_APP_REVIEW_PHONE;
 
   afterEach(() => {
-    if (original == null) delete process.env.PASSENGER_OTP_BYPASS_PHONE;
-    else process.env.PASSENGER_OTP_BYPASS_PHONE = original;
+    if (originalBypass == null) delete process.env.PASSENGER_OTP_BYPASS_PHONE;
+    else process.env.PASSENGER_OTP_BYPASS_PHONE = originalBypass;
+    if (originalReview == null) delete process.env.PASSENGER_APP_REVIEW_PHONE;
+    else process.env.PASSENGER_APP_REVIEW_PHONE = originalReview;
   });
 
   test('sin env no saltea ningún número, incluido el de prueba local', () => {
@@ -18,8 +21,17 @@ describe('passenger OTP bypass phone', () => {
     expect(isPassengerOtpBypassPhone('543878630173')).toBe(false);
   });
 
-  test('el número de App Review se reconoce aunque no haya bypass por env', () => {
+  test('sin PASSENGER_APP_REVIEW_PHONE ningún número saltea WhatsApp', () => {
     delete process.env.PASSENGER_OTP_BYPASS_PHONE;
+    delete process.env.PASSENGER_APP_REVIEW_PHONE;
+    expect(isAppReviewDemoPhone('3878630173')).toBe(false);
+    expect(isAppReviewDemoPhone('543878630173')).toBe(false);
+    expect(isAppReviewDemoPhone('3871234567')).toBe(false);
+  });
+
+  test('con PASSENGER_APP_REVIEW_PHONE solo ese número es review silencioso', () => {
+    delete process.env.PASSENGER_OTP_BYPASS_PHONE;
+    process.env.PASSENGER_APP_REVIEW_PHONE = '3878630173';
     expect(isAppReviewDemoPhone('3878630173')).toBe(true);
     expect(isAppReviewDemoPhone('543878630173')).toBe(true);
     expect(isAppReviewDemoPhone('3871234567')).toBe(false);

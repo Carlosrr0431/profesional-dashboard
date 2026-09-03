@@ -55,7 +55,7 @@ export async function POST(req) {
     }));
 
     // Play pre-launch / Googlebot: IPs 66.249.* con header de la app real.
-    // No mandar WhatsApp. El número de review puede seguir (código 2580, sin WA).
+    // No mandar WhatsApp a números random. El número de review (si hay env) puede seguir.
     if (isLikelyAutomatedScannerIp(ip) && !isAppReviewDemoPhone(phone)) {
       console.info('[passenger-otp]', JSON.stringify({
         stage: 'rejected_scanner',

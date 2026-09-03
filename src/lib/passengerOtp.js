@@ -26,11 +26,14 @@ const OTP_MAX_GLOBAL_PER_HOUR = 40;
 const OTP_MAX_ATTEMPTS = 5;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-const APP_REVIEW_DEMO_LOCAL = '3878630173';
 const APP_REVIEW_DEMO_OTP = '2580';
 
 function configuredOtpBypassLocal() {
   return extractLocalArMobileDigits(process.env.PASSENGER_OTP_BYPASS_PHONE || '');
+}
+
+function configuredAppReviewLocal() {
+  return extractLocalArMobileDigits(process.env.PASSENGER_APP_REVIEW_PHONE || '');
 }
 
 /** Bypass opcional vía PASSENGER_OTP_BYPASS_PHONE. En producción no se define: siempre se envía OTP. */
@@ -40,9 +43,15 @@ export function isPassengerOtpBypassPhone(rawPhone) {
   return extractLocalArMobileDigits(rawPhone) === configured;
 }
 
-/** Cuenta de App Review / Play pre-launch. Nunca se manda WhatsApp. */
+/**
+ * Cuenta de App Review / Play pre-launch (opt-in).
+ * Solo si PASSENGER_APP_REVIEW_PHONE está definido: no manda WhatsApp y acepta 2580.
+ * Sin env, ese número recibe OTP real como cualquier pasajero.
+ */
 export function isAppReviewDemoPhone(rawPhone) {
-  return extractLocalArMobileDigits(rawPhone) === APP_REVIEW_DEMO_LOCAL;
+  const configured = configuredAppReviewLocal();
+  if (!configured) return false;
+  return extractLocalArMobileDigits(rawPhone) === configured;
 }
 
 function isMissingOtpTableError(error) {
@@ -305,7 +314,7 @@ export async function createAndSendOtp(rawPhone) {
     };
   }
 
-  // App Review: código fijo 2580, sin WhatsApp. Play pre-launch pide este número solo.
+  // App Review opt-in: código fijo 2580, sin WhatsApp. Requiere PASSENGER_APP_REVIEW_PHONE.
   if (isAppReviewDemoPhone(phone)) {
     const supabase = getSupabaseAdmin();
     const canSend = await assertCanSendOtp(supabase, phone);
