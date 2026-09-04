@@ -16,7 +16,7 @@ export const LANDLINE_DISPLAY = '387 431-8888';
 export const LANDLINE_HREF = 'tel:+543874318888';
 
 const cardShell =
-  'flex h-full min-h-0 flex-col justify-between rounded-[1.35rem] bg-white/75 p-3.5 shadow-[0_1px_0_rgba(255,255,255,0.9)_inset,0_10px_30px_-20px_rgba(15,23,42,0.28)] ring-1 ring-black/[0.05] backdrop-blur-md sm:rounded-[1.5rem] sm:p-4';
+  'apps-ficha-card flex h-full min-h-0 flex-col justify-between overflow-hidden rounded-[1.45rem] bg-white/80 p-4 shadow-[0_1px_0_rgba(255,255,255,0.95)_inset,0_14px_36px_-22px_rgba(15,23,42,0.28)] ring-1 ring-black/[0.05] backdrop-blur-md sm:rounded-[1.65rem] sm:p-5';
 
 function PlayMark({ className = 'h-3.5 w-3.5' }) {
   return (
@@ -77,16 +77,26 @@ function StoreButton({ href, store, appName }) {
       rel="noopener noreferrer"
       aria-label={`Descargar ${appName} en ${storeName}`}
       className={[
-        'inline-flex min-h-11 min-w-0 flex-1 touch-manipulation items-center justify-center gap-1.5 rounded-full px-3 text-[12px] font-semibold tracking-tight transition-[background-color,box-shadow,transform] duration-200 sm:text-[13px]',
+        'inline-flex min-h-11 min-w-0 flex-1 touch-manipulation items-center justify-center gap-1.5 rounded-full px-3 text-[12px] font-semibold tracking-tight transition-[background-color,transform,box-shadow] duration-200 sm:text-[13px]',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 focus-visible:ring-offset-2',
         apple
-          ? 'bg-navy-900 text-white hover:bg-navy-800'
-          : 'bg-white text-navy-900 ring-1 ring-black/[0.08] hover:bg-light-100',
+          ? 'bg-navy-900 text-white hover:bg-navy-800 active:scale-[0.98]'
+          : 'bg-white text-navy-900 ring-1 ring-black/[0.08] hover:bg-light-100 active:scale-[0.98]',
       ].join(' ')}
     >
       {apple ? <AppleMark /> : <PlayMark />}
       <span className="truncate">{storeName}</span>
     </a>
+  );
+}
+
+function SectionLabel({ children }) {
+  return (
+    <p className="mb-2.5 flex items-center gap-2 px-0.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+      <span className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent sm:flex-none sm:w-8 sm:bg-slate-200" />
+      {children}
+      <span className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
+    </p>
   );
 }
 
@@ -101,25 +111,24 @@ function AppCard({
   icon,
   iconClass,
   emphasized = false,
+  className = '',
 }) {
   return (
-    <article className={`${cardShell} ${emphasized ? 'ring-2 ring-accent/25' : ''}`}>
-      <div className="flex min-w-0 items-center gap-3">
-        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl sm:h-11 sm:w-11 ${iconClass}`}>
+    <article className={`${cardShell} ${emphasized ? 'ring-2 ring-accent/30' : ''} ${className}`}>
+      <div className="flex min-w-0 items-start gap-3">
+        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl sm:h-12 sm:w-12 ${iconClass}`}>
           {icon}
         </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-slate-400">{meta}</p>
-          <h2 className="truncate text-[15px] font-semibold tracking-tight text-navy-900 sm:text-base">{title}</h2>
-          <p className="mt-0.5 line-clamp-1 text-[12.5px] leading-snug text-slate-500 [@media(max-height:620px)]:hidden">
-            {subtitle}
-          </p>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{meta}</p>
+          <h2 className="mt-0.5 text-[1.05rem] font-semibold tracking-tight text-navy-900 sm:text-[1.15rem]">{title}</h2>
+          <p className="mt-1 text-[13px] leading-snug text-slate-500">{subtitle}</p>
         </div>
       </div>
       {webHref ? (
         <Link
           href={webHref}
-          className="mt-3.5 inline-flex min-h-11 w-full items-center justify-center rounded-full bg-navy-900 px-3 text-[12px] font-semibold text-white sm:text-[13px]"
+          className="mt-4 inline-flex min-h-11 w-full touch-manipulation items-center justify-center rounded-full bg-navy-900 px-3 text-[13px] font-semibold text-white transition-[background-color,transform] duration-200 hover:bg-navy-800 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 focus-visible:ring-offset-2"
         >
           {webLabel || 'Usar en el navegador'}
         </Link>
@@ -132,72 +141,52 @@ function AppCard({
   );
 }
 
-function WhatsAppCard({ className = '' }) {
+function ContactCard({
+  meta,
+  title,
+  hint,
+  number,
+  href,
+  cta,
+  ariaLabel,
+  icon,
+  iconClass,
+  ctaClass,
+  cardClass = '',
+  external = false,
+}) {
   return (
-    <article className={`${cardShell} ${className}`}>
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#25D366]/12 text-[#128C7E] sm:h-11 sm:w-11">
-          <WhatsAppMark />
+    <article className={`${cardShell} ${cardClass}`}>
+      <div className="flex min-w-0 items-start gap-3">
+        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl sm:h-12 sm:w-12 ${iconClass}`}>
+          {icon}
         </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-slate-400">Sin descargar</p>
-          <h2 className="truncate text-[15px] font-semibold tracking-tight text-navy-900 sm:text-base">
-            Pedí por WhatsApp o teléfono
-          </h2>
-          <p className="mt-0.5 line-clamp-1 text-[12.5px] leading-snug text-slate-500 [@media(max-height:620px)]:hidden">
-            WhatsApp para mensajes. El fijo, solo llamadas.
-          </p>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{meta}</p>
+          <h2 className="mt-0.5 text-[1.05rem] font-semibold tracking-tight text-navy-900 sm:text-[1.15rem]">{title}</h2>
+          <p className="mt-1 text-[13px] leading-snug text-slate-500">{hint}</p>
         </div>
       </div>
-
-      <div className="mt-3.5 flex flex-col gap-2">
-        <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-center">
-          <p
-            translate="no"
-            className="min-w-0 truncate text-center text-[13px] font-semibold tabular-nums tracking-tight text-navy-900 min-[420px]:flex-1 min-[420px]:text-left sm:text-[14px]"
-          >
-            {WHATSAPP_PHONE_DISPLAY}
-          </p>
-          <a
-            href={WHATSAPP_HREF}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`Escribir por WhatsApp al ${WHATSAPP_PHONE_DISPLAY}`}
-            className="inline-flex min-h-11 shrink-0 touch-manipulation items-center justify-center gap-1.5 rounded-full bg-[#25D366] px-4 text-[12px] font-semibold text-white transition-[background-color,transform] duration-200 hover:bg-[#20c35c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366]/45 focus-visible:ring-offset-2 min-[420px]:min-w-[9.75rem] sm:text-[13px]"
-          >
-            <WhatsAppMark className="h-3.5 w-3.5" />
-            Escribir ahora
-          </a>
-        </div>
-
-        <div className="flex flex-col gap-2 border-t border-black/[0.05] pt-2 min-[420px]:flex-row min-[420px]:items-center">
-          <div className="min-w-0 min-[420px]:flex-1">
-            <p className="text-center text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400 min-[420px]:text-left">
-              Teléfono fijo · solo llamadas
-            </p>
-            <p
-              translate="no"
-              className="mt-0.5 truncate text-center text-[13px] font-semibold tabular-nums tracking-tight text-navy-900 min-[420px]:text-left sm:text-[14px]"
-            >
-              {LANDLINE_DISPLAY}
-            </p>
-          </div>
-          <a
-            href={LANDLINE_HREF}
-            aria-label={`Llamar al teléfono fijo ${LANDLINE_DISPLAY}. Solo llamadas, no WhatsApp.`}
-            className="inline-flex min-h-11 shrink-0 touch-manipulation items-center justify-center gap-1.5 rounded-full bg-navy-900 px-4 text-[12px] font-semibold text-white transition-[background-color,transform] duration-200 hover:bg-navy-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 focus-visible:ring-offset-2 min-[420px]:min-w-[9.75rem] sm:text-[13px]"
-          >
-            <PhoneMark className="h-3.5 w-3.5" />
-            Llamar
-          </a>
-        </div>
-      </div>
+      <p
+        translate="no"
+        className="mt-4 break-words text-[clamp(1.05rem,3.4vw,1.35rem)] font-semibold tabular-nums tracking-tight text-navy-900"
+      >
+        {number}
+      </p>
+      <a
+        href={href}
+        {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+        aria-label={ariaLabel}
+        className={`mt-3 inline-flex min-h-11 w-full touch-manipulation items-center justify-center gap-1.5 rounded-full px-4 text-[13px] font-semibold transition-[background-color,transform] duration-200 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${ctaClass}`}
+      >
+        {cta}
+      </a>
     </article>
   );
 }
 
 /**
- * Ficha QR: descarga de apps, pedido por WhatsApp y llamado al fijo.
+ * Ficha QR: apps, WhatsApp y teléfono fijo. Bento 2×2, responsive.
  * @param {{ focus?: 'pasajero' | 'conductor' | null }} props
  */
 export default function AppsFichaPage({ focus = null }) {
@@ -206,78 +195,122 @@ export default function AppsFichaPage({ focus = null }) {
   const bothApps = showPassenger && showDriver;
 
   return (
-    <div className="relative h-[100dvh] overflow-x-hidden overflow-y-auto overscroll-y-none bg-[#F3F5F8] text-navy-900">
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-        <div className="absolute inset-x-0 top-0 h-[42%] bg-[radial-gradient(ellipse_at_top,rgba(36,95,141,0.09),transparent_62%)]" />
-        <div className="absolute bottom-[-20%] right-[-8%] h-[46%] w-[70%] bg-[radial-gradient(ellipse_at_center,rgba(37,211,102,0.07),transparent_68%)]" />
+    <div className="relative h-[100dvh] overflow-x-hidden overflow-y-auto overscroll-y-contain bg-[#F3F5F8] text-navy-900">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="landing-animate-glow absolute -left-24 -top-16 h-[420px] w-[420px] rounded-full bg-[#245f8d]/[0.10] blur-[90px]" />
+        <div className="landing-animate-glow absolute -right-20 top-24 h-[340px] w-[340px] rounded-full bg-[#25D366]/[0.08] blur-[80px]" />
+        <div className="landing-animate-float absolute bottom-[-18%] left-[18%] h-[280px] w-[280px] rounded-full bg-accent/[0.06] blur-[80px]" />
       </div>
 
-      <main className="relative mx-auto flex h-full w-full max-w-[28rem] flex-col px-[max(1rem,4.2vw)] pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-[max(0.55rem,env(safe-area-inset-top))] sm:max-w-3xl lg:max-w-5xl">
-        <header className="flex shrink-0 items-center justify-between gap-3 py-2">
+      <main className="relative mx-auto flex min-h-full w-full max-w-[28rem] flex-col px-[max(1rem,4.2vw)] pb-[max(0.85rem,env(safe-area-inset-bottom))] pt-[max(0.55rem,env(safe-area-inset-top))] sm:max-w-3xl lg:max-w-4xl">
+        <header className="landing-hero-enter flex shrink-0 items-center justify-between gap-3 py-2.5">
           <Link href="/" className="min-w-0 shrink touch-manipulation" aria-label="Ir al inicio de Profesional">
             <LandingLogo size="sm" />
           </Link>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-medium tracking-wide text-slate-500 ring-1 ring-black/[0.05] backdrop-blur-md sm:text-[11px]">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/75 px-2.5 py-1 text-[10px] font-medium tracking-wide text-slate-500 ring-1 ring-black/[0.05] backdrop-blur-md sm:text-[11px]">
+            <span className="landing-hero-live-dot inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
             Salta
           </span>
         </header>
 
-        <section className="flex min-h-0 flex-1 flex-col justify-center gap-3 py-1 sm:gap-4">
-          <div className="landing-hero-enter shrink-0 text-center">
-            <h1 className="text-balance text-[clamp(1.45rem,3.8vh,2rem)] font-semibold tracking-tight text-navy-900">
-              Viajes en Salta
+        <section className="flex min-h-0 flex-1 flex-col justify-center gap-5 py-3 sm:gap-6 sm:py-5">
+          <div className="landing-hero-enter landing-hero-enter-delay-1 shrink-0 text-center">
+            <h1 className="text-balance text-[clamp(1.7rem,5.4vw,2.55rem)] font-semibold tracking-tight text-navy-900">
+              Viajes en <span className="landing-shimmer-text">Salta</span>
             </h1>
-            <p className="landing-hero-enter landing-hero-enter-delay-1 mx-auto mt-1.5 max-w-[22rem] text-pretty text-[13px] leading-relaxed text-slate-500 sm:max-w-md sm:text-[14px]">
-              Usá la web, descargá la app, escribí por WhatsApp o llamá al fijo.
+            <p className="mx-auto mt-2 max-w-[26rem] text-pretty text-[14px] leading-relaxed text-slate-500 sm:text-[15px]">
+              Pedí desde la web, la app, WhatsApp o una llamada al fijo.
             </p>
           </div>
 
-          <div
-            className={[
-              'landing-hero-enter landing-hero-enter-delay-2 grid w-full gap-2.5 sm:gap-3',
-              bothApps
-                ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 [@media(max-height:500px)]:grid-cols-3'
-                : 'grid-cols-1 sm:grid-cols-2',
-            ].join(' ')}
-          >
-            {showPassenger ? (
-              <AppCard
-                playHref={PLAY_PASSENGER}
-                appleHref={APPLE_PASSENGER}
-                webHref="/pasajero"
-                webLabel="Pedir viaje en el navegador"
-                meta="Para viajar"
-                title="Pasajero"
-                subtitle="Pedí tu auto y seguí el viaje en vivo"
-                icon={<PassengerMark />}
-                iconClass="bg-accent-dim text-accent"
-                emphasized={focus === 'pasajero'}
-              />
-            ) : null}
+          <div className="flex flex-col gap-4 sm:gap-5">
+            <div>
+              <div className="landing-hero-enter landing-hero-enter-delay-2">
+                <SectionLabel>Apps</SectionLabel>
+              </div>
+              <div className={`grid grid-cols-1 gap-3 sm:gap-3.5 ${bothApps ? 'sm:grid-cols-2' : 'sm:grid-cols-1'}`}>
+                {showPassenger ? (
+                  <AppCard
+                    className="landing-hero-enter apps-ficha-stagger-1"
+                    playHref={PLAY_PASSENGER}
+                    appleHref={APPLE_PASSENGER}
+                    webHref="/pasajero"
+                    webLabel="Pedir viaje en el navegador"
+                    meta="Para viajar"
+                    title="Pasajero"
+                    subtitle="Pedí tu auto y seguí el viaje en vivo."
+                    icon={<PassengerMark />}
+                    iconClass="bg-accent-dim text-accent"
+                    emphasized={focus === 'pasajero'}
+                  />
+                ) : null}
 
-            {showDriver ? (
-              <AppCard
-                playHref={PLAY_DRIVER}
-                appleHref={APPLE_DRIVER}
-                webHref="/conductor"
-                webLabel="Entrar como conductor"
-                meta="Para conducir"
-                title="Conductor"
-                subtitle="Recibí viajes y gestioná tu jornada"
-                icon={<DriverMark />}
-                iconClass="bg-navy-dim text-navy-700"
-                emphasized={focus === 'conductor'}
-              />
-            ) : null}
+                {showDriver ? (
+                  <AppCard
+                    className="landing-hero-enter apps-ficha-stagger-2"
+                    playHref={PLAY_DRIVER}
+                    appleHref={APPLE_DRIVER}
+                    webHref="/conductor"
+                    webLabel="Entrar como conductor"
+                    meta="Para conducir"
+                    title="Conductor"
+                    subtitle="Recibí viajes y gestioná tu jornada."
+                    icon={<DriverMark />}
+                    iconClass="bg-navy-dim text-navy-700"
+                    emphasized={focus === 'conductor'}
+                  />
+                ) : null}
+              </div>
+            </div>
 
-            <WhatsAppCard
-              className={bothApps ? 'sm:col-span-2 lg:col-span-1 [@media(max-height:500px)]:col-span-1' : ''}
-            />
+            <div>
+              <div className="landing-hero-enter landing-hero-enter-delay-3">
+                <SectionLabel>Sin descargar</SectionLabel>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-3.5">
+                <ContactCard
+                  cardClass="landing-hero-enter apps-ficha-stagger-3 bg-[#F4FBF6]/90"
+                  meta="Mensajes"
+                  title="WhatsApp"
+                  hint="Reservas, precios y seguimiento."
+                  number={WHATSAPP_PHONE_DISPLAY}
+                  href={WHATSAPP_HREF}
+                  external
+                  ariaLabel={`Escribir por WhatsApp al ${WHATSAPP_PHONE_DISPLAY}`}
+                  icon={<WhatsAppMark />}
+                  iconClass="bg-[#25D366]/15 text-[#128C7E]"
+                  cta={(
+                    <>
+                      <WhatsAppMark className="h-3.5 w-3.5" />
+                      Escribir ahora
+                    </>
+                  )}
+                  ctaClass="bg-[#25D366] text-white hover:bg-[#20c35c] focus-visible:ring-[#25D366]/45"
+                />
+                <ContactCard
+                  cardClass="landing-hero-enter apps-ficha-stagger-4"
+                  meta="Solo llamadas"
+                  title="Teléfono fijo"
+                  hint="No es WhatsApp. Solo para llamar."
+                  number={LANDLINE_DISPLAY}
+                  href={LANDLINE_HREF}
+                  ariaLabel={`Llamar al teléfono fijo ${LANDLINE_DISPLAY}. Solo llamadas, no WhatsApp.`}
+                  icon={<PhoneMark />}
+                  iconClass="bg-navy-dim text-navy-700"
+                  cta={(
+                    <>
+                      <PhoneMark className="h-3.5 w-3.5" />
+                      Llamar
+                    </>
+                  )}
+                  ctaClass="bg-navy-900 text-white hover:bg-navy-800 focus-visible:ring-accent/35"
+                />
+              </div>
+            </div>
           </div>
 
           {focus ? (
-            <p className="shrink-0 text-center text-[12px] text-slate-500">
+            <p className="shrink-0 text-center text-[13px] text-slate-500">
               ¿Otra app?{' '}
               <Link href="/apps" className="font-semibold text-navy-900 underline-offset-4 hover:underline">
                 Ver ambas
@@ -286,7 +319,7 @@ export default function AppsFichaPage({ focus = null }) {
           ) : null}
         </section>
 
-        <footer className="flex shrink-0 items-center justify-center gap-5 py-2 text-[12px] text-slate-400">
+        <footer className="flex shrink-0 items-center justify-center gap-6 py-3 text-[12px] text-slate-400">
           <Link href="/" className="touch-manipulation transition-colors duration-200 hover:text-navy-900">
             Web
           </Link>

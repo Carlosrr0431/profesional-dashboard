@@ -356,6 +356,27 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
 .landing-hero-enter-delay-3 { animation-delay: 0.35s; }
 .landing-hero-enter-delay-4 { animation-delay: 0.5s; }
 
+.apps-ficha-card {
+  transition:
+    transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .apps-ficha-card:hover {
+    transform: translateY(-5px);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.9) inset,
+      0 22px 44px -24px rgba(15, 23, 42, 0.32);
+  }
+}
+.apps-ficha-card:active {
+  transform: translateY(-1px) scale(0.992);
+}
+.apps-ficha-stagger-1 { animation-delay: 0.16s; }
+.apps-ficha-stagger-2 { animation-delay: 0.24s; }
+.apps-ficha-stagger-3 { animation-delay: 0.32s; }
+.apps-ficha-stagger-4 { animation-delay: 0.4s; }
+
 .landing-reveal {
   opacity: 0;
   transform: translateY(28px);
@@ -489,6 +510,13 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   .landing-reveal {
     opacity: 1;
     transform: none;
+    transition: none;
+  }
+
+  .apps-ficha-card,
+  .apps-ficha-card:hover,
+  .apps-ficha-card:active {
+    transform: none !important;
     transition: none;
   }
 }
