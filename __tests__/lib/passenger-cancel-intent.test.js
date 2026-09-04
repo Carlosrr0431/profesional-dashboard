@@ -8,9 +8,14 @@ const {
   isCancelConfirmationPollYesVote,
   isCancelConfirmationPollNoVote,
   isCancelConfirmationPollVote,
+  lastBotAlreadyConfirmedCancel,
+  wasRecentlyCancelled,
+  shouldIgnoreCancelWithoutOpenTrip,
+  stampCancelledConversationContext,
   CANCEL_CONFIRM_POLL_QUESTION,
   CANCEL_CONFIRM_OPTION_YES,
   CANCEL_CONFIRM_OPTION_NO,
+  RECENT_CANCEL_WINDOW_MS,
 } = require('../../src/lib/passengerCancelIntent');
 
 describe('passengerCancelIntent', () => {
@@ -115,6 +120,52 @@ describe('passengerCancelIntent', () => {
 
     it('pregunta de encuesta es la esperada', () => {
       expect(CANCEL_CONFIRM_POLL_QUESTION).toBe('¿Confirmás la cancelación de tu viaje?');
+    });
+  });
+
+  describe('shouldIgnoreCancelWithoutOpenTrip', () => {
+    it('silencia el voto Sí, cancelar si el viaje ya no está abierto', () => {
+      expect(shouldIgnoreCancelWithoutOpenTrip({
+        text: 'Sí, cancelar',
+        context: {},
+        lastBotReply: null,
+      })).toBe(true);
+      expect(messageRequestsTripCancel('Sí, cancelar')).toBe(true);
+    });
+
+    it('silencia si el bot ya confirmó la cancelación', () => {
+      expect(lastBotAlreadyConfirmedCancel(
+        'Listo, cancelé el pedido. Avisame cuando necesites otro móvil.'
+      )).toBe(true);
+      expect(shouldIgnoreCancelWithoutOpenTrip({
+        text: 'cancelar',
+        context: {},
+        lastBotReply: 'Listo, cancelé el pedido. Avisame cuando necesites otro móvil.',
+      })).toBe(true);
+    });
+
+    it('silencia un cancelar fresco solo si acabamos de anular', () => {
+      const now = Date.parse('2026-09-04T00:31:43.000Z');
+      const context = stampCancelledConversationContext(
+        {},
+        new Date('2026-09-04T00:31:30.000Z'),
+      );
+      expect(wasRecentlyCancelled(context, now)).toBe(true);
+      expect(shouldIgnoreCancelWithoutOpenTrip({
+        text: 'cancelar',
+        context,
+        lastBotReply: null,
+        now,
+      })).toBe(true);
+      expect(wasRecentlyCancelled(context, now + RECENT_CANCEL_WINDOW_MS + 1)).toBe(false);
+    });
+
+    it('no silencia un cancelar suelto sin viaje ni contexto reciente', () => {
+      expect(shouldIgnoreCancelWithoutOpenTrip({
+        text: 'cancelar',
+        context: {},
+        lastBotReply: null,
+      })).toBe(false);
     });
   });
 });

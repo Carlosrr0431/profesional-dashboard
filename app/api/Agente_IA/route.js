@@ -32,6 +32,8 @@ import {
   isCancelConfirmationPollYesVote,
   isCancelConfirmationPollNoVote,
   isCancelConfirmationPollVote,
+  shouldIgnoreCancelWithoutOpenTrip,
+  stampCancelledConversationContext,
   CANCEL_CONFIRM_POLL_QUESTION,
   CANCEL_CONFIRM_POLL_OPTIONS,
 } from '../../../src/lib/passengerCancelIntent';
@@ -10054,7 +10056,13 @@ async function processClaimedConversation(batch) {
         logWebhook('conversation_fast_path_cancel_confirmed', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
         return {
           handled: true,
-          updates: { status: 'open', context: {}, last_trip_id: null, processing_started_at: null, last_processed_at: new Date().toISOString() },
+          updates: {
+            status: 'open',
+            context: stampCancelledConversationContext(),
+            last_trip_id: null,
+            processing_started_at: null,
+            last_processed_at: new Date().toISOString(),
+          },
         };
       }
 
@@ -10659,6 +10667,23 @@ async function processClaimedConversation(batch) {
       openTripByPhone && isOpenTripStatus(openTripByPhone.status) ? openTripByPhone : null;
 
     if (!tripToCancel) {
+      if (shouldIgnoreCancelWithoutOpenTrip({
+        text: combinedText,
+        context: savedConvCtx,
+        lastBotReply,
+      })) {
+        logWebhook('conversation_cancel_already_done', { conversationId: batch?.id || null });
+        return {
+          handled: true,
+          updates: {
+            status: 'open',
+            context: stampCancelledConversationContext(),
+            last_trip_id: null,
+            processing_started_at: null,
+            last_processed_at: new Date().toISOString(),
+          },
+        };
+      }
       await sendWhatsAppText(
         batch.phone,
         'No encontré ningún viaje activo para cancelar. ¿Necesitás un móvil?'
@@ -10714,7 +10739,7 @@ async function processClaimedConversation(batch) {
       handled: true,
       updates: {
         status: 'open',
-        context: {},
+        context: stampCancelledConversationContext(),
         last_trip_id: null,
         processing_started_at: null,
         last_processed_at: new Date().toISOString(),
@@ -12436,7 +12461,7 @@ async function processWebhookBody(body, requestMeta = {}) {
                 .from('whatsapp_conversations')
                 .update({
                   status: 'open',
-                  context: {},
+                  context: stampCancelledConversationContext(),
                   last_trip_id: null,
                   last_processed_at: new Date().toISOString(),
                 })

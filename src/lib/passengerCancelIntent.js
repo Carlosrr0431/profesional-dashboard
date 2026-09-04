@@ -195,3 +195,46 @@ export function isCancelConfirmationPollNoVote(votedName) {
 export function isCancelConfirmationPollVote(votedName) {
   return isCancelConfirmationPollYesVote(votedName) || isCancelConfirmationPollNoVote(votedName);
 }
+
+/** Ventana para no repetir "no hay viaje para cancelar" justo después de anular. */
+export const RECENT_CANCEL_WINDOW_MS = 10 * 60 * 1000;
+
+export function lastBotAlreadyConfirmedCancel(lastBotReply) {
+  const n = normalizePassengerMessage(lastBotReply);
+  if (!n) return false;
+  return (
+    n.includes('cancele el pedido')
+    || n.includes('cancele tu reserva')
+    || n.includes('cancele el viaje')
+  );
+}
+
+export function wasRecentlyCancelled(context, now = Date.now(), windowMs = RECENT_CANCEL_WINDOW_MS) {
+  const at = context?.last_cancelled_at;
+  if (!at) return false;
+  const ts = Date.parse(at);
+  if (!Number.isFinite(ts)) return false;
+  const elapsed = now - ts;
+  return elapsed >= 0 && elapsed < windowMs;
+}
+
+/**
+ * Tras poll.results el voto "Sí, cancelar" queda pending y se reprocesa
+ * cuando el viaje ya no existe. No hay que responder otra vez.
+ */
+export function shouldIgnoreCancelWithoutOpenTrip({
+  text,
+  context,
+  lastBotReply,
+  now = Date.now(),
+} = {}) {
+  if (isCancelConfirmationPollYesVote(text)) return true;
+  if (lastBotAlreadyConfirmedCancel(lastBotReply)) return true;
+  if (wasRecentlyCancelled(context, now)) return true;
+  return false;
+}
+
+export function stampCancelledConversationContext(extra = {}, now = new Date()) {
+  const iso = now instanceof Date ? now.toISOString() : new Date(now).toISOString();
+  return { ...extra, last_cancelled_at: iso };
+}
