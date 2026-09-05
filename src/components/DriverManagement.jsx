@@ -32,6 +32,7 @@ export default function DriverManagement({ onBack }) {
     refetch,
     fetchAssignedDrivers,
     createAssignedDriver,
+    deleteDriver,
     deleteAssignedDriver,
     toggleAssignedDriverStatus,
   } = useDriverManagement();
@@ -41,6 +42,7 @@ export default function DriverManagement({ onBack }) {
   const [editDriver, setEditDriver] = useState(null);
   const [detailDriver, setDetailDriver] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
   const [confirmDriver, setConfirmDriver] = useState(null);
   const [confirmingPayment, setConfirmingPayment] = useState(false);
@@ -185,6 +187,32 @@ export default function DriverManagement({ onBack }) {
   const handleNewDriver = () => {
     setEditDriver(null);
     setShowForm(true);
+  };
+
+  const handleDeleteDriver = async () => {
+    if (!editDriver?.id) return;
+    setDeleting(true);
+    setError('');
+    try {
+      const result = await deleteDriver(editDriver.id);
+      const assignedRemoved = Number(result?.deletedAssignedCount) || 0;
+      const extra = assignedRemoved
+        ? ` También se eliminaron ${assignedRemoved} chofer${assignedRemoved === 1 ? '' : 'es'} asignado${assignedRemoved === 1 ? '' : 's'}.`
+        : '';
+      toast.success(`Chofer "${result?.full_name || editDriver.full_name}" eliminado.${extra}`);
+      const deletedIds = new Set(result?.deletedIds || [editDriver.id]);
+      if (detailDriver && deletedIds.has(detailDriver.id)) {
+        setDetailDriver(null);
+      }
+      setShowForm(false);
+      setEditDriver(null);
+    } catch (err) {
+      const message = err?.message || 'No se pudo eliminar el chofer';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleMainViewChange = (view) => {
@@ -428,9 +456,16 @@ export default function DriverManagement({ onBack }) {
               ? (ownerById[editDriver.owner_id]?.full_name || null)
               : null
           }
-          onClose={() => { setShowForm(false); setEditDriver(null); setError(''); setPendingPartnerSave(null); }}
+          onClose={() => { if (deleting) return; setShowForm(false); setEditDriver(null); setError(''); setPendingPartnerSave(null); }}
           onSave={handleSave}
+          onDelete={editDriver ? handleDeleteDriver : undefined}
+          assignedCount={
+            editDriver && !isAssignedDriver(editDriver)
+              ? (assignedCountByOwner[editDriver.id] || 0)
+              : 0
+          }
           saving={saving}
+          deleting={deleting}
           error={error}
         />
       )}

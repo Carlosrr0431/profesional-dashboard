@@ -9,6 +9,7 @@ import {
   BILLING_MODE_WEEKLY,
   normalizeBillingMode,
 } from '../../../../../shared/driver-billing.js';
+import { deleteDriverCascade } from '../../../../../src/lib/deleteDriverCascade';
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -161,6 +162,41 @@ export async function PATCH(request, { params }) {
         },
       },
       { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(_request, { params }) {
+  try {
+    const resolvedParams = await params;
+    const driverId = resolvedParams?.driverId;
+    if (!driverId) {
+      return NextResponse.json(
+        { ok: false, error: { code: 'BAD_REQUEST', message: 'Falta el chofer a eliminar' } },
+        { status: 400 },
+      );
+    }
+
+    const supabase = getSupabaseAdmin();
+    const data = await deleteDriverCascade(supabase, driverId);
+    return NextResponse.json({ ok: true, data });
+  } catch (err) {
+    const code = err?.code || 'SERVER_ERROR';
+    const status = code === 'BAD_REQUEST' ? 400
+      : code === 'NOT_FOUND' ? 404
+      : code === 'CONFLICT' ? 409
+      : 500;
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code,
+          message: err?.message || 'No se pudo eliminar el chofer',
+          details: err?.details || null,
+          hint: err?.hint || null,
+        },
+      },
+      { status },
     );
   }
 }

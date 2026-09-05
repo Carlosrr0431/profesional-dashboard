@@ -330,6 +330,22 @@ export function useDriverManagement() {
     return payload?.data || null;
   }, [fetchDrivers]);
 
+  const deleteDriver = useCallback(async (driverId) => {
+    const response = await fetch(
+      `/api/driver-management/drivers/${encodeURIComponent(driverId)}`,
+      { method: 'DELETE' },
+    );
+    const payload = await response.json();
+    if (!response.ok) {
+      const err = parseApiError(response, payload);
+      throw new Error(err.message);
+    }
+    const deletedIds = payload?.data?.deletedIds || [driverId];
+    setDrivers((prev) => prev.filter((d) => !deletedIds.includes(d.id)));
+    await fetchDrivers();
+    return payload?.data || { id: driverId };
+  }, [fetchDrivers]);
+
   const deleteAssignedDriver = useCallback(async (ownerDriverId, assignedDriverId) => {
     const response = await fetch(
       `/api/driver-management/drivers/${encodeURIComponent(ownerDriverId)}/assigned/${encodeURIComponent(assignedDriverId)}`,
@@ -379,6 +395,7 @@ export function useDriverManagement() {
     patchDriver,
     fetchAssignedDrivers,
     createAssignedDriver,
+    deleteDriver,
     deleteAssignedDriver,
     toggleAssignedDriverStatus,
   };

@@ -30,10 +30,21 @@ function isPhoneLoginDriver(driver) {
   return Boolean(driver.phone_normalized || driver.phone || email.endsWith('@profesional.test'));
 }
 
-export default function DriverFormModal({ driver, ownerName = null, onClose, onSave, saving, error }) {
+export default function DriverFormModal({
+  driver,
+  ownerName = null,
+  onClose,
+  onSave,
+  onDelete,
+  assignedCount = 0,
+  saving,
+  deleting = false,
+  error,
+}) {
   const isEdit = !!driver;
   const assigned = isEdit && isAssignedDriver(driver);
   const [showPasswordField, setShowPasswordField] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const [form, setForm] = useState({
     full_name: '', phone: '', email: '', password: '',
@@ -41,6 +52,10 @@ export default function DriverFormModal({ driver, ownerName = null, onClose, onS
     vehicle_model: '', vehicle_plate: '', vehicle_color: '',
     license_expiry: '', billing_mode: BILLING_MODE_COMMISSION,
   });
+
+  useEffect(() => {
+    setConfirmDelete(false);
+  }, [driver?.id]);
 
   useEffect(() => {
     if (driver) {
@@ -61,6 +76,7 @@ export default function DriverFormModal({ driver, ownerName = null, onClose, onS
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (confirmDelete || deleting || saving) return;
     const data = { ...form };
     if (data.driver_number) data.driver_number = parseInt(data.driver_number);
     else data.driver_number = null;
@@ -74,9 +90,20 @@ export default function DriverFormModal({ driver, ownerName = null, onClose, onS
   const loginHint = phoneLogin
     ? `+${formatPhoneForDisplay(driver.phone) || driver.phone || '—'}`
     : driver?.auth_email || null;
+  const busy = saving || deleting;
+  const fleetCount = Number(assignedCount) || 0;
+
+  const handleRequestClose = () => {
+    if (deleting) return;
+    if (confirmDelete) {
+      setConfirmDelete(false);
+      return;
+    }
+    onClose();
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" onClick={handleRequestClose}>
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" />
       <div
         className="relative flex w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-slate-50 shadow-2xl shadow-slate-900/25 sm:rounded-2xl"
@@ -108,8 +135,10 @@ export default function DriverFormModal({ driver, ownerName = null, onClose, onS
             </div>
           </div>
           <button
-            onClick={onClose}
-            className="ml-3 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+            type="button"
+            onClick={handleRequestClose}
+            disabled={deleting}
+            className="ml-3 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 disabled:opacity-50"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -274,21 +303,105 @@ export default function DriverFormModal({ driver, ownerName = null, onClose, onS
           </div>
 
           {/* ── Footer fijo ─────────────────────────────────────────────── */}
-          <div className="sticky bottom-0 flex gap-2.5 border-t border-slate-200/70 bg-white px-4 py-3.5 sm:px-5">
+          <div className="sticky bottom-0 flex flex-wrap items-center gap-2.5 border-t border-slate-200/70 bg-white px-4 py-3.5 sm:px-5">
+            {isEdit && onDelete ? (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                disabled={busy}
+                className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Eliminar
+              </button>
+            ) : null}
             <button
-              type="button" onClick={onClose}
-              className="flex-1 rounded-xl border border-slate-200 bg-slate-50 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+              type="button"
+              onClick={handleRequestClose}
+              disabled={deleting}
+              className="min-w-[7rem] flex-1 rounded-xl border border-slate-200 bg-slate-50 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
-              type="submit" disabled={saving}
-              className="flex-[2] rounded-xl bg-navy-900 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
+              type="submit" disabled={busy}
+              className="min-w-[9rem] flex-[2] rounded-xl bg-navy-900 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? 'Guardando…' : isEdit ? 'Guardar cambios' : '🚖 Registrar chofer'}
             </button>
           </div>
         </form>
+
+        {confirmDelete && isEdit && onDelete ? (
+          <DeleteDriverConfirm
+            driver={driver}
+            assigned={assigned}
+            fleetCount={fleetCount}
+            deleting={deleting}
+            error={error}
+            onCancel={() => { if (!deleting) setConfirmDelete(false); }}
+            onConfirm={onDelete}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function DeleteDriverConfirm({ driver, assigned, fleetCount, deleting, error, onCancel, onConfirm }) {
+  const name = driver?.full_name || 'este chofer';
+  const title = assigned ? 'Eliminar chofer asignado' : 'Eliminar chofer titular';
+  const detail = assigned
+    ? `Vas a eliminar a ${name}. El titular del móvil no se toca.`
+    : fleetCount > 0
+      ? `Vas a eliminar a ${name} y su acceso a la app. También se eliminan ${fleetCount} chofer${fleetCount === 1 ? '' : 'es'} asignado${fleetCount === 1 ? '' : 's'}. Los socios no se tocan.`
+      : `Vas a eliminar a ${name} y su acceso a la app.`;
+
+  return (
+    <div
+      className="absolute inset-0 z-20 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl shadow-slate-900/20"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-slate-100">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </span>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+              <p className="mt-1 text-xs leading-relaxed text-slate-500">{detail}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-5 py-3 bg-slate-50/80">
+          <p className="text-[11px] font-medium text-slate-400">Esta acción no se puede deshacer.</p>
+          {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
+        </div>
+
+        <div className="flex gap-2 px-5 py-4 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={deleting}
+            className="flex-1 rounded-xl border border-slate-200 bg-slate-50 py-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
+          >
+            Volver
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={deleting}
+            className="flex-1 rounded-xl bg-red-600 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {deleting ? 'Eliminando…' : 'Sí, eliminar'}
+          </button>
+        </div>
       </div>
     </div>
   );
