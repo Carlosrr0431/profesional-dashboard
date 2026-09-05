@@ -29,6 +29,72 @@ export function arLocalDateTimeToUtcDate(dateStr, timeStr) {
   return new Date(Date.UTC(year, month - 1, day, hour - AR_UTC_OFFSET_H, minute, 0, 0));
 }
 
+function arCalendarPartsFromMs(ms) {
+  const ar = new Date(Number(ms) + AR_UTC_OFFSET_H * 3_600_000);
+  return {
+    date: `${ar.getUTCFullYear()}-${String(ar.getUTCMonth() + 1).padStart(2, '0')}-${String(ar.getUTCDate()).padStart(2, '0')}`,
+    time: `${String(ar.getUTCHours()).padStart(2, '0')}:${String(ar.getUTCMinutes()).padStart(2, '0')}`,
+  };
+}
+
+/**
+ * Default al abrir “Programar”: ahora + 1 h.
+ * Si eso cruza medianoche, usa ahora + 20 min si todavía es hoy.
+ */
+export function defaultArScheduleParts(nowMs = Date.now()) {
+  const today = arCalendarPartsFromMs(nowMs);
+  const plus1h = arCalendarPartsFromMs(nowMs + 60 * 60 * 1000);
+  if (plus1h.date === today.date) return plus1h;
+
+  const plus20 = arCalendarPartsFromMs(nowMs + DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS);
+  if (plus20.date === today.date) return plus20;
+
+  return plus1h;
+}
+
+const TONIGHT_COERCE_WINDOW_MS = 3 * 60 * 60 * 1000;
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const ONE_DAY_SLACK_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Si el operador dejó el día en “mañana” pero la misma hora de hoy
+ * todavía vale (esta noche, ≤ 3 h), corrige a hoy.
+ * No toca reservas de mañana de mañana / tarde.
+ */
+export function coerceArScheduleIfTonightStillValid(dateStr, timeStr, nowMs = Date.now()) {
+  const chosen = arLocalDateTimeToUtcDate(dateStr, timeStr);
+  if (!chosen) return { date: dateStr, time: timeStr };
+
+  const today = arCalendarPartsFromMs(nowMs);
+  if (String(dateStr) === today.date) return { date: dateStr, time: timeStr };
+
+  const tonight = arLocalDateTimeToUtcDate(today.date, timeStr);
+  if (!tonight) return { date: dateStr, time: timeStr };
+
+  const tonightMs = tonight.getTime();
+  if (tonightMs <= nowMs + 60_000) return { date: dateStr, time: timeStr };
+  if (tonightMs > nowMs + TONIGHT_COERCE_WINDOW_MS) return { date: dateStr, time: timeStr };
+
+  const delta = chosen.getTime() - tonightMs;
+  if (Math.abs(delta - ONE_DAY_MS) > ONE_DAY_SLACK_MS) {
+    return { date: dateStr, time: timeStr };
+  }
+
+  return { date: today.date, time: timeStr };
+}
+
+export function isScheduledTripDue(
+  trip,
+  nowMs = Date.now(),
+  aheadMs = DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS,
+) {
+  if (String(trip?.status || '').toLowerCase() !== 'scheduled') return false;
+  const when = resolveScheduledForFromTrip(trip);
+  if (!when) return false;
+  const safeAhead = Math.max(0, Number(aheadMs) || DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS);
+  return when.getTime() <= nowMs + safeAhead;
+}
+
 /** Ej: "lunes 25/05 a las 11:42" (hora Argentina). */
 export function formatArScheduleDisplay(utcDate) {
   const date = utcDate instanceof Date ? utcDate : new Date(utcDate);
@@ -154,7 +220,9 @@ export async function promoteDueScheduledTrips({
       .from('trips')
       .update({
         status: 'queued',
-        assigned_at: new Date(nowMs).toISOString(),
+        dispatch_status: 'queued',
+        assigned_at: null,
+        next_dispatch_at: new Date(nowMs).toISOString(),
       })
       .eq('id', trip.id)
       .eq('status', 'scheduled')

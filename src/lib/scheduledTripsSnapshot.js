@@ -2,7 +2,7 @@ import { cancelTripAsOperator } from './cancelTripAsOperator';
 import { resolveScheduledForFromTrip } from './promoteDueScheduledTrips';
 
 export const SCHEDULED_TRIP_SELECT =
-  'id, passenger_name, passenger_phone, origin_address, destination_address, destination_lat, destination_lng, notes, scheduled_for, created_at, status, dispatch_status';
+  'id, passenger_name, passenger_phone, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, notes, scheduled_for, created_at, status, dispatch_status';
 
 export const SCHEDULED_DISPATCHING_STATUSES = ['queued', 'pending'];
 export const CANCELLABLE_SCHEDULED_STATUSES = ['scheduled', 'queued', 'pending'];

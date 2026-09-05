@@ -3,6 +3,12 @@ import { createClient } from '@supabase/supabase-js';
 import { cancelTripAsOperator } from '../../../src/lib/cancelTripAsOperator';
 import { notifyOperatorCancelledTrip } from '../../../src/lib/notifyOperatorCancelledTrip';
 import { fetchScheduledTripsSnapshot } from '../../../src/lib/scheduledTripsSnapshot';
+import {
+  DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS,
+  isScheduledTripDue,
+  promoteDueScheduledTrips,
+} from '../../../src/lib/promoteDueScheduledTrips';
+import { triggerDispatchWorker } from '../../../src/lib/triggerDispatchWorker';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,7 +33,16 @@ function getSupabaseAdmin() {
 export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
-    const trips = await fetchScheduledTripsSnapshot(supabase);
+    let trips = await fetchScheduledTripsSnapshot(supabase);
+    const nowMs = Date.now();
+    const due = trips.some((trip) => isScheduledTripDue(trip, nowMs, DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS));
+    if (due) {
+      const result = await promoteDueScheduledTrips({ supabase, nowMs });
+      if (result.promoted > 0) {
+        triggerDispatchWorker({ reason: 'scheduled_monitor_due' });
+        trips = await fetchScheduledTripsSnapshot(supabase);
+      }
+    }
     return NextResponse.json({ ok: true, data: { trips } }, { headers: NO_STORE_HEADERS });
   } catch (err) {
     return NextResponse.json(

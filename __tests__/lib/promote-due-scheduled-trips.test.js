@@ -6,6 +6,9 @@ const {
   buildScheduledDispatchWhatsAppMessage,
   shouldNotifyScheduledTripViaWhatsApp,
   promoteDueScheduledTrips,
+  defaultArScheduleParts,
+  coerceArScheduleIfTonightStillValid,
+  isScheduledTripDue,
   DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS,
 } = require('../../src/lib/promoteDueScheduledTrips');
 
@@ -73,7 +76,11 @@ describe('promoteDueScheduledTrips', () => {
     expect(waMessage).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
     expect(logs.some((l) => l.stage === 'scheduled_trip_promoted_to_queue')).toBe(true);
     expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'queued' })
+      expect.objectContaining({
+        status: 'queued',
+        dispatch_status: 'queued',
+        assigned_at: null,
+      })
     );
   });
 
@@ -236,6 +243,57 @@ describe('promoteDueScheduledTrips', () => {
       nowMs: scheduledFor.getTime() - 20 * 60 * 1000,
     });
     expect(due.promoted).toBe(1);
-    expect(updateDue).toHaveBeenCalledWith(expect.objectContaining({ status: 'queued' }));
+    expect(updateDue).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'queued',
+      dispatch_status: 'queued',
+      assigned_at: null,
+    }));
+  });
+
+  it('defaultArScheduleParts usa +1h si no cruza medianoche', () => {
+    const fridayAfternoon = Date.parse('2026-09-04T17:23:00.000Z');
+    expect(defaultArScheduleParts(fridayAfternoon)).toEqual({
+      date: '2026-09-04',
+      time: '15:23',
+    });
+  });
+
+  it('defaultArScheduleParts no salta al día siguiente si todavía es de noche', () => {
+    const fridayNight = Date.parse('2026-09-05T02:23:00.000Z');
+    const parts = defaultArScheduleParts(fridayNight);
+    expect(parts.date).toBe('2026-09-04');
+    expect(parts.time).toBe('23:43');
+  });
+
+  it('coerceArScheduleIfTonightStillValid corrige sábado 23:46 cargado de noche', () => {
+    const fridayNight = Date.parse('2026-09-05T02:23:00.000Z');
+    expect(coerceArScheduleIfTonightStillValid('2026-09-05', '23:46', fridayNight)).toEqual({
+      date: '2026-09-04',
+      time: '23:46',
+    });
+  });
+
+  it('coerce no toca una reserva de mañana a la tarde', () => {
+    const saturdayMorning = Date.parse('2026-09-05T13:00:00.000Z');
+    expect(coerceArScheduleIfTonightStillValid('2026-09-06', '16:00', saturdayMorning)).toEqual({
+      date: '2026-09-06',
+      time: '16:00',
+    });
+  });
+
+  it('isScheduledTripDue solo aplica a scheduled dentro de 20 min', () => {
+    const nowMs = Date.parse('2026-09-05T02:30:00.000Z');
+    expect(isScheduledTripDue({
+      status: 'scheduled',
+      scheduled_for: '2026-09-05T02:46:00.000Z',
+    }, nowMs)).toBe(true);
+    expect(isScheduledTripDue({
+      status: 'scheduled',
+      scheduled_for: '2026-09-06T02:46:00.000Z',
+    }, nowMs)).toBe(false);
+    expect(isScheduledTripDue({
+      status: 'queued',
+      scheduled_for: '2026-09-05T02:46:00.000Z',
+    }, nowMs)).toBe(false);
   });
 });

@@ -7,9 +7,10 @@ import { useToast } from '../context/ToastContext';
 import AddressAutocomplete from './AddressAutocomplete';
 import { ScheduleDatePicker, ScheduleTimePicker } from './ScheduleDateTimePickers';
 import {
-  AR_UTC_OFFSET_H,
   DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS,
   arLocalDateTimeToUtcDate,
+  coerceArScheduleIfTonightStillValid,
+  defaultArScheduleParts,
   formatArScheduleDisplay,
 } from '../lib/promoteDueScheduledTrips';
 import { assignExistingTripToDriver } from '../lib/assignExistingTripClient';
@@ -42,16 +43,6 @@ function Spinner({ size = 14, color = '#DC2626' }) {
       flexShrink: 0,
     }} />
   );
-}
-
-function defaultScheduleParts() {
-  const ar = new Date(Date.now() + AR_UTC_OFFSET_H * 3_600_000 + 60 * 60 * 1000);
-  const yyyy = ar.getUTCFullYear();
-  const mm = String(ar.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(ar.getUTCDate()).padStart(2, '0');
-  const hh = String(ar.getUTCHours()).padStart(2, '0');
-  const min = String(ar.getUTCMinutes()).padStart(2, '0');
-  return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}:${min}` };
 }
 
 /* ── Componente principal ─────────────────────────────────────────────────── */
@@ -216,7 +207,7 @@ export default function NewTripModal({
     setIsScheduled((prev) => {
       if (prev === next) return prev;
       if (next) {
-        const parts = defaultScheduleParts();
+        const parts = defaultArScheduleParts();
         setScheduleDate((current) => current || parts.date);
         setScheduleTime((current) => current || parts.time);
       }
@@ -284,7 +275,8 @@ export default function NewTripModal({
         setError('Si cargás teléfono, usá al menos 8 dígitos.');
         return;
       }
-      const scheduledUtc = arLocalDateTimeToUtcDate(scheduleDate, scheduleTime);
+      const coerced = coerceArScheduleIfTonightStillValid(scheduleDate, scheduleTime);
+      const scheduledUtc = arLocalDateTimeToUtcDate(coerced.date, coerced.time);
       if (!scheduledUtc) {
         setError('La fecha u hora no es válida.');
         return;
