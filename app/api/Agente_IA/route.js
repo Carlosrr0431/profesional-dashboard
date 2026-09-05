@@ -95,6 +95,7 @@ import {
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 import {
   buildPendingToQueuedUpdate,
+  buildStreetHailPendingCancelUpdate,
   canRequeuePendingTrip,
   getPendingAcceptRequeueAt,
 } from '../../../src/lib/tripRequeue';
@@ -103,6 +104,10 @@ import {
   isPassengerInitiatedCancellation,
   buildWhatsAppCancelledTripUpdate,
 } from '../../../src/lib/passengerTripCancel';
+import {
+  isStreetHailReassignmentBlocked,
+  shouldReassignCancelledTrip as shouldReassignCancelledTripLib,
+} from '../../../src/lib/shouldReassignCancelledTrip';
 import { buildWaContextWithExcludedDriver } from '../../../src/lib/dispatchExclusions';
 import {
   extractFullTripByPattern,
@@ -5521,44 +5526,7 @@ function getTripPickupPoint(trip) {
 }
 
 function shouldReassignCancelledTrip(trip) {
-  // Cancelación del pasajero u operador: nunca recrear viaje ni mandar "encontré otro chofer".
-  if (isPassengerInitiatedCancellation(trip)) return false;
-  if (isOperatorInitiatedCancellation(trip)) return false;
-
-  const reason = normalizeReason(trip?.cancel_reason || '');
-  if (!reason) return true;
-
-  // Importante: match por substring (antes usaba Array.includes = igualdad exacta,
-  // y fallaba con motivos reales tipo "[PASSENGER_APP] Cancelado por el pasajero").
-  const nonReassignableMarkers = [
-    'pasajero cancelo',
-    'cancelado por el pasajero',
-    'cancelado por pasajero',
-    'passenger app',
-    'pasajero no encontrado',
-    'direccion incorrecta',
-  ];
-  if (nonReassignableMarkers.some((marker) => reason.includes(marker))) {
-    return false;
-  }
-
-  // Con dispatch-worker, los timeouts de aceptación se reencolan en el mismo trip.
-  // No crear un viaje nuevo ni disparar el follow-up legacy.
-  if (
-    SUPABASE_DISPATCH_ONLY &&
-    (
-      reason.includes('auto timeout') ||
-      reason.includes('no acepto en tiempo') ||
-      reason.includes('no aceptado en tiempo') ||
-      reason.includes('sin respuesta del chofer') ||
-      reason.includes('auto reasignacion') ||
-      reason.includes('auto requeue')
-    )
-  ) {
-    return false;
-  }
-
-  return true;
+  return shouldReassignCancelledTripLib(trip, { supabaseDispatchOnly: SUPABASE_DISPATCH_ONLY });
 }
 
 /**
@@ -9169,6 +9137,15 @@ async function requeueTimedOutPendingTripsSupabaseDispatchOnly() {
 
   let expired = 0;
   for (const tripRow of tripsToRequeue || []) {
+    if (isStreetHailReassignmentBlocked(tripRow)) {
+      const { error: streetHailCancelError } = await getSupabase()
+        .from('trips')
+        .update(buildStreetHailPendingCancelUpdate(tripRow))
+        .eq('id', tripRow.id)
+        .eq('status', 'pending');
+      if (!streetHailCancelError) expired += 1;
+      continue;
+    }
     if (!canRequeuePendingTrip(tripRow)) continue;
 
     const currentAttempts = Number(tripRow.dispatch_attempts || 0);
@@ -9298,7 +9275,7 @@ async function processTripLifecycleTransitions() {
   // ── Parte B: Reasignar viajes cancelados por el chofer ────────────────────────
   const { data: cancelledTrips, error: cancelErr } = await getSupabase()
     .from('trips')
-    .select('id, driver_id, passenger_name, passenger_phone, cancel_reason, notes, destination_address, destination_lat, destination_lng, wa_notified_at, created_at')
+    .select('id, driver_id, passenger_name, passenger_phone, cancel_reason, notes, destination_address, destination_lat, destination_lng, wa_notified_at, wa_context, created_at')
     .eq('status', 'cancelled')
     .is('wa_notified_at', null)
     .not('driver_id', 'is', null)
@@ -9323,6 +9300,7 @@ async function processTripLifecycleTransitions() {
           cancelReason: trip.cancel_reason || null,
           passengerCancel: isPassengerInitiatedCancellation(trip),
           operatorCancel: isOperatorInitiatedCancellation(trip),
+          streetHail: isStreetHailReassignmentBlocked(trip),
         });
         continue;
       }
@@ -9548,6 +9526,7 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
         cancelReason: trip.cancel_reason || null,
         passengerCancel: isPassengerInitiatedCancellation(trip),
         operatorCancel: isOperatorInitiatedCancellation(trip),
+        streetHail: isStreetHailReassignmentBlocked(trip),
         hadDriver: Boolean(trip.driver_id),
       });
       const queueResult = await dispatchQueuedPassengers();

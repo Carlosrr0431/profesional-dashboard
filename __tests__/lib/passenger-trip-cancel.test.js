@@ -8,7 +8,14 @@ const {
   WHATSAPP_CANCEL_REASON,
   OPERATOR_CANCEL_REASON,
 } = require('../../src/lib/passengerTripCancel');
-const { canRequeuePendingTrip } = require('../../src/lib/tripRequeue');
+const {
+  canRequeuePendingTrip,
+  buildStreetHailPendingCancelUpdate,
+} = require('../../src/lib/tripRequeue');
+const {
+  isStreetHailReassignmentBlocked,
+  shouldReassignCancelledTrip,
+} = require('../../src/lib/shouldReassignCancelledTrip');
 const { cancelTripAsOperator } = require('../../src/lib/cancelTripAsOperator');
 
 describe('passengerTripCancel', () => {
@@ -82,6 +89,103 @@ describe('canRequeuePendingTrip', () => {
         cancel_reason: '[MANUAL_CANCEL] Cancelado por operador',
       })
     ).toBe(false);
+  });
+
+  it('no reencola un pending de viaje en calle', () => {
+    expect(
+      canRequeuePendingTrip({
+        status: 'pending',
+        passenger_phone: null,
+        notes: '[STREET_HAIL]\nViaje tomado en calle. Destino a definir.',
+        cancel_reason: '[AUTO_REQUEUE] Sin respuesta del chofer 941f2855',
+      })
+    ).toBe(false);
+  });
+
+  it('sigue reencolando un pending de WhatsApp con timeout', () => {
+    expect(
+      canRequeuePendingTrip({
+        status: 'pending',
+        passenger_phone: '5493875551234',
+        notes: '[APPROACH_ONLY] Pedido por WhatsApp',
+        cancel_reason: '[AUTO_REQUEUE] Sin respuesta del chofer',
+      })
+    ).toBe(true);
+  });
+});
+
+describe('shouldReassignCancelledTrip no rompe el flujo normal', () => {
+  const streetHailCancelledByDriver = {
+    id: '0c9cc6e8-513d-4fc5-99af-e6227a706bc2',
+    passenger_name: 'Pasajero en calle',
+    passenger_phone: null,
+    notes: '[STREET_HAIL]\nViaje tomado en calle. Destino a definir.\n[PICKUP_JSON:{"lat": -24.7993297, "lng": -65.37836251, "address": "Avenida Eneida Delgadillo, Salta"}]',
+    cancel_reason: 'Cancelado por el chofer',
+    wa_context: { source: 'street_hail', dispatch_excluded_driver_ids: [] },
+    driver_id: '941f2855-4dcf-41ea-8101-dbffe344c9c3',
+  };
+
+  it('no recrea un viaje en calle cancelado por el chofer', () => {
+    expect(isStreetHailReassignmentBlocked(streetHailCancelledByDriver)).toBe(true);
+    expect(shouldReassignCancelledTrip(streetHailCancelledByDriver)).toBe(false);
+  });
+
+  it('sigue reasignando un viaje WhatsApp cancelado por el chofer', () => {
+    expect(
+      shouldReassignCancelledTrip({
+        cancel_reason: 'Cancelado por el chofer',
+        passenger_phone: '5493875551234',
+        notes: '[APPROACH_ONLY] Pedido por WhatsApp',
+        wa_context: { source: 'whatsapp' },
+      })
+    ).toBe(true);
+  });
+
+  it('sigue reasignando un viaje del panel cancelado por el chofer', () => {
+    expect(
+      shouldReassignCancelledTrip({
+        cancel_reason: 'Cancelado por el chofer',
+        passenger_phone: '5493875559999',
+        notes: '[APPROACH_ONLY]\n[DASHBOARD_ASSIGN]',
+        wa_context: { source: 'dashboard' },
+      })
+    ).toBe(true);
+  });
+
+  it('no reasigna cancelación del pasajero ni del operador', () => {
+    expect(
+      shouldReassignCancelledTrip({
+        cancel_reason: '[PASSENGER_APP] Cancelado por el pasajero',
+        notes: '[PASSENGER_APP]',
+      })
+    ).toBe(false);
+    expect(
+      shouldReassignCancelledTrip({
+        cancel_reason: '[MANUAL_CANCEL] Cancelado por operador',
+        notes: '[APPROACH_ONLY]',
+      })
+    ).toBe(false);
+  });
+
+  it('no clona un timeout: el mismo id se reencola', () => {
+    expect(
+      shouldReassignCancelledTrip({
+        cancel_reason: '[AUTO_REQUEUE] Sin respuesta del chofer 941f2855',
+        notes: '[APPROACH_ONLY] Pedido por WhatsApp',
+      })
+    ).toBe(false);
+  });
+});
+
+describe('buildStreetHailPendingCancelUpdate', () => {
+  it('cierra el pending de calle sin dejarlo en cola', () => {
+    const payload = buildStreetHailPendingCancelUpdate({
+      cancel_reason: '[AUTO_REQUEUE] Sin respuesta del chofer',
+    });
+    expect(payload.status).toBe('cancelled');
+    expect(payload.dispatch_status).toBe('cancelled');
+    expect(payload.next_dispatch_at).toBeNull();
+    expect(payload.wa_notified_at).toBeTruthy();
   });
 });
 

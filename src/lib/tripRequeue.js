@@ -1,7 +1,9 @@
 import { isPassengerInitiatedCancellation, isOperatorInitiatedCancellation } from './passengerTripCancel';
+import { isStreetHailReassignmentBlocked } from './shouldReassignCancelledTrip';
 import {
   isPassengerAppTrip,
   isApproachOnlyTrip,
+  isStreetHailTrip,
   extractPickupFromNotes,
   isCoordLikeAddress,
   resolveTripPickupCoords,
@@ -125,13 +127,26 @@ export function getPendingAcceptRequeueAt(nowMs = Date.now()) {
   return new Date(safeNow + delayMs).toISOString();
 }
 
-/** El worker no debe reencolar viajes cancelados por el pasajero. */
+/** El worker no debe reencolar cancelaciones de pasajero/operador ni viajes en calle. */
 export function canRequeuePendingTrip(trip) {
   if (!trip) return false;
   if (String(trip.status || '').toLowerCase() !== 'pending') return false;
   if (isPassengerInitiatedCancellation(trip)) return false;
   if (isOperatorInitiatedCancellation(trip)) return false;
+  if (isStreetHailReassignmentBlocked(trip)) return false;
   return true;
+}
+
+/** Cierra un pending de calle vencido: no hay pasajero esperando otro chofer. */
+export function buildStreetHailPendingCancelUpdate(trip = {}) {
+  return {
+    status: 'cancelled',
+    dispatch_status: 'cancelled',
+    cancel_reason: String(trip.cancel_reason || '').trim() || 'Viaje en calle sin reasignar',
+    next_dispatch_at: null,
+    wa_notified_at: trip.wa_notified_at || new Date().toISOString(),
+    status_updated_at: new Date().toISOString(),
+  };
 }
 
 export function buildPendingToQueuedUpdate(trip, extras = {}) {
@@ -149,7 +164,7 @@ export function buildPendingToQueuedUpdate(trip, extras = {}) {
     };
   }
 
-  if (isApproachOnlyTrip(trip)) {
+  if (isApproachOnlyTrip(trip) || isStreetHailTrip(trip)) {
     const pickup = resolveTripPickupCoords(trip);
     const finalDest = resolveTripFinalDestCoords(trip);
     return {

@@ -32,6 +32,28 @@ En cola de espera. Retiro confirmado.
     expect(update.driver_id).toBeNull();
   });
 
+  it('si se reencolara un street hail, conserva origin_* y no inventa destino', () => {
+    const streetHail = {
+      notes: `[STREET_HAIL]
+Viaje tomado en calle. Destino a definir.
+[PICKUP_JSON:{"lat": -24.7993297, "lng": -65.37836251, "address": "Avenida Eneida Delgadillo, Salta"}]`,
+      origin_address: 'Avenida Eneida Delgadillo, Salta',
+      origin_lat: -24.7993297,
+      origin_lng: -65.37836251,
+      destination_address: 'A confirmar',
+      destination_lat: null,
+      destination_lng: null,
+      status: 'pending',
+    };
+
+    const update = buildPendingToQueuedUpdate(streetHail);
+    expect(update.origin_address).toBe('Avenida Eneida Delgadillo, Salta');
+    expect(update.origin_lat).toBe(-24.7993297);
+    expect(update.origin_lng).toBe(-65.37836251);
+    expect(update.status).toBe('queued');
+    expect(update.driver_id).toBeNull();
+  });
+
   it('legacy sin marcadores sigue limpiando origin_* al reencolar', () => {
     const legacyTrip = {
       notes: 'Viaje normal',

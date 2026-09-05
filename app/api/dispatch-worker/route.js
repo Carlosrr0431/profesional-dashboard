@@ -15,12 +15,14 @@ import {
 } from '../../../src/lib/promoteDueScheduledTrips';
 import {
   buildPendingToQueuedUpdate,
+  buildStreetHailPendingCancelUpdate,
   canRequeuePendingTrip,
   getPendingAcceptRequeueAt,
   PENDING_ACCEPT_REQUEUE_DELAY_SECONDS,
   resolveDispatchPickupCoords,
 } from '../../../src/lib/tripRequeue';
 import { isPassengerInitiatedCancellation } from '../../../src/lib/passengerTripCancel';
+import { isStreetHailReassignmentBlocked } from '../../../src/lib/shouldReassignCancelledTrip';
 import { isPassengerAppTrip, shouldPreservePickupOriginOnAssign } from '../../../shared/trip-contract.js';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
 import { sendWhatsmeowText, getWhatsmeowApiKey } from '../../../src/lib/whatsmeowClient';
@@ -522,6 +524,19 @@ async function expireTimedOutPendingTrips() {
 
   let expired = 0;
   for (const t of tripsToExpire) {
+    if (isStreetHailReassignmentBlocked(t)) {
+      const { error: streetHailCancelError } = await getSupabaseAdmin()
+        .from('trips')
+        .update(buildStreetHailPendingCancelUpdate(t))
+        .eq('id', t.id)
+        .eq('status', 'pending');
+      if (!streetHailCancelError) expired += 1;
+      logWorkerVerbose('expire_pending_street_hail_cancelled', {
+        tripId: t.id,
+        cancelled: !streetHailCancelError,
+      });
+      continue;
+    }
     if (!canRequeuePendingTrip(t)) {
       logWorkerVerbose('expire_pending_skip_not_requeueable', {
         tripId: t.id,
@@ -1276,6 +1291,25 @@ async function processDispatchClaim(claim) {
       });
       logWorkerVerbose('claim_skip_passenger_cancelled', { tripId });
       return { status: 'passenger_cancelled' };
+    }
+
+    if (isStreetHailReassignmentBlocked(trip)) {
+      const streetHailStatus = String(trip.status || '').toLowerCase();
+      if (streetHailStatus === 'queued' || streetHailStatus === 'pending') {
+        await supabase
+          .from('trips')
+          .update(buildStreetHailPendingCancelUpdate(trip))
+          .eq('id', tripId)
+          .in('status', ['queued', 'pending']);
+      }
+      await releaseDispatchClaim({
+        tripId,
+        lockToken,
+        result: 'done',
+        errorCode: 'street_hail',
+      });
+      logWorkerVerbose('claim_skip_street_hail', { tripId, status: streetHailStatus });
+      return { status: 'street_hail' };
     }
 
     if (String(trip.status || '').toLowerCase() !== 'queued') {
