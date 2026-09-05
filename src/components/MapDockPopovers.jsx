@@ -2,12 +2,17 @@
 
 import AssignFreeDriverPicker from './AssignFreeDriverPicker';
 import CancelTripButton from './CancelTripButton';
+import { canOperatorCancelTrip } from '../lib/passengerTripCancel';
 import { DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS } from '../lib/promoteDueScheduledTrips';
 
 const LIST_KINDS = new Set(['queue', 'trips', 'scheduled-due']);
 
 export function isMapListPopover(kind) {
   return LIST_KINDS.has(kind);
+}
+
+export function listActiveDockTrips(trips = []) {
+  return trips.filter((trip) => trip.isActive && !trip.isQueued);
 }
 
 export function formatWaitLabel(minutes) {
@@ -149,7 +154,7 @@ function QueueCard({ item, index, onCancelled }) {
 
 function LiveTripCard({ trip, onCancelled }) {
   const meta = tripStatusMeta(trip.status);
-  const canCancel = trip.status === 'queued' || trip.status === 'pending' || trip.status === 'scheduled';
+  const canCancel = canOperatorCancelTrip(trip);
   const driverName = trip.driver?.fullName || trip.driver?.full_name || (typeof trip.driver === 'string' ? trip.driver : null);
 
   return (
@@ -259,8 +264,8 @@ export default function MapDockPopovers({
   }
 
   if (kind === 'trips') {
-    const list = (liveTripsData.allTrips || []).filter((trip) => trip.isActive || trip.isQueued);
-    const activeCount = (liveTripsData.allTrips || []).filter((trip) => trip.isActive).length;
+    const list = listActiveDockTrips(liveTripsData.allTrips);
+    const activeCount = list.length;
     return (
       <DockCard
         tone="navy"

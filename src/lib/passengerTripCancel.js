@@ -50,6 +50,7 @@ export const OPERATOR_CANCELLABLE_STATUSES = [
   'scheduled',
   'queued',
   'pending',
+  'going_to_pickup',
 ];
 
 /**

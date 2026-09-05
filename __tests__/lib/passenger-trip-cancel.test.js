@@ -103,12 +103,13 @@ describe('operator cancel', () => {
     expect(payload.driver_id).toBeNull();
   });
 
-  it('canOperatorCancelTrip solo permite scheduled, queued y pending', () => {
+  it('canOperatorCancelTrip permite cola, pending y going_to_pickup, no un viaje en curso', () => {
     expect(canOperatorCancelTrip({ status: 'queued' })).toBe(true);
     expect(canOperatorCancelTrip({ status: 'pending' })).toBe(true);
     expect(canOperatorCancelTrip({ status: 'scheduled' })).toBe(true);
+    expect(canOperatorCancelTrip({ status: 'going_to_pickup' })).toBe(true);
     expect(canOperatorCancelTrip({ status: 'accepted' })).toBe(false);
-    expect(canOperatorCancelTrip({ status: 'going_to_pickup' })).toBe(false);
+    expect(canOperatorCancelTrip({ status: 'in_progress' })).toBe(false);
   });
 
   it('cancelTripAsOperator actualiza el viaje y lo saca de la cola', async () => {

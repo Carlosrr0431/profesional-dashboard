@@ -1,6 +1,7 @@
 const {
   formatWaitLabel,
   isMapListPopover,
+  listActiveDockTrips,
 } = require('../../src/components/MapDockPopovers');
 
 describe('MapDockPopovers helpers', () => {
@@ -17,5 +18,14 @@ describe('MapDockPopovers helpers', () => {
     expect(isMapListPopover('scheduled-due')).toBe(true);
     expect(isMapListPopover('new-trip')).toBe(false);
     expect(isMapListPopover(null)).toBe(false);
+  });
+
+  it('Viajes activos no mezcla la cola', () => {
+    const list = listActiveDockTrips([
+      { id: '1', isActive: true, isQueued: false, status: 'going_to_pickup' },
+      { id: '2', isActive: false, isQueued: true, status: 'queued' },
+      { id: '3', isActive: true, isQueued: false, status: 'in_progress' },
+    ]);
+    expect(list.map((trip) => trip.id)).toEqual(['1', '3']);
   });
 });
