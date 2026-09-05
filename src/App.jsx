@@ -22,7 +22,7 @@ import BroadcastVoiceChat from './components/BroadcastVoiceChat';
 import VoiceChat from './components/VoiceChat';
 import ViajesPanel from './components/ViajesPanel';
 import ScheduledTripsPanel from './components/ScheduledTripsPanel';
-import MapDockPopovers, { isMapListPopover } from './components/MapDockPopovers';
+import MapDockPopovers, { isMapListPopover, listActiveDockTrips } from './components/MapDockPopovers';
 import StatisticsPanel from './components/StatisticsPanel';
 import GeocodeErrorsPanel from './components/GeocodeErrorsPanel';
 import EmulatorGpsSimulator from './components/EmulatorGpsSimulator';
@@ -357,6 +357,8 @@ export default function App() {
     liveTripsData.refetch?.();
     scheduledData.refetch?.();
   }, [queueData, liveTripsData, scheduledData]);
+
+  const activeTripCount = listActiveDockTrips(liveTripsData.allTrips).length;
 
   const handleNewTripSuccess = useCallback((trip, meta) => {
     setMapPopover(null);
@@ -987,13 +989,13 @@ export default function App() {
                         ? 'bg-accent text-white shadow-accent/35'
                         : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
                     }`}
-                    title="Ver viajes"
+                    title="Ver viajes activos"
                   >
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10m16 0V8a1 1 0 00-1-1h-3.5M6 8h2" />
                     </svg>
-                    <span className="hidden sm:inline">Viajes</span>
+                    {activeTripCount} {activeTripCount === 1 ? 'viaje' : 'viajes'}
                   </button>
                   <button
                     type="button"
