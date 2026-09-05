@@ -280,12 +280,8 @@ export default function NewTripModal({
         setError('Completá el día y la hora del viaje programado.');
         return;
       }
-      if (!passengerName.trim()) {
-        setError('Ingresá el nombre del pasajero.');
-        return;
-      }
-      if (!passengerPhone.trim() || passengerPhone.replace(/\D/g, '').length < 8) {
-        setError('Ingresá el teléfono del pasajero.');
+      if (passengerPhone.trim() && passengerPhone.replace(/\D/g, '').length < 8) {
+        setError('Si cargás teléfono, usá al menos 8 dígitos.');
         return;
       }
       const scheduledUtc = arLocalDateTimeToUtcDate(scheduleDate, scheduleTime);
@@ -678,11 +674,15 @@ export default function NewTripModal({
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
                 <div>
-                  <label style={scheduleFieldLabelStyle}>Nombre</label>
+                  <label style={scheduleFieldLabelStyle}>
+                    Nombre <span style={{ fontWeight: 500, color: '#94A3B8' }}>opcional</span>
+                  </label>
                   <input type="text" placeholder="Nombre" value={passengerName} onChange={(e) => setPassengerName(e.target.value)} style={optInputStyle} />
                 </div>
                 <div>
-                  <label style={scheduleFieldLabelStyle}>Teléfono</label>
+                  <label style={scheduleFieldLabelStyle}>
+                    Teléfono <span style={{ fontWeight: 500, color: '#94A3B8' }}>opcional</span>
+                  </label>
                   <input type="tel" placeholder="Ej: 3874001234" value={passengerPhone} onChange={(e) => setPassengerPhone(e.target.value)} style={optInputStyle} />
                 </div>
               </div>
