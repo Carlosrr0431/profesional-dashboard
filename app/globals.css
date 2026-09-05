@@ -47,6 +47,23 @@ body {
   background: #94A3B8;
 }
 
+.map-dock-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #94A3B8 #F1F5F9;
+  touch-action: pan-y;
+}
+.map-dock-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.map-dock-scroll::-webkit-scrollbar-track {
+  background: #F1F5F9;
+  border-radius: 99px;
+}
+.map-dock-scroll::-webkit-scrollbar-thumb {
+  background: #94A3B8;
+  border-radius: 99px;
+}
+
 /* Google Maps InfoWindow override */
 .gm-style-iw-d {
   overflow: hidden !important;

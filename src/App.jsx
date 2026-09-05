@@ -22,8 +22,7 @@ import BroadcastVoiceChat from './components/BroadcastVoiceChat';
 import VoiceChat from './components/VoiceChat';
 import ViajesPanel from './components/ViajesPanel';
 import ScheduledTripsPanel from './components/ScheduledTripsPanel';
-import AssignFreeDriverPicker from './components/AssignFreeDriverPicker';
-import CancelTripButton from './components/CancelTripButton';
+import MapDockPopovers, { isMapListPopover } from './components/MapDockPopovers';
 import StatisticsPanel from './components/StatisticsPanel';
 import GeocodeErrorsPanel from './components/GeocodeErrorsPanel';
 import EmulatorGpsSimulator from './components/EmulatorGpsSimulator';
@@ -33,7 +32,6 @@ import DashboardLoadingScreen from './components/DashboardLoadingScreen';
 import { useTripStatistics } from './hooks/useTripStatistics';
 import { useLiveTrips, toLocalDateInputValue } from './hooks/useLiveTrips';
 import { isSuperAdminUser } from './lib/adminSuperUser';
-import { DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS } from './lib/promoteDueScheduledTrips';
 
 // ─── Vista activa ─────────────────────────────────────────────────────────────
 const VIEWS = {
@@ -900,205 +898,25 @@ export default function App() {
               )}
 
               {/* ── Indicadores flotantes + acciones ──────────────────── */}
-              {mapPopover ? (
-                <div className="fixed inset-0 z-[9998]" onClick={closePopover} aria-hidden="true" />
+              {isMapListPopover(mapPopover) ? (
+                <button
+                  type="button"
+                  className="absolute inset-0 z-40 cursor-default bg-transparent"
+                  onClick={closePopover}
+                  aria-label="Cerrar panel"
+                />
               ) : null}
-              <div className="pointer-events-none absolute bottom-4 right-4 z-10 flex flex-col items-end gap-2">
-                {/* Popovers */}
-                {mapPopover === 'queue' && (
-                  <div className="pointer-events-auto mb-1 w-[340px] overflow-hidden rounded-2xl border border-slate-200/70 bg-white/98 shadow-2xl shadow-navy-900/18 backdrop-blur-xl">
-                    <div className="flex items-center justify-between border-b border-slate-100 px-3.5 py-2.5">
-                      <p className="text-[12px] font-bold text-slate-900">Cola de espera</p>
-                      <span className="text-[10px] font-medium text-slate-400">
-                        {queueData.stats.inQueue} {queueData.stats.inQueue === 1 ? 'pasajero' : 'pasajeros'}
-                        {queueData.stats.avgWaitMinutes > 0 ? ` · espera media ${queueData.stats.avgWaitMinutes}min` : ''}
-                      </span>
-                    </div>
-                    <div className="max-h-[min(340px,48vh)] overflow-y-auto overscroll-contain">
-                      {queueData.queuedList.length === 0 ? (
-                        <p className="py-6 text-center text-xs text-slate-400">Cola vacía</p>
-                      ) : (
-                        queueData.queuedList.map((item, i) => (
-                          <div key={item.id || i} className="border-b border-slate-100/80 px-3.5 py-3 last:border-0 hover:bg-slate-50/70 transition-colors">
-                            {/* Nombre + posición + espera */}
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 text-[9px] font-bold text-amber-700">
-                                    {item.position ?? i + 1}
-                                  </span>
-                                  <p className="truncate text-[12.5px] font-bold text-slate-900">{item.passengerName}</p>
-                                </div>
-                                {item.phone ? (
-                                  <p className="mt-0.5 text-[10.5px] text-slate-400">
-                                    {String(item.phone).length > 6 ? `···${String(item.phone).slice(-4)}` : item.phone}
-                                  </p>
-                                ) : null}
-                              </div>
-                              <span className="shrink-0 rounded-full bg-amber-500/12 px-2 py-0.5 text-[10.5px] font-bold text-amber-700">
-                                {item.waitMinutes}min
-                              </span>
-                            </div>
-
-                            {/* Origen → Destino */}
-                            <div className="mt-2 space-y-1">
-                              <div className="flex items-start gap-1.5">
-                                <span className="mt-[3px] h-2 w-2 flex-shrink-0 rounded-full bg-accent" />
-                                <p className="truncate text-[11px] text-slate-600">{item.originAddress || item.pickupAddress || '—'}</p>
-                              </div>
-                              {item.destinationAddress ? (
-                                <div className="flex items-start gap-1.5">
-                                  <span className="mt-[3px] h-2 w-2 flex-shrink-0 rounded bg-navy-900" />
-                                  <p className="truncate text-[11px] text-slate-600">{item.destinationAddress}</p>
-                                </div>
-                              ) : null}
-                            </div>
-
-                            {/* Stats: precio, km, duración, intentos */}
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              {item.price ? (
-                                <span className="text-[11px] font-bold text-emerald-700">
-                                  ${Number(item.price).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
-                                </span>
-                              ) : null}
-                              {item.distanceKm ? (
-                                <span className="text-[10.5px] text-slate-400">{Number(item.distanceKm).toFixed(1)} km</span>
-                              ) : null}
-                              {item.durationMinutes ? (
-                                <span className="text-[10.5px] text-slate-400">{item.durationMinutes} min de viaje</span>
-                              ) : null}
-                              {item.dispatchAttempts > 0 ? (
-                                <span className="text-[10.5px] text-slate-400">{item.dispatchAttempts} intento{item.dispatchAttempts !== 1 ? 's' : ''}</span>
-                              ) : null}
-                            </div>
-                            <CancelTripButton
-                              compact
-                              className="mt-2"
-                              tripId={item.id}
-                              onCancelled={refetchTripSurfaces}
-                            />
-                          </div>
-                        ))
-                      )}
-                    </div>
-                    <button
-                      onClick={() => { setMapPopover(null); setTripsDate(toLocalDateInputValue()); goTo(VIEWS.trips); }}
-                      className="w-full border-t border-slate-100 px-3.5 py-2.5 text-[11px] font-semibold text-accent transition-all hover:bg-accent/5"
-                    >
-                      Ver panel completo →
-                    </button>
-                  </div>
-                )}
-                {mapPopover === 'trips' && (
-                  <div className="pointer-events-auto mb-1 w-80 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/98 shadow-2xl shadow-navy-900/18 backdrop-blur-xl">
-                    <div className="flex items-center justify-between border-b border-slate-100 px-3.5 py-2.5">
-                      <p className="text-[12px] font-bold text-slate-900">Viajes activos</p>
-                      <span className="text-[10px] font-medium text-slate-400">{liveTripsData.allTrips.filter((t) => t.isActive).length} en curso</span>
-                    </div>
-                    <div className="max-h-[min(280px,42vh)] overflow-y-auto overscroll-contain">
-                      {liveTripsData.allTrips.filter((t) => t.isActive || t.isQueued).length === 0 ? (
-                        <p className="py-6 text-center text-xs text-slate-400">Sin viajes activos</p>
-                      ) : (
-                        liveTripsData.allTrips.filter((t) => t.isActive || t.isQueued).slice(0, 8).map((trip, i) => {
-                          const statusLabel = trip.status === 'in_progress' ? 'En curso' : trip.status === 'going_to_pickup' ? 'En camino' : trip.status === 'accepted' ? 'Asignado' : trip.status === 'pending' ? 'Pendiente' : 'En cola';
-                          const statusCls = trip.status === 'in_progress' ? 'bg-emerald-500/12 text-emerald-700' : trip.status === 'going_to_pickup' || trip.status === 'accepted' ? 'bg-blue-500/12 text-blue-700' : 'bg-amber-500/12 text-amber-700';
-                          return (
-                            <div key={trip.id || i} className="border-b border-slate-50 px-3.5 py-2.5 last:border-0 hover:bg-slate-50/80">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="truncate text-[12px] font-semibold text-slate-900">{trip.passengerName}</p>
-                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold ${statusCls}`}>{statusLabel}</span>
-                              </div>
-                              <p className="mt-0.5 truncate text-[11px] text-slate-500">{trip.pickupAddress || trip.destination || '—'}</p>
-                              {trip.driver ? (
-                                <p className="mt-0.5 truncate text-[10px] text-slate-400">🚗 {trip.driver.fullName || trip.driver.full_name || String(trip.driver)}</p>
-                              ) : null}
-                              {trip.status === 'queued' || trip.status === 'pending' || trip.status === 'scheduled' ? (
-                                <CancelTripButton
-                                  compact
-                                  className="mt-1.5"
-                                  tripId={trip.id}
-                                  onCancelled={refetchTripSurfaces}
-                                />
-                              ) : null}
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                    <button
-                      onClick={() => { setMapPopover(null); setTripsDate(toLocalDateInputValue()); goTo(VIEWS.trips); }}
-                      className="w-full border-t border-slate-100 px-3.5 py-2.5 text-[11px] font-semibold text-accent transition-all hover:bg-accent/5"
-                    >
-                      Ver panel completo →
-                    </button>
-                  </div>
-                )}
-                {mapPopover === 'scheduled-due' && (
-                  <div className="pointer-events-auto mb-1 w-[340px] overflow-hidden rounded-2xl border border-violet-200/80 bg-white/98 shadow-2xl shadow-navy-900/18 backdrop-blur-xl">
-                    <div className="flex items-center justify-between border-b border-violet-100 px-3.5 py-2.5">
-                      <p className="text-[12px] font-bold text-slate-900">Programados a despachar</p>
-                      <span className="text-[10px] font-medium text-violet-500">
-                        {scheduledData.stats.dispatchSoon} {scheduledData.stats.dispatchSoon === 1 ? 'viaje' : 'viajes'} · {DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS / 60000} min
-                      </span>
-                    </div>
-                    <div className="max-h-[min(340px,48vh)] overflow-y-auto overscroll-contain">
-                      {(scheduledData.dispatchSoonTrips || []).length === 0 ? (
-                        <p className="py-6 text-center text-xs text-slate-400">Sin viajes en ventana</p>
-                      ) : (
-                        (scheduledData.dispatchSoonTrips || []).map((item, i) => (
-                          <div key={item.id || i} className="border-b border-violet-50 px-3.5 py-3 last:border-0 hover:bg-violet-50/60 transition-colors">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="truncate text-[12.5px] font-bold text-slate-900">{item.passenger_name || 'Pasajero'}</p>
-                                {item.phone ? (
-                                  <p className="mt-0.5 text-[10.5px] text-slate-400">
-                                    {String(item.phone).length > 6 ? `···${String(item.phone).slice(-4)}` : item.phone}
-                                  </p>
-                                ) : null}
-                              </div>
-                              <span className="shrink-0 rounded-full bg-violet-500/12 px-2 py-0.5 text-[10.5px] font-bold text-violet-700">
-                                {item.countdown}
-                              </span>
-                            </div>
-                            {item.sourceLabel ? (
-                              <p className="mt-1 text-[10px] font-semibold text-slate-500">{item.sourceLabel}{item.isDispatching ? ' · Buscando chofer' : ''}</p>
-                            ) : null}
-                            <div className="mt-2 space-y-1">
-                              <div className="flex items-start gap-1.5">
-                                <span className="mt-[3px] h-2 w-2 flex-shrink-0 rounded-full bg-violet-500" />
-                                <p className="truncate text-[11px] text-slate-600">{item.pickupAddress || item.origin_address || item.destination_address || '—'}</p>
-                              </div>
-                              {item.destination_address && item.origin_address ? (
-                                <div className="flex items-start gap-1.5">
-                                  <span className="mt-[3px] h-2 w-2 flex-shrink-0 rounded bg-navy-900" />
-                                  <p className="truncate text-[11px] text-slate-600">{item.destination_address}</p>
-                                </div>
-                              ) : null}
-                            </div>
-                            <AssignFreeDriverPicker
-                              compact
-                              trip={item}
-                              drivers={drivers}
-                              onAssigned={() => scheduledData.refetch?.()}
-                            />
-                            <CancelTripButton
-                              compact
-                              className="mt-1.5"
-                              tripId={item.id}
-                              onCancelled={refetchTripSurfaces}
-                            />
-                          </div>
-                        ))
-                      )}
-                    </div>
-                    <button
-                      onClick={() => { setMapPopover(null); goTo(VIEWS.scheduled); }}
-                      className="w-full border-t border-violet-100 px-3.5 py-2.5 text-[11px] font-semibold text-violet-600 transition-all hover:bg-violet-50"
-                    >
-                      Ver agenda completa →
-                    </button>
-                  </div>
-                )}
+              <div className="pointer-events-none absolute bottom-4 right-4 z-50 flex flex-col items-end gap-2">
+                <MapDockPopovers
+                  kind={mapPopover}
+                  queueData={queueData}
+                  liveTripsData={liveTripsData}
+                  scheduledData={scheduledData}
+                  drivers={drivers}
+                  onCancelled={refetchTripSurfaces}
+                  onOpenTrips={() => { setMapPopover(null); setTripsDate(toLocalDateInputValue()); goTo(VIEWS.trips); }}
+                  onOpenScheduled={() => { setMapPopover(null); goTo(VIEWS.scheduled); }}
+                />
 
                 <div className="pointer-events-auto flex items-center gap-2">
                   <button

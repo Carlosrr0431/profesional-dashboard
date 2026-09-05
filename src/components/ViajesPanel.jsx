@@ -174,7 +174,13 @@ function QueueCard({ item, isFirst, onCancelled }) {
           <p className="mt-0.5 text-[11px] text-slate-500">{formatPhone(item.phone)}</p>
           <p className="mt-1.5 text-[12px] font-medium leading-snug text-navy-800">{item.pickupAddress}</p>
           <p className="mt-1 text-[10px] text-slate-400">En cola desde {formatDateTime(item.queuedAt)}</p>
-          <CancelTripButton className="mt-2" tripId={item.id} onCancelled={onCancelled} />
+          <CancelTripButton
+            className="mt-2"
+            tripId={item.id}
+            passengerName={item.passengerName}
+            address={item.pickupAddress}
+            onCancelled={onCancelled}
+          />
         </div>
       </div>
     </article>
@@ -240,7 +246,13 @@ function TripCard({ trip, onCancelled }) {
       ) : null}
 
       {canOperatorCancelTrip(trip) ? (
-        <CancelTripButton className="mt-2 pl-1" tripId={trip.id} onCancelled={onCancelled} />
+        <CancelTripButton
+          className="mt-2 pl-1"
+          tripId={trip.id}
+          passengerName={trip.passengerName}
+          address={trip.pickupAddress}
+          onCancelled={onCancelled}
+        />
       ) : null}
     </article>
   );
