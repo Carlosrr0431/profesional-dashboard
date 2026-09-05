@@ -91,7 +91,8 @@ function useAnchoredPopover(open, onClose) {
       setCoords(null);
       return undefined;
     }
-    const update = () => {
+    const update = (event) => {
+      if (event?.type === 'scroll' && panelRef.current?.contains(event.target)) return;
       const rect = buttonRef.current?.getBoundingClientRect();
       if (!rect) return;
       const width = Math.max(rect.width, 228);
@@ -101,7 +102,11 @@ function useAnchoredPopover(open, onClose) {
       const top = below + estimatedHeight > window.innerHeight - 8
         ? Math.max(8, rect.top - estimatedHeight - 6)
         : below;
-      setCoords({ top, left, width });
+      setCoords((prev) => (
+        prev && prev.top === top && prev.left === left && prev.width === width
+          ? prev
+          : { top, left, width }
+      ));
     };
     update();
     window.addEventListener('resize', update);
@@ -276,9 +281,14 @@ export function ScheduleTimePicker({ value, onChange }) {
   const minuteRefs = useRef({});
   const hourListRef = useRef(null);
   const minuteListRef = useRef(null);
+  const alignedOpenRef = useRef(false);
 
   useLayoutEffect(() => {
-    if (!open || !coords) return undefined;
+    if (!open) {
+      alignedOpenRef.current = false;
+      return undefined;
+    }
+    if (!coords || alignedOpenRef.current) return undefined;
     const now = currentArTimeParts();
     let cancelled = false;
     let innerFrame = 0;
@@ -286,6 +296,7 @@ export function ScheduleTimePicker({ value, onChange }) {
       if (cancelled) return;
       scrollChildIntoView(hourRefs.current[hour] || hourRefs.current[now.hour], hourListRef.current);
       scrollChildIntoView(minuteRefs.current[minute] || minuteRefs.current[now.minute], minuteListRef.current);
+      alignedOpenRef.current = true;
     };
     const outerFrame = window.requestAnimationFrame(() => {
       innerFrame = window.requestAnimationFrame(run);
@@ -315,7 +326,12 @@ export function ScheduleTimePicker({ value, onChange }) {
           <span>Min</span>
         </div>
         <div className="grid grid-cols-2">
-          <div ref={hourListRef} className="max-h-[220px] overflow-y-auto overscroll-contain border-r border-violet-100 py-[88px]">
+          <div
+            ref={hourListRef}
+            className="max-h-[220px] overflow-y-auto overscroll-contain border-r border-violet-100 py-[88px]"
+            onWheel={(event) => event.stopPropagation()}
+            onScroll={(event) => event.stopPropagation()}
+          >
             {HOURS_24.map((h) => {
               const selected = h === hour;
               return (
@@ -335,7 +351,12 @@ export function ScheduleTimePicker({ value, onChange }) {
               );
             })}
           </div>
-          <div ref={minuteListRef} className="max-h-[220px] overflow-y-auto overscroll-contain py-[88px]">
+          <div
+            ref={minuteListRef}
+            className="max-h-[220px] overflow-y-auto overscroll-contain py-[88px]"
+            onWheel={(event) => event.stopPropagation()}
+            onScroll={(event) => event.stopPropagation()}
+          >
             {MINUTES.map((m) => {
               const selected = m === minute;
               return (
