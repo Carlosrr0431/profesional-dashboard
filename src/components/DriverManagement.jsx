@@ -342,7 +342,7 @@ export default function DriverManagement({ onBack }) {
             }}
           />
         ) : (
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-3 sm:p-6">
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-gray-400">
               <svg className="w-16 h-16 mb-4 text-light-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -351,8 +351,8 @@ export default function DriverManagement({ onBack }) {
               <p className="text-sm">No se encontraron choferes</p>
             </div>
           ) : (
-            <div className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden shadow-sm">
-              <table className="w-full">
+            <div className="overflow-hidden overflow-x-auto rounded-2xl border border-slate-200/70 bg-white shadow-sm">
+              <table className="w-full min-w-[720px]">
                 <thead>
                   <tr className="border-b border-slate-200/60 bg-slate-50/80">
                     <th className="text-left px-4 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Chofer</th>
@@ -491,9 +491,9 @@ function DriverManagementLoading({ onBack }) {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto p-6">
-          <div className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden shadow-sm">
-            <table className="w-full">
+        <div className="flex-1 overflow-auto p-3 sm:p-6">
+          <div className="bg-white rounded-2xl border border-slate-200/70 overflow-x-auto shadow-sm">
+            <table className="w-full min-w-[720px]">
               <thead>
                 <tr className="border-b border-light-300/50">
                   <th className="text-left px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">Chofer</th>

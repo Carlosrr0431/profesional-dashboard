@@ -480,34 +480,26 @@ export default function NewTripModal({
   /* ── Render modal completo ────────────────────────────────────────────── */
   return (
     <div
-      style={asPopover ? {
-        position: 'fixed', bottom: 76, right: 16, zIndex: 9999,
-        width: 'min(440px, calc(100vw - 80px))',
-      } : {
-        position: 'fixed', inset: 0, zIndex: 9999,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(6px)',
-      }}
+      className={asPopover
+        ? 'fixed inset-0 z-[9999] flex items-stretch bg-navy-900/45 md:inset-auto md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:left-auto md:right-4 md:top-auto md:block md:w-[min(440px,calc(100vw-2rem))] md:bg-transparent'
+        : 'fixed inset-0 z-[9999] flex items-center justify-center bg-[rgba(15,23,42,0.65)] p-3 backdrop-blur-[6px]'}
       onClick={asPopover ? undefined : ((e) => e.target === e.currentTarget && onClose())}
     >
       <style>{MODAL_STYLES}</style>
-      <div style={{
-        background: asPopover ? 'rgba(255,255,255,0.94)' : '#FFFFFF',
-        backdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
-        WebkitBackdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
-        borderRadius: asPopover ? 22 : 20,
-        width: '100%', maxWidth: asPopover ? 'none' : 520,
-        maxHeight: asPopover ? 'calc(100vh - 96px)' : '92vh',
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        boxShadow: asPopover
-          ? '0 18px 50px rgba(15,23,42,0.16), 0 2px 8px rgba(15,23,42,0.06)'
-          : '0 24px 64px rgba(0,0,0,0.28)',
-        border: asPopover ? '1px solid rgba(226,232,240,0.85)' : 'none',
-        animation: '_ntm_fade 0.18s ease',
-      }}>
+      <div
+        className={asPopover
+          ? 'flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden rounded-none bg-white md:h-auto md:max-h-[min(88vh,calc(100dvh-5.5rem))] md:rounded-[22px] md:border md:border-slate-200/85 md:bg-white/94 md:shadow-[0_18px_50px_rgba(15,23,42,0.16),0_2px_8px_rgba(15,23,42,0.06)]'
+          : 'flex max-h-[min(92vh,100dvh)] w-full max-w-[520px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_24px_64px_rgba(0,0,0,0.28)]'}
+        style={{
+          backdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
+          WebkitBackdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
+          animation: '_ntm_fade 0.18s ease',
+        }}
+      >
         {/* Header */}
         <div style={{
           padding: asPopover ? '12px 14px 10px' : '16px 20px',
+          paddingTop: asPopover ? 'max(12px, env(safe-area-inset-top))' : 16,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           flexShrink: 0,
         }}>
@@ -525,8 +517,8 @@ export default function NewTripModal({
             onClick={onClose}
             aria-label="Cerrar"
             style={{
-              width: 28, height: 28, background: 'transparent', border: 'none',
-              borderRadius: 8, color: '#94A3B8', fontSize: 16, cursor: 'pointer',
+              width: 40, height: 40, background: 'transparent', border: 'none',
+              borderRadius: 10, color: '#94A3B8', fontSize: 18, cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
             onMouseEnter={(e) => { e.currentTarget.style.background = '#F1F5F9'; e.currentTarget.style.color = '#334155'; }}
@@ -892,6 +884,9 @@ export default function NewTripModal({
           <div style={{
             flexShrink: 0,
             padding: asPopover ? '10px 14px 14px' : '12px 20px 18px',
+            paddingBottom: asPopover
+              ? 'max(14px, env(safe-area-inset-bottom))'
+              : 18,
             borderTop: '1px solid #F1F5F9',
             background: asPopover
               ? 'linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.96))'

@@ -475,36 +475,20 @@ export default function TripAssignModal({
   /* ── Render modal / popover ───────────────────────────────────────────── */
   return (
     <div
-      style={asPopover ? {
-        position: 'fixed', inset: 0, zIndex: 9999,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 16,
-        background: 'rgba(15,23,42,0.18)',
-      } : {
-        position: 'fixed', inset: 0, zIndex: 9999,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(6px)',
-      }}
+      className={asPopover
+        ? 'fixed inset-0 z-[9999] flex items-stretch bg-[rgba(15,23,42,0.45)] p-0 md:items-center md:justify-center md:bg-[rgba(15,23,42,0.18)] md:p-4'
+        : 'fixed inset-0 z-[9999] flex items-center justify-center bg-[rgba(15,23,42,0.65)] p-3 backdrop-blur-[6px]'}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <style>{MODAL_STYLES}</style>
 
       <div
+        className={asPopover
+          ? 'flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden rounded-none bg-white md:h-auto md:max-h-[min(86vh,720px)] md:max-w-[400px] md:rounded-[22px] md:border md:border-slate-200/85 md:bg-white/94 md:shadow-[0_18px_50px_rgba(15,23,42,0.16),0_2px_8px_rgba(15,23,42,0.06)]'
+          : 'flex max-h-[min(92vh,100dvh)] w-full max-w-[520px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_24px_64px_rgba(0,0,0,0.28)]'}
         style={{
-          background: asPopover ? 'rgba(255,255,255,0.94)' : '#FFFFFF',
           backdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
           WebkitBackdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
-          borderRadius: asPopover ? 22 : 20,
-          width: '100%',
-          maxWidth: asPopover ? 400 : 520,
-          maxHeight: asPopover ? 'min(86vh, 720px)' : '92vh',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          boxShadow: asPopover
-            ? '0 18px 50px rgba(15,23,42,0.16), 0 2px 8px rgba(15,23,42,0.06)'
-            : '0 24px 64px rgba(0,0,0,0.28)',
-          border: asPopover ? '1px solid rgba(226,232,240,0.85)' : 'none',
           animation: '_tm_fade 0.18s ease',
         }}
         onClick={(e) => e.stopPropagation()}
@@ -512,6 +496,7 @@ export default function TripAssignModal({
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <div style={{
           padding: asPopover ? '12px 14px 10px' : '16px 20px',
+          paddingTop: asPopover ? 'max(12px, env(safe-area-inset-top))' : 16,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           flexShrink: 0,
         }}>
@@ -531,8 +516,8 @@ export default function TripAssignModal({
             onClick={onClose}
             aria-label="Cerrar"
             style={{
-              width: 28, height: 28, background: 'transparent', border: 'none',
-              borderRadius: 8, color: '#94A3B8', fontSize: 16, cursor: 'pointer',
+              width: 40, height: 40, background: 'transparent', border: 'none',
+              borderRadius: 10, color: '#94A3B8', fontSize: 18, cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
             onMouseEnter={(e) => { e.currentTarget.style.background = '#F1F5F9'; e.currentTarget.style.color = '#334155'; }}
@@ -778,6 +763,9 @@ export default function TripAssignModal({
           <div style={{
             flexShrink: 0,
             padding: asPopover ? '10px 14px 14px' : '12px 20px 18px',
+            paddingBottom: asPopover
+              ? 'max(14px, env(safe-area-inset-bottom))'
+              : 18,
             borderTop: '1px solid #F1F5F9',
             background: asPopover
               ? 'linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.96))'

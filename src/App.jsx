@@ -612,11 +612,11 @@ export default function App() {
 
       {/* BARRA SUPERIOR (solo en móvil / tablet) */}
       <header className="z-30 shrink-0 border-b border-slate-200/70 bg-white/98 backdrop-blur-xl lg:hidden">
-        <div className="flex h-12 items-center gap-2 px-3 lg:h-14 lg:gap-3 lg:px-5">
+        <div className="flex h-12 items-center gap-1.5 px-2.5 sm:gap-2 sm:px-3 lg:h-14 lg:gap-3 lg:px-5">
 
         {/* ── Logo ─────────────────────────────────────────────────────── */}
         <div className="flex shrink-0 items-center">
-          <DashboardBrand imageClassName="h-8 w-auto max-w-[118px] object-contain lg:h-9 lg:max-w-[132px]" />
+          <DashboardBrand imageClassName="h-7 w-auto max-w-[92px] object-contain sm:h-8 sm:max-w-[118px] lg:h-9 lg:max-w-[132px]" />
         </div>
 
         <nav className="hidden flex-1 items-center justify-center lg:flex">
@@ -630,7 +630,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setShowAiAgentModal(true)}
-            className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold transition-all ${
+            className={`flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold transition-all sm:px-3 ${
               whatsappAgentEnabled
                 ? 'bg-emerald-500/10 text-emerald-700 ring-1 ring-emerald-500/25 hover:bg-emerald-500/18'
                 : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
@@ -655,7 +655,7 @@ export default function App() {
             onClick={() => {
               window.location.href = '/admin/whatsapp';
             }}
-            className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold transition-all ${
+            className={`flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold transition-all sm:px-3 ${
               whatsappConnected
                 ? 'bg-emerald-500/10 text-emerald-700 ring-1 ring-emerald-500/25 hover:bg-emerald-500/18'
                 : 'bg-red-500/10 text-red-600 ring-1 ring-red-500/25 hover:bg-red-500/15'
@@ -684,7 +684,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setMapPopover('new-trip')}
-            className="flex h-8 items-center gap-1.5 rounded-full bg-navy-900 px-4 text-[12px] font-semibold text-white shadow-[0_1px_3px_rgba(15,23,42,0.25),0_0_0_1px_rgba(15,23,42,0.1)] transition-all hover:bg-navy-900/90 hover:shadow-[0_2px_8px_rgba(15,23,42,0.3)] active:scale-[0.97]"
+            className="flex h-8 items-center gap-1.5 rounded-full bg-navy-900 px-2.5 text-[12px] font-semibold text-white shadow-[0_1px_3px_rgba(15,23,42,0.25),0_0_0_1px_rgba(15,23,42,0.1)] transition-all hover:bg-navy-900/90 hover:shadow-[0_2px_8px_rgba(15,23,42,0.3)] active:scale-[0.97] sm:px-4"
             title="Agregar viaje a la cola"
           >
             <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -833,23 +833,6 @@ export default function App() {
                 }}
               />
 
-              {!fleetDrawerOpen && !panelDriverId ? (
-                <button
-                  type="button"
-                  onClick={() => setFleetDrawerOpen(true)}
-                  className="pointer-events-auto absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-2xl bg-navy-900/90 backdrop-blur-sm px-3.5 py-2.5 text-[12px] font-bold text-white shadow-xl shadow-navy-900/20 transition hover:bg-navy-900 lg:hidden"
-                >
-                  <svg className="h-4 w-4 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  Flota
-                  <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
-                    {drivers.length}
-                  </span>
-                </button>
-              ) : null}
-
               {/* ── Banner de selección múltiple ─────────────────────── */}
               {multiSelectMode && (
                 <div className="absolute left-3 right-3 top-3 z-10 sm:left-1/2 sm:right-auto sm:top-4 sm:w-auto sm:max-w-[calc(100vw-2rem)] sm:-translate-x-1/2">
@@ -908,7 +891,7 @@ export default function App() {
                   aria-label="Cerrar panel"
                 />
               ) : null}
-              <div className="pointer-events-none absolute bottom-4 right-4 z-50 flex flex-col items-end gap-2">
+              <div className="pointer-events-none absolute inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-50 flex max-w-full flex-col items-stretch gap-2 md:inset-x-auto md:right-4 md:left-auto md:items-end">
                 <MapDockPopovers
                   kind={mapPopover}
                   queueData={queueData}
@@ -920,7 +903,24 @@ export default function App() {
                   onOpenScheduled={() => { setMapPopover(null); goTo(VIEWS.scheduled); }}
                 />
 
-                <div className="pointer-events-auto flex items-center gap-2">
+                <div className="pointer-events-auto flex w-full items-end gap-2 md:w-auto">
+                  {!fleetDrawerOpen && !panelDriverId ? (
+                    <button
+                      type="button"
+                      onClick={() => setFleetDrawerOpen(true)}
+                      className="flex h-11 shrink-0 items-center gap-2 rounded-full bg-navy-900/90 px-3.5 text-[12px] font-bold text-white shadow-xl shadow-navy-900/20 backdrop-blur-sm transition hover:bg-navy-900 lg:hidden"
+                    >
+                      <svg className="h-4 w-4 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      Flota
+                      <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
+                        {drivers.length}
+                      </span>
+                    </button>
+                  ) : null}
+                  <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
                   <button
                     type="button"
                     title={multiSelectMode ? `Selección activa (${multiSelectedIds.size})` : 'Audio a choferes'}
@@ -933,7 +933,7 @@ export default function App() {
                         setVoiceChatDriver(null);
                       }
                     }}
-                    className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full shadow-xl active:scale-[0.97] transition-all ${
+                    className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-xl active:scale-[0.97] transition-all sm:h-11 sm:w-11 ${
                       multiSelectMode
                         ? 'bg-navy-900 text-white shadow-navy-900/35'
                         : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
@@ -951,7 +951,7 @@ export default function App() {
                   </button>
                   {queueData.stats.inQueue > 0 && (
                     <button
-                      className={`flex h-11 items-center gap-2.5 rounded-full px-4 text-[12.5px] font-bold shadow-xl active:scale-[0.97] transition-all ${
+                      className={`flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-bold shadow-xl active:scale-[0.97] transition-all sm:h-11 sm:gap-2.5 sm:px-4 sm:text-[12.5px] ${
                         mapPopover === 'queue'
                           ? 'bg-amber-500 text-white shadow-amber-500/40 scale-[1.02]'
                           : 'bg-amber-500 text-white shadow-amber-400/35 hover:bg-amber-400 hover:shadow-amber-400/50 hover:scale-[1.02]'
@@ -967,7 +967,7 @@ export default function App() {
                   )}
                   {scheduledData.stats.dispatchSoon > 0 && (
                     <button
-                      className={`flex h-11 items-center gap-2.5 rounded-full px-4 text-[12.5px] font-bold shadow-xl active:scale-[0.97] transition-all ${
+                      className={`flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-bold shadow-xl active:scale-[0.97] transition-all sm:h-11 sm:gap-2.5 sm:px-4 sm:text-[12.5px] ${
                         mapPopover === 'scheduled-due'
                           ? 'bg-violet-600 text-white shadow-violet-600/40 scale-[1.02]'
                           : 'bg-violet-600 text-white shadow-violet-500/35 hover:bg-violet-500 hover:shadow-violet-500/50 hover:scale-[1.02]'
@@ -984,7 +984,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setMapPopover(mapPopover === 'trips' ? null : 'trips')}
-                    className={`flex h-11 items-center gap-2 rounded-full px-4 text-[12.5px] font-bold shadow-xl active:scale-[0.97] transition-all ${
+                    className={`flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-bold shadow-xl active:scale-[0.97] transition-all sm:h-11 sm:gap-2 sm:px-4 sm:text-[12.5px] ${
                       mapPopover === 'trips'
                         ? 'bg-accent text-white shadow-accent/35'
                         : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
@@ -1003,7 +1003,7 @@ export default function App() {
                       setTripModalDriver(null);
                       setMapPopover(mapPopover === 'new-trip' ? null : 'new-trip');
                     }}
-                    className={`flex h-11 items-center gap-2.5 rounded-full px-5 text-[13px] font-bold shadow-2xl active:scale-[0.97] transition-all ${
+                    className={`flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-bold shadow-2xl active:scale-[0.97] transition-all sm:h-11 sm:gap-2.5 sm:px-5 sm:text-[13px] ${
                       mapPopover === 'new-trip'
                         ? 'bg-navy-800 text-white shadow-navy-900/45'
                         : 'bg-navy-900 text-white shadow-navy-900/35 hover:bg-navy-800 hover:shadow-navy-900/50 hover:scale-[1.01]'
@@ -1015,6 +1015,7 @@ export default function App() {
                     </svg>
                     <span className="hidden sm:inline">Nuevo viaje</span>
                   </button>
+                  </div>
                 </div>
               </div>
             </div>

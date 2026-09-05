@@ -95,12 +95,13 @@ function useAnchoredPopover(open, onClose) {
       if (event?.type === 'scroll' && panelRef.current?.contains(event.target)) return;
       const rect = buttonRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const width = Math.max(rect.width, 228);
-      const left = Math.min(Math.max(8, rect.left), window.innerWidth - width - 8);
-      const estimatedHeight = 280;
+      const gutter = 8;
+      const width = Math.min(Math.max(rect.width, 228), Math.max(160, window.innerWidth - gutter * 2));
+      const left = Math.min(Math.max(gutter, rect.left), window.innerWidth - width - gutter);
+      const estimatedHeight = Math.min(280, window.innerHeight - 24);
       const below = rect.bottom + 6;
-      const top = below + estimatedHeight > window.innerHeight - 8
-        ? Math.max(8, rect.top - estimatedHeight - 6)
+      const top = below + estimatedHeight > window.innerHeight - gutter
+        ? Math.max(gutter, rect.top - estimatedHeight - 6)
         : below;
       setCoords((prev) => (
         prev && prev.top === top && prev.left === left && prev.width === width
@@ -340,7 +341,7 @@ export function ScheduleTimePicker({ value, onChange }) {
                   type="button"
                   ref={(el) => { hourRefs.current[h] = el; }}
                   onClick={() => pick(h, minute)}
-                  className={`flex w-full items-center justify-center py-1.5 text-[13px] font-semibold tabular-nums ${
+                  className={`flex min-h-10 w-full items-center justify-center py-2 text-[15px] font-semibold tabular-nums md:min-h-0 md:py-1.5 md:text-[13px] ${
                     selected
                       ? 'bg-violet-600 text-white'
                       : 'text-slate-700 hover:bg-violet-50'
@@ -368,7 +369,7 @@ export function ScheduleTimePicker({ value, onChange }) {
                     pick(hour, m);
                     setOpen(false);
                   }}
-                  className={`flex w-full items-center justify-center py-1.5 text-[13px] font-semibold tabular-nums ${
+                  className={`flex min-h-10 w-full items-center justify-center py-2 text-[15px] font-semibold tabular-nums md:min-h-0 md:py-1.5 md:text-[13px] ${
                     selected
                       ? 'bg-violet-600 text-white'
                       : 'text-slate-700 hover:bg-violet-50'

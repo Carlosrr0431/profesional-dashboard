@@ -183,7 +183,7 @@ export default function DriverDetailPanel({
   const canManageAssigned = isFleetRoot(driver);
 
   return (
-    <div className="relative w-[440px] shrink-0 min-h-0 h-full bg-light-50 border-l border-light-300/50 flex flex-col animate-slideIn overflow-hidden">
+    <div className="fixed inset-0 z-[70] flex h-full w-full animate-slideIn flex-col overflow-hidden border-l border-light-300/50 bg-light-50 lg:relative lg:inset-auto lg:z-auto lg:w-[440px] lg:shrink-0">
       {/* Header */}
       <div className="flex-shrink-0 px-5 py-4 border-b border-light-300/50">
         <div className="flex items-center justify-between mb-3">

@@ -445,7 +445,7 @@ export default function StatisticsPanel({
 
   return (
     <div className={`h-full overflow-x-hidden overflow-y-auto bg-[#F3F5F8] ${loading ? 'opacity-90' : ''}`}>
-      <div className="mx-auto max-w-6xl space-y-5 px-5 py-6 pb-16">
+      <div className="mx-auto max-w-6xl space-y-5 px-3 py-4 pb-16 sm:px-5 sm:py-6">
 
         <header className="relative overflow-hidden rounded-[28px] bg-navy-900 px-5 py-5 text-white shadow-lg shadow-navy-900/10 sm:px-6">
           <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-sky-400/20 blur-3xl" />

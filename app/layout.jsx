@@ -5,6 +5,13 @@ export const metadata = {
   description: 'Panel de administración Profesional App',
 };
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#F1F3F8',
+};
+
 export default function RootLayout({ children }) {
   return (
     <html lang="es">

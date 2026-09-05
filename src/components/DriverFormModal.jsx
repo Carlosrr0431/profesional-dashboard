@@ -80,7 +80,7 @@ export default function DriverFormModal({ driver, ownerName = null, onClose, onS
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" />
       <div
         className="relative flex w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-slate-50 shadow-2xl shadow-slate-900/25 sm:rounded-2xl"
-        style={{ maxHeight: '92vh', animation: 'slideIn 0.2s ease-out' }}
+        style={{ maxHeight: 'min(92vh, 100dvh)', animation: 'slideIn 0.2s ease-out' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

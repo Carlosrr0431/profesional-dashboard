@@ -49,7 +49,7 @@ function DockCard({ tone = 'navy', title, meta, children, footer }) {
     <div
       role="dialog"
       aria-label={title}
-      className="pointer-events-auto mb-1 flex w-[min(392px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_22px_54px_-18px_rgba(15,23,42,0.42)]"
+      className="pointer-events-auto mb-1 flex w-full max-w-none flex-col overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_22px_54px_-18px_rgba(15,23,42,0.42)] md:w-[min(392px,calc(100vw-1.5rem))]"
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
       onWheel={(event) => event.stopPropagation()}
@@ -63,7 +63,7 @@ function DockCard({ tone = 'navy', title, meta, children, footer }) {
           </span>
         ) : null}
       </div>
-      <div className="map-dock-scroll max-h-[min(440px,56vh)] overflow-y-auto overscroll-contain px-2.5 pb-2">
+      <div className="map-dock-scroll max-h-[min(440px,calc(100dvh-14rem))] overflow-y-auto overscroll-contain px-2.5 pb-2">
         {children}
       </div>
       {footer}
