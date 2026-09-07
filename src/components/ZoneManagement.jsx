@@ -310,7 +310,9 @@ export default function ZoneManagement({
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       {/* ── Header ─────────────────────────────────────────────── */}
-      <div className="flex flex-shrink-0 flex-col gap-3 border-b border-light-300/50 bg-light-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+      <div className={`flex flex-shrink-0 flex-col gap-3 border-b border-light-300/50 bg-light-50 px-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 ${
+        embedded ? 'py-2.5' : 'py-3 sm:py-4'
+      }`}>
         <div className="flex min-w-0 items-center gap-3">
           {embedded || !onBack ? null : (
             <button
@@ -324,22 +326,34 @@ export default function ZoneManagement({
             </button>
           )}
           <div>
-            <h1 className="text-navy-900 font-bold text-base leading-tight">
-              {isHotSection ? 'Tarifas por zonas' : 'Zonas de servicio'}
-            </h1>
-            <p className="text-gray-500 text-xs">
-              {isHotSection
-                ? (hotLoading
+            {embedded && isHotSection ? (
+              <p className="text-[13px] text-slate-500">
+                {hotLoading
                   ? 'Cargando...'
                   : hotZones.length === 0
-                    ? 'Sin zonas — vale la tarifa vigente (franja o default)'
-                    : `${hotActiveCount} zona${hotActiveCount !== 1 ? 's' : ''} con recargo sobre el $/km vigente`)
-                : (loading
-                  ? 'Cargando...'
-                  : zones.length === 0
-                    ? 'Sin zonas — todos los pedidos son aceptados'
-                    : `${activeCount} zona${activeCount !== 1 ? 's' : ''} activa${activeCount !== 1 ? 's' : ''} de ${zones.length} total`)}
-            </p>
+                    ? 'Dibujá una zona para sumar un % sobre el $/km vigente.'
+                    : `${hotActiveCount} zona${hotActiveCount !== 1 ? 's' : ''} con recargo sobre el $/km vigente`}
+              </p>
+            ) : (
+              <>
+                <h1 className="text-navy-900 font-bold text-base leading-tight">
+                  {isHotSection ? 'Tarifas por zonas' : 'Zonas de servicio'}
+                </h1>
+                <p className="text-gray-500 text-xs">
+                  {isHotSection
+                    ? (hotLoading
+                      ? 'Cargando...'
+                      : hotZones.length === 0
+                        ? 'Sin zonas — vale la tarifa vigente (franja o default)'
+                        : `${hotActiveCount} zona${hotActiveCount !== 1 ? 's' : ''} con recargo sobre el $/km vigente`)
+                    : (loading
+                      ? 'Cargando...'
+                      : zones.length === 0
+                        ? 'Sin zonas — todos los pedidos son aceptados'
+                        : `${activeCount} zona${activeCount !== 1 ? 's' : ''} activa${activeCount !== 1 ? 's' : ''} de ${zones.length} total`)}
+                </p>
+              </>
+            )}
           </div>
         </div>
 
@@ -358,7 +372,13 @@ export default function ZoneManagement({
       {/* ── Body: panel izquierdo + mapa ───────────────────────── */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
         {/* Panel izquierdo */}
-        <aside className="flex max-h-[42vh] w-full flex-shrink-0 flex-col overflow-hidden border-b border-light-300/50 bg-light-50 lg:max-h-none lg:w-[22rem] lg:border-b-0 lg:border-r">
+        <aside
+          className={`tariffs-scroll flex min-h-0 w-full flex-col overflow-y-scroll border-b border-light-300/50 bg-light-50 lg:h-full lg:border-b-0 lg:border-r ${
+            embedded && isHotSection
+              ? 'max-h-[38%] lg:max-h-none lg:w-[24rem] lg:flex-none'
+              : 'max-h-[42vh] lg:max-h-none lg:w-[22rem] lg:flex-none'
+          }`}
+        >
           {!isHotSection && (
             <>
               {loading ? (
@@ -368,7 +388,7 @@ export default function ZoneManagement({
               ) : zones.length === 0 ? (
                 <EmptyState />
               ) : (
-                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                <div className="tariffs-scroll min-h-0 flex-1 overflow-y-scroll p-3 space-y-2">
                   {zones.map((zone) => (
                     <ZoneCard
                       key={zone.id}
@@ -410,7 +430,7 @@ export default function ZoneManagement({
               ) : hotZones.length === 0 ? (
                 <HotEmptyState />
               ) : (
-                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                <div className="tariffs-scroll min-h-0 flex-1 overflow-y-scroll p-3 space-y-2">
                   {hotZones.map((zone) => (
                     <ZoneCard
                       key={zone.id}
@@ -494,7 +514,9 @@ export default function ZoneManagement({
         </aside>
 
         {/* Área del mapa */}
-        <div className="flex-1 relative overflow-hidden">
+        <div className={`relative min-h-0 flex-1 overflow-hidden ${
+          embedded && isHotSection ? 'min-h-[240px] lg:min-h-0' : ''
+        }`}>
           {/* Banner de modo dibujo */}
           {isDrawing && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 bg-navy-900/90 backdrop-blur-sm text-white rounded-2xl px-5 py-3 shadow-xl pointer-events-none">
@@ -862,7 +884,7 @@ function ZoneCard({ zone, isSelected, isDeleting, surcharge, onSelect, onToggle,
 
 function HotEmptyState() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto p-5 text-center">
       <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center mb-4">
         <svg className="w-7 h-7 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path

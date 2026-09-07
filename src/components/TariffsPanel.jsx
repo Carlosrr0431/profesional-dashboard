@@ -710,9 +710,11 @@ export default function TariffsPanel({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#F3F5F8]">
-      <div className="shrink-0 px-3 pt-4 sm:px-5">
-        <header className="relative mx-auto max-w-6xl overflow-hidden rounded-[28px] bg-navy-900 px-5 py-5 text-white shadow-lg shadow-navy-900/10 sm:px-6">
+    <div className="flex h-full min-h-0 flex-1 flex-col bg-[#F3F5F8]">
+      <div className="shrink-0 px-3 pt-3 sm:px-5">
+        <header className={`relative mx-auto max-w-6xl overflow-hidden rounded-[28px] bg-navy-900 px-5 text-white shadow-lg shadow-navy-900/10 sm:px-6 ${
+          section === 'zones' ? 'py-3.5' : 'py-5'
+        }`}>
           <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-sky-400/20 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-24 left-1/3 h-48 w-48 rounded-full bg-amber-300/10 blur-3xl" />
           <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -766,13 +768,15 @@ export default function TariffsPanel({
           </div>
         </header>
 
-        <div className="mx-auto mt-4 max-w-6xl">
-          <div className="grid grid-cols-2 gap-1 rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-200/70">
+        <div className="mx-auto mt-3 max-w-6xl">
+          <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-slate-200/80 p-1.5 shadow-inner">
             <button
               type="button"
               onClick={() => setSection('general')}
               className={`h-12 rounded-xl px-3 text-[14px] font-semibold transition ${
-                section === 'general' ? 'bg-navy-900 text-white' : 'text-slate-500 hover:text-navy-900'
+                section === 'general'
+                  ? 'bg-navy-900 text-white shadow-md shadow-navy-900/25'
+                  : 'bg-white text-slate-500 hover:text-navy-900'
               }`}
             >
               Tarifas general
@@ -781,7 +785,9 @@ export default function TariffsPanel({
               type="button"
               onClick={() => setSection('zones')}
               className={`h-12 rounded-xl px-3 text-[14px] font-semibold transition ${
-                section === 'zones' ? 'bg-navy-900 text-white' : 'text-slate-500 hover:text-navy-900'
+                section === 'zones'
+                  ? 'bg-navy-900 text-white shadow-md shadow-navy-900/25'
+                  : 'bg-white text-slate-500 hover:text-navy-900'
               }`}
             >
               Tarifas por zonas
@@ -791,8 +797,8 @@ export default function TariffsPanel({
       </div>
 
       {section === 'zones' ? (
-        <div className="mt-4 min-h-0 flex-1 overflow-hidden px-3 pb-3 sm:px-5">
-          <div className="mx-auto h-full min-h-0 max-w-6xl overflow-hidden rounded-[28px] bg-white shadow-sm ring-1 ring-slate-200/70">
+        <div className="mt-3 min-h-0 flex-1 overflow-hidden px-3 pb-3 sm:px-5">
+          <div className="h-full min-h-0 overflow-hidden rounded-[28px] bg-white shadow-sm ring-1 ring-slate-200/70">
             <ZoneManagement
               mode="hot"
               embedded
@@ -802,7 +808,7 @@ export default function TariffsPanel({
           </div>
         </div>
       ) : (
-        <div ref={scrollRootRef} className="tariffs-scroll mt-4 min-h-0 flex-1">
+        <div ref={scrollRootRef} className="tariffs-scroll mt-3 min-h-0 flex-1">
           <div className="mx-auto max-w-6xl space-y-5 px-3 pb-16 sm:px-5">
             <div className="grid gap-3 sm:grid-cols-3">
               {CHANNEL_ORDER.map((id) => {
@@ -813,18 +819,30 @@ export default function TariffsPanel({
                   <button
                     key={id}
                     type="button"
+                    aria-pressed={selected}
                     onClick={() => setChannel(id)}
-                    className={`rounded-[24px] px-4 py-4 text-left shadow-sm ring-1 transition ${
+                    className={`rounded-[24px] px-4 py-4 text-left transition ${
                       selected
-                        ? 'bg-white ring-navy-900/15 shadow-navy-900/5'
-                        : 'bg-white/70 ring-slate-200/70 hover:bg-white'
+                        ? 'bg-navy-900 text-white shadow-xl shadow-navy-900/25 ring-2 ring-amber-400'
+                        : 'bg-white text-navy-900 shadow-sm ring-1 ring-slate-200/70 hover:ring-navy-900/20'
                     }`}
                   >
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{meta.title}</p>
-                    <p className="mt-2 text-[22px] font-semibold tabular-nums leading-none text-navy-900">
-                      {moneyAr(live.perKm)}<span className="text-[13px] font-medium text-slate-400">/km</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${
+                        selected ? 'text-white/55' : 'text-slate-400'
+                      }`}>{meta.title}</p>
+                      {selected ? (
+                        <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-navy-900">
+                          Seleccionada
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className={`mt-2 text-[22px] font-semibold tabular-nums leading-none ${
+                      selected ? 'text-white' : 'text-navy-900'
+                    }`}>
+                      {moneyAr(live.perKm)}<span className={`text-[13px] font-medium ${selected ? 'text-white/55' : 'text-slate-400'}`}>/km</span>
                     </p>
-                    <p className="mt-2 text-[11px] text-slate-400">
+                    <p className={`mt-2 text-[11px] ${selected ? 'text-white/60' : 'text-slate-400'}`}>
                       {windowSourceLabel(live)}
                     </p>
                   </button>
