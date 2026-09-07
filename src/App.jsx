@@ -32,6 +32,7 @@ import DashboardLoadingScreen from './components/DashboardLoadingScreen';
 import { useTripStatistics } from './hooks/useTripStatistics';
 import { useLiveTrips, toLocalDateInputValue } from './hooks/useLiveTrips';
 import { isSuperAdminUser } from './lib/adminSuperUser';
+import { mapStageClassName } from './lib/mapFullscreen';
 
 // ─── Vista activa ─────────────────────────────────────────────────────────────
 const VIEWS = {
@@ -121,6 +122,7 @@ export default function App() {
   const [fleetDrawerOpen,   setFleetDrawerOpen] = useState(false);
   const [isDesktopLayout,   setIsDesktopLayout] = useState(false);
   const [mapPopover,        setMapPopover]       = useState(null);
+  const [mapFullscreen,     setMapFullscreen]    = useState(false);
   const dispatchNotifiedIdsRef = useRef(new Set());
   const dispatchNotifyReadyRef = useRef(false);
 
@@ -129,8 +131,18 @@ export default function App() {
     setPreviewRoute(null);
   }, []);
 
+  const toggleMapFullscreen = useCallback(() => {
+    setMapFullscreen((prev) => !prev);
+  }, []);
+
   useEffect(() => {
-    if (!mapPopover && !tripModalDriver) return undefined;
+    if (!mapFullscreen) return;
+    setFleetDrawerOpen(false);
+    setPanelDriverId(null);
+  }, [mapFullscreen]);
+
+  useEffect(() => {
+    if (!mapPopover && !tripModalDriver && !mapFullscreen) return undefined;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
       if (tripModalDriver) {
@@ -138,11 +150,15 @@ export default function App() {
         setPreviewRoute(null);
         return;
       }
-      closePopover();
+      if (mapPopover) {
+        closePopover();
+        return;
+      }
+      if (mapFullscreen) setMapFullscreen(false);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [mapPopover, tripModalDriver, closePopover]);
+  }, [mapPopover, tripModalDriver, mapFullscreen, closePopover]);
 
   const mapRef = useRef(null);
   const whatsappConnected = whatsappSessionStatus === 'connected';
@@ -297,6 +313,7 @@ export default function App() {
     if (target !== VIEWS.map) {
       setPanelDriverId(null);
       setSelectedId(null);
+      setMapFullscreen(false);
     }
     setCurrentView(target);
     const nextPath = pathForView(target);
@@ -331,7 +348,10 @@ export default function App() {
   }, [panelDriverId]);
 
   useEffect(() => {
-    if (currentView !== VIEWS.map) setFleetDrawerOpen(false);
+    if (currentView !== VIEWS.map) {
+      setFleetDrawerOpen(false);
+      setMapFullscreen(false);
+    }
   }, [currentView]);
 
   useEffect(() => {
@@ -524,7 +544,7 @@ export default function App() {
     return <DashboardLoadingScreen message="Cargando operaciones…" />;
   }
 
-  const showFleetSidebar = isDesktopLayout || fleetDrawerOpen;
+  const showFleetSidebar = !mapFullscreen && (isDesktopLayout || fleetDrawerOpen);
 
   const renderSideNavigation = () => (
     <>
@@ -815,7 +835,7 @@ export default function App() {
               </>
             ) : null}
 
-            <div className="relative min-h-0 flex-1 overflow-hidden">
+            <div className={mapStageClassName(mapFullscreen)}>
               <MapView
                 drivers={drivers}
                 pendingPassengers={pendingPassengers}
@@ -827,6 +847,8 @@ export default function App() {
                 multiSelectedIds={multiSelectedIds}
                 onToggleMultiSelect={toggleMultiSelect}
                 previewRoute={previewRoute}
+                mapFullscreen={mapFullscreen}
+                onToggleMapFullscreen={toggleMapFullscreen}
                 onSendAudio={(driver) => {
                   setShowBroadcast(false);
                   setVoiceChatDriver(driver);
@@ -904,7 +926,7 @@ export default function App() {
                 />
 
                 <div className="pointer-events-auto flex w-full items-end gap-2 md:w-auto">
-                  {!fleetDrawerOpen && !panelDriverId ? (
+                  {!mapFullscreen && !fleetDrawerOpen && !panelDriverId ? (
                     <button
                       type="button"
                       onClick={() => setFleetDrawerOpen(true)}
@@ -1021,7 +1043,7 @@ export default function App() {
             </div>
 
             {/* ── Panel de chofer ───────────────────────────────────── */}
-            {panelDriverId ? (
+            {panelDriverId && !mapFullscreen ? (
               <DriverPanel
                 driver={drivers.find((d) => d.id === panelDriverId)}
                 onClose={() => { setPanelDriverId(null); setSelectedId(null); }}
@@ -1106,7 +1128,7 @@ export default function App() {
       )}
 
       {voiceChatDriver ? (
-        <div className="fixed bottom-6 left-1/2 z-50 w-[400px] max-w-[calc(100%-2rem)] -translate-x-1/2 overflow-hidden rounded-2xl border border-light-300/60 bg-light-50 shadow-2xl shadow-black/25 sm:left-auto sm:right-6 sm:translate-x-0">
+        <div className="fixed bottom-6 left-1/2 z-[90] w-[400px] max-w-[calc(100%-2rem)] -translate-x-1/2 overflow-hidden rounded-2xl border border-light-300/60 bg-light-50 shadow-2xl shadow-black/25 sm:left-auto sm:right-6 sm:translate-x-0">
           <div className="flex h-[min(460px,70vh)] flex-col">
             <VoiceChat
               driver={voiceChatDriver}

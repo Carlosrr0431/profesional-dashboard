@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
-import Map, { Marker, Popup, Source, Layer, NavigationControl } from 'react-map-gl/maplibre';
+import Map, { Marker, Popup, Source, Layer, NavigationControl, useControl } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { SALTA_CENTER, DEFAULT_ZOOM } from '../lib/constants';
@@ -13,6 +13,7 @@ import DriverInfoWindow from './DriverInfoWindow';
 import PassengerInfoWindow from './PassengerInfoWindow';
 import { MAP_STYLE, mapLibreOptions } from '../lib/mapLibre';
 import { shouldShowDriverOnMap } from '../lib/driverPresence';
+import { resizeMapInstance } from '../lib/mapFullscreen';
 
 const MAP_CSS = `
 .maplibregl-map { font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
@@ -32,6 +33,7 @@ const MAP_CSS = `
 }
 .maplibregl-ctrl-group button:hover { background: #F1F5F9 !important; }
 .maplibregl-ctrl-group button + button { border-top: 1px solid #E2E8F0 !important; }
+.maplibregl-ctrl-group button svg { display: block; margin: 0 auto; pointer-events: none; }
 .maplibregl-ctrl-attrib {
   font-size: 10px !important;
   background: rgba(255,255,255,0.72) !important;
@@ -141,6 +143,65 @@ const DriverMapPin = memo(function DriverMapPin({
   && prev.onSelect === next.onSelect
 ));
 
+const EXPAND_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
+const COMPRESS_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3"/></svg>';
+
+class MapFullscreenControl {
+  constructor({ onToggle }) {
+    this._onToggle = onToggle;
+    this._isFullscreen = false;
+  }
+
+  onAdd() {
+    this._container = document.createElement('div');
+    this._container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    this._button = document.createElement('button');
+    this._button.type = 'button';
+    this._button.addEventListener('click', this._handleClick);
+    this._container.appendChild(this._button);
+    this._render();
+    return this._container;
+  }
+
+  onRemove() {
+    this._button?.removeEventListener('click', this._handleClick);
+    this._container?.parentNode?.removeChild(this._container);
+    this._container = null;
+    this._button = null;
+  }
+
+  setFullscreen(isFullscreen) {
+    this._isFullscreen = Boolean(isFullscreen);
+    this._render();
+  }
+
+  _handleClick = (event) => {
+    event.preventDefault();
+    this._onToggle?.();
+  };
+
+  _render() {
+    if (!this._button) return;
+    const label = this._isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa';
+    this._button.title = label;
+    this._button.setAttribute('aria-label', label);
+    this._button.innerHTML = this._isFullscreen ? COMPRESS_ICON : EXPAND_ICON;
+  }
+}
+
+function MapFullscreenToggle({ isFullscreen, onToggle }) {
+  const onToggleRef = useRef(onToggle);
+  onToggleRef.current = onToggle;
+  const ctrl = useControl(
+    () => new MapFullscreenControl({ onToggle: () => onToggleRef.current?.() }),
+    { position: 'top-right' },
+  );
+  useEffect(() => {
+    ctrl?.setFullscreen?.(isFullscreen);
+  }, [ctrl, isFullscreen]);
+  return null;
+}
+
 const MapView = memo(function MapView({
   mapRef,
   drivers = [],
@@ -156,6 +217,8 @@ const MapView = memo(function MapView({
   multiSelectedIds = null,
   onToggleMultiSelect,
   onSendAudio,
+  mapFullscreen = false,
+  onToggleMapFullscreen,
 }) {
   const [activeInfo, setActiveInfo] = useState(null);
   const internalMapRef = useRef(null);
@@ -178,6 +241,19 @@ const MapView = memo(function MapView({
   useEffect(() => {
     if (multiSelectMode) setActiveInfo(null);
   }, [multiSelectMode]);
+
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => {
+      resizeMapInstance(internalMapRef.current);
+    });
+    const timeoutId = window.setTimeout(() => {
+      resizeMapInstance(internalMapRef.current);
+    }, 80);
+    return () => {
+      window.cancelAnimationFrame(id);
+      window.clearTimeout(timeoutId);
+    };
+  }, [mapFullscreen]);
 
   useEffect(() => {
     if (!mapRef) return;
@@ -255,6 +331,12 @@ const MapView = memo(function MapView({
         refreshExpiredTiles={mapLibreOptions.refreshExpiredTiles}
       >
         <NavigationControl position="top-right" showCompass={false} />
+        {onToggleMapFullscreen ? (
+          <MapFullscreenToggle
+            isFullscreen={mapFullscreen}
+            onToggle={onToggleMapFullscreen}
+          />
+        ) : null}
 
         {routeGeoJSON && (
           <Source id="route-source" type="geojson" data={routeGeoJSON}>

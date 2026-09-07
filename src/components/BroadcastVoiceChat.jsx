@@ -121,7 +121,7 @@ export default function BroadcastVoiceChat({ drivers, onClose }) {
   const formatSecs = (s) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[480px] max-w-[calc(100%-2rem)]">
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[90] w-[480px] max-w-[calc(100%-2rem)]">
       <div className="bg-light-50 border border-light-300/50 rounded-2xl shadow-2xl shadow-black/20 overflow-hidden">
         {/* Header */}
         <div className="px-4 py-3 border-b border-light-300/50 flex items-center justify-between">
