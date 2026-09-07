@@ -337,7 +337,7 @@ export default function ZoneManagement({
             ) : (
               <>
                 <h1 className="text-navy-900 font-bold text-base leading-tight">
-                  {isHotSection ? 'Tarifas por zonas' : 'Zonas de servicio'}
+                  {isHotSection ? 'Tarifas por zonas' : 'Zonas de no cobertura'}
                 </h1>
                 <p className="text-gray-500 text-xs">
                   {isHotSection
@@ -349,8 +349,8 @@ export default function ZoneManagement({
                     : (loading
                       ? 'Cargando...'
                       : zones.length === 0
-                        ? 'Sin zonas — todos los pedidos son aceptados'
-                        : `${activeCount} zona${activeCount !== 1 ? 's' : ''} activa${activeCount !== 1 ? 's' : ''} de ${zones.length} total`)}
+                        ? 'Sin zonas — se aceptan todos los pedidos'
+                        : `${activeCount} zona${activeCount !== 1 ? 's' : ''} a evitar de ${zones.length} total`)}
                 </p>
               </>
             )}
@@ -365,7 +365,7 @@ export default function ZoneManagement({
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
           </svg>
-          {isHotSection ? 'Nueva zona caliente' : 'Nueva zona'}
+          {isHotSection ? 'Nueva zona caliente' : 'Nueva zona a evitar'}
         </button>
       </div>
 
@@ -413,7 +413,7 @@ export default function ZoneManagement({
                     </StatusBanner>
                   ) : (
                     <StatusBanner variant="success">
-                      {activeCount} zona{activeCount !== 1 ? 's' : ''} activa{activeCount !== 1 ? 's' : ''}. Pedidos fuera de estas zonas serán rechazados.
+                      {activeCount} zona{activeCount !== 1 ? 's' : ''} activa{activeCount !== 1 ? 's' : ''}. Pedidos con origen adentro de estas zonas serán rechazados.
                     </StatusBanner>
                   )}
                 </div>
@@ -522,7 +522,7 @@ export default function ZoneManagement({
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 bg-navy-900/90 backdrop-blur-sm text-white rounded-2xl px-5 py-3 shadow-xl pointer-events-none">
               <span className="w-2 h-2 rounded-full bg-accent animate-pulse flex-shrink-0" />
               <span className="text-sm font-semibold whitespace-nowrap">
-                {isHotSection ? 'Dibujá la zona caliente' : 'Modo dibujo activo'}
+                {isHotSection ? 'Dibujá la zona caliente' : 'Dibujá la zona a evitar'}
               </span>
               <span className="text-xs text-white/60 hidden sm:inline whitespace-nowrap">
                 Hacé clic en el mapa para agregar vértices ({draftCoords.length} puntos)
@@ -655,12 +655,12 @@ export default function ZoneManagement({
         <Modal>
           <div className="p-6">
             <h2 className="text-navy-900 font-bold text-base mb-1">
-              {isHotSection ? 'Guardar zona caliente' : 'Guardar zona de servicio'}
+              {isHotSection ? 'Guardar zona caliente' : 'Guardar zona de no cobertura'}
             </h2>
             <p className="text-gray-500 text-xs mb-5">
               {isHotSection
                 ? 'Definí el nombre, el color y el % de suba sobre el $/km vigente (franja horaria o default).'
-                : 'Asigná un nombre y un color identificador a la nueva zona.'}
+                : 'Los viajes con origen adentro de esta zona no se van a tomar.'}
             </p>
 
             <div className="space-y-4">
@@ -737,7 +737,7 @@ export default function ZoneManagement({
               disabled={saving || !pendingName.trim()}
               className="flex-1 py-2.5 rounded-xl bg-accent text-white text-sm font-semibold hover:bg-accent-light disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md shadow-accent/20"
             >
-              {saving ? 'Guardando...' : isHotSection ? 'Guardar zona caliente' : 'Guardar zona'}
+              {saving ? 'Guardando...' : isHotSection ? 'Guardar zona caliente' : 'Guardar zona a evitar'}
             </button>
           </div>
         </Modal>
@@ -932,10 +932,10 @@ function EmptyState() {
           />
         </svg>
       </div>
-      <p className="text-navy-900 font-semibold text-sm mb-2">Sin zonas configuradas</p>
+      <p className="text-navy-900 font-semibold text-sm mb-2">Sin zonas de no cobertura</p>
       <p className="text-gray-500 text-xs leading-relaxed">
         Sin zonas, todos los pedidos son aceptados. Hacé clic en{' '}
-        <strong>Nueva zona</strong> y dibujá los polígonos para delimitar el área de cobertura.
+        <strong>Nueva zona a evitar</strong> y dibujá dónde no se toma el viaje.
       </p>
     </div>
   );

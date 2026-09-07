@@ -1,5 +1,6 @@
--- Migración: tabla de zonas de servicio
--- Ejecutar manualmente en el editor SQL de Supabase
+-- Migración: tabla de zonas de no cobertura.
+-- Sin filas (o todas inactivas) se aceptan todos los viajes.
+-- Si el origen cae dentro de una zona activa, el viaje se rechaza.
 
 CREATE TABLE IF NOT EXISTS public.service_zones (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),

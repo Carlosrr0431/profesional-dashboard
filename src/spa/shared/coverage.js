@@ -1,5 +1,5 @@
 export const PICKUP_OUTSIDE_COVERAGE_MESSAGE =
-  'No hay cobertura para su zona por el momento. No podemos tomar viajes con origen en esta dirección.';
+  'Esa dirección de retiro no está disponible para viajes por el momento.';
 
 export function isPointInPolygon(lat, lng, coordinates) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
@@ -22,11 +22,27 @@ export function isPointInPolygon(lat, lng, coordinates) {
   return inside;
 }
 
+/** True si el origen cae en una zona de no cobertura activa. */
+export function isPickupInExclusionZone(zones, lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return (zones || []).some(
+    (zone) => zone?.is_active !== false
+      && Array.isArray(zone.coordinates)
+      && zone.coordinates.length >= 3
+      && isPointInPolygon(lat, lng, zone.coordinates),
+  );
+}
+
+/**
+ * True si se puede tomar el viaje.
+ * Sin zonas (o todas inactivas): se acepta todo.
+ * Con zonas activas: se rechaza solo si el origen cae adentro.
+ */
 export function isPickupInActiveZones(zones, lat, lng) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return true;
   const activeZones = (zones || []).filter(
     (zone) => zone?.is_active !== false && Array.isArray(zone.coordinates) && zone.coordinates.length >= 3,
   );
   if (activeZones.length === 0) return true;
-  return activeZones.some((zone) => isPointInPolygon(lat, lng, zone.coordinates));
+  return !isPickupInExclusionZone(activeZones, lat, lng);
 }

@@ -88,6 +88,33 @@ describe('SPA trip helpers', () => {
   it('sin zonas activas deja pasar el retiro', () => {
     expect(isPickupInActiveZones([], -24.78, -65.42)).toBe(true);
   });
+
+  it('rechaza el retiro si cae dentro de una zona de no cobertura', () => {
+    const zona = {
+      is_active: true,
+      coordinates: [
+        { lat: -24.79, lng: -65.42 },
+        { lat: -24.79, lng: -65.40 },
+        { lat: -24.77, lng: -65.40 },
+        { lat: -24.77, lng: -65.42 },
+      ],
+    };
+    expect(isPickupInActiveZones([zona], -24.78, -65.41)).toBe(false);
+    expect(isPickupInActiveZones([zona], -24.70, -65.50)).toBe(true);
+  });
+
+  it('una zona inactiva no bloquea el retiro', () => {
+    const zona = {
+      is_active: false,
+      coordinates: [
+        { lat: -24.79, lng: -65.42 },
+        { lat: -24.79, lng: -65.40 },
+        { lat: -24.77, lng: -65.40 },
+        { lat: -24.77, lng: -65.42 },
+      ],
+    };
+    expect(isPickupInActiveZones([zona], -24.78, -65.41)).toBe(true);
+  });
 });
 
 const { tripPickupPoint, tripNavTarget } = require('../../src/spa/shared/tripPoints');

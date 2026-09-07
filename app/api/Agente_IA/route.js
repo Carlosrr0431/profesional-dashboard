@@ -7574,7 +7574,7 @@ async function requeuePendingTripAfterNotifyFailure(
   return { ok: true };
 }
 
-// ── Zonas de servicio ─────────────────────────────────────────────────────────
+// ── Zonas de no cobertura ─────────────────────────────────────────────────────
 // Algoritmo ray-casting para determinar si un punto está dentro de un polígono.
 function isPointInPolygon(lat, lng, coordinates) {
   let inside = false;
@@ -7634,14 +7634,14 @@ async function getActiveServiceZones() {
   }
 }
 
-// Devuelve true si el punto está dentro de al menos una zona activa,
-// o si no hay zonas configuradas (sin restricción).
+// True si se puede tomar el viaje. Sin zonas → aceptar todo.
+// Con zonas activas → rechazar solo si el origen cae adentro (zona de no cobertura).
 async function isPickupInServiceZone(lat, lng) {
   const zones = await getActiveServiceZones();
-  if (zones.length === 0) return true; // sin zonas → aceptar todo
-  return zones.some((zone) => isPointInPolygon(lat, lng, zone.coordinates));
+  if (zones.length === 0) return true;
+  return !zones.some((zone) => isPointInPolygon(lat, lng, zone.coordinates));
 }
-// ── Fin Zonas de servicio ──────────────────────────────────────────────────────
+// ── Fin zonas de no cobertura ─────────────────────────────────────────────────
 
 async function createScheduledTripRecord({
   batch,
@@ -8317,8 +8317,7 @@ async function createTripFromConversation({ conversation, extracted, includeBett
     ? await resolvePassengerRouteFare(pickupLocation, finalDestinationGeo)
     : null;
 
-  // Validar que el punto de retiro esté dentro de una zona de servicio activa.
-  // Si no hay zonas configuradas, se acepta cualquier dirección.
+  // Rechazar si el retiro cae en una zona de no cobertura. Sin zonas, se acepta todo.
   const inServiceZone = await isPickupInServiceZone(pickupLocation.lat, pickupLocation.lng);
   if (!inServiceZone) {
     logWebhook('trip_create_outside_service_zone', {
@@ -8332,7 +8331,7 @@ async function createTripFromConversation({ conversation, extracted, includeBett
       ok: false,
       reason: 'outside_service_zone',
       reply:
-        'Disculpá, por el momento no contamos con servicio en esa zona. 🙏 Operamos dentro de las áreas de cobertura de Salta Capital. Si tenés otra dirección dentro de la ciudad, avisanos y con gusto te enviamos un chofer.',
+        'Disculpá, esa dirección de retiro no está disponible para viajes en este momento. Si tenés otra dirección en Salta Capital, avisanos y te enviamos un chofer. 🙏',
       context: {
         passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
         pickup_location: null,
@@ -8687,7 +8686,7 @@ async function dispatchQueuedPassengers() {
         continue;
       }
 
-      // Verificar zona de servicio
+      // Rechazar si el retiro cae en una zona de no cobertura.
       const inZone = await isPickupInServiceZone(pickupLat, pickupLng);
       if (!inZone) {
         logWebhook('queue_dispatch_outside_zone', { tripId: trip.id, pickupLat, pickupLng });
@@ -8695,7 +8694,7 @@ async function dispatchQueuedPassengers() {
           .from('trips')
           .update({
             status: 'cancelled',
-            cancel_reason: 'Zona sin cobertura',
+            cancel_reason: 'Zona de no cobertura',
             wa_notified_at: new Date().toISOString(),
           })
           .eq('id', trip.id)
@@ -8723,7 +8722,7 @@ async function dispatchQueuedPassengers() {
 
         await sendWhatsAppText(
           phone,
-          'Disculpá, tu dirección de retiro está fuera de nuestras zonas de cobertura. Si tenés otra dirección dentro de Salta Capital, avisanos. 🙏'
+          'Disculpá, esa dirección de retiro no está disponible por el momento. Si tenés otra dirección en Salta Capital, avisanos. 🙏'
         ).catch(() => {});
 
         await releaseQueueLock({ result: 'done', errorMessage: 'outside_zone_cancelled' });
