@@ -20,6 +20,8 @@ import {
   resolveTrackingDropoff,
   resolveTrackingRouteTarget,
 } from './trackingUtils';
+import { formatArs } from '../../../src/spa/shared/money';
+import { buildWaitFeeView, isWaitTimerActive, waitCardVisible } from '../../../src/spa/shared/waitFee';
 
 /* ── CSS global ──────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `
@@ -76,6 +78,41 @@ const STATUS = {
   completed:       { label: 'Completado',  color: '#16a34a' },
   cancelled:       { label: 'Cancelado',   color: '#dc2626' },
 };
+
+function TrackingWaitBlock({ trip }) {
+  const live = isWaitTimerActive(trip);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!live) return undefined;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [live, trip?.driver_arrived_at, trip?.id]);
+
+  const view = buildWaitFeeView(trip, now);
+  if (!view.show) return null;
+
+  return (
+    <div style={S.waitCard}>
+      <p style={S.waitKicker}>
+        {view.active ? 'Tu chofer ya llegó y te espera' : (view.completed ? 'Espera incluida en el total' : 'Espera acumulada')}
+      </p>
+      {view.active ? <p style={S.waitClock}>{view.clock}</p> : null}
+      {view.active && view.rate > 0 ? (
+        <p style={S.waitHint}>
+          Recargo de {formatArs(view.rate)} por cada minuto completo. Se suma al total al finalizar.
+        </p>
+      ) : null}
+      {view.fee > 0 || view.active ? (
+        <p style={S.waitFee}>{formatArs(view.fee)}</p>
+      ) : null}
+      {view.debtOnBill > 0 ? (
+        <p style={S.waitDebt}>Debés {formatArs(view.debtOnBill)} por espera de otro viaje</p>
+      ) : null}
+    </div>
+  );
+}
 
 /* ── Hooks de animación ──────────────────────────────────────────────────── */
 function useAnimatedPosition(targetPos) {
@@ -627,6 +664,8 @@ export default function TrackingView({ token }) {
           </div>
         )}
 
+        {waitCardVisible(trip) ? <TrackingWaitBlock trip={trip} /> : null}
+
         <div style={S.routeBlock}>
           <div style={S.routeCol}>
             <span style={{ ...S.dot, background: '#22C55E', boxShadow: '0 0 0 3px rgba(34,197,94,0.18)' }} />
@@ -695,6 +734,12 @@ const S = {
   progressFill:  { height: '100%', borderRadius: 999, transition: 'width 0.8s ease' },
   statusBlock: { marginBottom: 16 },
   statusPill:  { display: 'inline-block', padding: '5px 12px', borderRadius: 999, border: '1px solid', fontSize: 12, fontWeight: 700, marginBottom: 6 },
+  waitCard: { marginBottom: 16, padding: '14px 14px 12px', borderRadius: 18, background: '#FFFBEB', border: '1px solid rgba(245,158,11,0.35)', textAlign: 'center' },
+  waitKicker: { margin: 0, fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#B45309' },
+  waitClock: { margin: '8px 0 0', fontSize: 36, fontWeight: 800, letterSpacing: '-1px', color: '#1d2260', fontVariantNumeric: 'tabular-nums', lineHeight: 1 },
+  waitHint: { margin: '8px 0 0', fontSize: 13, lineHeight: 1.4, color: '#334155' },
+  waitFee: { margin: '8px 0 0', fontSize: 18, fontWeight: 800, color: '#1d2260' },
+  waitDebt: { margin: '10px 0 0', padding: '8px 10px', borderRadius: 12, background: '#1d2260', color: '#fff', fontSize: 13, fontWeight: 700 },
   routeBlock: { display: 'flex', gap: 14, marginBottom: 16 },
   routeCol:   { display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 3, flexShrink: 0 },
   dot:  { width: 11, height: 11, borderRadius: '50%', flexShrink: 0 },

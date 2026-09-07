@@ -637,6 +637,7 @@ export default function TariffsPanel({
   passengerWebTariffPerKm,
   passengerWebTariffBase,
   passengerWebCommissionPercent,
+  passengerWaitFeePerMinute = 0,
   tariffWindows = [],
   onUpdateSetting,
   onSaveWindow,
@@ -808,6 +809,32 @@ export default function TariffsPanel({
           </div>
         ) : (
           <div className="mx-auto max-w-6xl space-y-5 px-3 pb-16 pt-2 sm:px-5">
+            <div className="rounded-[24px] bg-white p-5 shadow-sm ring-1 ring-slate-200/70 sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Espera del pasajero
+                  </p>
+                  <h3 className="mt-1.5 text-[20px] font-semibold tracking-tight text-navy-900">
+                    Precio por minuto de espera
+                  </h3>
+                  <p className="mt-1.5 max-w-xl text-[14px] leading-relaxed text-slate-600">
+                    Cuando el chofer marca que llegó al origen y el pasajero todavía no subió,
+                    cada minuto completo suma este monto al total. Los primeros 59 segundos no cobran.
+                    Si el viaje se cancela con espera, el saldo se cobra en el próximo viaje.
+                  </p>
+                </div>
+                <div className="w-full sm:max-w-[220px]">
+                  <Field
+                    label="$ / minuto de espera"
+                    prefix="$"
+                    value={passengerWaitFeePerMinute}
+                    onChange={(value) => onUpdateSetting('passenger_wait_fee_per_minute', value)}
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="grid gap-3 sm:grid-cols-3">
               {CHANNEL_ORDER.map((id) => {
                 const meta = TARIFF_CHANNEL_META[id];

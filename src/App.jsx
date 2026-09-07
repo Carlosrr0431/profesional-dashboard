@@ -97,6 +97,7 @@ export default function App() {
     platformDefaultPerKm, platformDefaultBase, platformDefaultCommission,
     passengerAppTariffPerKm, passengerAppTariffBase, passengerAppCommissionPercent,
     passengerWebTariffPerKm, passengerWebTariffBase, passengerWebCommissionPercent,
+    passengerWaitFeePerMinute,
     tariffWindows, saveTariffWindow, deleteTariffWindow,
     driverAppLatestVersionCode, passengerAppLatestVersionCode,
     whatsappAgentEnabled, calculatePrice, updateSetting,
@@ -804,6 +805,7 @@ export default function App() {
               passengerWebTariffPerKm={passengerWebTariffPerKm}
               passengerWebTariffBase={passengerWebTariffBase}
               passengerWebCommissionPercent={passengerWebCommissionPercent}
+              passengerWaitFeePerMinute={passengerWaitFeePerMinute}
               tariffWindows={tariffWindows}
               onUpdateSetting={updateSetting}
               onSaveWindow={saveTariffWindow}

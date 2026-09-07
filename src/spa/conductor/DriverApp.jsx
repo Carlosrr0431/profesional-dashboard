@@ -465,10 +465,14 @@ export default function DriverApp() {
   const updateTripStatus = async (status, extra = {}) => {
     if (!activeTrip?.id) return;
     if (status === 'completed') {
+      const waitExtra = Math.max(0, Math.round(Number(activeTrip.wait_fee_amount) || 0))
+        + Math.max(0, Math.round(Number(activeTrip.wait_prior_debt) || 0));
       const ok = await confirm({
         title: '¿Finalizar este viaje?',
-        amount: activeTrip.price ? formatArs(activeTrip.price) : null,
-        body: 'El viaje se completa y volvés a quedar en línea.',
+        amount: activeTrip.price ? formatArs(Number(activeTrip.price) + waitExtra) : null,
+        body: waitExtra > 0
+          ? 'El recargo de espera y deudas pendientes se suman al total.'
+          : 'El viaje se completa y volvés a quedar en línea.',
         confirmLabel: 'Finalizar',
         cancelLabel: 'Volver',
         tone: 'success',
@@ -716,8 +720,14 @@ export default function DriverApp() {
             {tab === 'inicio' && activeTrip ? (
               <TripLiveSheet
                 statusLabel={driverMeta.label}
-                statusDesc={activeTrip.status === 'in_progress' ? 'Hacia el destino' : 'Se dirige al origen'}
-                progress={activeTrip.status === 'in_progress' ? 1 : 0.72}
+                statusDesc={
+                  activeTrip.status === 'in_progress'
+                    ? 'Hacia el destino'
+                    : activeTrip.driver_arrived_at
+                      ? 'Esperando al pasajero en el origen'
+                      : 'Se dirige al origen'
+                }
+                progress={activeTrip.status === 'in_progress' ? 1 : (activeTrip.driver_arrived_at ? 0.9 : 0.72)}
                 personName={activeTrip.passenger_name || 'Pasajero'}
                 personMeta={activeTrip.passenger_phone || null}
                 pickup={pickup?.address || activeTrip.origin_address}
@@ -729,12 +739,20 @@ export default function DriverApp() {
                 onSos={() => {
                   if (typeof window !== 'undefined') window.location.href = 'tel:911';
                 }}
-                primaryAction={driverMeta.action}
+                primaryAction={
+                  activeTrip.status === 'going_to_pickup' && !activeTrip.driver_arrived_at
+                    ? 'Llegué al origen'
+                    : activeTrip.status === 'going_to_pickup'
+                      ? 'Pasajero a bordo'
+                      : driverMeta.action
+                }
                 primaryVariant={activeTrip.status === 'in_progress' ? 'success' : 'primary'}
                 onPrimary={
                   activeTrip.status === 'in_progress'
                     ? () => updateTripStatus('completed')
-                    : () => updateTripStatus('in_progress', { pickup_at: new Date().toISOString() })
+                    : activeTrip.status === 'going_to_pickup' && !activeTrip.driver_arrived_at
+                      ? () => updateTripStatus('going_to_pickup', { driver_arrived_at: new Date().toISOString() })
+                      : () => updateTripStatus('in_progress', { pickup_at: new Date().toISOString() })
                 }
                 busy={busy}
               />

@@ -17,6 +17,7 @@ import { calculateTripPrice, formatArs, resolvePassengerTariff } from '../shared
 import { normalizePassengerPhone } from '../shared/phone';
 import { clearPassengerSession, readPassengerSession, writePassengerSession, readPassengerCredentialCache, writePassengerCredentialCache } from '../shared/storage';
 import { isLiveNavTrip, isOpenTripStatus, passengerStatusMeta } from '../shared/tripStatus';
+import { isWaitTimerActive } from '../shared/waitFee';
 import { tripDropoffPoint, tripNavTarget, tripPickupPoint } from '../shared/tripPoints';
 import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../shared/coverage';
 import { SpaBackHome, SpaBrand, SpaButton, SpaEmpty, SpaNotice, OtpCountdown, SpaPanel, SpaSheet, SpaTabs, SpaTripRow, spaFieldClass } from '../shared/ui';
@@ -554,7 +555,13 @@ export default function PassengerApp() {
     setOtpStep('phone');
   };
 
-  const status = passengerStatusMeta(active?.status);
+  const status = isWaitTimerActive(active)
+    ? {
+      ...passengerStatusMeta(active?.status),
+      label: 'Tu chofer te espera',
+      desc: 'Cada minuto completo suma un recargo de espera',
+    }
+    : passengerStatusMeta(active?.status);
   const liveTrip = Boolean(active && isOpenTripStatus(active.status) && tab === 'viaje');
   const liveNav = Boolean(active && isLiveNavTrip(active.status));
   const reviewing = Boolean(
@@ -771,6 +778,7 @@ export default function PassengerApp() {
                   if (typeof window !== 'undefined') window.location.href = 'tel:911';
                 }}
                 onCancel={status.canCancel ? cancelTrip : undefined}
+                waitTrip={active}
                 busy={busy}
               />
             ) : null}

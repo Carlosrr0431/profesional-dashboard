@@ -52,7 +52,7 @@ export const PASSENGER_STATUS = {
 export const DRIVER_STATUS = {
   pending: { label: 'Nuevo viaje', action: 'Aceptar' },
   accepted: { label: 'Aceptado', action: 'Ir al retiro' },
-  going_to_pickup: { label: 'En camino al pasajero', action: 'Pasajero a bordo' },
+  going_to_pickup: { label: 'En camino al pasajero', action: 'Llegué al origen' },
   in_progress: { label: 'Viaje en curso', action: 'Finalizar viaje' },
   completed: { label: 'Completado', action: null },
   cancelled: { label: 'Cancelado', action: null },
