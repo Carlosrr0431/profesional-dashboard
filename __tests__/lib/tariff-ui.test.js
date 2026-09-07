@@ -5,6 +5,7 @@ import {
   draftFromWindow,
   emptyWindowDraft,
   exampleTripBreakdown,
+  formatWindowHours,
   formatWindowScheduleLabel,
   moneyAr,
   settingsMapFromTariffDefaults,
@@ -18,6 +19,10 @@ describe('tariffUi', () => {
   it('formatea pesos y deja solo dígitos', () => {
     expect(moneyAr(5933)).toMatch(/^\$5[.,]933$/);
     expect(digitsOnly('$1.190')).toBe('1190');
+  });
+
+  it('formatea el horario de una franja', () => {
+    expect(formatWindowHours({ start_minute: 22 * 60, end_minute: 6 * 60 })).toBe('22:00–06:00');
   });
 
   it('parte una franja que cruza medianoche en dos segmentos', () => {

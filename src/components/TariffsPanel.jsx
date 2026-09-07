@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import ZoneManagement from './ZoneManagement';
 import {
   artTimeContext,
   minutesToTimeInput,
@@ -14,6 +15,7 @@ import {
   draftFromWindow,
   emptyWindowDraft,
   exampleTripBreakdown,
+  formatWindowHours,
   formatWindowScheduleLabel,
   moneyAr,
   settingsMapFromTariffDefaults,
@@ -38,11 +40,11 @@ function artClockLabel(date) {
 
 function Field({ label, prefix, value, onChange, suffix }) {
   return (
-    <label className="flex min-w-0 flex-1 flex-col gap-1.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</span>
+    <label className="flex min-w-0 flex-1 flex-col gap-2">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
       <span className="relative block">
         {prefix ? (
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[13px] font-semibold text-slate-400">
+          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[15px] font-semibold text-slate-400">
             {prefix}
           </span>
         ) : null}
@@ -52,17 +54,95 @@ function Field({ label, prefix, value, onChange, suffix }) {
           pattern="[0-9]*"
           value={String(value ?? '')}
           onChange={(event) => onChange(digitsOnly(event.target.value))}
-          className={`h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 text-[18px] font-semibold tabular-nums text-navy-900 outline-none transition focus:border-navy-900/30 focus:bg-white focus:ring-2 focus:ring-navy-900/10 ${
-            prefix ? 'pl-7 pr-3' : 'px-3'
-          } ${suffix ? 'pr-10' : ''}`}
+          className={`h-14 w-full rounded-2xl border border-slate-200 bg-white text-[20px] font-semibold tabular-nums text-navy-900 outline-none transition focus:border-navy-900/35 focus:ring-4 focus:ring-navy-900/8 ${
+            prefix ? 'pl-8 pr-4' : 'px-4'
+          } ${suffix ? 'pr-11' : ''}`}
         />
         {suffix ? (
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] font-semibold text-slate-400">
+          <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[14px] font-semibold text-slate-400">
             {suffix}
           </span>
         ) : null}
       </span>
     </label>
+  );
+}
+
+function QuoteBreakdown({ km, example }) {
+  return (
+    <div className="rounded-[24px] bg-navy-900 px-5 py-5 text-white sm:px-6">
+      <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-white/45">
+        Cotizador · viaje de {km} km
+      </p>
+      <p className="mt-2 text-[36px] font-semibold tabular-nums leading-none tracking-tight">
+        {moneyAr(example.price)}
+      </p>
+      <p className="mt-2 text-[15px] text-white/60">Total que paga el pasajero</p>
+      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl bg-white/10 px-4 py-4">
+          <p className="text-[13px] font-medium text-white/55">Comisión</p>
+          <p className="mt-1 text-[24px] font-semibold tabular-nums leading-none">{moneyAr(example.commission)}</p>
+        </div>
+        <div className="rounded-2xl bg-white/10 px-4 py-4">
+          <p className="text-[13px] font-medium text-white/55">Para el chofer</p>
+          <p className="mt-1 text-[24px] font-semibold tabular-nums leading-none">{moneyAr(example.driverKeeps)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeleteConfirmDialog({ row, onCancel, onConfirm }) {
+  useEffect(() => {
+    if (!row) return undefined;
+    const onKey = (event) => {
+      if (event.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [row, onCancel]);
+
+  if (!row) return null;
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+      <button
+        type="button"
+        className="absolute inset-0 bg-navy-900/50 backdrop-blur-[2px]"
+        aria-label="Cancelar"
+        onClick={onCancel}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tariff-delete-title"
+        className="relative w-full max-w-[420px] rounded-[28px] bg-white p-6 shadow-2xl shadow-navy-900/20 ring-1 ring-slate-200"
+      >
+        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-rose-500">Borrar franja</p>
+        <h3 id="tariff-delete-title" className="mt-2 text-[22px] font-semibold tracking-tight text-navy-900">
+          ¿La querés eliminar?
+        </h3>
+        <p className="mt-2 text-[15px] leading-relaxed text-slate-600">
+          Se va a borrar {formatWindowHours(row)} · {formatWindowScheduleLabel(row)}.
+          Después vale la tarifa por defecto o la siguiente franja que aplique.
+        </p>
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="h-12 rounded-2xl px-5 text-[15px] font-semibold text-slate-600 transition hover:bg-slate-50"
+          >
+            Conservar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="h-12 rounded-2xl bg-rose-600 px-5 text-[15px] font-semibold text-white transition hover:bg-rose-700"
+          >
+            Sí, borrar
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -128,12 +208,14 @@ function ChannelCard({
   onUpdateSetting,
   onSaveWindow,
   onDeleteWindow,
+  scrollRootRef,
 }) {
   const meta = TARIFF_CHANNEL_META[channel];
+  const formRef = useRef(null);
   const [draft, setDraft] = useState(() => emptyWindowDraft(defaults.perKm, defaults.base, defaults.commission));
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [confirmId, setConfirmId] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
   const [formError, setFormError] = useState('');
   const channelWindows = sortTariffWindows(
     (windows || []).filter((row) => row.channel === channel),
@@ -145,18 +227,40 @@ function ChannelCard({
     base: defaults.base,
     commissionPercent: defaults.commission,
   }, km);
+  const activeHours = formatWindowHours(activeWindow);
+  const fromWindow = live?.source === 'window' && activeWindow;
+
+  useEffect(() => {
+    if (!showForm) return undefined;
+    const timer = window.setTimeout(() => {
+      const form = formRef.current;
+      const root = scrollRootRef?.current;
+      if (!form) return;
+      if (root) {
+        const formRect = form.getBoundingClientRect();
+        const rootRect = root.getBoundingClientRect();
+        root.scrollTo({
+          top: Math.max(0, root.scrollTop + (formRect.top - rootRect.top) - 16),
+          behavior: 'smooth',
+        });
+        return;
+      }
+      form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [showForm, draft.id, scrollRootRef]);
 
   const openNew = () => {
     setDraft(emptyWindowDraft(defaults.perKm, defaults.base, defaults.commission));
     setShowForm(true);
-    setConfirmId(null);
+    setPendingDelete(null);
     setFormError('');
   };
 
   const openEdit = (row) => {
     setDraft(draftFromWindow(row));
     setShowForm(true);
-    setConfirmId(null);
+    setPendingDelete(null);
     setFormError('');
   };
 
@@ -198,56 +302,79 @@ function ChannelCard({
     if (ok) setShowForm(false);
   };
 
+  const handleConfirmDelete = () => {
+    if (!pendingDelete?.id) return;
+    if (draft.id === pendingDelete.id) setShowForm(false);
+    onDeleteWindow?.(pendingDelete.id);
+    setPendingDelete(null);
+  };
+
   return (
-    <section className="overflow-hidden rounded-[28px] bg-white shadow-sm ring-1 ring-slate-200/70">
-      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+    <section className="rounded-[28px] bg-white shadow-sm ring-1 ring-slate-200/70">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-5 sm:px-6">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: meta.accent }} />
-            <h2 className="text-[16px] font-semibold tracking-tight text-navy-900">{meta.title}</h2>
-            {activeWindow ? (
-              <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: meta.accent }} />
+            <h2 className="text-[20px] font-semibold tracking-tight text-navy-900">{meta.title}</h2>
+            {fromWindow ? (
+              <span className="rounded-full bg-amber-500/12 px-2.5 py-1 text-[11px] font-bold text-amber-700">
                 {activeBadge(activeWindow)}
               </span>
             ) : (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500">
                 Por defecto
               </span>
             )}
           </div>
-          <p className="mt-1 text-[12px] leading-snug text-slate-500">{meta.hint}</p>
+          <p className="mt-1.5 text-[14px] leading-snug text-slate-500">{meta.hint}</p>
         </div>
         <p className="shrink-0 text-right">
-          <span className="block text-[22px] font-semibold tabular-nums leading-none text-navy-900">
+          <span className="block text-[28px] font-semibold tabular-nums leading-none text-navy-900">
             {moneyAr(live.perKm)}
           </span>
-          <span className="mt-1 block text-[11px] text-slate-400">/ km ahora</span>
+          <span className="mt-1.5 block text-[13px] font-medium text-slate-500">/ km ahora</span>
         </p>
       </div>
 
-      <div className="grid gap-3 border-b border-slate-100 px-5 py-4 sm:grid-cols-3">
-        <div className="rounded-2xl bg-slate-50 px-3.5 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Base</p>
-          <p className="mt-1 text-[18px] font-semibold tabular-nums text-navy-900">{moneyAr(live.base)}</p>
-        </div>
-        <div className="rounded-2xl bg-slate-50 px-3.5 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Comisión</p>
-          <p className="mt-1 text-[18px] font-semibold tabular-nums text-navy-900">{Math.round(live.commissionPercent)}%</p>
-        </div>
-        <div className="rounded-2xl bg-slate-50 px-3.5 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Ejemplo {km} km</p>
-          <p className="mt-1 text-[18px] font-semibold tabular-nums text-navy-900">{moneyAr(liveExample.price)}</p>
-          <p className="mt-0.5 text-[11px] text-slate-400">
-            {moneyAr(liveExample.commission)} comisión · chofer {moneyAr(liveExample.driverKeeps)}
+      <div className="space-y-4 border-b border-slate-100 px-5 py-5 sm:px-6">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+            {fromWindow ? `Vigente ahora · franja ${activeHours}` : 'Vigente ahora · tarifa por defecto'}
           </p>
+          {fromWindow ? (
+            <p className="mt-1 text-[14px] leading-relaxed text-slate-600">
+              Estos números salen de la franja {activeHours}, no del default.
+              {Number(live.base) !== Number(defaults.base)
+                ? ` La base de ahora es ${moneyAr(live.base)}; el default (${moneyAr(defaults.base)}) se usa fuera de esta franja.`
+                : ''}
+            </p>
+          ) : (
+            <p className="mt-1 text-[14px] leading-relaxed text-slate-600">
+              No hay franja activa a esta hora, así que vale lo de “por defecto”.
+            </p>
+          )}
         </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl bg-slate-50 px-4 py-4">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-500">Base</p>
+            <p className="mt-2 text-[26px] font-semibold tabular-nums leading-none text-navy-900">{moneyAr(live.base)}</p>
+          </div>
+          <div className="rounded-2xl bg-slate-50 px-4 py-4">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-500">Comisión</p>
+            <p className="mt-2 text-[26px] font-semibold tabular-nums leading-none text-navy-900">{Math.round(live.commissionPercent)}%</p>
+          </div>
+        </div>
+        <QuoteBreakdown km={km} example={liveExample} />
       </div>
 
-      <div className="px-5 py-4">
-        <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+      <div className="px-5 py-5 sm:px-6">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
           Por defecto · fuera de franjas
         </p>
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <p className="mt-1 text-[14px] leading-relaxed text-slate-600">
+          Se usa solo cuando no hay una franja activa. No pisa la base de una franja ya guardada.
+        </p>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
           <Field
             label="$ / km"
             prefix="$"
@@ -267,23 +394,23 @@ function ChannelCard({
             onChange={(value) => onUpdateSetting(defaults.keys.commission, value)}
           />
         </div>
-        <p className="mt-2 text-[11px] text-slate-400">
-          Con estos valores, {km} km sale {moneyAr(defaultExample.price)} y la comisión es {moneyAr(defaultExample.commission)}.
+        <p className="mt-3 text-[14px] text-slate-500">
+          Con el default, {km} km sale {moneyAr(defaultExample.price)} · comisión {moneyAr(defaultExample.commission)} · chofer {moneyAr(defaultExample.driverKeeps)}.
         </p>
       </div>
 
-      <div className="border-t border-slate-100 px-5 py-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="border-t border-slate-100 px-5 py-5 sm:px-6">
+        <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Franjas horarias</p>
-            <p className="mt-0.5 text-[11px] text-slate-400">
-              Prioridad: un día específico, después días recurrentes, después todos los días.
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Franjas horarias</p>
+            <p className="mt-1 max-w-xl text-[14px] leading-relaxed text-slate-500">
+              Cada franja tiene su propio $/km, base y comisión. Prioridad: un día específico, después días recurrentes, después todos los días.
             </p>
           </div>
           <button
             type="button"
             onClick={openNew}
-            className="shrink-0 rounded-full bg-navy-900 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-navy-900/90"
+            className="h-11 shrink-0 rounded-2xl bg-navy-900 px-4 text-[14px] font-semibold text-white transition hover:bg-navy-900/90"
           >
             + Agregar
           </button>
@@ -296,60 +423,66 @@ function ChannelCard({
           onSelect={openEdit}
         />
         {channelWindows.length === 0 && !showForm ? (
-          <p className="mt-3 text-[12px] leading-relaxed text-slate-400">
+          <p className="mt-4 text-[14px] leading-relaxed text-slate-500">
             Sin franjas: vale la tarifa por defecto las 24 horas, todos los días.
           </p>
         ) : (
-          <div className="mt-3 space-y-1.5">
-            {channelWindows.map((row) => (
-              <div
-                key={row.id}
-                className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 ${
-                  activeWindow?.id === row.id ? 'bg-amber-500/10 ring-1 ring-amber-500/20' : 'bg-slate-50'
-                }`}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-semibold tabular-nums text-navy-900">
-                    {minutesToTimeInput(row.start_minute)}–{minutesToTimeInput(row.end_minute)}
-                  </p>
-                  <p className="truncate text-[11px] text-slate-500">
-                    {formatWindowScheduleLabel(row)} · {moneyAr(row.per_km)}/km · base {moneyAr(row.base)} · {Math.round(Number(row.commission_percent) || 0)}%
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => openEdit(row)}
-                  className="text-[11px] font-semibold text-slate-500 hover:text-navy-900"
+          <div className="mt-4 space-y-2.5">
+            {channelWindows.map((row) => {
+              const isActive = activeWindow?.id === row.id;
+              const isEditing = showForm && draft.id === row.id;
+              return (
+                <div
+                  key={row.id}
+                  className={`flex flex-col gap-3 rounded-2xl px-4 py-3.5 sm:flex-row sm:items-center ${
+                    isActive ? 'bg-amber-500/10 ring-1 ring-amber-500/20' : 'bg-slate-50'
+                  } ${isEditing ? 'ring-2 ring-navy-900/15' : ''}`}
                 >
-                  Editar
-                </button>
-                {confirmId === row.id ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onDeleteWindow?.(row.id);
-                      setConfirmId(null);
-                    }}
-                    className="text-[11px] font-semibold text-rose-600"
-                  >
-                    Confirmar
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmId(row.id)}
-                    className="text-[11px] font-semibold text-rose-500 hover:text-rose-700"
-                  >
-                    Borrar
-                  </button>
-                )}
-              </div>
-            ))}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[16px] font-semibold tabular-nums text-navy-900">
+                      {formatWindowHours(row)}
+                      {isActive ? <span className="ml-2 text-[12px] font-bold text-amber-700">Ahora</span> : null}
+                    </p>
+                    <p className="mt-1 text-[14px] leading-snug text-slate-600">
+                      {formatWindowScheduleLabel(row)} · {moneyAr(row.per_km)}/km · base {moneyAr(row.base)} · {Math.round(Number(row.commission_percent) || 0)}%
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(row)}
+                      className="inline-flex h-12 min-w-[108px] items-center justify-center rounded-2xl bg-white px-5 text-[15px] font-semibold text-navy-900 ring-1 ring-slate-200 transition hover:bg-slate-50"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingDelete(row)}
+                      className="inline-flex h-12 min-w-[108px] items-center justify-center rounded-2xl bg-rose-50 px-5 text-[15px] font-semibold text-rose-600 ring-1 ring-rose-100 transition hover:bg-rose-100"
+                    >
+                      Borrar
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
         {showForm ? (
-          <div className="mt-3 space-y-3 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+          <div
+            ref={formRef}
+            id="tariff-window-form"
+            className="mt-4 space-y-4 rounded-[24px] bg-slate-50 p-4 ring-1 ring-slate-200 sm:p-5"
+          >
+            <div>
+              <p className="text-[16px] font-semibold text-navy-900">
+                {draft.id ? 'Editar franja' : 'Nueva franja'}
+              </p>
+              <p className="mt-1 text-[13px] text-slate-500">
+                Si “desde” es mayor que “hasta”, cruza medianoche y sigue valiendo al día siguiente.
+              </p>
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {SCHEDULE_OPTIONS.map((option) => {
                 const selected = draft.scheduleKind === option.id;
@@ -358,7 +491,7 @@ function ChannelCard({
                     key={option.id}
                     type="button"
                     onClick={() => setDraft((prev) => ({ ...prev, scheduleKind: option.id }))}
-                    className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
+                    className={`h-10 rounded-full px-4 text-[13px] font-semibold transition ${
                       selected ? 'bg-navy-900 text-white' : 'bg-white text-slate-500 ring-1 ring-slate-200 hover:text-navy-900'
                     }`}
                   >
@@ -379,7 +512,7 @@ function ChannelCard({
                       title={day.long}
                       aria-pressed={selected}
                       onClick={() => toggleWeekday(day.id)}
-                      className={`h-9 min-w-[40px] rounded-xl px-2 text-[11px] font-semibold transition ${
+                      className={`h-10 min-w-[44px] rounded-xl px-2.5 text-[13px] font-semibold transition ${
                         selected ? 'bg-navy-900 text-white' : 'bg-white text-slate-500 ring-1 ring-slate-200 hover:text-navy-900'
                       }`}
                     >
@@ -391,83 +524,80 @@ function ChannelCard({
             ) : null}
 
             {draft.scheduleKind === 'date' ? (
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <label className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Día</span>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <label className="flex min-w-0 flex-1 flex-col gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Día</span>
                   <input
                     type="date"
                     value={draft.specificDate}
                     onChange={(event) => setDraft((prev) => ({ ...prev, specificDate: event.target.value }))}
-                    className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-[14px] font-semibold text-navy-900"
+                    className="h-14 rounded-2xl border border-slate-200 bg-white px-4 text-[16px] font-semibold text-navy-900"
                   />
                 </label>
-                <label className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Nombre (opcional)</span>
+                <label className="flex min-w-0 flex-1 flex-col gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Nombre (opcional)</span>
                   <input
                     type="text"
                     maxLength={80}
                     placeholder="Navidad, feriado…"
                     value={draft.label}
                     onChange={(event) => setDraft((prev) => ({ ...prev, label: event.target.value }))}
-                    className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-[14px] font-semibold text-navy-900 placeholder:font-medium placeholder:text-slate-400"
+                    className="h-14 rounded-2xl border border-slate-200 bg-white px-4 text-[16px] font-semibold text-navy-900 placeholder:font-medium placeholder:text-slate-400"
                   />
                 </label>
               </div>
             ) : (
-              <label className="flex min-w-0 flex-col gap-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Nombre (opcional)</span>
+              <label className="flex min-w-0 flex-col gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Nombre (opcional)</span>
                 <input
                   type="text"
                   maxLength={80}
                   placeholder="Noche, fin de semana…"
                   value={draft.label}
                   onChange={(event) => setDraft((prev) => ({ ...prev, label: event.target.value }))}
-                  className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-[14px] font-semibold text-navy-900 placeholder:font-medium placeholder:text-slate-400"
+                  className="h-14 rounded-2xl border border-slate-200 bg-white px-4 text-[16px] font-semibold text-navy-900 placeholder:font-medium placeholder:text-slate-400"
                 />
               </label>
             )}
 
-            <div className="flex gap-2">
-              <label className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Desde</span>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="flex min-w-0 flex-1 flex-col gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Desde</span>
                 <input
                   type="time"
                   value={draft.startTime}
                   onChange={(event) => setDraft((prev) => ({ ...prev, startTime: event.target.value }))}
-                  className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-[14px] font-semibold text-navy-900"
+                  className="h-14 rounded-2xl border border-slate-200 bg-white px-4 text-[16px] font-semibold text-navy-900"
                 />
               </label>
-              <label className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Hasta</span>
+              <label className="flex min-w-0 flex-1 flex-col gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Hasta</span>
                 <input
                   type="time"
                   value={draft.endTime}
                   onChange={(event) => setDraft((prev) => ({ ...prev, endTime: event.target.value }))}
-                  className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-[14px] font-semibold text-navy-900"
+                  className="h-14 rounded-2xl border border-slate-200 bg-white px-4 text-[16px] font-semibold text-navy-900"
                 />
               </label>
               <button
                 type="button"
                 onClick={() => setDraft((prev) => ({ ...prev, startTime: '00:00', endTime: '23:59' }))}
-                className="mt-[22px] h-11 shrink-0 rounded-2xl bg-white px-3 text-[11px] font-semibold text-slate-500 ring-1 ring-slate-200 hover:text-navy-900"
+                className="h-14 shrink-0 rounded-2xl bg-white px-4 text-[13px] font-semibold text-slate-600 ring-1 ring-slate-200 hover:text-navy-900"
               >
                 Todo el día
               </button>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <Field label="$ / km" prefix="$" value={draft.perKm} onChange={(value) => setDraft((prev) => ({ ...prev, perKm: value }))} />
               <Field label="Base" prefix="$" value={draft.base} onChange={(value) => setDraft((prev) => ({ ...prev, base: value }))} />
               <Field label="Comisión" suffix="%" value={draft.commission} onChange={(value) => setDraft((prev) => ({ ...prev, commission: value }))} />
             </div>
-            <p className="text-[11px] text-slate-400">
-              Si “desde” es mayor que “hasta”, la franja cruza medianoche y sigue valiendo al día siguiente.
-            </p>
-            {formError ? <p className="text-[12px] font-medium text-rose-600">{formError}</p> : null}
+            {formError ? <p className="text-[14px] font-medium text-rose-600">{formError}</p> : null}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="rounded-full px-3 py-1.5 text-[12px] font-semibold text-slate-500 hover:bg-white"
+                className="h-12 rounded-2xl px-5 text-[14px] font-semibold text-slate-500 hover:bg-white"
               >
                 Cancelar
               </button>
@@ -475,7 +605,7 @@ function ChannelCard({
                 type="button"
                 disabled={saving}
                 onClick={handleSave}
-                className="rounded-full bg-navy-900 px-3.5 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
+                className="h-12 rounded-2xl bg-navy-900 px-5 text-[14px] font-semibold text-white disabled:opacity-50"
               >
                 {saving ? 'Guardando…' : 'Guardar franja'}
               </button>
@@ -483,6 +613,12 @@ function ChannelCard({
           </div>
         ) : null}
       </div>
+
+      <DeleteConfirmDialog
+        row={pendingDelete}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={handleConfirmDelete}
+      />
     </section>
   );
 }
@@ -506,9 +642,11 @@ export default function TariffsPanel({
   onSaveWindow,
   onDeleteWindow,
 }) {
+  const [section, setSection] = useState('general');
   const [channel, setChannel] = useState('platform');
   const [km, setKm] = useState(5);
   const [now, setNow] = useState(() => new Date());
+  const scrollRootRef = useRef(null);
 
   useEffect(() => {
     const tick = setInterval(() => setNow(new Date()), 30_000);
@@ -572,9 +710,9 @@ export default function TariffsPanel({
   };
 
   return (
-    <div className="h-full min-h-0 overflow-x-hidden overflow-y-auto bg-[#F3F5F8]">
-      <div className="mx-auto max-w-6xl space-y-5 px-3 py-4 pb-16 sm:px-5 sm:py-6">
-        <header className="relative overflow-hidden rounded-[28px] bg-navy-900 px-5 py-5 text-white shadow-lg shadow-navy-900/10 sm:px-6">
+    <div className="flex h-full min-h-0 flex-col bg-[#F3F5F8]">
+      <div className="shrink-0 px-3 pt-4 sm:px-5">
+        <header className="relative mx-auto max-w-6xl overflow-hidden rounded-[28px] bg-navy-900 px-5 py-5 text-white shadow-lg shadow-navy-900/10 sm:px-6">
           <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-sky-400/20 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-24 left-1/3 h-48 w-48 rounded-full bg-amber-300/10 blur-3xl" />
           <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -628,47 +766,88 @@ export default function TariffsPanel({
           </div>
         </header>
 
-        <div className="grid gap-3 sm:grid-cols-3">
-          {CHANNEL_ORDER.map((id) => {
-            const meta = TARIFF_CHANNEL_META[id];
-            const live = liveByChannel[id];
-            const selected = channel === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setChannel(id)}
-                className={`rounded-[24px] px-4 py-4 text-left shadow-sm ring-1 transition ${
-                  selected
-                    ? 'bg-white ring-navy-900/15 shadow-navy-900/5'
-                    : 'bg-white/70 ring-slate-200/70 hover:bg-white'
-                }`}
-              >
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{meta.title}</p>
-                <p className="mt-2 text-[22px] font-semibold tabular-nums leading-none text-navy-900">
-                  {moneyAr(live.perKm)}<span className="text-[13px] font-medium text-slate-400">/km</span>
-                </p>
-                <p className="mt-2 text-[11px] text-slate-400">
-                  {windowSourceLabel(live)}
-                </p>
-              </button>
-            );
-          })}
+        <div className="mx-auto mt-4 max-w-6xl">
+          <div className="grid grid-cols-2 gap-1 rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-200/70">
+            <button
+              type="button"
+              onClick={() => setSection('general')}
+              className={`h-12 rounded-xl px-3 text-[14px] font-semibold transition ${
+                section === 'general' ? 'bg-navy-900 text-white' : 'text-slate-500 hover:text-navy-900'
+              }`}
+            >
+              Tarifas general
+            </button>
+            <button
+              type="button"
+              onClick={() => setSection('zones')}
+              className={`h-12 rounded-xl px-3 text-[14px] font-semibold transition ${
+                section === 'zones' ? 'bg-navy-900 text-white' : 'text-slate-500 hover:text-navy-900'
+              }`}
+            >
+              Tarifas por zonas
+            </button>
+          </div>
         </div>
-
-        <ChannelCard
-          key={channel}
-          channel={channel}
-          defaults={defaultsByChannel[channel]}
-          live={liveByChannel[channel]}
-          windows={tariffWindows}
-          now={now}
-          km={km}
-          onUpdateSetting={onUpdateSetting}
-          onSaveWindow={onSaveWindow}
-          onDeleteWindow={onDeleteWindow}
-        />
       </div>
+
+      {section === 'zones' ? (
+        <div className="mt-4 min-h-0 flex-1 overflow-hidden px-3 pb-3 sm:px-5">
+          <div className="mx-auto h-full min-h-0 max-w-6xl overflow-hidden rounded-[28px] bg-white shadow-sm ring-1 ring-slate-200/70">
+            <ZoneManagement
+              mode="hot"
+              embedded
+              liveTariffs={liveByChannel}
+              exampleKm={km}
+            />
+          </div>
+        </div>
+      ) : (
+        <div ref={scrollRootRef} className="tariffs-scroll mt-4 min-h-0 flex-1">
+          <div className="mx-auto max-w-6xl space-y-5 px-3 pb-16 sm:px-5">
+            <div className="grid gap-3 sm:grid-cols-3">
+              {CHANNEL_ORDER.map((id) => {
+                const meta = TARIFF_CHANNEL_META[id];
+                const live = liveByChannel[id];
+                const selected = channel === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setChannel(id)}
+                    className={`rounded-[24px] px-4 py-4 text-left shadow-sm ring-1 transition ${
+                      selected
+                        ? 'bg-white ring-navy-900/15 shadow-navy-900/5'
+                        : 'bg-white/70 ring-slate-200/70 hover:bg-white'
+                    }`}
+                  >
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{meta.title}</p>
+                    <p className="mt-2 text-[22px] font-semibold tabular-nums leading-none text-navy-900">
+                      {moneyAr(live.perKm)}<span className="text-[13px] font-medium text-slate-400">/km</span>
+                    </p>
+                    <p className="mt-2 text-[11px] text-slate-400">
+                      {windowSourceLabel(live)}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <ChannelCard
+              key={channel}
+              channel={channel}
+              defaults={defaultsByChannel[channel]}
+              live={liveByChannel[channel]}
+              windows={tariffWindows}
+              now={now}
+              km={km}
+              scrollRootRef={scrollRootRef}
+              onUpdateSetting={onUpdateSetting}
+              onSaveWindow={onSaveWindow}
+              onDeleteWindow={onDeleteWindow}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

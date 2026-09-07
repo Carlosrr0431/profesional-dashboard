@@ -764,7 +764,7 @@ export default function App() {
           <DriverManagement onBack={() => goTo(VIEWS.map)} />
 
         ) : currentView === VIEWS.zones ? (
-          <ZoneManagement onBack={() => goTo(VIEWS.map)} />
+          <ZoneManagement mode="coverage" onBack={() => goTo(VIEWS.map)} />
 
         ) : currentView === VIEWS.trips ? (
           <div className="flex-1 w-full min-w-0 min-h-0 flex flex-col">
@@ -789,7 +789,7 @@ export default function App() {
           </div>
 
         ) : currentView === VIEWS.tariffs ? (
-          <div className="flex-1 w-full min-w-0 min-h-0 flex flex-col">
+          <div className="flex-1 w-full min-w-0 min-h-0 flex flex-col overflow-hidden">
             <TariffsPanel
               onBack={() => goTo(VIEWS.map)}
               tariffPerKm={tariffPerKm}

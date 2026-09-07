@@ -31,7 +31,13 @@ const HOT_ZONE_COLORS = [
   '#C2410C',
 ];
 
-export default function ZoneManagement({ onBack }) {
+export default function ZoneManagement({
+  onBack,
+  mode = 'coverage',
+  embedded = false,
+  liveTariffs,
+  exampleKm = 5,
+}) {
   const toast = useToast();
   const { zones, loading, createZone, deleteZone, toggleZoneActive } = useServiceZones();
   const {
@@ -43,12 +49,18 @@ export default function ZoneManagement({ onBack }) {
     toggleZoneActive: toggleHotZoneActive,
   } = useHotZones();
   const {
-    tariffPerKm,
-    passengerAppTariffPerKm,
+    tariffPerKm: settingsTariffPerKm,
+    passengerAppTariffPerKm: settingsAppTariffPerKm,
   } = useSettings();
 
-  const [section, setSection] = useState('coverage');
-  const isHotSection = section === 'hot';
+  const isHotSection = mode === 'hot';
+  const platformPerKm = Number(liveTariffs?.platform?.perKm ?? settingsTariffPerKm) || 0;
+  const platformBase = Number(liveTariffs?.platform?.base) || 0;
+  const appPerKm = Number(liveTariffs?.passenger_app?.perKm ?? settingsAppTariffPerKm) || 0;
+  const appBase = Number(liveTariffs?.passenger_app?.base) || 0;
+  const webPerKm = Number(liveTariffs?.passenger_web?.perKm ?? appPerKm) || 0;
+  const webBase = Number(liveTariffs?.passenger_web?.base ?? appBase) || 0;
+  const quoteKm = Math.max(1, Number(exampleKm) || 5);
   const [isDrawing, setIsDrawing] = useState(false);
   const [draftCoords, setDraftCoords] = useState([]);
   const [pendingCoords, setPendingCoords] = useState(null);
@@ -206,14 +218,6 @@ export default function ZoneManagement({ onBack }) {
     setError('');
   };
 
-  const handleSwitchSection = (next) => {
-    if (next === section) return;
-    handleCancelDrawing();
-    setSelectedZoneId(null);
-    setSection(next);
-    setError('');
-  };
-
   const selectedHotZone = hotZones.find((zone) => zone.id === selectedZoneId) || null;
 
   const handleSaveHotSurcharge = async () => {
@@ -234,18 +238,12 @@ export default function ZoneManagement({ onBack }) {
 
   const activeCount = zones.filter((z) => z.is_active).length;
   const hotActiveCount = hotZones.filter((z) => z.is_active).length;
-  const platformPreview = applyFareSurcharge(
-    tariffPerKm,
-    selectedHotZone
-      ? (hotSurchargeDraft === '' ? selectedHotZone.fare_surcharge_percent : hotSurchargeDraft)
-      : normalizeFareSurchargePercent(pendingSurcharge)
-  );
-  const appPreview = applyFareSurcharge(
-    passengerAppTariffPerKm,
-    selectedHotZone
-      ? (hotSurchargeDraft === '' ? selectedHotZone.fare_surcharge_percent : hotSurchargeDraft)
-      : normalizeFareSurchargePercent(pendingSurcharge)
-  );
+  const previewPercent = selectedHotZone
+    ? (hotSurchargeDraft === '' ? selectedHotZone.fare_surcharge_percent : hotSurchargeDraft)
+    : normalizeFareSurchargePercent(pendingSurcharge);
+  const platformPreview = applyFareSurcharge(platformPerKm, previewPercent);
+  const appPreview = applyFareSurcharge(appPerKm, previewPercent);
+  const webPreview = applyFareSurcharge(webPerKm, previewPercent);
 
   const zonesGeoJson = useMemo(() => ({
     type: 'FeatureCollection',
@@ -310,30 +308,32 @@ export default function ZoneManagement({ onBack }) {
   }, [draftCoords]);
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       {/* ── Header ─────────────────────────────────────────────── */}
       <div className="flex flex-shrink-0 flex-col gap-3 border-b border-light-300/50 bg-light-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
         <div className="flex min-w-0 items-center gap-3">
-          <button
-            onClick={onBack}
-            className="w-8 h-8 rounded-xl bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-500 hover:text-navy-900 hover:bg-light-300/50 transition-all"
-            title="Volver al mapa"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
+          {embedded || !onBack ? null : (
+            <button
+              onClick={onBack}
+              className="w-8 h-8 rounded-xl bg-light-200 border border-light-300/50 flex items-center justify-center text-gray-500 hover:text-navy-900 hover:bg-light-300/50 transition-all"
+              title="Volver al mapa"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
           <div>
             <h1 className="text-navy-900 font-bold text-base leading-tight">
-              {isHotSection ? 'Zonas calientes' : 'Zonas de servicio'}
+              {isHotSection ? 'Tarifas por zonas' : 'Zonas de servicio'}
             </h1>
             <p className="text-gray-500 text-xs">
               {isHotSection
                 ? (hotLoading
                   ? 'Cargando...'
                   : hotZones.length === 0
-                    ? 'Sin zonas calientes — se usa la tarifa base'
-                    : `${hotActiveCount} zona${hotActiveCount !== 1 ? 's' : ''} con recargo`)
+                    ? 'Sin zonas — vale la tarifa vigente (franja o default)'
+                    : `${hotActiveCount} zona${hotActiveCount !== 1 ? 's' : ''} con recargo sobre el $/km vigente`)
                 : (loading
                   ? 'Cargando...'
                   : zones.length === 0
@@ -358,30 +358,7 @@ export default function ZoneManagement({ onBack }) {
       {/* ── Body: panel izquierdo + mapa ───────────────────────── */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
         {/* Panel izquierdo */}
-        <aside className="flex max-h-[42vh] w-full flex-shrink-0 flex-col overflow-hidden border-b border-light-300/50 bg-light-50 lg:max-h-none lg:w-80 lg:border-b-0 lg:border-r">
-          <div className="p-3 pb-0 flex-shrink-0">
-            <div className="grid grid-cols-2 gap-1 rounded-xl bg-white border border-light-300/60 p-1">
-              <button
-                type="button"
-                onClick={() => handleSwitchSection('coverage')}
-                className={`rounded-lg px-2 py-2 text-[11px] font-semibold transition-all ${
-                  !isHotSection ? 'bg-navy-900 text-white shadow-sm' : 'text-gray-500 hover:text-navy-900'
-                }`}
-              >
-                Cobertura
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSwitchSection('hot')}
-                className={`rounded-lg px-2 py-2 text-[11px] font-semibold transition-all ${
-                  isHotSection ? 'bg-navy-900 text-white shadow-sm' : 'text-gray-500 hover:text-navy-900'
-                }`}
-              >
-                Zonas calientes
-              </button>
-            </div>
-          </div>
-
+        <aside className="flex max-h-[42vh] w-full flex-shrink-0 flex-col overflow-hidden border-b border-light-300/50 bg-light-50 lg:max-h-none lg:w-[22rem] lg:border-b-0 lg:border-r">
           {!isHotSection && (
             <>
               {loading ? (
@@ -454,9 +431,9 @@ export default function ZoneManagement({ onBack }) {
                   {selectedHotZone ? (
                     <div className="rounded-2xl border border-amber-200 bg-white p-3 space-y-3">
                       <div>
-                        <p className="text-[11px] font-bold text-navy-900">Recargo de tarifa</p>
+                        <p className="text-[11px] font-bold text-navy-900">Recargo sobre tarifa vigente</p>
                         <p className="text-[11px] text-gray-500 leading-relaxed">
-                          Se aplica al $/km de plataforma y de la app de pasajeros cuando el origen cae en esta zona.
+                          Parte del $/km de ahora (franja horaria o default). La base no cambia. Si el origen cae acá, se suma este %.
                         </p>
                       </div>
                       <label className="block">
@@ -471,16 +448,27 @@ export default function ZoneManagement({ onBack }) {
                           className="mt-1 w-full rounded-xl border border-light-300 bg-light-100 px-3 py-2 text-sm font-semibold text-navy-900 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
                         />
                       </label>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 gap-2">
                         <TariffPreview
                           label="Plataforma"
-                          from={tariffPerKm}
+                          from={platformPerKm}
                           to={platformPreview}
+                          base={platformBase}
+                          km={quoteKm}
                         />
                         <TariffPreview
                           label="App pasajeros"
-                          from={passengerAppTariffPerKm}
+                          from={appPerKm}
                           to={appPreview}
+                          base={appBase}
+                          km={quoteKm}
+                        />
+                        <TariffPreview
+                          label="Web pasajeros"
+                          from={webPerKm}
+                          to={webPreview}
+                          base={webBase}
+                          km={quoteKm}
                         />
                       </div>
                       <button
@@ -498,7 +486,7 @@ export default function ZoneManagement({ onBack }) {
 
               <div className="p-3 border-t border-light-300/50 flex-shrink-0">
                 <StatusBanner variant="warning">
-                  Las zonas calientes no cambian la cobertura. Solo suben la tarifa del origen.
+                  No cambia la cobertura. Sube el $/km vigente (franja o default) cuando el origen cae adentro.
                 </StatusBanner>
               </div>
             </>
@@ -543,6 +531,7 @@ export default function ZoneManagement({ onBack }) {
             onClick={handleMapClick}
             {...mapLibreOptions}
           >
+            {!isHotSection ? (
             <Source id="zones" type="geojson" data={zonesGeoJson}>
               <Layer
                 id="zones-fill"
@@ -567,6 +556,7 @@ export default function ZoneManagement({ onBack }) {
                 }}
               />
             </Source>
+            ) : (
             <Source id="hot-zones" type="geojson" data={hotZonesGeoJson}>
               <Layer
                 id="hot-zones-fill"
@@ -592,6 +582,7 @@ export default function ZoneManagement({ onBack }) {
                 }}
               />
             </Source>
+            )}
             {draftGeoJson ? (
               <Source id="draft-zone" type="geojson" data={draftGeoJson}>
                 <Layer
@@ -646,7 +637,7 @@ export default function ZoneManagement({ onBack }) {
             </h2>
             <p className="text-gray-500 text-xs mb-5">
               {isHotSection
-                ? 'Definí el nombre, el color y el porcentaje de suba sobre el $/km.'
+                ? 'Definí el nombre, el color y el % de suba sobre el $/km vigente (franja horaria o default).'
                 : 'Asigná un nombre y un color identificador a la nueva zona.'}
             </p>
 
@@ -700,9 +691,10 @@ export default function ZoneManagement({ onBack }) {
                     onChange={(e) => setPendingSurcharge(e.target.value)}
                     className="w-full bg-light-200 border border-light-300/50 rounded-xl px-3 py-2.5 text-sm text-navy-900 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all"
                   />
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <TariffPreview label="Plataforma" from={tariffPerKm} to={platformPreview} />
-                    <TariffPreview label="App pasajeros" from={passengerAppTariffPerKm} to={appPreview} />
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    <TariffPreview label="Plataforma" from={platformPerKm} to={platformPreview} base={platformBase} km={quoteKm} />
+                    <TariffPreview label="App pasajeros" from={appPerKm} to={appPreview} base={appBase} km={quoteKm} />
+                    <TariffPreview label="Web pasajeros" from={webPerKm} to={webPreview} base={webBase} km={quoteKm} />
                   </div>
                 </div>
               ) : null}
@@ -883,18 +875,23 @@ function HotEmptyState() {
       </div>
       <p className="text-navy-900 font-semibold text-sm mb-2">Sin zonas calientes</p>
       <p className="text-gray-500 text-xs leading-relaxed">
-        Estas zonas no cambian la cobertura. Solo suben el $/km cuando el origen del viaje cae adentro.
+        No cambian la cobertura. El recargo se aplica sobre el $/km ya configurado (franja horaria o default) cuando el origen cae adentro.
       </p>
     </div>
   );
 }
 
-function TariffPreview({ label, from, to }) {
+function TariffPreview({ label, from, to, base = 0, km = 5 }) {
+  const fromPrice = Math.round((Number(base) || 0) + (Number(from) || 0) * km);
+  const toPrice = Math.round((Number(base) || 0) + (Number(to) || 0) * km);
   return (
     <div className="rounded-xl bg-light-100 border border-light-300/60 px-2.5 py-2">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
-      <p className="text-xs text-navy-900 font-semibold mt-0.5">
-        ${Math.round(from || 0)} → ${Math.round(to || 0)}
+      <p className="text-xs text-navy-900 font-semibold mt-0.5 tabular-nums">
+        ${Math.round(from || 0)}/km → ${Math.round(to || 0)}/km
+      </p>
+      <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
+        {km} km: ${fromPrice.toLocaleString('es-AR')} → ${toPrice.toLocaleString('es-AR')}
       </p>
     </div>
   );

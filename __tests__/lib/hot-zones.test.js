@@ -51,6 +51,16 @@ describe('hotZones', () => {
     expect(Math.round(base + perKm * 2)).toBe(3300);
   });
 
+  it('el recargo se aplica sobre el $/km de la franja vigente, no sobre el default', () => {
+    const windowPerKm = 1190;
+    const defaultPerKm = 990;
+    const windowBase = 1179;
+    const surcharged = applyFareSurcharge(windowPerKm, 10);
+    expect(surcharged).toBe(1309);
+    expect(surcharged).not.toBe(applyFareSurcharge(defaultPerKm, 10));
+    expect(Math.round(windowBase + surcharged * 5)).toBe(7724);
+  });
+
   it('fuera de zona o zona inactiva no recarga', () => {
     const zones = [
       { name: 'Centro', coordinates: centro, fare_surcharge_percent: 10, is_active: true },

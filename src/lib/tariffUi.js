@@ -69,6 +69,11 @@ export function formatWeekdays(weekdays) {
     .join(' · ');
 }
 
+export function formatWindowHours(row) {
+  if (!row) return '';
+  return `${minutesToTimeInput(row.start_minute)}–${minutesToTimeInput(row.end_minute)}`;
+}
+
 export function formatWindowScheduleLabel(row) {
   const kind = normalizeScheduleKind(row?.schedule_kind);
   const name = String(row?.label || '').trim();
