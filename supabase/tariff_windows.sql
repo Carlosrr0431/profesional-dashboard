@@ -68,3 +68,6 @@ VALUES
 ON CONFLICT (key) DO NOTHING;
 
 COMMIT;
+
+-- Días específicos / recurrentes: supabase/tariff_windows_schedule.sql
+

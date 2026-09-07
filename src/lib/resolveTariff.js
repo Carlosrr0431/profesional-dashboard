@@ -84,14 +84,130 @@ export function windowDurationMinutes(window) {
   return (1440 - start) + end;
 }
 
-export function pickMatchingWindow(windows, channel, minute) {
+export const SCHEDULE_KINDS = ['always', 'weekdays', 'date'];
+
+const WEEKDAY_FROM_SHORT = {
+  mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7,
+};
+
+export function normalizeScheduleKind(raw) {
+  const value = String(raw || 'always').trim().toLowerCase();
+  return SCHEDULE_KINDS.includes(value) ? value : 'always';
+}
+
+export function normalizeWeekdays(raw) {
+  const list = Array.isArray(raw)
+    ? raw
+    : String(raw || '').split(/[,\s]+/).filter(Boolean);
+  const unique = new Set();
+  list.forEach((item) => {
+    const n = Number(item);
+    if (Number.isInteger(n) && n >= 1 && n <= 7) unique.add(n);
+  });
+  return [...unique].sort((a, b) => a - b);
+}
+
+export function normalizeSpecificDate(raw) {
+  const match = String(raw || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+export function scheduleRank(window) {
+  const kind = normalizeScheduleKind(window?.schedule_kind);
+  if (kind === 'date') return 3;
+  if (kind === 'weekdays') return 2;
+  return 1;
+}
+
+function artCalendarParts(date) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: ART_TZ,
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const bag = {};
+  fmt.formatToParts(date).forEach((part) => {
+    if (part.type !== 'literal') bag[part.type] = part.value;
+  });
+  const weekday = WEEKDAY_FROM_SHORT[String(bag.weekday || '').slice(0, 3).toLowerCase()] || 1;
+  return {
+    ymd: `${bag.year}-${String(bag.month).padStart(2, '0')}-${String(bag.day).padStart(2, '0')}`,
+    weekday,
+  };
+}
+
+export function artTimeContext(at = new Date()) {
+  if (typeof at === 'number' && Number.isFinite(at)) {
+    const minute = ((Math.round(at) % 1440) + 1440) % 1440;
+    return {
+      minute,
+      ymd: null,
+      weekday: null,
+      prevYmd: null,
+      prevWeekday: null,
+      dateBound: false,
+    };
+  }
+
+  const date = at instanceof Date ? at : new Date(at);
+  const safe = Number.isNaN(date.getTime()) ? new Date() : date;
+  const today = artCalendarParts(safe);
+  const prev = artCalendarParts(new Date(safe.getTime() - 24 * 60 * 60 * 1000));
+  return {
+    minute: artMinutesFromDate(safe),
+    ymd: today.ymd,
+    weekday: today.weekday,
+    prevYmd: prev.ymd,
+    prevWeekday: prev.weekday,
+    dateBound: true,
+  };
+}
+
+export function overnightUsesPreviousDay(window, minute) {
+  const start = Number(window?.start_minute);
+  const end = Number(window?.end_minute);
+  return Number.isFinite(start) && Number.isFinite(end) && start > end && minute < end;
+}
+
+export function windowScheduleAppliesOnDay(window, ymd, weekday) {
+  const kind = normalizeScheduleKind(window?.schedule_kind);
+  if (kind === 'date') return normalizeSpecificDate(window?.specific_date) === ymd;
+  if (kind === 'weekdays') return normalizeWeekdays(window?.weekdays).includes(Number(weekday));
+  return true;
+}
+
+export function windowScheduleAppliesAt(window, ctx) {
+  if (!windowContainsMinute(window, ctx.minute)) return false;
+  const kind = normalizeScheduleKind(window?.schedule_kind);
+  if (!ctx.dateBound) return kind === 'always';
+  const usePrev = overnightUsesPreviousDay(window, ctx.minute);
+  return windowScheduleAppliesOnDay(
+    window,
+    usePrev ? ctx.prevYmd : ctx.ymd,
+    usePrev ? ctx.prevWeekday : ctx.weekday,
+  );
+}
+
+export function pickMatchingWindow(windows, channel, at = new Date()) {
+  const ctx = artTimeContext(at);
   const matches = (windows || []).filter((window) => (
     window?.enabled !== false
     && window?.channel === channel
-    && windowContainsMinute(window, minute)
+    && windowScheduleAppliesAt(window, ctx)
   ));
   if (!matches.length) return null;
-  matches.sort((a, b) => windowDurationMinutes(a) - windowDurationMinutes(b));
+  matches.sort((a, b) => {
+    const rankDiff = scheduleRank(b) - scheduleRank(a);
+    if (rankDiff) return rankDiff;
+    return windowDurationMinutes(a) - windowDurationMinutes(b);
+  });
   return matches[0];
 }
 
@@ -125,8 +241,7 @@ export function resolveChannelTariff({
 } = {}) {
   const safeChannel = TARIFF_CHANNELS.includes(channel) ? channel : 'platform';
   const defaults = defaultsFromSettings(settingsMap, safeChannel);
-  const minute = artMinutesFromDate(at instanceof Date ? at : new Date(at));
-  const match = pickMatchingWindow(windows, safeChannel, minute);
+  const match = pickMatchingWindow(windows, safeChannel, at);
   if (!match) {
     return { ...defaults, source: 'default', window: null };
   }
@@ -167,7 +282,7 @@ export async function fetchTariffWindows(supabase) {
   try {
     const { data, error } = await supabase
       .from('tariff_windows')
-      .select('id, channel, start_minute, end_minute, per_km, base, commission_percent, enabled, created_at, updated_at')
+      .select('*')
       .order('start_minute', { ascending: true });
     if (error) return [];
     return data || [];

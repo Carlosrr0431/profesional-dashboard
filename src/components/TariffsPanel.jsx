@@ -2,21 +2,25 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  artMinutesFromDate,
+  artTimeContext,
   minutesToTimeInput,
   pickMatchingWindow,
   resolveChannelTariff,
 } from '../lib/resolveTariff';
 import {
   TARIFF_CHANNEL_META,
+  WEEKDAY_OPTIONS,
   digitsOnly,
   draftFromWindow,
   emptyWindowDraft,
   exampleTripBreakdown,
+  formatWindowScheduleLabel,
   moneyAr,
   settingsMapFromTariffDefaults,
+  sortTariffWindows,
   timelinePercent,
-  windowTimelineSegments,
+  windowSegmentsForCalendarDay,
+  windowSourceLabel,
 } from '../lib/tariffUi';
 
 const CHANNEL_ORDER = ['platform', 'passenger_app', 'passenger_web'];
@@ -62,17 +66,29 @@ function Field({ label, prefix, value, onChange, suffix }) {
   );
 }
 
-function DayTimeline({ windows, channel, nowMinute, accent, activeId, onSelect }) {
-  const rows = (windows || []).filter((row) => row.channel === channel);
+const SCHEDULE_OPTIONS = [
+  { id: 'always', title: 'Todos los días' },
+  { id: 'weekdays', title: 'Días de la semana' },
+  { id: 'date', title: 'Un día' },
+];
+
+function activeBadge(window) {
+  if (window?.schedule_kind === 'date') return 'Día específico activo';
+  if (window?.schedule_kind === 'weekdays') return 'Recurrente activa';
+  return 'Franja activa';
+}
+
+function DayTimeline({ windows, now, accent, activeId, onSelect }) {
+  const ctx = artTimeContext(now);
   return (
     <div>
       <div className="relative h-10 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/80">
-        {rows.flatMap((row) => (
-          windowTimelineSegments(row).map((segment) => (
+        {(windows || []).flatMap((row) => (
+          windowSegmentsForCalendarDay(row, ctx).map((segment) => (
             <button
               key={`${row.id}-${segment.from}`}
               type="button"
-              title={`${minutesToTimeInput(row.start_minute)}–${minutesToTimeInput(row.end_minute)}`}
+              title={`${minutesToTimeInput(row.start_minute)}–${minutesToTimeInput(row.end_minute)} · ${formatWindowScheduleLabel(row)}`}
               onClick={() => onSelect?.(row)}
               className="absolute top-1.5 bottom-1.5 rounded-lg transition hover:brightness-95"
               style={{
@@ -86,11 +102,11 @@ function DayTimeline({ windows, channel, nowMinute, accent, activeId, onSelect }
         ))}
         <span
           className="pointer-events-none absolute top-0 bottom-0 w-px bg-navy-900"
-          style={{ left: `${timelinePercent(nowMinute)}%` }}
+          style={{ left: `${timelinePercent(ctx.minute)}%` }}
         />
         <span
           className="pointer-events-none absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-navy-900 ring-2 ring-white"
-          style={{ left: `${timelinePercent(nowMinute)}%` }}
+          style={{ left: `${timelinePercent(ctx.minute)}%` }}
         />
       </div>
       <div className="mt-1.5 flex justify-between text-[10px] font-semibold tabular-nums text-slate-400">
@@ -107,7 +123,7 @@ function ChannelCard({
   defaults,
   live,
   windows,
-  nowMinute,
+  now,
   km,
   onUpdateSetting,
   onSaveWindow,
@@ -118,11 +134,11 @@ function ChannelCard({
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
-  const channelWindows = (windows || [])
-    .filter((row) => row.channel === channel)
-    .slice()
-    .sort((a, b) => Number(a.start_minute) - Number(b.start_minute));
-  const activeWindow = pickMatchingWindow(channelWindows, channel, nowMinute);
+  const [formError, setFormError] = useState('');
+  const channelWindows = sortTariffWindows(
+    (windows || []).filter((row) => row.channel === channel),
+  );
+  const activeWindow = pickMatchingWindow(channelWindows, channel, now);
   const liveExample = exampleTripBreakdown(live, km);
   const defaultExample = exampleTripBreakdown({
     perKm: defaults.perKm,
@@ -134,15 +150,35 @@ function ChannelCard({
     setDraft(emptyWindowDraft(defaults.perKm, defaults.base, defaults.commission));
     setShowForm(true);
     setConfirmId(null);
+    setFormError('');
   };
 
   const openEdit = (row) => {
     setDraft(draftFromWindow(row));
     setShowForm(true);
     setConfirmId(null);
+    setFormError('');
+  };
+
+  const toggleWeekday = (id) => {
+    setDraft((prev) => {
+      const next = new Set(prev.weekdays);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { ...prev, weekdays: [...next].sort((a, b) => a - b) };
+    });
   };
 
   const handleSave = async () => {
+    if (draft.scheduleKind === 'weekdays' && !draft.weekdays.length) {
+      setFormError('Elegí al menos un día de la semana.');
+      return;
+    }
+    if (draft.scheduleKind === 'date' && !draft.specificDate) {
+      setFormError('Elegí el día específico.');
+      return;
+    }
+    setFormError('');
     setSaving(true);
     const ok = await onSaveWindow({
       id: draft.id || undefined,
@@ -153,6 +189,10 @@ function ChannelCard({
       base: draft.base,
       commission_percent: draft.commission,
       enabled: true,
+      schedule_kind: draft.scheduleKind,
+      weekdays: draft.scheduleKind === 'weekdays' ? draft.weekdays : [],
+      specific_date: draft.scheduleKind === 'date' ? draft.specificDate : null,
+      label: draft.label,
     });
     setSaving(false);
     if (ok) setShowForm(false);
@@ -167,7 +207,7 @@ function ChannelCard({
             <h2 className="text-[16px] font-semibold tracking-tight text-navy-900">{meta.title}</h2>
             {activeWindow ? (
               <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                Franja activa
+                {activeBadge(activeWindow)}
               </span>
             ) : (
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
@@ -234,26 +274,30 @@ function ChannelCard({
 
       <div className="border-t border-slate-100 px-5 py-4">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Franjas del día</p>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Franjas horarias</p>
+            <p className="mt-0.5 text-[11px] text-slate-400">
+              Prioridad: un día específico, después días recurrentes, después todos los días.
+            </p>
+          </div>
           <button
             type="button"
             onClick={openNew}
-            className="rounded-full bg-navy-900 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-navy-900/90"
+            className="shrink-0 rounded-full bg-navy-900 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-navy-900/90"
           >
             + Agregar
           </button>
         </div>
         <DayTimeline
           windows={channelWindows}
-          channel={channel}
-          nowMinute={nowMinute}
+          now={now}
           accent={meta.accent}
           activeId={activeWindow?.id}
           onSelect={openEdit}
         />
         {channelWindows.length === 0 && !showForm ? (
           <p className="mt-3 text-[12px] leading-relaxed text-slate-400">
-            Sin franjas: vale la tarifa por defecto las 24 horas.
+            Sin franjas: vale la tarifa por defecto las 24 horas, todos los días.
           </p>
         ) : (
           <div className="mt-3 space-y-1.5">
@@ -269,7 +313,7 @@ function ChannelCard({
                     {minutesToTimeInput(row.start_minute)}–{minutesToTimeInput(row.end_minute)}
                   </p>
                   <p className="truncate text-[11px] text-slate-500">
-                    {moneyAr(row.per_km)}/km · base {moneyAr(row.base)} · {Math.round(Number(row.commission_percent) || 0)}%
+                    {formatWindowScheduleLabel(row)} · {moneyAr(row.per_km)}/km · base {moneyAr(row.base)} · {Math.round(Number(row.commission_percent) || 0)}%
                   </p>
                 </div>
                 <button
@@ -306,6 +350,83 @@ function ChannelCard({
 
         {showForm ? (
           <div className="mt-3 space-y-3 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+            <div className="flex flex-wrap gap-1.5">
+              {SCHEDULE_OPTIONS.map((option) => {
+                const selected = draft.scheduleKind === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setDraft((prev) => ({ ...prev, scheduleKind: option.id }))}
+                    className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
+                      selected ? 'bg-navy-900 text-white' : 'bg-white text-slate-500 ring-1 ring-slate-200 hover:text-navy-900'
+                    }`}
+                  >
+                    {option.title}
+                  </button>
+                );
+              })}
+            </div>
+
+            {draft.scheduleKind === 'weekdays' ? (
+              <div className="flex flex-wrap gap-1.5">
+                {WEEKDAY_OPTIONS.map((day) => {
+                  const selected = draft.weekdays.includes(day.id);
+                  return (
+                    <button
+                      key={day.id}
+                      type="button"
+                      title={day.long}
+                      aria-pressed={selected}
+                      onClick={() => toggleWeekday(day.id)}
+                      className={`h-9 min-w-[40px] rounded-xl px-2 text-[11px] font-semibold transition ${
+                        selected ? 'bg-navy-900 text-white' : 'bg-white text-slate-500 ring-1 ring-slate-200 hover:text-navy-900'
+                      }`}
+                    >
+                      {day.short}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {draft.scheduleKind === 'date' ? (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Día</span>
+                  <input
+                    type="date"
+                    value={draft.specificDate}
+                    onChange={(event) => setDraft((prev) => ({ ...prev, specificDate: event.target.value }))}
+                    className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-[14px] font-semibold text-navy-900"
+                  />
+                </label>
+                <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Nombre (opcional)</span>
+                  <input
+                    type="text"
+                    maxLength={80}
+                    placeholder="Navidad, feriado…"
+                    value={draft.label}
+                    onChange={(event) => setDraft((prev) => ({ ...prev, label: event.target.value }))}
+                    className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-[14px] font-semibold text-navy-900 placeholder:font-medium placeholder:text-slate-400"
+                  />
+                </label>
+              </div>
+            ) : (
+              <label className="flex min-w-0 flex-col gap-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Nombre (opcional)</span>
+                <input
+                  type="text"
+                  maxLength={80}
+                  placeholder="Noche, fin de semana…"
+                  value={draft.label}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, label: event.target.value }))}
+                  className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-[14px] font-semibold text-navy-900 placeholder:font-medium placeholder:text-slate-400"
+                />
+              </label>
+            )}
+
             <div className="flex gap-2">
               <label className="flex min-w-0 flex-1 flex-col gap-1.5">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Desde</span>
@@ -325,13 +446,23 @@ function ChannelCard({
                   className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-[14px] font-semibold text-navy-900"
                 />
               </label>
+              <button
+                type="button"
+                onClick={() => setDraft((prev) => ({ ...prev, startTime: '00:00', endTime: '23:59' }))}
+                className="mt-[22px] h-11 shrink-0 rounded-2xl bg-white px-3 text-[11px] font-semibold text-slate-500 ring-1 ring-slate-200 hover:text-navy-900"
+              >
+                Todo el día
+              </button>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Field label="$ / km" prefix="$" value={draft.perKm} onChange={(value) => setDraft((prev) => ({ ...prev, perKm: value }))} />
               <Field label="Base" prefix="$" value={draft.base} onChange={(value) => setDraft((prev) => ({ ...prev, base: value }))} />
               <Field label="Comisión" suffix="%" value={draft.commission} onChange={(value) => setDraft((prev) => ({ ...prev, commission: value }))} />
             </div>
-            <p className="text-[11px] text-slate-400">Si “desde” es mayor que “hasta”, la franja cruza medianoche.</p>
+            <p className="text-[11px] text-slate-400">
+              Si “desde” es mayor que “hasta”, la franja cruza medianoche y sigue valiendo al día siguiente.
+            </p>
+            {formError ? <p className="text-[12px] font-medium text-rose-600">{formError}</p> : null}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -384,7 +515,6 @@ export default function TariffsPanel({
     return () => clearInterval(tick);
   }, []);
 
-  const nowMinute = artMinutesFromDate(now);
   const settingsMap = useMemo(() => settingsMapFromTariffDefaults({
     platformDefaultPerKm,
     platformDefaultBase,
@@ -519,7 +649,7 @@ export default function TariffsPanel({
                   {moneyAr(live.perKm)}<span className="text-[13px] font-medium text-slate-400">/km</span>
                 </p>
                 <p className="mt-2 text-[11px] text-slate-400">
-                  {live.source === 'window' ? 'Franja horaria vigente' : 'Tarifa por defecto'}
+                  {windowSourceLabel(live)}
                 </p>
               </button>
             );
@@ -532,7 +662,7 @@ export default function TariffsPanel({
           defaults={defaultsByChannel[channel]}
           live={liveByChannel[channel]}
           windows={tariffWindows}
-          nowMinute={nowMinute}
+          now={now}
           km={km}
           onUpdateSetting={onUpdateSetting}
           onSaveWindow={onSaveWindow}

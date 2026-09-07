@@ -5,6 +5,9 @@ import {
   parseTimeToMinutes,
   parseTariffNumber,
   fetchTariffWindows,
+  normalizeScheduleKind,
+  normalizeWeekdays,
+  normalizeSpecificDate,
 } from '../../../src/lib/resolveTariff';
 
 export const dynamic = 'force-dynamic';
@@ -52,18 +55,56 @@ function parseWindowBody(body = {}) {
   const perKm = parseTariffNumber(body.per_km ?? body.perKm, 0);
   const base = parseTariffNumber(body.base, 0);
   const commissionPercent = Math.min(100, parseTariffNumber(body.commission_percent ?? body.commission, 0));
+  const scheduleKind = normalizeScheduleKind(body.schedule_kind || body.scheduleKind);
+  const label = String(body.label || '').trim().slice(0, 80) || null;
 
+  const row = {
+    channel,
+    start_minute: Math.round(startMinute),
+    end_minute: Math.round(endMinute),
+    per_km: Math.round(perKm),
+    base: Math.round(base),
+    commission_percent: Math.round(commissionPercent),
+    enabled: body.enabled !== false,
+    updated_at: new Date().toISOString(),
+    schedule_kind: scheduleKind,
+    weekdays: [],
+    specific_date: null,
+    label,
+  };
+
+  if (scheduleKind === 'weekdays') {
+    const weekdays = normalizeWeekdays(body.weekdays);
+    if (!weekdays.length) {
+      return { error: 'Elegí al menos un día de la semana.' };
+    }
+    row.weekdays = weekdays;
+  } else if (scheduleKind === 'date') {
+    const specificDate = normalizeSpecificDate(body.specific_date || body.specificDate);
+    if (!specificDate) {
+      return { error: 'Elegí el día específico.' };
+    }
+    row.specific_date = specificDate;
+  }
+
+  return { row };
+}
+
+function scheduleColumnMissing(err) {
+  const message = err?.message || '';
+  return err?.code === '42703' || /schedule_kind|weekdays|specific_date|\blabel\b/i.test(message);
+}
+
+function windowWriteError(err, fallback) {
+  const missingTable = err?.code === '42P01' || /tariff_windows/i.test(err?.message || '');
+  const missingCols = scheduleColumnMissing(err);
   return {
-    row: {
-      channel,
-      start_minute: Math.round(startMinute),
-      end_minute: Math.round(endMinute),
-      per_km: Math.round(perKm),
-      base: Math.round(base),
-      commission_percent: Math.round(commissionPercent),
-      enabled: body.enabled !== false,
-      updated_at: new Date().toISOString(),
-    },
+    code: missingCols ? 'MISSING_COLUMNS' : (missingTable ? 'MISSING_TABLE' : (err?.code || 'SERVER_ERROR')),
+    message: missingCols
+      ? 'Falta actualizar la tabla tariff_windows. Ejecutá supabase/tariff_windows_schedule.sql en Supabase.'
+      : missingTable
+        ? 'Falta crear la tabla tariff_windows. Ejecutá el SQL de supabase/tariff_windows.sql en Supabase.'
+        : (err?.message || fallback),
   };
 }
 
@@ -95,17 +136,9 @@ export async function POST(request) {
     if (error) throw error;
     return NextResponse.json({ ok: true, data });
   } catch (err) {
-    const missingTable = err?.code === '42P01' || /tariff_windows/i.test(err?.message || '');
+    const parsed = windowWriteError(err, 'No se pudo crear la franja.');
     return NextResponse.json(
-      {
-        ok: false,
-        error: {
-          code: missingTable ? 'MISSING_TABLE' : (err?.code || 'SERVER_ERROR'),
-          message: missingTable
-            ? 'Falta crear la tabla tariff_windows. Ejecutá el SQL de supabase/tariff_windows.sql en Supabase.'
-            : (err?.message || 'No se pudo crear la franja.'),
-        },
-      },
+      { ok: false, error: parsed },
       { status: 500 },
     );
   }
@@ -130,8 +163,9 @@ export async function PATCH(request) {
     if (error) throw error;
     return NextResponse.json({ ok: true, data });
   } catch (err) {
+    const parsed = windowWriteError(err, 'No se pudo actualizar la franja.');
     return NextResponse.json(
-      { ok: false, error: { code: err?.code || 'SERVER_ERROR', message: err?.message || 'No se pudo actualizar la franja.' } },
+      { ok: false, error: parsed },
       { status: 500 },
     );
   }

@@ -35,6 +35,121 @@ describe('resolveTariff', () => {
     expect(match.per_km).toBe(1800);
   });
 
+  it('prioriza día específico, después días recurrentes, después todos los días', () => {
+    const windows = [
+      {
+        channel: 'platform',
+        start_minute: 0,
+        end_minute: 1439,
+        per_km: 1000,
+        enabled: true,
+        schedule_kind: 'always',
+      },
+      {
+        channel: 'platform',
+        start_minute: 0,
+        end_minute: 1439,
+        per_km: 2000,
+        enabled: true,
+        schedule_kind: 'weekdays',
+        weekdays: [5],
+      },
+      {
+        channel: 'platform',
+        start_minute: 0,
+        end_minute: 1439,
+        per_km: 3000,
+        enabled: true,
+        schedule_kind: 'date',
+        specific_date: '2026-12-25',
+        label: 'Navidad',
+      },
+    ];
+    const christmas = new Date('2026-12-25T12:00:00-03:00');
+    const friday = new Date('2026-12-18T12:00:00-03:00');
+    const thursday = new Date('2026-12-24T12:00:00-03:00');
+    expect(pickMatchingWindow(windows, 'platform', christmas).per_km).toBe(3000);
+    expect(pickMatchingWindow(windows, 'platform', friday).per_km).toBe(2000);
+    expect(pickMatchingWindow(windows, 'platform', thursday).per_km).toBe(1000);
+  });
+
+  it('si el feriado no cubre esa hora, usa la franja recurrente o la de todos los días', () => {
+    const windows = [
+      {
+        channel: 'platform',
+        start_minute: 0,
+        end_minute: 1439,
+        per_km: 1000,
+        enabled: true,
+        schedule_kind: 'always',
+      },
+      {
+        channel: 'platform',
+        start_minute: 10 * 60,
+        end_minute: 18 * 60,
+        per_km: 3000,
+        enabled: true,
+        schedule_kind: 'date',
+        specific_date: '2026-12-25',
+      },
+    ];
+    const morning = new Date('2026-12-25T09:00:00-03:00');
+    const noon = new Date('2026-12-25T12:00:00-03:00');
+    expect(pickMatchingWindow(windows, 'platform', morning).per_km).toBe(1000);
+    expect(pickMatchingWindow(windows, 'platform', noon).per_km).toBe(3000);
+  });
+
+  it('una franja nocturna de un día específico sigue valiendo a la madrugada siguiente', () => {
+    const windows = [
+      {
+        channel: 'platform',
+        start_minute: 22 * 60,
+        end_minute: 6 * 60,
+        per_km: 1190,
+        enabled: true,
+        schedule_kind: 'always',
+      },
+      {
+        channel: 'platform',
+        start_minute: 22 * 60,
+        end_minute: 6 * 60,
+        per_km: 5000,
+        enabled: true,
+        schedule_kind: 'date',
+        specific_date: '2026-12-25',
+      },
+    ];
+    expect(pickMatchingWindow(windows, 'platform', new Date('2026-12-25T23:00:00-03:00')).per_km).toBe(5000);
+    expect(pickMatchingWindow(windows, 'platform', new Date('2026-12-26T02:00:00-03:00')).per_km).toBe(5000);
+    expect(pickMatchingWindow(windows, 'platform', new Date('2026-12-26T23:00:00-03:00')).per_km).toBe(1190);
+  });
+
+  it('sábado 22:00–06:00 cubre el domingo a la madrugada y no el lunes', () => {
+    const windows = [
+      {
+        channel: 'platform',
+        start_minute: 22 * 60,
+        end_minute: 6 * 60,
+        per_km: 1000,
+        enabled: true,
+        schedule_kind: 'always',
+      },
+      {
+        channel: 'platform',
+        start_minute: 22 * 60,
+        end_minute: 6 * 60,
+        per_km: 2000,
+        enabled: true,
+        schedule_kind: 'weekdays',
+        weekdays: [6],
+      },
+    ];
+    expect(pickMatchingWindow(windows, 'platform', new Date('2026-09-05T23:00:00-03:00')).per_km).toBe(2000);
+    expect(pickMatchingWindow(windows, 'platform', new Date('2026-09-06T02:00:00-03:00')).per_km).toBe(2000);
+    expect(pickMatchingWindow(windows, 'platform', new Date('2026-09-06T23:00:00-03:00')).per_km).toBe(1000);
+    expect(pickMatchingWindow(windows, 'platform', new Date('2026-09-07T02:00:00-03:00')).per_km).toBe(1000);
+  });
+
   it('usa defaults si no hay franja y web hereda app si faltan keys', () => {
     const settingsMap = {
       passenger_app_tariff_per_km: '600',
