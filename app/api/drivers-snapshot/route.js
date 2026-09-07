@@ -45,7 +45,7 @@ export async function GET() {
       supabase.from('drivers').select('*'),
       supabase
         .from('trips')
-        .select('driver_id, status, passenger_name, destination_address')
+        .select('id, driver_id, status, passenger_name, destination_address')
         .in('status', ACTIVE_TRIP_STATUSES),
       supabase.from('settings').select('key, value').like('key', 'vehicle_type_%'),
     ]);

@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveDriverIsOnline } from '../lib/driverPresence';
-import { mergeSnapshotKeepingFresherGps, gpsTimestampForCoordChange } from '../lib/driverMapGps';
+import { gpsTimestampForCoordChange } from '../lib/driverMapGps';
+import {
+  applyTripRealtimeToDrivers,
+  mergeDriversSnapshotWithTripRealtime,
+} from '../lib/tripRealtime';
 import {
   resolveCommissionOverdue,
   isDriverDispatchBlocked,
@@ -75,7 +79,7 @@ export function useDrivers() {
 
       const nextDrivers = payload?.data || [];
       setDrivers((prev) => {
-        const merged = mergeSnapshotKeepingFresherGps(prev, nextDrivers);
+        const merged = mergeDriversSnapshotWithTripRealtime(prev, nextDrivers);
         return driversSnapshotUnchanged(prev, merged) ? prev : merged;
       });
     } catch (err) {
@@ -214,7 +218,8 @@ export function useDrivers() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'trips' },
-        () => {
+        (payload) => {
+          setDrivers((prev) => applyTripRealtimeToDrivers(prev, payload));
           scheduleFetchAll();
         }
       )

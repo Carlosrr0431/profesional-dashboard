@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { applyTripRealtimeToQueue } from '../lib/tripRealtime';
 
 function waitMinutes(dateStr, nowMs = Date.now()) {
   if (!dateStr) return 0;
@@ -52,6 +53,7 @@ export function useQueuedPassengers() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [waitTick, setWaitTick] = useState(() => Date.now());
   const channelRef = useRef(null);
+  const lastTripPayloadRef = useRef(null);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -67,8 +69,15 @@ export function useQueuedPassengers() {
         return;
       }
 
-      setQueuedRaw(result.queue);
       setDispatchLog(result.log);
+      setQueuedRaw(() => {
+        let next = result.queue;
+        const last = lastTripPayloadRef.current;
+        if (last && Date.now() - last.at < 2500) {
+          next = applyTripRealtimeToQueue(next, last.payload);
+        }
+        return next;
+      });
       setLastUpdated(new Date());
     } catch (err) {
       console.error('[useQueuedPassengers] Error:', formatFetchError(err));
@@ -88,9 +97,16 @@ export function useQueuedPassengers() {
       }, 250);
     };
 
+    const applyTripPayload = (payload) => {
+      lastTripPayloadRef.current = { payload, at: Date.now() };
+      setQueuedRaw((prev) => applyTripRealtimeToQueue(prev, payload));
+      setLastUpdated(new Date());
+      scheduleFetch();
+    };
+
     const channel = supabase
       .channel(`queue-monitor-v3-${Date.now()}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, scheduleFetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, applyTripPayload)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_conversations' }, scheduleFetch)
       .subscribe();
 

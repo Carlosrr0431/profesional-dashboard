@@ -105,6 +105,7 @@ export function useScheduledTrips() {
   const channelRef = useRef(null);
   const fetchGenRef = useRef(0);
   const lastUpsertAtRef = useRef(0);
+  const lastTripPayloadRef = useRef(null);
 
   const fetchTrips = useCallback(async () => {
     const gen = ++fetchGenRef.current;
@@ -123,7 +124,14 @@ export function useScheduledTrips() {
         return;
       }
 
-      setTrips(next);
+      setTrips(() => {
+        let rows = next;
+        const last = lastTripPayloadRef.current;
+        if (last && Date.now() - last.at < 2500) {
+          rows = applyScheduledRealtimePayload(rows, last.payload);
+        }
+        return rows;
+      });
       setLastUpdated(new Date());
     } catch (err) {
       if (gen !== fetchGenRef.current) return;
@@ -156,6 +164,7 @@ export function useScheduledTrips() {
     };
 
     const applyPayload = (payload) => {
+      lastTripPayloadRef.current = { payload, at: Date.now() };
       setTrips((prev) => applyScheduledRealtimePayload(prev, payload));
       setLastUpdated(new Date());
       scheduleFetch();

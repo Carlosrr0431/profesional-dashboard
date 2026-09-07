@@ -4,8 +4,10 @@ import {
   resolveTripsViewRange,
   toAnchorString,
 } from '../lib/commissionPaymentPeriods';
-
-const ACTIVE_STATUSES = new Set(['pending', 'accepted', 'going_to_pickup', 'in_progress']);
+import {
+  applyTripRealtimeToLiveList,
+  mapLiveTripFromRow,
+} from '../lib/tripRealtime';
 
 function formatFetchError(err) {
   if (err instanceof Error && err.message) return err.message;
@@ -25,47 +27,8 @@ export function toLocalDateInputValue(date = new Date()) {
   return `${y}-${m}-${d}`;
 }
 
-function isSameLocalDay(dateStr, dayStr) {
-  if (!dateStr || !dayStr) return false;
-  return toLocalDateInputValue(new Date(dateStr)) === dayStr;
-}
-
-function isInRange(isoDate, startIso, endIso) {
-  const ms = new Date(isoDate).getTime();
-  const startMs = new Date(startIso).getTime();
-  const endMs = new Date(endIso).getTime();
-  return Number.isFinite(ms) && ms >= startMs && ms < endMs;
-}
-
 function mapTrip(trip, range) {
-  const inSelectedRange = trip.in_selected_range === true
-    || trip.in_selected_day === true
-    || (range?.start && range?.end && isInRange(trip.created_at, range.start, range.end));
-
-  return {
-    id: trip.id,
-    passengerName: trip.passenger_name || 'Pasajero',
-    passengerPhone: trip.passenger_phone || '',
-    pickupAddress: trip.destination_address || trip.origin_address || '—',
-    driverOrigin: trip.origin_address || null,
-    destination: trip.destination_address || null,
-    status: trip.status,
-    cancelReason: trip.cancel_reason || null,
-    createdAt: trip.created_at,
-    acceptedAt: trip.accepted_at,
-    startedAt: trip.started_at,
-    completedAt: trip.completed_at,
-    price: trip.price != null ? Number(trip.price) : null,
-    distanceKm: trip.distance_km != null ? Number(trip.distance_km) : null,
-    durationMinutes: trip.duration_minutes != null ? Number(trip.duration_minutes) : null,
-    commissionAmount: trip.commission_amount != null ? Number(trip.commission_amount) : null,
-    notes: trip.notes || null,
-    driver: trip.driver || null,
-    isSelectedDay: inSelectedRange,
-    isToday: isSameLocalDay(trip.created_at, toLocalDateInputValue()),
-    isActive: ACTIVE_STATUSES.has(trip.status),
-    isQueued: trip.status === 'queued' && trip.dispatch_status !== 'hold',
-  };
+  return mapLiveTripFromRow(trip, range);
 }
 
 async function fetchTripsRange(mode, date) {
@@ -117,8 +80,11 @@ export function useLiveTrips(
   const refetchTimerRef = useRef(null);
   const selectedDateRef = useRef(selectedDate);
   const selectedModeRef = useRef(selectedMode);
+  const rangeMetaRef = useRef(rangeMeta);
+  const lastTripPayloadRef = useRef(null);
   selectedDateRef.current = selectedDate;
   selectedModeRef.current = selectedMode;
+  rangeMetaRef.current = rangeMeta;
 
   const fetchAll = useCallback(async () => {
     const date = selectedDateRef.current;
@@ -142,7 +108,14 @@ export function useLiveTrips(
       };
       setError(null);
       setRangeMeta(range);
-      setTrips((result.trips || []).map((t) => mapTrip(t, range)));
+      setTrips(() => {
+        let next = (result.trips || []).map((t) => mapTrip(t, range));
+        const last = lastTripPayloadRef.current;
+        if (last && Date.now() - last.at < 2500) {
+          next = applyTripRealtimeToLiveList(next, last.payload, range);
+        }
+        return next;
+      });
       setLastUpdated(new Date());
     } catch (err) {
       console.error('[useLiveTrips] Error:', formatFetchError(err));
@@ -166,9 +139,16 @@ export function useLiveTrips(
   }, [fetchAll, selectedDate, selectedMode]);
 
   useEffect(() => {
+    const applyPayload = (payload) => {
+      lastTripPayloadRef.current = { payload, at: Date.now() };
+      setTrips((prev) => applyTripRealtimeToLiveList(prev, payload, rangeMetaRef.current));
+      setLastUpdated(new Date());
+      scheduleRefetch();
+    };
+
     const channel = supabase
       .channel(`live-trips-monitor-${Date.now()}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, applyPayload)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, scheduleRefetch)
       .subscribe();
 
