@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveDriverIsOnline } from '../lib/driverPresence';
+import { mergeSnapshotKeepingFresherGps, gpsTimestampForCoordChange } from '../lib/driverMapGps';
 import {
   resolveCommissionOverdue,
   isDriverDispatchBlocked,
@@ -73,7 +74,10 @@ export function useDrivers() {
       }
 
       const nextDrivers = payload?.data || [];
-      setDrivers((prev) => (driversSnapshotUnchanged(prev, nextDrivers) ? prev : nextDrivers));
+      setDrivers((prev) => {
+        const merged = mergeSnapshotKeepingFresherGps(prev, nextDrivers);
+        return driversSnapshotUnchanged(prev, merged) ? prev : merged;
+      });
     } catch (err) {
       console.error('[useDrivers] fetchAll error:', err?.message || err);
     } finally {
@@ -180,7 +184,11 @@ export function useDrivers() {
             const hasCoords = row.current_lat != null && row.current_lng != null;
             const nextLat = hasCoords ? toNumber(row.current_lat, prevDriver.lat) : prevDriver.lat;
             const nextLng = hasCoords ? toNumber(row.current_lng, prevDriver.lng) : prevDriver.lng;
-            const nextUpdatedAt = prevDriver.updatedAt || row.updated_at;
+            const coordsChanged = hasCoords
+              && (nextLat !== prevDriver.lat || nextLng !== prevDriver.lng);
+            const nextUpdatedAt = coordsChanged
+              ? gpsTimestampForCoordChange(prevDriver.updatedAt, row.updated_at)
+              : (prevDriver.updatedAt || row.updated_at);
             const flaggedAvailable = Boolean(row.is_available);
             const gpsSimulationActive = row.gps_simulation_active != null
               ? Boolean(row.gps_simulation_active)

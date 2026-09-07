@@ -9,6 +9,7 @@ import { isFleetOwner } from '../../../src/lib/driverRoles';
 import {
   resolveDriverIsOnline,
 } from '../../../src/lib/driverPresence';
+import { pickDriverGps } from '../../../src/lib/driverMapGps';
 import {
   resolveCommissionOverdue as resolveCommissionOverdueFromDriver,
   isDriverDispatchBlocked,
@@ -88,9 +89,10 @@ export async function GET() {
       const activeTrip = resolveDisplayActiveTrip(merged.id, activeTripsMap);
       const pendingCommission = Math.max(0, toNumber(merged.pending_commission, 0));
       const assigned = Boolean(merged.is_assigned_driver && merged.owner_id);
-      const lat = toNumber(loc?.lat ?? merged.current_lat, 0);
-      const lng = toNumber(loc?.lng ?? merged.current_lng, 0);
-      const updatedAt = loc?.updated_at || loc?.recorded_at || merged.updated_at;
+      const gps = pickDriverGps(loc, merged, nowMs);
+      const lat = gps.lat;
+      const lng = gps.lng;
+      const updatedAt = gps.updatedAt;
       const flaggedAvailable = Boolean(merged.is_available);
       const gpsSimulationActive = Boolean(merged.gps_simulation_active);
       const isOnline = resolveDriverIsOnline({
@@ -105,8 +107,8 @@ export async function GET() {
         id: merged.id,
         lat,
         lng,
-        speed: toNumber(loc?.speed ?? loc?.speed_kmh, 0),
-        heading: toNumber(loc?.heading, 0),
+        speed: gps.speed,
+        heading: gps.heading,
         isOnline,
         updatedAt,
         fullName: merged.full_name || 'Sin nombre',

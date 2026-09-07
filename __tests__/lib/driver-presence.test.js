@@ -44,3 +44,34 @@ describe('driverPresence', () => {
     expect(isDriverPresenceFresh('2026-07-12T20:00:00.000Z', now)).toBe(false);
   });
 });
+
+const { shouldShowDriverOnMap } = require('../../src/lib/driverPresence');
+
+describe('shouldShowDriverOnMap', () => {
+  it('muestra libres y en viaje, oculta desconectados', () => {
+    expect(shouldShowDriverOnMap({
+      isAvailable: true,
+      lat: -24.8,
+      lng: -65.4,
+    })).toBe(true);
+
+    expect(shouldShowDriverOnMap({
+      isAvailable: false,
+      lat: -24.8,
+      lng: -65.4,
+      activeTrip: { id: 't1', status: 'in_progress' },
+    })).toBe(true);
+
+    expect(shouldShowDriverOnMap({
+      isAvailable: false,
+      lat: -24.8,
+      lng: -65.4,
+    })).toBe(false);
+
+    expect(shouldShowDriverOnMap({
+      isAvailable: true,
+      lat: 0,
+      lng: 0,
+    })).toBe(false);
+  });
+});

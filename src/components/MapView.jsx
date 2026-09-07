@@ -12,6 +12,7 @@ import {
 import DriverInfoWindow from './DriverInfoWindow';
 import PassengerInfoWindow from './PassengerInfoWindow';
 import { MAP_STYLE, mapLibreOptions } from '../lib/mapLibre';
+import { shouldShowDriverOnMap } from '../lib/driverPresence';
 
 const MAP_CSS = `
 .maplibregl-map { font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
@@ -275,7 +276,7 @@ const MapView = memo(function MapView({
         {drivers.map((driver) => {
           const lat = Number(driver.lat);
           const lng = Number(driver.lng);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
+          if (!shouldShowDriverOnMap({ ...driver, lat, lng })) return null;
           const isMultiSelected = multiSelectMode && selectedSet.has(driver.id);
           return (
             <DriverMapPin

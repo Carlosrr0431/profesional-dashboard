@@ -42,3 +42,10 @@ export function resolveDriverIsOnline(driver, _nowMs = Date.now()) {
   if (!flagged) return false;
   return hasValidDriverCoords(driver?.lat, driver?.lng);
 }
+
+/** Pines del mapa: libres (verde) y en viaje. No mostrar desconectados. */
+export function shouldShowDriverOnMap(driver) {
+  if (!hasValidDriverCoords(driver?.lat, driver?.lng)) return false;
+  if (driver?.activeTrip) return true;
+  return resolveDriverIsOnline(driver);
+}
