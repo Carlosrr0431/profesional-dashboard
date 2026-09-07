@@ -310,8 +310,8 @@ export default function ZoneManagement({
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       {/* ── Header ─────────────────────────────────────────────── */}
-      <div className={`flex flex-shrink-0 flex-col gap-3 border-b border-light-300/50 bg-light-50 px-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 ${
-        embedded ? 'py-2.5' : 'py-3 sm:py-4'
+      <div className={`flex flex-shrink-0 flex-col gap-2 border-b border-light-300/50 bg-light-50 px-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 ${
+        embedded ? 'py-2' : 'py-3 sm:py-4'
       }`}>
         <div className="flex min-w-0 items-center gap-3">
           {embedded || !onBack ? null : (
@@ -360,7 +360,9 @@ export default function ZoneManagement({
         <button
           onClick={handleStartDrawing}
           disabled={isDrawing || !isLoaded}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-accent/20 transition-all hover:bg-accent-light disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+          className={`flex w-full items-center justify-center gap-2 rounded-xl bg-accent text-sm font-semibold text-white shadow-md shadow-accent/20 transition-all hover:bg-accent-light disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto ${
+            embedded ? 'px-3.5 py-2' : 'px-4 py-2.5'
+          }`}
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
@@ -515,7 +517,7 @@ export default function ZoneManagement({
 
         {/* Área del mapa */}
         <div className={`relative min-h-0 flex-1 overflow-hidden ${
-          embedded && isHotSection ? 'min-h-[240px] lg:min-h-0' : ''
+          embedded && isHotSection ? 'min-h-[420px] lg:min-h-0' : ''
         }`}>
           {/* Banner de modo dibujo */}
           {isDrawing && (

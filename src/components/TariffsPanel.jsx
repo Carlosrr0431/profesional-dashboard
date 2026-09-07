@@ -711,105 +711,103 @@ export default function TariffsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col bg-[#F3F5F8]">
-      <div className="shrink-0 px-3 pt-3 sm:px-5">
-        <header className={`relative mx-auto max-w-6xl overflow-hidden rounded-[28px] bg-navy-900 px-5 text-white shadow-lg shadow-navy-900/10 sm:px-6 ${
-          section === 'zones' ? 'py-3.5' : 'py-5'
-        }`}>
-          <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-sky-400/20 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-24 left-1/3 h-48 w-48 rounded-full bg-amber-300/10 blur-3xl" />
-          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex items-start gap-3">
+      <div ref={scrollRootRef} className="tariffs-scroll min-h-0 flex-1">
+        <div className="px-3 pt-2 sm:px-5">
+          <header className="mx-auto max-w-6xl rounded-2xl bg-navy-900 px-3 py-2 text-white shadow-md shadow-navy-900/10 sm:px-4">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white/80 transition hover:bg-white/20 hover:text-white"
+                  aria-label="Volver al mapa"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">Configuración</p>
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <h1 className="text-[17px] font-semibold tracking-tight">Tarifas</h1>
+                    <p className="truncate text-[12px] text-white/55">
+                      Ahora {artClockLabel(now)} · {moneyAr(tariffPerKm)}/km · base {moneyAr(tariffBase)} · comisión {Math.round(commissionPercent)}%
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-1 lg:max-w-sm lg:items-stretch">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="mr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">Simulador</p>
+                  {KM_PRESETS.map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setKm(preset)}
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
+                        km === preset ? 'bg-white text-navy-900' : 'bg-white/10 text-white/70 hover:bg-white/20'
+                      }`}
+                    >
+                      {preset} km
+                    </button>
+                  ))}
+                </div>
+                <label className="block">
+                  <span className="sr-only">Kilómetros de ejemplo</span>
+                  <input
+                    type="range"
+                    min="1"
+                    max="30"
+                    value={km}
+                    onChange={(event) => setKm(Number(event.target.value) || 5)}
+                    className="w-full accent-amber-400"
+                  />
+                </label>
+              </div>
+            </div>
+          </header>
+
+          <div className="mx-auto mt-2 max-w-6xl">
+            <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-200/80 p-1">
               <button
                 type="button"
-                onClick={onBack}
-                className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white/80 transition hover:bg-white/20 hover:text-white"
-                aria-label="Volver al mapa"
+                onClick={() => setSection('general')}
+                className={`h-9 rounded-lg px-3 text-[13px] font-semibold transition ${
+                  section === 'general'
+                    ? 'bg-navy-900 text-white shadow-sm shadow-navy-900/20'
+                    : 'bg-white text-slate-500 hover:text-navy-900'
+                }`}
               >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
+                Tarifas general
               </button>
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">Configuración</p>
-                <h1 className="mt-1 text-[30px] font-semibold tracking-tight">Tarifas</h1>
-                <p className="mt-1 text-[13px] text-white/55">
-                  Ahora {artClockLabel(now)} · {moneyAr(tariffPerKm)}/km · base {moneyAr(tariffBase)} · comisión {Math.round(commissionPercent)}%
-                </p>
-              </div>
-            </div>
-            <div className="min-w-[220px] rounded-2xl bg-white/10 px-4 py-3 ring-1 ring-white/10">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">Simulador</p>
-              <div className="mt-2 flex items-center gap-2">
-                {KM_PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setKm(preset)}
-                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums ${
-                      km === preset ? 'bg-white text-navy-900' : 'bg-white/10 text-white/70 hover:bg-white/20'
-                    }`}
-                  >
-                    {preset} km
-                  </button>
-                ))}
-              </div>
-              <label className="mt-2 block">
-                <span className="sr-only">Kilómetros de ejemplo</span>
-                <input
-                  type="range"
-                  min="1"
-                  max="30"
-                  value={km}
-                  onChange={(event) => setKm(Number(event.target.value) || 5)}
-                  className="w-full accent-amber-400"
-                />
-              </label>
+              <button
+                type="button"
+                onClick={() => setSection('zones')}
+                className={`h-9 rounded-lg px-3 text-[13px] font-semibold transition ${
+                  section === 'zones'
+                    ? 'bg-navy-900 text-white shadow-sm shadow-navy-900/20'
+                    : 'bg-white text-slate-500 hover:text-navy-900'
+                }`}
+              >
+                Tarifas por zonas
+              </button>
             </div>
           </div>
-        </header>
-
-        <div className="mx-auto mt-3 max-w-6xl">
-          <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-slate-200/80 p-1.5 shadow-inner">
-            <button
-              type="button"
-              onClick={() => setSection('general')}
-              className={`h-12 rounded-xl px-3 text-[14px] font-semibold transition ${
-                section === 'general'
-                  ? 'bg-navy-900 text-white shadow-md shadow-navy-900/25'
-                  : 'bg-white text-slate-500 hover:text-navy-900'
-              }`}
-            >
-              Tarifas general
-            </button>
-            <button
-              type="button"
-              onClick={() => setSection('zones')}
-              className={`h-12 rounded-xl px-3 text-[14px] font-semibold transition ${
-                section === 'zones'
-                  ? 'bg-navy-900 text-white shadow-md shadow-navy-900/25'
-                  : 'bg-white text-slate-500 hover:text-navy-900'
-              }`}
-            >
-              Tarifas por zonas
-            </button>
-          </div>
         </div>
-      </div>
 
-      {section === 'zones' ? (
-        <div className="mt-3 min-h-0 flex-1 overflow-hidden px-3 pb-3 sm:px-5">
-          <div className="h-full min-h-0 overflow-hidden rounded-[28px] bg-white shadow-sm ring-1 ring-slate-200/70">
-            <ZoneManagement
-              mode="hot"
-              embedded
-              liveTariffs={liveByChannel}
-              exampleKm={km}
-            />
+        {section === 'zones' ? (
+          <div className="px-3 pb-10 pt-2 sm:px-5">
+            <div className="h-[calc(100dvh-2.5rem)] min-h-[760px] overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+              <ZoneManagement
+                mode="hot"
+                embedded
+                liveTariffs={liveByChannel}
+                exampleKm={km}
+              />
+            </div>
           </div>
-        </div>
-      ) : (
-        <div ref={scrollRootRef} className="tariffs-scroll mt-3 min-h-0 flex-1">
-          <div className="mx-auto max-w-6xl space-y-5 px-3 pb-16 sm:px-5">
+        ) : (
+          <div className="mx-auto max-w-6xl space-y-5 px-3 pb-16 pt-2 sm:px-5">
             <div className="grid gap-3 sm:grid-cols-3">
               {CHANNEL_ORDER.map((id) => {
                 const meta = TARIFF_CHANNEL_META[id];
@@ -864,8 +862,8 @@ export default function TariffsPanel({
               onDeleteWindow={onDeleteWindow}
             />
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
