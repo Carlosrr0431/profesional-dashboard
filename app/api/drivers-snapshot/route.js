@@ -41,9 +41,8 @@ export async function GET() {
     const supabase = getSupabaseAdmin();
     const nowMs = Date.now();
 
-    const [driversRes, locationsRes, activeTripsRes, vtRes] = await Promise.all([
+    const [driversRes, activeTripsRes, vtRes] = await Promise.all([
       supabase.from('drivers').select('*'),
-      supabase.from('driver_locations').select('*'),
       supabase
         .from('trips')
         .select('driver_id, status, passenger_name, destination_address')
@@ -52,20 +51,6 @@ export async function GET() {
     ]);
 
     if (driversRes.error) throw driversRes.error;
-
-    const locationsMap = {};
-    (locationsRes.data || []).forEach((loc) => {
-      if (!loc?.driver_id) return;
-      const prev = locationsMap[loc.driver_id];
-      if (!prev) {
-        locationsMap[loc.driver_id] = loc;
-        return;
-      }
-      // Si hay historial (varias filas), quedarse con la más reciente.
-      const prevTs = new Date(prev.updated_at || prev.recorded_at || 0).getTime();
-      const nextTs = new Date(loc.updated_at || loc.recorded_at || 0).getTime();
-      if (nextTs >= prevTs) locationsMap[loc.driver_id] = loc;
-    });
 
     const activeTripsList = activeTripsRes.data || [];
     const activeTripsMap = {};
@@ -85,11 +70,10 @@ export async function GET() {
     const mapped = (driversRes.data || []).map((driver) => {
       const owner = driver.owner_id ? ownersById[driver.owner_id] : null;
       const merged = mergeAssignedDriverWithOwner(driver, owner);
-      const loc = locationsMap[merged.id];
       const activeTrip = resolveDisplayActiveTrip(merged.id, activeTripsMap);
       const pendingCommission = Math.max(0, toNumber(merged.pending_commission, 0));
       const assigned = Boolean(merged.is_assigned_driver && merged.owner_id);
-      const gps = pickDriverGps(loc, merged, nowMs);
+      const gps = pickDriverGps(null, merged, nowMs);
       const lat = gps.lat;
       const lng = gps.lng;
       const updatedAt = gps.updatedAt;

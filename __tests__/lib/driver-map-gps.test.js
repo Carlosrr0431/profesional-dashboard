@@ -4,7 +4,6 @@ import {
   pickDriverGps,
   mergeSnapshotKeepingFresherGps,
   gpsTimestampForCoordChange,
-  STALE_DRIVER_LOCATION_MS,
 } from '../../src/lib/driverMapGps';
 
 describe('pickDriverGps', () => {
@@ -15,7 +14,7 @@ describe('pickDriverGps', () => {
     updated_at: '2026-09-06T19:59:58.000Z',
   };
 
-  it('usa driver_locations si el heartbeat es fresco', () => {
+  it('prioriza current_lat aunque driver_locations sea fresco', () => {
     const gps = pickDriverGps({
       lat: -24.78,
       lng: -65.42,
@@ -24,16 +23,17 @@ describe('pickDriverGps', () => {
       heading: 90,
     }, driver, now);
 
-    expect(gps.lat).toBe(-24.78);
-    expect(gps.lng).toBe(-65.42);
+    expect(gps.lat).toBe(-24.79);
+    expect(gps.lng).toBe(-65.41);
     expect(gps.speed).toBe(12);
+    expect(gps.heading).toBe(90);
   });
 
-  it('usa current_lat si driver_locations está viejo', () => {
+  it('usa current_lat si driver_locations está viejo o distinto', () => {
     const gps = pickDriverGps({
       lat: -24.70,
       lng: -65.30,
-      updated_at: new Date(now - STALE_DRIVER_LOCATION_MS - 1000).toISOString(),
+      updated_at: '2026-09-06T19:00:00.000Z',
     }, driver, now);
 
     expect(gps.lat).toBe(-24.79);
@@ -44,6 +44,17 @@ describe('pickDriverGps', () => {
     const gps = pickDriverGps(null, driver, now);
     expect(gps.lat).toBe(-24.79);
     expect(gps.lng).toBe(-65.41);
+  });
+
+  it('cae a driver_locations si no hay current_lat', () => {
+    const gps = pickDriverGps({
+      lat: -24.78,
+      lng: -65.42,
+      updated_at: '2026-09-06T19:59:57.000Z',
+    }, { current_lat: null, current_lng: null }, now);
+
+    expect(gps.lat).toBe(-24.78);
+    expect(gps.lng).toBe(-65.42);
   });
 });
 

@@ -1,7 +1,5 @@
 import { hasValidDriverCoords, resolveDriverIsOnline } from './driverPresence';
 
-export const STALE_DRIVER_LOCATION_MS = 8000;
-
 function toTs(value) {
   const ts = Date.parse(value || '');
   return Number.isFinite(ts) ? ts : 0;
@@ -13,47 +11,37 @@ function toCoordNumber(value, fallback = 0) {
 }
 
 /**
- * Elige coords para el mapa: driver_locations si está fresco,
- * si no current_lat/lng (se escriben más seguido desde la app).
+ * Posición del mapa: siempre current_lat/lng de drivers.
+ * driver_locations solo aporta speed/heading o coords si no hay current_*.
  */
-export function pickDriverGps(loc, driver, nowMs = Date.now()) {
+export function pickDriverGps(loc, driver) {
   const locLat = loc?.lat;
   const locLng = loc?.lng;
   const curLat = driver?.current_lat;
   const curLng = driver?.current_lng;
   const locValid = hasValidDriverCoords(locLat, locLng);
   const curValid = hasValidDriverCoords(curLat, curLng);
-  const locTs = toTs(loc?.updated_at || loc?.recorded_at);
   const speed = toCoordNumber(loc?.speed ?? loc?.speed_kmh, 0);
   const heading = toCoordNumber(loc?.heading, 0);
 
-  const fromLoc = () => ({
-    lat: toCoordNumber(locLat, 0),
-    lng: toCoordNumber(locLng, 0),
-    updatedAt: loc?.updated_at || loc?.recorded_at || driver?.updated_at || null,
-    speed,
-    heading,
-  });
-
-  const fromCurrent = (updatedAt) => ({
-    lat: toCoordNumber(curLat, 0),
-    lng: toCoordNumber(curLng, 0),
-    updatedAt: updatedAt || driver?.updated_at || loc?.updated_at || loc?.recorded_at || null,
-    speed,
-    heading,
-  });
-
-  if (locValid && curValid) {
-    const locAge = locTs ? nowMs - locTs : Number.POSITIVE_INFINITY;
-    const differs = toCoordNumber(locLat) !== toCoordNumber(curLat)
-      || toCoordNumber(locLng) !== toCoordNumber(curLng);
-    if (differs && locAge > STALE_DRIVER_LOCATION_MS) {
-      return fromCurrent(new Date(nowMs).toISOString());
-    }
-    return fromLoc();
+  if (curValid) {
+    return {
+      lat: toCoordNumber(curLat, 0),
+      lng: toCoordNumber(curLng, 0),
+      updatedAt: driver?.updated_at || loc?.updated_at || loc?.recorded_at || null,
+      speed,
+      heading,
+    };
   }
-  if (locValid) return fromLoc();
-  if (curValid) return fromCurrent(driver?.updated_at || null);
+  if (locValid) {
+    return {
+      lat: toCoordNumber(locLat, 0),
+      lng: toCoordNumber(locLng, 0),
+      updatedAt: loc?.updated_at || loc?.recorded_at || driver?.updated_at || null,
+      speed,
+      heading,
+    };
+  }
   return {
     lat: 0,
     lng: 0,

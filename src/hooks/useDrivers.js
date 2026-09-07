@@ -115,36 +115,16 @@ export function useDrivers() {
               return prev;
             }
             const prevDriver = prev[idx];
-            const nextLat = toNumber(loc.lat, prevDriver.lat);
-            const nextLng = toNumber(loc.lng, prevDriver.lng);
-            const nextUpdatedAt = loc.updated_at || loc.recorded_at || prevDriver.updatedAt;
-            // Evitar pisar una posición más fresca con un evento atrasado.
-            if (
-              nextUpdatedAt
-              && prevDriver.updatedAt
-              && new Date(nextUpdatedAt).getTime() < new Date(prevDriver.updatedAt).getTime()
-            ) {
-              return prev;
-            }
-            if (nextLat === prevDriver.lat && nextLng === prevDriver.lng
-              && nextUpdatedAt === prevDriver.updatedAt) {
+            const nextSpeed = toNumber(loc.speed ?? loc.speed_kmh, prevDriver.speed || 0);
+            const nextHeading = toNumber(loc.heading, prevDriver.heading || 0);
+            if (nextSpeed === prevDriver.speed && nextHeading === prevDriver.heading) {
               return prev;
             }
             const updated = [...prev];
             updated[idx] = {
               ...prevDriver,
-              lat: nextLat,
-              lng: nextLng,
-              speed: toNumber(loc.speed ?? loc.speed_kmh, prevDriver.speed || 0),
-              heading: toNumber(loc.heading, prevDriver.heading || 0),
-              updatedAt: nextUpdatedAt,
-              isOnline: resolveDriverIsOnline({
-                isAvailable: prevDriver.isAvailable || prevDriver.isOnline,
-                lat: nextLat,
-                lng: nextLng,
-                updatedAt: nextUpdatedAt,
-                gpsSimulationActive: prevDriver.gpsSimulationActive,
-              }),
+              speed: nextSpeed,
+              heading: nextHeading,
             };
             return updated;
           });
