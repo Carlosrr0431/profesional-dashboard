@@ -16,6 +16,7 @@ import {
   resolveCommissionOverdue,
   isDriverDispatchBlocked,
 } from '../lib/driverBilling';
+import { DriverRatingBreakdown } from './DriverRatingView';
 
 export default function DriverDetailPanel({
   driver,
@@ -381,12 +382,13 @@ function InfoTab({ driver, stats }) {
     { label: 'Color', value: driver.vehicle_color || '—' },
     { label: 'Licencia', value: driver.license_expiry || '—' },
     { label: 'Cobro', value: BILLING_MODE_LABELS[billingMode] || BILLING_MODE_LABELS[BILLING_MODE_COMMISSION] },
-    { label: 'Rating', value: `⭐ ${parseFloat(driver.rating || 5).toFixed(1)}` },
     { label: 'Registrado', value: driver.created_at ? new Date(driver.created_at).toLocaleDateString('es-AR') : '—' },
   ];
 
   return (
-    <div className="p-5 pb-8 space-y-4">
+    <div className="p-4 pb-8 space-y-4 sm:p-5">
+      <DriverRatingBreakdown driver={driver} />
+
       {/* Stats grid */}
       <div className="grid grid-cols-2 gap-2.5">
         <StatCard label="Viajes Hoy" value={stats.todayTrips} color="text-accent" />

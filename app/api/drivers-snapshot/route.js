@@ -15,6 +15,7 @@ import {
   isDriverDispatchBlocked,
   normalizeBillingMode,
 } from '../../../shared/driver-billing.js';
+import { summarizeDriverRating } from '../../../shared/driver-rating.js';
 
 const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 
@@ -86,6 +87,7 @@ export async function GET() {
         updatedAt,
         gpsSimulationActive,
       }, nowMs);
+      const ratingSummary = summarizeDriverRating(merged);
 
       return {
         id: merged.id,
@@ -107,7 +109,9 @@ export async function GET() {
         vehicleType: merged.vehicle_type || vehicleTypeMap[merged.id] || 'auto',
         isAvailable: flaggedAvailable,
         gpsSimulationActive,
-        rating: toNumber(merged.rating, 5),
+        rating: ratingSummary.average,
+        ratingCount: ratingSummary.count,
+        ratingLabel: ratingSummary.compactLabel,
         totalTrips: toNumber(merged.total_trips, 0),
         activeTrip,
         pendingCommission,

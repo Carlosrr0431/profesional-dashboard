@@ -1,5 +1,6 @@
 import { timeAgo, formatSpeed, formatPrice, getTripStatus } from '../lib/utils';
 import DriverAvatar from './DriverAvatar';
+import { DriverRatingChip } from './DriverRatingView';
 
 function getDriverStatusInfo(driver) {
   if (driver.dispatchBlocked) {
@@ -161,9 +162,17 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onSendAudio, on
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 min-[360px]:grid-cols-3">
           <InfoStat label="Velocidad" value={formatSpeed(driver.speed)} />
-          <InfoStat label="Rating" value={`${Number(driver.rating || 0).toFixed(1)} ★`} />
+          <div className="min-w-0 rounded-xl bg-amber-50/70 px-2 py-2.5 text-center ring-1 ring-amber-100">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Calificación</p>
+            <div className="mt-1 flex justify-center">
+              <DriverRatingChip driver={{
+                rating: driver.rating,
+                rating_count: driver.ratingCount,
+              }} compact />
+            </div>
+          </div>
           <InfoStat label="Viajes" value={String(driver.totalTrips ?? 0)} />
         </div>
 
