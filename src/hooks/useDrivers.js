@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveDriverIsOnline } from '../lib/driverPresence';
-import { applyDriverLocationRealtime, gpsTimestampForCoordChange } from '../lib/driverMapGps';
+import { applyDriverLocationRealtime, nextGpsFromDriverRow } from '../lib/driverMapGps';
 import {
   applyTripRealtimeToDrivers,
   mergeDriversSnapshotWithTripRealtime,
@@ -12,7 +12,6 @@ import {
   normalizeBillingMode,
 } from '../lib/driverBilling';
 
-const POLL_INTERVAL_MS = 2000;
 const REALTIME_REFETCH_DEBOUNCE_MS = 300;
 
 function toNumber(value, fallback = 0) {
@@ -53,7 +52,6 @@ export function useDrivers() {
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const channelRef = useRef(null);
-  const pollRef = useRef(null);
   const refetchTimerRef = useRef(null);
 
   const fetchAll = useCallback(async () => {
@@ -101,10 +99,7 @@ export function useDrivers() {
   useEffect(() => {
     fetchAll();
 
-    // Polling de respaldo para datos enriquecidos (viajes activos, comisiones)
-    pollRef.current = setInterval(fetchAll, POLL_INTERVAL_MS);
-
-    // Realtime: GPS, alta/baja de choferes, disponibilidad y viajes activos
+    // GPS y flota: solo Realtime. El snapshot inicial no se vuelve a pedir en loop.
     channelRef.current = supabase
       .channel('dashboard_location_realtime')
       .on(
@@ -153,14 +148,10 @@ export function useDrivers() {
               billing_mode: row.billing_mode ?? prevDriver.billingMode,
               commission_blocked: row.commission_blocked ?? prevDriver.commissionBlocked,
             };
-            const hasCoords = row.current_lat != null && row.current_lng != null;
-            const nextLat = hasCoords ? toNumber(row.current_lat, prevDriver.lat) : prevDriver.lat;
-            const nextLng = hasCoords ? toNumber(row.current_lng, prevDriver.lng) : prevDriver.lng;
-            const coordsChanged = hasCoords
-              && (nextLat !== prevDriver.lat || nextLng !== prevDriver.lng);
-            const nextUpdatedAt = coordsChanged
-              ? gpsTimestampForCoordChange(prevDriver.updatedAt, row.updated_at)
-              : (prevDriver.updatedAt || row.updated_at);
+            const gps = nextGpsFromDriverRow(prevDriver, row);
+            const nextLat = gps.lat;
+            const nextLng = gps.lng;
+            const nextUpdatedAt = gps.updatedAt;
             const flaggedAvailable = Boolean(row.is_available);
             const gpsSimulationActive = row.gps_simulation_active != null
               ? Boolean(row.gps_simulation_active)
@@ -174,7 +165,8 @@ export function useDrivers() {
             });
             updated[idx] = {
               ...prevDriver,
-              ...(hasCoords ? { lat: nextLat, lng: nextLng } : null),
+              lat: nextLat,
+              lng: nextLng,
               isOnline,
               isAvailable: flaggedAvailable,
               gpsSimulationActive,
@@ -218,10 +210,13 @@ export function useDrivers() {
           scheduleFetchAll();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          scheduleFetchAll();
+        }
+      });
 
     return () => {
-      clearInterval(pollRef.current);
       if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);

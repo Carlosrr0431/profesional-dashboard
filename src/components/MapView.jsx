@@ -101,11 +101,12 @@ const DriverMapPin = memo(function DriverMapPin({
   lat,
   lng,
   speed,
+  heading,
   isSelected,
   isMultiSelected,
   onSelect,
 }) {
-  const smooth = useSmoothMapCoords(lat, lng, speed);
+  const smooth = useSmoothMapCoords(lat, lng, speed, heading);
   const spec = buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected);
   return (
     <Marker
@@ -136,6 +137,7 @@ const DriverMapPin = memo(function DriverMapPin({
   prev.lat === next.lat
   && prev.lng === next.lng
   && prev.speed === next.speed
+  && prev.heading === next.heading
   && prev.isSelected === next.isSelected
   && prev.isMultiSelected === next.isMultiSelected
   && prev.driver?.id === next.driver?.id
@@ -371,6 +373,7 @@ const MapView = memo(function MapView({
               lat={lat}
               lng={lng}
               speed={Number(driver.speed) || 0}
+              heading={Number(driver.heading) || 0}
               isSelected={!multiSelectMode && driver.id === resolvedSelectedId}
               isMultiSelected={isMultiSelected}
               onSelect={handleDriverSelect}

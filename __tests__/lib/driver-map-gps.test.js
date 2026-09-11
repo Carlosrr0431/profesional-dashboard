@@ -7,6 +7,10 @@ import {
   applyDriverLocationRealtime,
   pinMoveDurationMs,
   haversineMeters,
+  extrapolateGps,
+  inferPinMotion,
+  nextGpsFromDriverRow,
+  MAX_GPS_EXTRAPOLATE_MS,
 } from '../../src/lib/driverMapGps';
 
 describe('pickDriverGps', () => {
@@ -102,11 +106,13 @@ describe('mergeSnapshotKeepingFresherGps', () => {
     expect(merged[0].pendingCommission).toBe(10);
   });
 
-  it('acepta el snapshot si el GPS del poll es más nuevo', () => {
+  it('nunca pisa el GPS local con el snapshot/poll', () => {
     const prev = [{
       id: 'd1',
       lat: -24.70,
       lng: -65.30,
+      speed: 8,
+      heading: 90,
       updatedAt: '2026-09-06T19:59:00.000Z',
       isAvailable: true,
     }];
@@ -114,12 +120,108 @@ describe('mergeSnapshotKeepingFresherGps', () => {
       id: 'd1',
       lat: -24.801,
       lng: -65.411,
+      speed: 1,
+      heading: 10,
       updatedAt: '2026-09-06T20:00:05.000Z',
       isAvailable: true,
+      pendingCommission: 4,
     }];
 
     const merged = mergeSnapshotKeepingFresherGps(prev, next);
-    expect(merged[0].lat).toBe(-24.801);
+    expect(merged[0].lat).toBe(-24.70);
+    expect(merged[0].lng).toBe(-65.30);
+    expect(merged[0].speed).toBe(8);
+    expect(merged[0].heading).toBe(90);
+    expect(merged[0].pendingCommission).toBe(4);
+  });
+});
+
+describe('extrapolateGps', () => {
+  it('avanza al norte a la velocidad del celular', () => {
+    const next = extrapolateGps(-24.8, -65.4, 10, 0, 1000);
+    const moved = haversineMeters(-24.8, -65.4, next.lat, next.lng);
+    expect(moved).toBeGreaterThan(9.5);
+    expect(moved).toBeLessThan(10.5);
+    expect(next.lat).toBeGreaterThan(-24.8);
+    expect(next.lng).toBeCloseTo(-65.4, 6);
+  });
+
+  it('avanza al este a la velocidad del celular', () => {
+    const next = extrapolateGps(-24.8, -65.4, 10, 90, 1000);
+    const moved = haversineMeters(-24.8, -65.4, next.lat, next.lng);
+    expect(moved).toBeGreaterThan(9.5);
+    expect(moved).toBeLessThan(10.5);
+    expect(next.lng).toBeGreaterThan(-65.4);
+  });
+
+  it('no inventa más de MAX_GPS_EXTRAPOLATE_MS', () => {
+    const capped = extrapolateGps(-24.8, -65.4, 10, 0, MAX_GPS_EXTRAPOLATE_MS);
+    const longer = extrapolateGps(-24.8, -65.4, 10, 0, 10_000);
+    expect(longer.lat).toBeCloseTo(capped.lat, 8);
+    expect(longer.lng).toBeCloseTo(capped.lng, 8);
+  });
+
+  it('se queda quieto si no hay velocidad', () => {
+    expect(extrapolateGps(-24.8, -65.4, 0, 90, 1000)).toEqual({ lat: -24.8, lng: -65.4 });
+    expect(extrapolateGps(-24.8, -65.4, -1, 90, 1000)).toEqual({ lat: -24.8, lng: -65.4 });
+  });
+});
+
+describe('inferPinMotion', () => {
+  it('usa el rumbo del desplazamiento si no hay speed de heartbeat', () => {
+    const motion = inferPinMotion({
+      fromLat: -24.8,
+      fromLng: -65.4,
+      toLat: -24.8,
+      toLng: -65.399,
+      reportedSpeed: 0,
+      reportedHeading: 0,
+      intervalMs: 1000,
+    });
+    expect(motion.heading).toBeGreaterThan(80);
+    expect(motion.heading).toBeLessThan(100);
+    expect(motion.speed).toBeGreaterThan(5);
+  });
+
+  it('prioriza la velocidad reportada del celular', () => {
+    const motion = inferPinMotion({
+      fromLat: -24.8,
+      fromLng: -65.4,
+      toLat: -24.80001,
+      toLng: -65.4,
+      reportedSpeed: 14,
+      reportedHeading: 0,
+      intervalMs: 1000,
+    });
+    expect(motion.speed).toBe(14);
+  });
+});
+
+describe('nextGpsFromDriverRow', () => {
+  it('aplica current_lat live aunque updated_at del chofer sea viejo', () => {
+    const next = nextGpsFromDriverRow(
+      { lat: -24.80, lng: -65.40, updatedAt: '2026-09-06T20:00:05.000Z' },
+      {
+        current_lat: -24.801,
+        current_lng: -65.401,
+        updated_at: '2026-09-06T19:59:00.000Z',
+      },
+    );
+    expect(next.lat).toBe(-24.801);
+    expect(next.lng).toBe(-65.401);
+  });
+
+  it('no cambia coords si el UPDATE no movió current_lat', () => {
+    const next = nextGpsFromDriverRow(
+      { lat: -24.80, lng: -65.40, updatedAt: '2026-09-06T20:00:05.000Z' },
+      {
+        current_lat: -24.80,
+        current_lng: -65.40,
+        updated_at: '2026-09-06T20:00:10.000Z',
+      },
+    );
+    expect(next.lat).toBe(-24.80);
+    expect(next.updatedAt).toBe('2026-09-06T20:00:05.000Z');
   });
 });
 

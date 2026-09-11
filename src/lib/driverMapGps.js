@@ -10,6 +10,16 @@ function toCoordNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function toSpeedMps(value, fallback = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return n;
+}
+
+export const MAX_GPS_EXTRAPOLATE_MS = 3500;
+export const MIN_MOVE_SPEED_MPS = 0.6;
+const EARTH_M = 6371000;
+
 export function haversineMeters(lat1, lng1, lat2, lng2) {
   const aLat = Number(lat1);
   const aLng = Number(lng1);
@@ -23,6 +33,29 @@ export function haversineMeters(lat1, lng1, lat2, lng2) {
     + Math.cos(aLat * Math.PI / 180) * Math.cos(bLat * Math.PI / 180)
     * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Avanza el pin a la velocidad y rumbo del celular (norte = 0°). */
+export function extrapolateGps(lat, lng, speedMps, headingDeg, elapsedMs) {
+  const startLat = Number(lat);
+  const startLng = Number(lng);
+  if (!hasValidDriverCoords(startLat, startLng)) return { lat: startLat, lng: startLng };
+  const speed = toSpeedMps(speedMps, 0);
+  const heading = Number(headingDeg);
+  const elapsed = Math.max(0, Number(elapsedMs) || 0);
+  if (speed < MIN_MOVE_SPEED_MPS || !Number.isFinite(heading) || elapsed <= 0) {
+    return { lat: startLat, lng: startLng };
+  }
+  const dist = speed * (Math.min(elapsed, MAX_GPS_EXTRAPOLATE_MS) / 1000);
+  const rad = heading * Math.PI / 180;
+  const dNorth = dist * Math.cos(rad);
+  const dEast = dist * Math.sin(rad);
+  const latRad = startLat * Math.PI / 180;
+  const denom = EARTH_M * Math.cos(latRad);
+  return {
+    lat: startLat + (dNorth / EARTH_M) * (180 / Math.PI),
+    lng: startLng + (denom === 0 ? 0 : (dEast / denom) * (180 / Math.PI)),
+  };
 }
 
 /** Duración del deslizamiento del pin: distancia / velocidad (m/s), acotada. */
@@ -47,7 +80,7 @@ export function pickDriverGps(loc, driver) {
   const curLng = driver?.current_lng;
   const locValid = hasValidDriverCoords(locLat, locLng);
   const curValid = hasValidDriverCoords(curLat, curLng);
-  const speed = toCoordNumber(loc?.speed ?? loc?.speed_kmh, 0);
+  const speed = toSpeedMps(loc?.speed ?? loc?.speed_kmh, 0);
   const heading = toCoordNumber(loc?.heading, 0);
   const locUpdatedAt = loc?.updated_at || loc?.recorded_at || null;
   const curUpdatedAt = driver?.updated_at || null;
@@ -102,7 +135,7 @@ export function applyDriverLocationRealtime(drivers, loc) {
 
   const nextLat = locValid && locIsFresher ? toCoordNumber(loc.lat, prev.lat) : prev.lat;
   const nextLng = locValid && locIsFresher ? toCoordNumber(loc.lng, prev.lng) : prev.lng;
-  const nextSpeed = toCoordNumber(loc.speed ?? loc.speed_kmh, prev.speed || 0);
+  const nextSpeed = toSpeedMps(loc.speed ?? loc.speed_kmh, prev.speed || 0);
   const nextHeading = toCoordNumber(loc.heading, prev.heading || 0);
   const coordsChanged = nextLat !== prev.lat || nextLng !== prev.lng;
   if (
@@ -132,7 +165,10 @@ export function applyDriverLocationRealtime(drivers, loc) {
   return next;
 }
 
-/** El poll no debe pisar un GPS de realtime más nuevo. */
+/**
+ * Tras la carga inicial, el GPS lo mueve solo el subscribe.
+ * El snapshot/poll no puede pisar lat/lng/speed/heading.
+ */
 export function mergeSnapshotKeepingFresherGps(prev, next) {
   if (!Array.isArray(next)) return prev || [];
   if (!prev?.length) return next;
@@ -141,9 +177,6 @@ export function mergeSnapshotKeepingFresherGps(prev, next) {
   return next.map((incoming) => {
     const local = prevById.get(incoming.id);
     if (!local) return incoming;
-    const localTs = toTs(local.updatedAt);
-    const incomingTs = toTs(incoming.updatedAt);
-    if (localTs <= incomingTs) return incoming;
     if (!hasValidDriverCoords(local.lat, local.lng)) return incoming;
     const gps = {
       lat: local.lat,
@@ -158,6 +191,59 @@ export function mergeSnapshotKeepingFresherGps(prev, next) {
       isOnline: resolveDriverIsOnline({ ...incoming, ...gps }),
     };
   });
+}
+
+export function bearingDegrees(lat1, lng1, lat2, lng2) {
+  const φ1 = Number(lat1) * Math.PI / 180;
+  const φ2 = Number(lat2) * Math.PI / 180;
+  const Δλ = (Number(lng2) - Number(lng1)) * Math.PI / 180;
+  if (![φ1, φ2, Δλ].every(Number.isFinite)) return 0;
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+/** Velocidad/rumbo para seguir andando entre eventos de subscribe. */
+export function inferPinMotion({
+  fromLat,
+  fromLng,
+  toLat,
+  toLng,
+  reportedSpeed,
+  reportedHeading,
+  intervalMs,
+}) {
+  const dist = haversineMeters(fromLat, fromLng, toLat, toLng);
+  const reported = toSpeedMps(reportedSpeed, 0);
+  const derivedSpeed = intervalMs > 80 ? dist / (intervalMs / 1000) : 0;
+  const speed = reported >= MIN_MOVE_SPEED_MPS ? reported : derivedSpeed;
+  const heading = dist >= 1
+    ? bearingDegrees(fromLat, fromLng, toLat, toLng)
+    : toCoordNumber(reportedHeading, 0);
+  return { speed, heading };
+}
+
+/**
+ * current_lat por subscribe es un evento live del celular.
+ * No usar drivers.updated_at para descartarlo: un billing UPDATE
+ * posterior deja ese timestamp más nuevo, y un GPS frecuente puede
+ * no tocar updated_at.
+ */
+export function nextGpsFromDriverRow(prev, row) {
+  const hasCoords = hasValidDriverCoords(row?.current_lat, row?.current_lng);
+  if (!hasCoords) {
+    return { lat: prev.lat, lng: prev.lng, updatedAt: prev.updatedAt };
+  }
+  const nextLat = toCoordNumber(row.current_lat, prev.lat);
+  const nextLng = toCoordNumber(row.current_lng, prev.lng);
+  if (nextLat === prev.lat && nextLng === prev.lng) {
+    return { lat: prev.lat, lng: prev.lng, updatedAt: prev.updatedAt };
+  }
+  return {
+    lat: nextLat,
+    lng: nextLng,
+    updatedAt: gpsTimestampForCoordChange(prev.updatedAt, row.updated_at),
+  };
 }
 
 export function gpsTimestampForCoordChange(prevUpdatedAt, rowUpdatedAt, nowIso = new Date().toISOString()) {
