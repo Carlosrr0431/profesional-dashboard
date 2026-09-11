@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveDriverIsOnline } from '../lib/driverPresence';
-import { gpsTimestampForCoordChange } from '../lib/driverMapGps';
+import { applyDriverLocationRealtime, gpsTimestampForCoordChange } from '../lib/driverMapGps';
 import {
   applyTripRealtimeToDrivers,
   mergeDriversSnapshotWithTripRealtime,
@@ -28,6 +28,7 @@ function driversSnapshotUnchanged(prev, next) {
     const b = next[i];
     if (a.id !== b.id) return false;
     if (a.lat !== b.lat || a.lng !== b.lng) return false;
+    if (a.speed !== b.speed || a.heading !== b.heading) return false;
     if (a.isOnline !== b.isOnline) return false;
     if (a.isAvailable !== b.isAvailable) return false;
     if (a.driverNumber !== b.driverNumber) return false;
@@ -113,24 +114,11 @@ export function useDrivers() {
           const loc = payload.new;
           if (!loc?.driver_id) return;
           setDrivers((prev) => {
-            const idx = prev.findIndex((d) => d.id === loc.driver_id);
-            if (idx === -1) {
+            const next = applyDriverLocationRealtime(prev, loc);
+            if (next === prev && !prev.some((d) => d.id === loc.driver_id)) {
               scheduleFetchAll();
-              return prev;
             }
-            const prevDriver = prev[idx];
-            const nextSpeed = toNumber(loc.speed ?? loc.speed_kmh, prevDriver.speed || 0);
-            const nextHeading = toNumber(loc.heading, prevDriver.heading || 0);
-            if (nextSpeed === prevDriver.speed && nextHeading === prevDriver.heading) {
-              return prev;
-            }
-            const updated = [...prev];
-            updated[idx] = {
-              ...prevDriver,
-              speed: nextSpeed,
-              heading: nextHeading,
-            };
-            return updated;
+            return next;
           });
         }
       )

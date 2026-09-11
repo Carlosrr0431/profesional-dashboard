@@ -42,13 +42,14 @@ export async function GET() {
     const supabase = getSupabaseAdmin();
     const nowMs = Date.now();
 
-    const [driversRes, activeTripsRes, vtRes] = await Promise.all([
+    const [driversRes, activeTripsRes, vtRes, locsRes] = await Promise.all([
       supabase.from('drivers').select('*'),
       supabase
         .from('trips')
         .select('id, driver_id, status, passenger_name, destination_address')
         .in('status', ACTIVE_TRIP_STATUSES),
       supabase.from('settings').select('key, value').like('key', 'vehicle_type_%'),
+      supabase.from('driver_locations').select('driver_id, lat, lng, speed, heading, updated_at'),
     ]);
 
     if (driversRes.error) throw driversRes.error;
@@ -66,6 +67,13 @@ export async function GET() {
       vehicleTypeMap[driverId] = setting?.value || 'auto';
     });
 
+    const locByDriver = {};
+    if (!locsRes.error) {
+      (locsRes.data || []).forEach((row) => {
+        if (row?.driver_id) locByDriver[row.driver_id] = row;
+      });
+    }
+
     const ownersById = buildFleetOwnersById(driversRes.data);
 
     const mapped = (driversRes.data || []).map((driver) => {
@@ -74,7 +82,7 @@ export async function GET() {
       const activeTrip = resolveDisplayActiveTrip(merged.id, activeTripsMap);
       const pendingCommission = Math.max(0, toNumber(merged.pending_commission, 0));
       const assigned = Boolean(merged.is_assigned_driver && merged.owner_id);
-      const gps = pickDriverGps(null, merged, nowMs);
+      const gps = pickDriverGps(locByDriver[merged.id] || null, merged, nowMs);
       const lat = gps.lat;
       const lng = gps.lng;
       const updatedAt = gps.updatedAt;

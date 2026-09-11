@@ -13,6 +13,7 @@ import DriverInfoWindow from './DriverInfoWindow';
 import PassengerInfoWindow from './PassengerInfoWindow';
 import { MAP_STYLE, mapLibreOptions } from '../lib/mapLibre';
 import { shouldShowDriverOnMap } from '../lib/driverPresence';
+import { useSmoothMapCoords } from '../hooks/useSmoothMapCoords';
 import { resizeMapInstance } from '../lib/mapFullscreen';
 
 const MAP_CSS = `
@@ -99,15 +100,17 @@ const DriverMapPin = memo(function DriverMapPin({
   driver,
   lat,
   lng,
+  speed,
   isSelected,
   isMultiSelected,
   onSelect,
 }) {
+  const smooth = useSmoothMapCoords(lat, lng, speed);
   const spec = buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected);
   return (
     <Marker
-      longitude={lng}
-      latitude={lat}
+      longitude={smooth.lng}
+      latitude={smooth.lat}
       anchor="bottom"
       onClick={(e) => {
         e.originalEvent.stopPropagation();
@@ -132,6 +135,7 @@ const DriverMapPin = memo(function DriverMapPin({
 }, (prev, next) => (
   prev.lat === next.lat
   && prev.lng === next.lng
+  && prev.speed === next.speed
   && prev.isSelected === next.isSelected
   && prev.isMultiSelected === next.isMultiSelected
   && prev.driver?.id === next.driver?.id
@@ -366,6 +370,7 @@ const MapView = memo(function MapView({
               driver={driver}
               lat={lat}
               lng={lng}
+              speed={Number(driver.speed) || 0}
               isSelected={!multiSelectMode && driver.id === resolvedSelectedId}
               isMultiSelected={isMultiSelected}
               onSelect={handleDriverSelect}

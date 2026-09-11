@@ -4,6 +4,9 @@ import {
   pickDriverGps,
   mergeSnapshotKeepingFresherGps,
   gpsTimestampForCoordChange,
+  applyDriverLocationRealtime,
+  pinMoveDurationMs,
+  haversineMeters,
 } from '../../src/lib/driverMapGps';
 
 describe('pickDriverGps', () => {
@@ -14,7 +17,7 @@ describe('pickDriverGps', () => {
     updated_at: '2026-09-06T19:59:58.000Z',
   };
 
-  it('prioriza current_lat aunque driver_locations sea fresco', () => {
+  it('prioriza current_lat si es más nuevo que driver_locations', () => {
     const gps = pickDriverGps({
       lat: -24.78,
       lng: -65.42,
@@ -55,6 +58,19 @@ describe('pickDriverGps', () => {
 
     expect(gps.lat).toBe(-24.78);
     expect(gps.lng).toBe(-65.42);
+  });
+
+  it('usa driver_locations si su timestamp es más nuevo', () => {
+    const gps = pickDriverGps({
+      lat: -24.78,
+      lng: -65.42,
+      updated_at: '2026-09-06T20:00:02.000Z',
+      speed: 9,
+    }, driver, now);
+
+    expect(gps.lat).toBe(-24.78);
+    expect(gps.lng).toBe(-65.42);
+    expect(gps.speed).toBe(9);
   });
 });
 
@@ -104,6 +120,59 @@ describe('mergeSnapshotKeepingFresherGps', () => {
 
     const merged = mergeSnapshotKeepingFresherGps(prev, next);
     expect(merged[0].lat).toBe(-24.801);
+  });
+});
+
+describe('applyDriverLocationRealtime', () => {
+  const base = [{
+    id: 'd1',
+    lat: -24.80,
+    lng: -65.40,
+    speed: 0,
+    heading: 0,
+    updatedAt: '2026-09-06T20:00:00.000Z',
+    isAvailable: true,
+    isOnline: true,
+  }];
+
+  it('aplica lat/lng del heartbeat aunque speed no cambie', () => {
+    const next = applyDriverLocationRealtime(base, {
+      driver_id: 'd1',
+      lat: -24.801,
+      lng: -65.401,
+      speed: 0,
+      heading: 0,
+      updated_at: '2026-09-06T20:00:02.000Z',
+    });
+    expect(next[0].lat).toBe(-24.801);
+    expect(next[0].lng).toBe(-65.401);
+    expect(next).not.toBe(base);
+  });
+
+  it('no pisa un GPS local más nuevo con un heartbeat viejo', () => {
+    const next = applyDriverLocationRealtime(base, {
+      driver_id: 'd1',
+      lat: -24.70,
+      lng: -65.30,
+      speed: 11,
+      heading: 40,
+      updated_at: '2026-09-06T19:59:00.000Z',
+    });
+    expect(next[0].lat).toBe(-24.80);
+    expect(next[0].lng).toBe(-65.40);
+    expect(next[0].speed).toBe(11);
+  });
+});
+
+describe('pinMoveDurationMs', () => {
+  it('usa distancia / velocidad en movimiento', () => {
+    expect(pinMoveDurationMs(14, 14)).toBe(1000);
+    expect(haversineMeters(-24.8, -65.4, -24.8, -65.4)).toBe(0);
+  });
+
+  it('acota saltos sin velocidad', () => {
+    expect(pinMoveDurationMs(20, 0)).toBe(650);
+    expect(pinMoveDurationMs(0, 10)).toBe(0);
   });
 });
 
