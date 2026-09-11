@@ -45,7 +45,37 @@ describe('driverPresence', () => {
   });
 });
 
-const { shouldShowDriverOnMap } = require('../../src/lib/driverPresence');
+const { isDriverLiveOnDashboard, shouldShowDriverOnMap } = require('../../src/lib/driverPresence');
+
+describe('isDriverLiveOnDashboard', () => {
+  it('live = libre online o en viaje, nunca offline', () => {
+    expect(isDriverLiveOnDashboard({
+      isOnline: true,
+      lat: -24.8,
+      lng: -65.4,
+    })).toBe(true);
+
+    expect(isDriverLiveOnDashboard({
+      isOnline: false,
+      activeTrip: { id: 't1', status: 'in_progress' },
+      lat: -24.8,
+      lng: -65.4,
+    })).toBe(true);
+
+    expect(isDriverLiveOnDashboard({
+      isAvailable: true,
+      lat: -24.8,
+      lng: -65.4,
+    })).toBe(true);
+
+    expect(isDriverLiveOnDashboard({
+      isOnline: false,
+      isAvailable: false,
+      lat: -24.8,
+      lng: -65.4,
+    })).toBe(false);
+  });
+});
 
 describe('shouldShowDriverOnMap', () => {
   it('muestra libres y en viaje, oculta desconectados', () => {

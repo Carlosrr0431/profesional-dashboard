@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { timeAgo, formatSpeed, getTripStatus } from '../lib/utils';
 import { matchesDriverSearch } from '../lib/driverRoles';
-import { resolveDriverIsOnline } from '../lib/driverPresence';
+import { isDriverLiveOnDashboard, resolveDriverIsOnline } from '../lib/driverPresence';
 import { moneyAr } from '../lib/tariffUi';
 import DriverAvatar from './DriverAvatar';
 
@@ -110,14 +110,13 @@ export default function Sidebar({
     [drivers, availability]
   );
 
-  const inTripCount = driversLive.filter((d) => d.activeTrip).length;
-  const onlineCount = driversLive.filter((d) => d.isOnline && !d.activeTrip).length;
-  const offlineCount = driversLive.filter((d) => !d.isOnline).length;
+  const liveDrivers = driversLive.filter((d) => isDriverLiveOnDashboard(d));
+  const inTripCount = liveDrivers.filter((d) => d.activeTrip).length;
+  const onlineCount = liveDrivers.filter((d) => !d.activeTrip).length;
 
-  const filtered = driversLive.filter((d) => {
-    if (filter === 'available' && (!d.isOnline || d.activeTrip)) return false;
+  const filtered = liveDrivers.filter((d) => {
+    if (filter === 'available' && d.activeTrip) return false;
     if (filter === 'intrip' && !d.activeTrip) return false;
-    if (filter === 'offline' && d.isOnline) return false;
     if (search && !matchesDriverSearch(d, search)) return false;
     return true;
   });
@@ -128,7 +127,7 @@ export default function Sidebar({
       <div className="shrink-0 border-b border-slate-100 px-3.5 pb-3 pt-3">
         <div className="mb-2 flex items-center gap-2">
           <h2 className="text-sm font-bold tracking-tight text-slate-900">Flota activa</h2>
-          <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-slate-100 px-1.5 text-[10px] font-bold tabular-nums text-slate-500">{driversLive.length}</span>
+          <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-slate-100 px-1.5 text-[10px] font-bold tabular-nums text-slate-500">{liveDrivers.length}</span>
           <span className="relative ml-auto flex h-1.5 w-1.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-50" />
             <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -162,10 +161,9 @@ export default function Sidebar({
 
         <div className="flex gap-0.5 overflow-x-auto pb-0.5 scrollbar-none">
           {[
-            { key: 'all', label: 'Todos', count: driversLive.length },
+            { key: 'all', label: 'Todos', count: liveDrivers.length },
             { key: 'available', label: 'Libres', count: onlineCount },
             { key: 'intrip', label: 'Viaje', count: inTripCount },
-            { key: 'offline', label: 'Off', count: offlineCount },
           ].map((f) => (
             <button
               key={f.key}

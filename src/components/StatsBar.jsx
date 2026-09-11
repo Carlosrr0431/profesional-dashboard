@@ -1,23 +1,21 @@
 import { useMemo } from 'react';
+import { isDriverLiveOnDashboard } from '../lib/driverPresence';
 
 export default function StatsBar({ drivers }) {
   const stats = useMemo(() => {
-    const total = drivers.length;
-    const inTrip = drivers.filter((d) => d.activeTrip).length;
-    const online = drivers.filter((d) => d.isOnline && !d.activeTrip).length;
-    const offline = drivers.filter((d) => !d.isOnline).length;
-    return { total, online, offline, inTrip };
+    const live = drivers.filter((d) => isDriverLiveOnDashboard(d));
+    const inTrip = live.filter((d) => d.activeTrip).length;
+    const online = live.length - inTrip;
+    return { total: live.length, online, inTrip };
   }, [drivers]);
 
   return (
     <div className="hidden lg:flex items-center gap-1.5 rounded-2xl border border-light-300/50 bg-light-100/80 px-2 py-1.5 shadow-sm">
-      <StatPill value={stats.total} label="choferes" tone="navy" />
+      <StatPill value={stats.total} label="activos" tone="navy" />
       <Divider />
       <StatPill value={stats.online} label="libres" tone="online" pulse />
       <Divider />
       <StatPill value={stats.inTrip} label="en viaje" tone="accent" />
-      <Divider />
-      <StatPill value={stats.offline} label="offline" tone="muted" />
     </div>
   );
 }

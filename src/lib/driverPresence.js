@@ -43,9 +43,15 @@ export function resolveDriverIsOnline(driver, _nowMs = Date.now()) {
   return hasValidDriverCoords(driver?.lat, driver?.lng);
 }
 
-/** Pines del mapa: libres (verde) y en viaje. No mostrar desconectados. */
+/** Verde (libre) o rojo (viaje). Los offline/grises no van al mapa ni a la flota. */
+export function isDriverLiveOnDashboard(driver) {
+  if (driver?.activeTrip) return true;
+  if (driver?.isOnline) return true;
+  return resolveDriverIsOnline(driver);
+}
+
+/** Pines del mapa: mismos vivos, solo si hay coords. */
 export function shouldShowDriverOnMap(driver) {
   if (!hasValidDriverCoords(driver?.lat, driver?.lng)) return false;
-  if (driver?.activeTrip) return true;
-  return resolveDriverIsOnline(driver);
+  return isDriverLiveOnDashboard(driver);
 }
