@@ -72,7 +72,7 @@ export function buildSmsGatewayPayload({ phoneE164, text, config }) {
   const payload = {
     textMessage: { text },
     phoneNumbers: [phoneE164],
-    ttl: 600,
+    ttl: 3600,
     priority: 100,
     withDeliveryReport: true,
   };
@@ -115,7 +115,7 @@ export async function sendSmsGatewayMessage({
   const phoneE164 = toSmsE164(phone);
   if (!phoneE164) return { ok: false, reason: 'invalid_phone' };
 
-  const url = `${config.baseUrl}/messages?deviceActiveWithin=${SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS}`;
+  const url = `${config.baseUrl}/messages?deviceActiveWithin=${SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS}&skipPhoneValidation=true`;
   let response;
   let data;
   try {

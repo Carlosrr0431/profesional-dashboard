@@ -83,7 +83,7 @@ describe('sms helpers', () => {
     })).toEqual({
       textMessage: { text: 'hola' },
       phoneNumbers: ['+5493878630173'],
-      ttl: 600,
+      ttl: 3600,
       priority: 100,
       withDeliveryReport: true,
       deviceId: 'dev_1',
@@ -97,7 +97,7 @@ describe('sendSmsGatewayMessage', () => {
 
   test('POST 202 Pending se toma como encolado, sin cancelar', async () => {
     const fetchImpl = jest.fn(async (url, init) => {
-      expect(url).toBe(`${SMS_GATEWAY_CLOUD_BASE}/messages?deviceActiveWithin=${SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS}`);
+      expect(url).toBe(`${SMS_GATEWAY_CLOUD_BASE}/messages?deviceActiveWithin=${SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS}&skipPhoneValidation=true`);
       expect(SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS).toBe(1);
       expect(init.method).toBe('POST');
       expect(init.headers.Authorization).toMatch(/^Basic /);
