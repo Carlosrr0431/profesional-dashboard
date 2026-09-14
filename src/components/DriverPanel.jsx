@@ -5,7 +5,14 @@ import VoiceChat from './VoiceChat';
 import { useToast } from '../context/ToastContext';
 import DriverAvatar from './DriverAvatar';
 
-export default function DriverPanel({ driver, onClose, onAssignTrip, commissionPercent }) {
+export default function DriverPanel({
+  driver,
+  onClose,
+  onAssignTrip,
+  commissionPercent,
+  unreadVoiceCount = 0,
+  onVoiceOpened,
+}) {
   const toast = useToast();
   const { trips, loading, stats, refetchPayments, refetch } = useDriverTrips(driver?.id);
   const [tab, setTab] = useState('today');
@@ -88,15 +95,28 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
           <h3 className="text-sm font-bold text-navy-900">Detalle del chofer</h3>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => setShowVoice(!showVoice)}
-              className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-colors ${
+              onClick={() => {
+                setShowVoice((open) => {
+                  const next = !open;
+                  if (next) onVoiceOpened?.();
+                  return next;
+                });
+              }}
+              className={`relative w-7 h-7 rounded-lg border flex items-center justify-center transition-colors ${
                 showVoice
                   ? 'bg-accent/15 border-accent/30 text-accent'
-                  : 'bg-light-200 border-light-300/50 text-gray-400 hover:text-navy-800'
+                  : unreadVoiceCount > 0
+                    ? 'bg-accent/15 border-accent/40 text-accent'
+                    : 'bg-light-200 border-light-300/50 text-gray-400 hover:text-navy-800'
               }`}
               title="Radio / Mensajes de voz"
             >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+              {unreadVoiceCount > 0 && !showVoice ? (
+                <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-0.5 text-[8px] font-bold text-white">
+                  {unreadVoiceCount > 9 ? '9+' : unreadVoiceCount}
+                </span>
+              ) : null}
             </button>
             <button
               onClick={onClose}
@@ -165,7 +185,7 @@ export default function DriverPanel({ driver, onClose, onAssignTrip, commissionP
       </div>
 
       {showVoice ? (
-        <VoiceChat driver={driver} onClose={() => setShowVoice(false)} />
+        <VoiceChat driver={driver} onClose={() => setShowVoice(false)} onHeard={onVoiceOpened} />
       ) : (
       <div className="flex-1 overflow-y-auto overscroll-contain" style={{ minHeight: 0 }}>
       {/* Active trip banner */}

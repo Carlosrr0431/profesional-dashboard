@@ -20,6 +20,8 @@ import { supabase } from './lib/supabase';
 import ZoneManagement from './components/ZoneManagement';
 import BroadcastVoiceChat from './components/BroadcastVoiceChat';
 import VoiceChat from './components/VoiceChat';
+import { useIncomingDriverVoice } from './hooks/useIncomingDriverVoice';
+import { firstNameFromFullName, unreadVoiceCountForDriver } from './lib/voiceMessages';
 import ViajesPanel from './components/ViajesPanel';
 import ScheduledTripsPanel from './components/ScheduledTripsPanel';
 import MapDockPopovers, { isMapListPopover, listActiveDockTrips } from './components/MapDockPopovers';
@@ -86,6 +88,7 @@ export default function App() {
   const { signOut, user } = useAdminAuth();
   const isSuperAdmin = isSuperAdminUser(user);
   const { drivers, loading } = useDrivers();
+  const { incoming: incomingDriverVoice, unreadCount: unreadDriverVoiceCount, markPlayed: markDriverVoicePlayed } = useIncomingDriverVoice(drivers);
   const pendingPassengers = usePendingPassengers();
   const queueData = useQueuedPassengers();
   const [tripsDate, setTripsDate] = useState(() => toLocalDateInputValue());
@@ -134,6 +137,19 @@ export default function App() {
     setMapPopover(null);
     setPreviewRoute(null);
   }, []);
+
+  const openIncomingDriverVoice = useCallback((item) => {
+    if (!item) return;
+    const driver = item.driver || {
+      id: item.driverId,
+      fullName: item.name,
+      driverNumber: item.driverNumber,
+    };
+    setShowBroadcast(false);
+    setMultiSelectMode(false);
+    setVoiceChatDriver(driver);
+    if (item.ids?.length) markDriverVoicePlayed(item.ids);
+  }, [markDriverVoicePlayed]);
 
   const toggleMapFullscreen = useCallback(() => {
     setMapFullscreen((prev) => !prev);
@@ -1003,8 +1019,37 @@ export default function App() {
                       <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-500 px-0.5 text-[9px] font-bold text-white">
                         {multiSelectedIds.size > 9 ? '9+' : multiSelectedIds.size}
                       </span>
+                    ) : unreadDriverVoiceCount > 0 ? (
+                      <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-0.5 text-[9px] font-bold text-white">
+                        {unreadDriverVoiceCount > 9 ? '9+' : unreadDriverVoiceCount}
+                      </span>
                     ) : null}
                   </button>
+                  {incomingDriverVoice[0] ? (
+                    <button
+                      type="button"
+                      title={`Audio nuevo de ${incomingDriverVoice[0].name}`}
+                      onClick={() => openIncomingDriverVoice(incomingDriverVoice[0])}
+                      className="relative flex h-10 max-w-[11.5rem] items-center gap-1.5 rounded-full bg-accent px-3 text-[12px] font-bold text-white shadow-xl shadow-accent/30 active:scale-[0.97] transition-all sm:h-11 sm:max-w-[14rem] sm:px-3.5 sm:text-[12.5px]"
+                    >
+                      <span className="relative flex h-2 w-2 shrink-0">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-70" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
+                      </span>
+                      <svg className="h-3.5 w-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                      <span className="truncate">
+                        {firstNameFromFullName(incomingDriverVoice[0].name)}
+                        {incomingDriverVoice[0].driverNumber != null ? ` #${incomingDriverVoice[0].driverNumber}` : ''}
+                      </span>
+                      {unreadDriverVoiceCount > 1 ? (
+                        <span className="shrink-0 rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] tabular-nums">
+                          {unreadDriverVoiceCount}
+                        </span>
+                      ) : null}
+                    </button>
+                  ) : null}
                   {queueData.stats.inQueue > 0 && (
                     <button
                       className={`flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-bold shadow-xl active:scale-[0.97] transition-all sm:h-11 sm:gap-2.5 sm:px-4 sm:text-[12.5px] ${
@@ -1083,6 +1128,11 @@ export default function App() {
                 onClose={() => { setPanelDriverId(null); setSelectedId(null); }}
                 onAssignTrip={handleAssignTrip}
                 commissionPercent={commissionPercent}
+                unreadVoiceCount={unreadVoiceCountForDriver(incomingDriverVoice, panelDriverId)}
+                onVoiceOpened={() => {
+                  const item = incomingDriverVoice.find((row) => row.driverId === String(panelDriverId));
+                  if (item?.ids?.length) markDriverVoicePlayed(item.ids);
+                }}
               />
             ) : null}
           </div>
@@ -1167,6 +1217,7 @@ export default function App() {
             <VoiceChat
               driver={voiceChatDriver}
               onClose={() => setVoiceChatDriver(null)}
+              onHeard={markDriverVoicePlayed}
             />
           </div>
         </div>

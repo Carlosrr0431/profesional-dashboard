@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { requireAdminUser } from '../../../src/lib/adminAuthServer';
 import { getSupabaseAdmin } from '../../../src/lib/supabaseAdmin';
 
+const VOICE_SELECT =
+  'id, driver_id, sender_type, audio_url, duration_seconds, is_played, created_at';
+const DRIVER_INBOX_LOOKBACK_MS = 12 * 60 * 60 * 1000;
+
 function normalizeMessages(body) {
   const raw = Array.isArray(body?.messages)
     ? body.messages
@@ -19,6 +23,13 @@ function normalizeMessages(body) {
     .filter((row) => row.driver_id && row.audio_url);
 }
 
+function jsonError(message, status = 400, extra = {}) {
+  return NextResponse.json(
+    { ok: false, error: { message, ...extra } },
+    { status },
+  );
+}
+
 /**
  * Inserta mensajes de voz desde el dashboard (bypass RLS con service role).
  * El cliente autenticado no puede insertar como operador porque la RLS
@@ -27,35 +38,23 @@ function normalizeMessages(body) {
 export async function POST(request) {
   const auth = await requireAdminUser(request);
   if (!auth.user) {
-    return NextResponse.json(
-      { ok: false, error: { message: auth.error || 'No autorizado' } },
-      { status: auth.status || 401 },
-    );
+    return jsonError(auth.error || 'No autorizado', auth.status || 401);
   }
 
   let body;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { ok: false, error: { message: 'Cuerpo inválido' } },
-      { status: 400 },
-    );
+    return jsonError('Cuerpo inválido');
   }
 
   const messages = normalizeMessages(body);
   if (messages.length === 0) {
-    return NextResponse.json(
-      { ok: false, error: { message: 'No hay mensajes para enviar' } },
-      { status: 400 },
-    );
+    return jsonError('No hay mensajes para enviar');
   }
 
   if (messages.length > 100) {
-    return NextResponse.json(
-      { ok: false, error: { message: 'Máximo 100 destinatarios por envío' } },
-      { status: 400 },
-    );
+    return jsonError('Máximo 100 destinatarios por envío');
   }
 
   try {
@@ -63,19 +62,13 @@ export async function POST(request) {
     const { data, error } = await supabase
       .from('voice_messages')
       .insert(messages)
-      .select('id, driver_id');
+      .select(VOICE_SELECT);
 
     if (error) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: {
-            code: error.code || null,
-            message: error.message || 'No se pudo guardar el mensaje de voz',
-            details: error.details || null,
-          },
-        },
-        { status: 500 },
+      return jsonError(
+        error.message || 'No se pudo guardar el mensaje de voz',
+        500,
+        { code: error.code || null, details: error.details || null },
       );
     }
 
@@ -84,12 +77,116 @@ export async function POST(request) {
       data: { count: data?.length || 0, rows: data || [] },
     });
   } catch (err) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: { message: err?.message || 'Error inesperado' },
-      },
-      { status: 500 },
-    );
+    return jsonError(err?.message || 'Error inesperado', 500);
+  }
+}
+
+export async function GET(request) {
+  const auth = await requireAdminUser(request);
+  if (!auth.user) {
+    return jsonError(auth.error || 'No autorizado', auth.status || 401);
+  }
+
+  const url = new URL(request.url);
+  const inbox = String(url.searchParams.get('inbox') || '').trim();
+  const driverId = String(url.searchParams.get('driver_id') || '').trim();
+
+  try {
+    const supabase = getSupabaseAdmin();
+
+    if (inbox === '1' || inbox.toLowerCase() === 'true') {
+      const sinceIso = new Date(Date.now() - DRIVER_INBOX_LOOKBACK_MS).toISOString();
+      const { data, error } = await supabase
+        .from('voice_messages')
+        .select(VOICE_SELECT)
+        .eq('sender_type', 'driver')
+        .eq('is_played', false)
+        .gte('created_at', sinceIso)
+        .order('created_at', { ascending: false })
+        .limit(40);
+
+      if (error) {
+        return jsonError(error.message || 'No se pudieron leer los audios del chofer', 500, {
+          code: error.code || null,
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        data: { messages: data || [] },
+      });
+    }
+
+    if (!driverId) {
+      return jsonError('Falta el chofer');
+    }
+
+    const { data, error } = await supabase
+      .from('voice_messages')
+      .select(VOICE_SELECT)
+      .eq('driver_id', driverId)
+      .order('created_at', { ascending: true })
+      .limit(80);
+
+    if (error) {
+      return jsonError(error.message || 'No se pudieron leer los mensajes de voz', 500, {
+        code: error.code || null,
+      });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      data: { messages: data || [] },
+    });
+  } catch (err) {
+    return jsonError(err?.message || 'Error inesperado', 500);
+  }
+}
+
+export async function PATCH(request) {
+  const auth = await requireAdminUser(request);
+  if (!auth.user) {
+    return jsonError(auth.error || 'No autorizado', auth.status || 401);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonError('Cuerpo inválido');
+  }
+
+  const ids = [...new Set(
+    (Array.isArray(body?.ids) ? body.ids : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  )];
+
+  if (ids.length === 0) {
+    return jsonError('Faltan los audios');
+  }
+  if (ids.length > 50) {
+    return jsonError('Máximo 50 audios por marca');
+  }
+
+  try {
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase
+      .from('voice_messages')
+      .update({ is_played: body?.is_played !== false })
+      .in('id', ids);
+
+    if (error) {
+      return jsonError(error.message || 'No se pudo actualizar el audio', 500, {
+        code: error.code || null,
+      });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      data: { ids },
+    });
+  } catch (err) {
+    return jsonError(err?.message || 'Error inesperado', 500);
   }
 }

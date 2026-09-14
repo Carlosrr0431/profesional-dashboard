@@ -3,9 +3,12 @@ import { supabase } from '../lib/supabase';
 import { formatError } from '../lib/errorFormat';
 import { encodeToWav } from '../lib/audioEncoder';
 import { useToast } from '../context/ToastContext';
-import { insertVoiceMessagesViaApi } from '../lib/voiceMessagesApi';
+import { fetchVoiceMessagesViaApi, insertVoiceMessagesViaApi } from '../lib/voiceMessagesApi';
+import { mergeVoiceMessage, mergeVoiceMessages } from '../lib/voiceMessages';
 
-export default function VoiceChat({ driver, onClose }) {
+const VOICE_POLL_MS = 4000;
+
+export default function VoiceChat({ driver, onClose, onHeard }) {
   const toast = useToast();
   const [messages, setMessages] = useState([]);
   const [recording, setRecording] = useState(false);
@@ -20,29 +23,37 @@ export default function VoiceChat({ driver, onClose }) {
   const audioRef = useRef(null);
 
   const driverId = driver?.id;
+  const onHeardRef = useRef(onHeard);
+  onHeardRef.current = onHeard;
+  const heardIdsRef = useRef(new Set());
 
-  // Fetch messages
   const fetchMessages = useCallback(async () => {
-    if (!driverId) return;
-    try {
-      const { data, error } = await supabase
-        .from('voice_messages')
-        .select('*')
-        .eq('driver_id', driverId)
-        .order('created_at', { ascending: true })
-        .limit(50);
-      if (!error) setMessages(data || []);
-    } catch (err) {
-      console.error('Error fetching voice messages:', formatError(err));
-    } finally {
-      setLoading(false);
-    }
+    if (!driverId) return [];
+    const rows = await fetchVoiceMessagesViaApi(driverId);
+    setMessages((prev) => mergeVoiceMessages(prev, rows));
+    return rows;
   }, [driverId]);
 
-  // Realtime subscription
   useEffect(() => {
-    if (!driverId) return;
-    fetchMessages();
+    if (!driverId) return undefined;
+
+    let cancelled = false;
+    const load = async (initial) => {
+      try {
+        const rows = await fetchVoiceMessagesViaApi(driverId);
+        if (!cancelled) setMessages((prev) => mergeVoiceMessages(prev, rows));
+      } catch (err) {
+        console.error('Error fetching voice messages:', formatError(err));
+        if (initial && !cancelled) {
+          toast.error(err?.message || 'No se pudieron cargar los mensajes de voz');
+        }
+      } finally {
+        if (initial && !cancelled) setLoading(false);
+      }
+    };
+
+    load(true);
+    const pollId = setInterval(() => load(false), VOICE_POLL_MS);
 
     channelRef.current = supabase
       .channel(`voice_${driverId}`)
@@ -53,8 +64,7 @@ export default function VoiceChat({ driver, onClose }) {
         filter: `driver_id=eq.${driverId}`,
       }, (payload) => {
         const msg = payload.new;
-        setMessages((prev) => [...prev, msg]);
-        // Auto-play if from driver
+        setMessages((prev) => mergeVoiceMessage(prev, msg));
         if (msg.sender_type === 'driver' && msg.audio_url) {
           playAudio(msg.audio_url);
         }
@@ -62,14 +72,26 @@ export default function VoiceChat({ driver, onClose }) {
       .subscribe();
 
     return () => {
+      cancelled = true;
+      clearInterval(pollId);
       if (channelRef.current) supabase.removeChannel(channelRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [driverId, fetchMessages]);
+  }, [driverId, toast]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
+    const ids = messages
+      .filter((msg) => msg?.sender_type === 'driver' && msg?.id && msg.is_played !== true)
+      .map((msg) => String(msg.id))
+      .filter((id) => !heardIdsRef.current.has(id));
+    if (ids.length === 0) return;
+    ids.forEach((id) => heardIdsRef.current.add(id));
+    onHeardRef.current?.(ids);
   }, [messages]);
 
   const playAudio = (url) => {
@@ -169,6 +191,7 @@ export default function VoiceChat({ driver, onClose }) {
         duration_seconds: recordingTime,
       }]);
       toast.success(`Mensaje de voz enviado a ${driver?.fullName || 'chofer'}`);
+      fetchMessages().catch(() => {});
     } catch (err) {
       console.error('Error sending voice:', formatError(err));
       toast.error(err?.message || 'No se pudo enviar el mensaje de voz');
