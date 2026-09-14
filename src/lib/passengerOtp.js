@@ -9,8 +9,8 @@ import { isSmsGatewayConfigured, sendSmsOtp, toSmsE164 } from './smsGateway';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
-const OTP_MAX_PER_HOUR = 3;
-const OTP_MAX_GLOBAL_PER_HOUR = 40;
+const OTP_MAX_PER_HOUR = 8;
+const OTP_MAX_GLOBAL_PER_HOUR = 80;
 const OTP_MAX_ATTEMPTS = 5;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -182,6 +182,22 @@ export function buildPassengerOtpMessage(code, nowMs = Date.now(), { previousTex
   return source[randomInt(0, source.length)];
 }
 
+/** Un envío fallido se invalida al toque (expires_at ≈ created_at). Eso no debe gastar el cupo horario. */
+function otpWasDelivered(row) {
+  const created = new Date(row?.created_at).getTime();
+  const expires = new Date(row?.expires_at).getTime();
+  return Number.isFinite(created) && Number.isFinite(expires) && (expires - created) >= 60_000;
+}
+
+function hourlyRetryAfterSeconds(rows, nowMs) {
+  const oldest = rows
+    .map((row) => new Date(row.created_at).getTime())
+    .filter((ms) => Number.isFinite(ms))
+    .sort((a, b) => a - b)[0];
+  if (!oldest) return 60;
+  return Math.max(1, Math.ceil((oldest + 60 * 60 * 1000 - nowMs) / 1000));
+}
+
 export async function assertCanSendOtp(supabase, phone) {
   const now = Date.now();
   const cooldownSince = new Date(now - OTP_RESEND_COOLDOWN_MS).toISOString();
@@ -212,41 +228,46 @@ export async function assertCanSendOtp(supabase, phone) {
     };
   }
 
-  const { count, error: countError } = await supabase
+  const { data: hourlyRows, error: countError } = await supabase
     .from('passenger_otp_codes')
-    .select('id', { count: 'exact', head: true })
+    .select('id, created_at, expires_at')
     .eq('phone', phone)
-    .gte('created_at', hourSince);
+    .gte('created_at', hourSince)
+    .limit(50);
 
   if (countError) {
     if (isMissingOtpTableError(countError)) return missingOtpTableResponse();
     throw countError;
   }
-  if ((count || 0) >= OTP_MAX_PER_HOUR) {
+  const deliveredHourly = (hourlyRows || []).filter(otpWasDelivered);
+  if (deliveredHourly.length >= OTP_MAX_PER_HOUR) {
     return {
       ok: false,
       status: 429,
       reason: 'otp_hourly_limit',
       message: 'Llegaste al límite de códigos por hora. Probá más tarde.',
+      retryAfterSeconds: hourlyRetryAfterSeconds(deliveredHourly, now),
     };
   }
 
-  const { count: globalCount, error: globalError } = await supabase
+  const { data: globalRows, error: globalError } = await supabase
     .from('passenger_otp_codes')
-    .select('id', { count: 'exact', head: true })
-    .gte('created_at', hourSince);
+    .select('id, created_at, expires_at')
+    .gte('created_at', hourSince)
+    .limit(OTP_MAX_GLOBAL_PER_HOUR + 20);
 
   if (globalError) {
     if (isMissingOtpTableError(globalError)) return missingOtpTableResponse();
     throw globalError;
   }
-  if ((globalCount || 0) >= OTP_MAX_GLOBAL_PER_HOUR) {
+  const deliveredGlobal = (globalRows || []).filter(otpWasDelivered);
+  if (deliveredGlobal.length >= OTP_MAX_GLOBAL_PER_HOUR) {
     return {
       ok: false,
       status: 429,
       reason: 'otp_global_hourly_limit',
       message: 'Hay muchos pedidos de código ahora. Probá más tarde.',
-      retryAfterSeconds: 60,
+      retryAfterSeconds: hourlyRetryAfterSeconds(deliveredGlobal, now),
     };
   }
 
