@@ -128,7 +128,7 @@ export function OtpCountdown({ seconds, total = 60 }) {
           Reenviar en {clock}
         </p>
         <p className="text-[12px] leading-relaxed text-slate-500">
-          El código llega por WhatsApp. Cuando llegue a 0:00 podés pedir otro.
+          El código llega por SMS. Cuando llegue a 0:00 podés pedir otro.
         </p>
       </div>
     </div>

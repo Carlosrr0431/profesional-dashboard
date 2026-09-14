@@ -4,20 +4,8 @@ import {
   extractLocalArMobileDigits,
   maskPhone,
   normalizePassengerPhoneForDb,
-  normalizePhoneForWhatsApp,
-  toWhatsAppJid,
 } from './passengerAuthPhone';
-import { sendWhatsmeowText, getWhatsmeowApiKey } from './whatsmeowClient';
-import { listOtpWhatsmeowCandidateLines, PASSENGER_OTP_AGENT_CODE } from './whatsmeowLines';
-import {
-  isWhatsappLineProtectivePause,
-  isWhatsappQueueTimeoutError,
-  isWhatsappTransientDisconnect,
-} from './whatsappAntiBan';
-import { WHATSAPP_OUTBOUND_INTERVAL_MS } from './whatsappOutboundQueue';
-
-/** Prioridad alta en whatsapp_outbound_queue (ver OUTBOUND_PRIORITY.OTP). */
-const OTP_OUTBOUND_PRIORITY = 100;
+import { isSmsGatewayConfigured, sendSmsOtp, toSmsE164 } from './smsGateway';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
@@ -45,7 +33,7 @@ export function isPassengerOtpBypassPhone(rawPhone) {
 
 /**
  * Cuenta de App Review / Play pre-launch (opt-in).
- * Solo si PASSENGER_APP_REVIEW_PHONE está definido: no manda WhatsApp y acepta 2580.
+ * Solo si PASSENGER_APP_REVIEW_PHONE está definido: no manda SMS y acepta 2580.
  * Sin env, ese número recibe OTP real como cualquier pasajero.
  */
 export function isAppReviewDemoPhone(rawPhone) {
@@ -87,9 +75,42 @@ export function generateOtpCode() {
   return String(randomInt(1000, 10000));
 }
 
-function isOtpLineDisconnected(reason) {
-  const msg = String(reason || '').toLowerCase();
-  return isWhatsappTransientDisconnect(reason) || /logged.?out/.test(msg);
+function smsDeliveryFailure(sendResult) {
+  const reason = sendResult?.reason || 'sms_send_failed';
+  if (reason === 'invalid_phone') {
+    return {
+      ok: false,
+      status: 422,
+      reason,
+      retryAfterSeconds: 0,
+      message: 'Ese número no es válido. Usá los 10 dígitos locales (ej. 387…), sin 0, 9 ni 54.',
+    };
+  }
+  if (reason === 'missing_sms_gateway_config') {
+    return {
+      ok: false,
+      status: 503,
+      reason,
+      retryAfterSeconds: 30,
+      message: 'El envío por SMS no está configurado. El operador tiene que completar SMS_GATEWAY en el servidor.',
+    };
+  }
+  if (reason === 'sms_gateway_timeout') {
+    return {
+      ok: false,
+      status: 504,
+      reason,
+      retryAfterSeconds: 20,
+      message: 'El SMS tardó demasiado. Revisá que el celular gateway esté encendido e intentá de nuevo.',
+    };
+  }
+  return {
+    ok: false,
+    status: 502,
+    reason,
+    retryAfterSeconds: 20,
+    message: 'No pudimos enviar el código por SMS. Revisá que el celular gateway esté encendido e intentá de nuevo.',
+  };
 }
 
 /**
@@ -122,8 +143,6 @@ const OTP_CHAT_PHRASES = [
   (n, g) => `${g}, usá ${n} en la app y seguís`,
   (n) => `Hola, ${n} para Profesional Pasajero y listo`,
 ];
-
-const lastOtpTextByDest = new Map();
 
 export function argentinaHour(nowMs = Date.now()) {
   try {
@@ -161,120 +180,6 @@ export function buildPassengerOtpMessage(code, nowMs = Date.now(), { previousTex
     : rendered;
   const source = pool.length ? pool : rendered;
   return source[randomInt(0, source.length)];
-}
-
-async function readLastOtpOutboundText(dest) {
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data } = await supabase
-      .from('whatsapp_outbound_queue')
-      .select('payload')
-      .eq('dest', dest)
-      .eq('agent_code', PASSENGER_OTP_AGENT_CODE)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    return String(data?.payload?.text || '').trim();
-  } catch {
-    return '';
-  }
-}
-
-async function readOtpLinePause(agentCode) {
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data } = await supabase
-      .from('whatsapp_line_throttle')
-      .select('last_sent_at, interval_ms')
-      .eq('agent_code', agentCode)
-      .maybeSingle();
-    return isWhatsappLineProtectivePause(data, Date.now(), WHATSAPP_OUTBOUND_INTERVAL_MS);
-  } catch {
-    return { paused: false, retryAfterSeconds: 0 };
-  }
-}
-
-export async function sendWhatsAppOtp(phone, code) {
-  const apiKey = getWhatsmeowApiKey();
-  const lines = listOtpWhatsmeowCandidateLines();
-  if (!apiKey || !lines[0]?.agentCode) {
-    return { ok: false, reason: 'missing_whatsmeow_config' };
-  }
-
-  const dest = normalizePhoneForWhatsApp(phone);
-  const to = toWhatsAppJid(phone);
-  if (!dest || !to) {
-    return { ok: false, reason: 'invalid_phone' };
-  }
-
-  const previousText = lastOtpTextByDest.get(dest) || await readLastOtpOutboundText(dest);
-  const text = buildPassengerOtpMessage(code, Date.now(), { previousText });
-  const phoneDigits = String(phone || '').replace(/\D/g, '');
-  let lastReason = 'whatsmeow_send_failed';
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const pause = await readOtpLinePause(line.agentCode);
-    if (pause.paused) {
-      return {
-        ok: false,
-        reason: 'whatsapp_line_paused',
-        lineDown: true,
-        retryAfterSeconds: pause.retryAfterSeconds,
-      };
-    }
-
-    const logBase = {
-      phone: phoneDigits,
-      jid: to,
-      agentCode: line.agentCode,
-      attempt: i + 1,
-    };
-
-    console.info('[passenger-otp]', JSON.stringify({
-      stage: 'send_attempt',
-      ...logBase,
-    }));
-
-    const result = await sendWhatsmeowText(line.agentCode, dest, text, {
-      apiKey,
-      awaitDelivery: true,
-      priority: OTP_OUTBOUND_PRIORITY,
-      meta: { source: 'passenger_otp' },
-    });
-
-    if (result.success || (isWhatsappQueueTimeoutError(result.error) && result.queueId)) {
-      if (lastOtpTextByDest.size > 500) lastOtpTextByDest.clear();
-      lastOtpTextByDest.set(dest, text);
-      console.info('[passenger-otp]', JSON.stringify({
-        stage: result.success ? (result.queued ? 'queued' : 'send_ok') : 'queued_await_timeout',
-        ...logBase,
-        queueId: result.queueId || null,
-        messageId: result.messageId || null,
-      }));
-      return {
-        ok: true,
-        queued: Boolean(result.queued || !result.success),
-        queueId: result.queueId || null,
-        messageId: result.messageId || null,
-      };
-    }
-
-    lastReason = result.error || 'whatsmeow_send_failed';
-    console.warn('[passenger-otp]', JSON.stringify({
-      stage: 'send_fail',
-      ...logBase,
-      error: lastReason,
-    }));
-
-    if (!isOtpLineDisconnected(lastReason)) break;
-  }
-
-  return {
-    ok: false,
-    reason: lastReason,
-    lineDown: isOtpLineDisconnected(lastReason),
-  };
 }
 
 export async function assertCanSendOtp(supabase, phone) {
@@ -354,7 +259,8 @@ export async function createAndSendOtp(rawPhone) {
     stage: 'normalize',
     rawPhone: String(rawPhone || ''),
     phone: phone || null,
-    jid: phone ? toWhatsAppJid(phone) : null,
+    e164: phone ? toSmsE164(phone) : null,
+    channel: 'sms',
   }));
   // Canónico: exactamente 54 + 10 dígitos locales (12 en total).
   if (!phone || phone.length !== 12 || !phone.startsWith('54')) {
@@ -377,7 +283,7 @@ export async function createAndSendOtp(rawPhone) {
     };
   }
 
-  // App Review opt-in: código fijo 2580, sin WhatsApp. Requiere PASSENGER_APP_REVIEW_PHONE.
+  // App Review opt-in: código fijo 2580, sin SMS. Requiere PASSENGER_APP_REVIEW_PHONE.
   if (isAppReviewDemoPhone(phone)) {
     const supabase = getSupabaseAdmin();
     const canSend = await assertCanSendOtp(supabase, phone);
@@ -429,24 +335,13 @@ export async function createAndSendOtp(rawPhone) {
     return canSend;
   }
 
-  const otpLine = listOtpWhatsmeowCandidateLines()[0];
-  if (otpLine?.agentCode) {
-    const pause = await readOtpLinePause(otpLine.agentCode);
-    if (pause.paused) {
-      console.info('[passenger-otp]', JSON.stringify({
-        stage: 'blocked',
-        phone,
-        reason: 'whatsapp_line_paused',
-        retryAfterSeconds: pause.retryAfterSeconds || null,
-      }));
-      return {
-        ok: false,
-        status: 502,
-        message: 'WhatsApp está en pausa de protección. Reintentá en un rato.',
-        reason: 'whatsapp_line_paused',
-        retryAfterSeconds: Math.min(120, pause.retryAfterSeconds || 60),
-      };
-    }
+  if (!isSmsGatewayConfigured()) {
+    console.warn('[passenger-otp]', JSON.stringify({
+      stage: 'blocked',
+      phone,
+      reason: 'missing_sms_gateway_config',
+    }));
+    return smsDeliveryFailure({ reason: 'missing_sms_gateway_config' });
   }
 
   const code = generateOtpCode();
@@ -463,24 +358,14 @@ export async function createAndSendOtp(rawPhone) {
     throw insertError;
   }
 
-  const waResult = await sendWhatsAppOtp(phone, code);
-  if (!waResult.ok) {
-    // No borrar la fila: si se borra, el cooldown de 60s no aplica y el usuario
-    // puede spamear Wasender con el mismo número inválido (ráfaga de 502).
+  const sendResult = await sendSmsOtp(phone, code);
+  if (!sendResult.ok) {
     await supabase
       .from('passenger_otp_codes')
       .update({ expires_at: new Date().toISOString() })
       .eq('phone', phone)
       .eq('code', code);
-    return {
-      ok: false,
-      status: waResult.jidMissing ? 422 : 502,
-      message: waResult.jidMissing
-        ? 'Ese número no tiene WhatsApp. Usá los 10 dígitos con área, sin 0 ni 54.'
-        : 'No se pudo entregar el código por WhatsApp. Reintentá cuando termine la espera.',
-      reason: waResult.reason,
-      retryAfterSeconds: waResult.retryAfterSeconds || OTP_RESEND_COOLDOWN_MS / 1000,
-    };
+    return smsDeliveryFailure(sendResult);
   }
 
   return {
@@ -488,6 +373,7 @@ export async function createAndSendOtp(rawPhone) {
     phone,
     maskedPhone: maskPhone(phone),
     expiresInSeconds: Math.floor(OTP_TTL_MS / 1000),
+    channel: 'sms',
   };
 }
 
@@ -533,7 +419,7 @@ async function createPassengerSession(supabase, phone) {
   };
 }
 
-/** Login de prueba sin WhatsApp/OTP — solo el número de PASSENGER_OTP_BYPASS_PHONE. */
+/** Login de prueba sin SMS/OTP — solo el número de PASSENGER_OTP_BYPASS_PHONE. */
 export async function createBypassPassengerSession(rawPhone) {
   const phone = normalizePassengerPhoneForDb(rawPhone);
   if (!phone || !isPassengerOtpBypassPhone(phone)) {

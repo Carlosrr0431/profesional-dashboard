@@ -7,8 +7,8 @@ import {
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-/** awaitDelivery del OTP puede esperar el throttle de la cola (~15s). */
-export const maxDuration = 60;
+/** SMSGate responde en segundos; no esperar la cola de WhatsApp. */
+export const maxDuration = 20;
 
 /** Rate limit simple por IP (protege abuso del endpoint público). */
 const ipHits = new Map();
@@ -53,7 +53,7 @@ export async function POST(req) {
       userAgent: userAgent || null,
     }));
 
-    // Sin header de la app: no gastar la línea de WhatsApp en scrapers.
+    // Sin header de la app: no gastar SMS del gateway en scrapers.
     if (!clientGate.ok) {
       console.info('[passenger-otp]', JSON.stringify({
         stage: 'rejected_client',
@@ -68,7 +68,7 @@ export async function POST(req) {
     }
 
     // Play pre-launch / Googlebot: IPs 66.249.* con header de la app real.
-    // No mandar WhatsApp a números random. El número de review (si hay env) puede seguir.
+    // No mandar SMS a números random. El número de review (si hay env) puede seguir.
     if (isLikelyAutomatedScannerIp(ip) && !isAppReviewDemoPhone(phone)) {
       console.info('[passenger-otp]', JSON.stringify({
         stage: 'rejected_scanner',
@@ -131,13 +131,14 @@ export async function POST(req) {
       phone: result.phone,
       maskedPhone: result.maskedPhone,
       expiresInSeconds: result.expiresInSeconds,
+      channel: result.channel || 'sms',
       bypass: Boolean(result.bypass),
       sessionToken: result.sessionToken || null,
       sessionExpiresAt: result.sessionExpiresAt || null,
       name: result.name || null,
       message: result.bypass
         ? 'Acceso de prueba habilitado (sin OTP).'
-        : 'Te enviamos un código por WhatsApp.',
+        : 'Te enviamos un código por SMS.',
     });
   } catch (error) {
     console.error('[passenger/send-otp]', error);

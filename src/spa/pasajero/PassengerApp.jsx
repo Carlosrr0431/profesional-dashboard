@@ -345,7 +345,7 @@ export default function PassengerApp() {
     }
     setOtpStep('code');
     setResendSeconds(wait || OTP_RESEND_SECONDS);
-    setInfo('Revisá WhatsApp. El código de 4 dígitos llega en unos segundos.');
+    setInfo('Revisá tus SMS. El código de 4 dígitos llega en unos segundos.');
   };
 
   const verifyOtp = async (event) => {
@@ -598,9 +598,9 @@ export default function PassengerApp() {
       <SpaAuthScreen>
           <SpaBrand subtitle="Pasajero · Salta" />
           <div className="spa-auth-card">
-            <p className="spa-kicker">WhatsApp</p>
+            <p className="spa-kicker">SMS</p>
             <h1 className="text-balance">Pedí tu viaje</h1>
-            <p className="lead">Te enviamos un código por WhatsApp. En un minuto estás pidiendo el móvil.</p>
+            <p className="lead">Te enviamos un código por SMS. En un minuto estás pidiendo el móvil.</p>
             <form className="mt-6 grid gap-3" onSubmit={otpStep === 'phone' ? sendOtp : verifyOtp}>
               <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
                 Nombre
@@ -627,7 +627,7 @@ export default function PassengerApp() {
               </label>
               {otpStep === 'code' ? (
                 <label className="grid gap-1.5 text-[12px] font-medium text-slate-500">
-                  Código de WhatsApp
+                  Código de SMS
                   <input
                     value={otp}
                     onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 4))}
