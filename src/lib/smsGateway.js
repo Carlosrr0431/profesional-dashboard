@@ -7,9 +7,6 @@ export const SMS_GATEWAY_CLOUD_BASE = 'https://api.sms-gate.app/3rdparty/v1';
 export const SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS = 1;
 
 const SMS_GATEWAY_TIMEOUT_MS = 12_000;
-const SMS_GATEWAY_WAIT_SENT_MS = 8_000;
-const SMS_GATEWAY_POLL_MS = 800;
-const SMS_SENT_STATES = new Set(['Processed', 'Sent', 'Delivered']);
 const SMS_FAIL_STATES = new Set(['Failed', 'Cancelled']);
 
 export function getSmsGatewayConfig(env = process.env) {
@@ -50,10 +47,6 @@ export function isSmsGatewayAbortError(error) {
   return name === 'AbortError' || name === 'TimeoutError' || message.includes('aborted');
 }
 
-export function isSmsGatewaySentState(state) {
-  return SMS_SENT_STATES.has(String(state || ''));
-}
-
 export function isSmsGatewayFailedState(state) {
   return SMS_FAIL_STATES.has(String(state || ''));
 }
@@ -88,13 +81,6 @@ export function buildSmsGatewayPayload({ phoneE164, text, config }) {
   return payload;
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    if (typeof timer.unref === 'function') timer.unref();
-  });
-}
-
 async function fetchSmsGatewayJson(url, { method = 'GET', body, config, fetchImpl, timeoutMs = SMS_GATEWAY_TIMEOUT_MS }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -117,105 +103,11 @@ async function fetchSmsGatewayJson(url, { method = 'GET', body, config, fetchImp
   }
 }
 
-export async function getSmsGatewayMessage(messageId, {
-  env = process.env,
-  fetchImpl = fetch,
-} = {}) {
-  const config = getSmsGatewayConfig(env);
-  if (!config) return { ok: false, reason: 'missing_sms_gateway_config' };
-  const id = String(messageId || '').trim();
-  if (!id) return { ok: false, reason: 'missing_message_id' };
-
-  try {
-    const { response, data } = await fetchSmsGatewayJson(
-      `${config.baseUrl}/messages/${encodeURIComponent(id)}`,
-      { config, fetchImpl }
-    );
-    if (response.status !== 200) {
-      return {
-        ok: false,
-        reason: data?.message || data?.error || `sms_gateway_http_${response.status}`,
-        status: response.status,
-      };
-    }
-    return {
-      ok: true,
-      messageId: data?.id || id,
-      state: data?.state || null,
-    };
-  } catch (error) {
-    if (isSmsGatewayAbortError(error)) {
-      return { ok: false, reason: 'sms_gateway_timeout' };
-    }
-    return { ok: false, reason: error?.message || 'sms_gateway_network_error' };
-  }
-}
-
-export async function cancelSmsGatewayMessage(messageId, {
-  env = process.env,
-  fetchImpl = fetch,
-} = {}) {
-  const config = getSmsGatewayConfig(env);
-  if (!config) return { ok: false, reason: 'missing_sms_gateway_config' };
-  const id = String(messageId || '').trim();
-  if (!id) return { ok: false, reason: 'missing_message_id' };
-
-  try {
-    const { response, data } = await fetchSmsGatewayJson(
-      `${config.baseUrl}/messages/${encodeURIComponent(id)}`,
-      { method: 'DELETE', config, fetchImpl }
-    );
-    if (response.status !== 200 && response.status !== 202 && response.status !== 204) {
-      return {
-        ok: false,
-        reason: data?.message || data?.error || `sms_gateway_http_${response.status}`,
-        status: response.status,
-      };
-    }
-    return { ok: true, messageId: id };
-  } catch (error) {
-    if (isSmsGatewayAbortError(error)) {
-      return { ok: false, reason: 'sms_gateway_timeout' };
-    }
-    return { ok: false, reason: error?.message || 'sms_gateway_network_error' };
-  }
-}
-
-async function waitForSmsGatewaySent(messageId, {
-  env,
-  fetchImpl,
-  waitSentMs = SMS_GATEWAY_WAIT_SENT_MS,
-  pollMs = SMS_GATEWAY_POLL_MS,
-} = {}) {
-  let lastState = 'Pending';
-  const deadline = Date.now() + Math.max(0, waitSentMs);
-  while (Date.now() <= deadline) {
-    const status = await getSmsGatewayMessage(messageId, { env, fetchImpl });
-    if (!status.ok) {
-      if (Date.now() >= deadline) return { ok: false, reason: status.reason, state: lastState, messageId };
-    } else {
-      lastState = status.state || lastState;
-      if (isSmsGatewaySentState(lastState)) {
-        return { ok: true, messageId, state: lastState };
-      }
-      if (isSmsGatewayFailedState(lastState)) {
-        return { ok: false, reason: 'sms_gateway_failed', messageId, state: lastState };
-      }
-    }
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) break;
-    await sleep(Math.min(pollMs, remaining));
-  }
-  return { ok: false, reason: 'sms_gateway_still_pending', messageId, state: lastState };
-}
-
 export async function sendSmsGatewayMessage({
   phone,
   text,
   env = process.env,
   fetchImpl = fetch,
-  waitSentMs = SMS_GATEWAY_WAIT_SENT_MS,
-  pollMs = SMS_GATEWAY_POLL_MS,
 }) {
   const config = getSmsGatewayConfig(env);
   if (!config) return { ok: false, reason: 'missing_sms_gateway_config' };
@@ -246,21 +138,13 @@ export async function sendSmsGatewayMessage({
   }
 
   const messageId = data?.id || null;
-  const state = data?.state || null;
-  if (isSmsGatewaySentState(state)) {
-    return { ok: true, messageId, state };
-  }
+  const state = data?.state || 'Pending';
   if (isSmsGatewayFailedState(state)) {
     return { ok: false, reason: 'sms_gateway_failed', messageId, state };
   }
-  if (!messageId) {
-    return { ok: false, reason: 'sms_gateway_still_pending', state };
-  }
-  const waited = await waitForSmsGatewaySent(messageId, { env, fetchImpl, waitSentMs, pollMs });
-  if (!waited.ok && waited.reason === 'sms_gateway_still_pending') {
-    await cancelSmsGatewayMessage(messageId, { env, fetchImpl }).catch(() => null);
-  }
-  return waited;
+  // Pending es correcto: la cloud encola y el J7 manda en segundo plano.
+  // No esperar ni cancelar: si cancelamos a los 8s el SMS nunca sale.
+  return { ok: true, messageId, state };
 }
 
 export async function sendSmsOtp(phone, code, options = {}) {
