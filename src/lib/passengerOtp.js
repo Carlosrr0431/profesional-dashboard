@@ -8,9 +8,6 @@ import {
 import { isSmsGatewayConfigured, sendSmsOtp, toSmsE164 } from './smsGateway';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
-const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
-const OTP_MAX_PER_HOUR = 8;
-const OTP_MAX_GLOBAL_PER_HOUR = 80;
 const OTP_MAX_ATTEMPTS = 5;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -91,7 +88,7 @@ function smsDeliveryFailure(sendResult) {
       ok: false,
       status: 503,
       reason,
-      retryAfterSeconds: 30,
+      retryAfterSeconds: 1,
       message: 'El envío por SMS no está configurado. El operador tiene que completar SMS_GATEWAY en el servidor.',
     };
   }
@@ -100,7 +97,7 @@ function smsDeliveryFailure(sendResult) {
       ok: false,
       status: 504,
       reason,
-      retryAfterSeconds: 20,
+      retryAfterSeconds: 1,
       message: 'El SMS tardó demasiado. Revisá que el celular gateway esté encendido e intentá de nuevo.',
     };
   }
@@ -109,7 +106,7 @@ function smsDeliveryFailure(sendResult) {
       ok: false,
       status: 502,
       reason,
-      retryAfterSeconds: 20,
+      retryAfterSeconds: 1,
       message: 'El celular que envía los SMS no los está mandando. Dejalo encendido, con internet, sin ahorro de batería, y abrí SMSGate.',
     };
   }
@@ -117,7 +114,7 @@ function smsDeliveryFailure(sendResult) {
     ok: false,
     status: 502,
     reason,
-    retryAfterSeconds: 20,
+    retryAfterSeconds: 1,
     message: 'No pudimos enviar el código por SMS. Revisá que el celular gateway esté encendido e intentá de nuevo.',
   };
 }
@@ -191,95 +188,7 @@ export function buildPassengerOtpMessage(code, nowMs = Date.now(), { previousTex
   return source[randomInt(0, source.length)];
 }
 
-/** Un envío fallido se invalida al toque (expires_at ≈ created_at). Eso no debe gastar el cupo horario. */
-function otpWasDelivered(row) {
-  const created = new Date(row?.created_at).getTime();
-  const expires = new Date(row?.expires_at).getTime();
-  return Number.isFinite(created) && Number.isFinite(expires) && (expires - created) >= 60_000;
-}
-
-function hourlyRetryAfterSeconds(rows, nowMs) {
-  const oldest = rows
-    .map((row) => new Date(row.created_at).getTime())
-    .filter((ms) => Number.isFinite(ms))
-    .sort((a, b) => a - b)[0];
-  if (!oldest) return 60;
-  return Math.max(1, Math.ceil((oldest + 60 * 60 * 1000 - nowMs) / 1000));
-}
-
-export async function assertCanSendOtp(supabase, phone) {
-  const now = Date.now();
-  const cooldownSince = new Date(now - OTP_RESEND_COOLDOWN_MS).toISOString();
-  const hourSince = new Date(now - 60 * 60 * 1000).toISOString();
-
-  const { data: recent, error: recentError } = await supabase
-    .from('passenger_otp_codes')
-    .select('id, created_at')
-    .eq('phone', phone)
-    .gte('created_at', cooldownSince)
-    .order('created_at', { ascending: false })
-    .limit(1);
-
-  if (recentError) {
-    if (isMissingOtpTableError(recentError)) return missingOtpTableResponse();
-    throw recentError;
-  }
-  if (recent?.length) {
-    const createdAt = new Date(recent[0].created_at).getTime();
-    const remainingMs = OTP_RESEND_COOLDOWN_MS - (now - createdAt);
-    const retryAfterSeconds = Math.max(1, Math.ceil(remainingMs / 1000));
-    return {
-      ok: false,
-      status: 429,
-      reason: 'otp_cooldown',
-      message: 'Podés pedir otro código cuando termine la espera.',
-      retryAfterSeconds,
-    };
-  }
-
-  const { data: hourlyRows, error: countError } = await supabase
-    .from('passenger_otp_codes')
-    .select('id, created_at, expires_at')
-    .eq('phone', phone)
-    .gte('created_at', hourSince)
-    .limit(50);
-
-  if (countError) {
-    if (isMissingOtpTableError(countError)) return missingOtpTableResponse();
-    throw countError;
-  }
-  const deliveredHourly = (hourlyRows || []).filter(otpWasDelivered);
-  if (deliveredHourly.length >= OTP_MAX_PER_HOUR) {
-    return {
-      ok: false,
-      status: 429,
-      reason: 'otp_hourly_limit',
-      message: 'Llegaste al límite de códigos por hora. Probá más tarde.',
-      retryAfterSeconds: hourlyRetryAfterSeconds(deliveredHourly, now),
-    };
-  }
-
-  const { data: globalRows, error: globalError } = await supabase
-    .from('passenger_otp_codes')
-    .select('id, created_at, expires_at')
-    .gte('created_at', hourSince)
-    .limit(OTP_MAX_GLOBAL_PER_HOUR + 20);
-
-  if (globalError) {
-    if (isMissingOtpTableError(globalError)) return missingOtpTableResponse();
-    throw globalError;
-  }
-  const deliveredGlobal = (globalRows || []).filter(otpWasDelivered);
-  if (deliveredGlobal.length >= OTP_MAX_GLOBAL_PER_HOUR) {
-    return {
-      ok: false,
-      status: 429,
-      reason: 'otp_global_hourly_limit',
-      message: 'Hay muchos pedidos de código ahora. Probá más tarde.',
-      retryAfterSeconds: hourlyRetryAfterSeconds(deliveredGlobal, now),
-    };
-  }
-
+export async function assertCanSendOtp() {
   return { ok: true };
 }
 

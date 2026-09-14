@@ -10,29 +10,10 @@ export const dynamic = 'force-dynamic';
 /** SMSGate responde en segundos; no esperar la cola de WhatsApp. */
 export const maxDuration = 20;
 
-/** Rate limit simple por IP (protege abuso del endpoint público). */
-const ipHits = new Map();
-const IP_WINDOW_MS = 60 * 1000;
-const IP_MAX_HITS = 4;
-
 function getClientIp(req) {
   const forwarded = req.headers.get('x-forwarded-for') || '';
   if (forwarded) return forwarded.split(',')[0].trim();
   return req.headers.get('x-real-ip') || 'unknown';
-}
-
-function assertIpAllowed(ip, maxHits) {
-  const now = Date.now();
-  const entry = ipHits.get(ip);
-  if (!entry || now - entry.windowStart > IP_WINDOW_MS) {
-    ipHits.set(ip, { windowStart: now, count: 1 });
-    return { ok: true };
-  }
-  entry.count += 1;
-  if (entry.count > maxHits) {
-    return { ok: false };
-  }
-  return { ok: true };
 }
 
 export async function POST(req) {
@@ -80,23 +61,6 @@ export async function POST(req) {
       return NextResponse.json(
         { ok: false, message: 'Cliente no autorizado.' },
         { status: 403 }
-      );
-    }
-
-    const ipGate = assertIpAllowed(ip, IP_MAX_HITS);
-    if (!ipGate.ok) {
-      console.info('[passenger-otp]', JSON.stringify({
-        stage: 'rate_limited_ip',
-        ip,
-        client,
-      }));
-      return NextResponse.json(
-        {
-          ok: false,
-          message: 'Hay varios intentos desde esta red. Esperá un momento.',
-          retryAfterSeconds: 60,
-        },
-        { status: 429 }
       );
     }
 
