@@ -104,6 +104,15 @@ function smsDeliveryFailure(sendResult) {
       message: 'El SMS tardó demasiado. Revisá que el celular gateway esté encendido e intentá de nuevo.',
     };
   }
+  if (reason === 'sms_gateway_still_pending' || reason === 'sms_gateway_failed') {
+    return {
+      ok: false,
+      status: 502,
+      reason,
+      retryAfterSeconds: 20,
+      message: 'El celular que envía los SMS no los está mandando. Dejalo encendido, con internet, sin ahorro de batería, y abrí SMSGate.',
+    };
+  }
   return {
     ok: false,
     status: 502,

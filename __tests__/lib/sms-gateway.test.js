@@ -1,5 +1,6 @@
 const {
   SMS_GATEWAY_CLOUD_BASE,
+  SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS,
   getSmsGatewayConfig,
   isSmsGatewayConfigured,
   resolveOtpDeliveryChannel,
@@ -92,29 +93,72 @@ describe('sms helpers', () => {
 });
 
 describe('sendSmsGatewayMessage', () => {
-  test('POST a /messages con Basic y 202 es éxito', async () => {
+  const env = { SMS_GATEWAY_USERNAME: 'otp', SMS_GATEWAY_PASSWORD: 'secret' };
+
+  test('POST 202 Pending y luego Sent cuenta como enviado', async () => {
     const fetchImpl = jest.fn(async (url, init) => {
-      expect(url).toBe(`${SMS_GATEWAY_CLOUD_BASE}/messages?deviceActiveWithin=60`);
-      expect(init.method).toBe('POST');
-      expect(init.headers.Authorization).toMatch(/^Basic /);
-      const body = JSON.parse(init.body);
-      expect(body.phoneNumbers).toEqual(['+5493878630173']);
-      expect(body.textMessage.text).toContain('1234');
+      if (init.method === 'POST') {
+        expect(url).toBe(`${SMS_GATEWAY_CLOUD_BASE}/messages?deviceActiveWithin=${SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS}`);
+        expect(SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS).toBe(1);
+        expect(init.headers.Authorization).toMatch(/^Basic /);
+        const body = JSON.parse(init.body);
+        expect(body.phoneNumbers).toEqual(['+5493878630173']);
+        expect(body.textMessage.text).toContain('1234');
+        return {
+          status: 202,
+          json: async () => ({ id: 'msg_1', state: 'Pending' }),
+        };
+      }
+      expect(url).toBe(`${SMS_GATEWAY_CLOUD_BASE}/messages/msg_1`);
       return {
-        status: 202,
-        json: async () => ({ id: 'msg_1', state: 'Pending' }),
+        status: 200,
+        json: async () => ({ id: 'msg_1', state: 'Sent' }),
       };
     });
 
     const result = await sendSmsGatewayMessage({
       phone: '3878630173',
       text: buildPassengerSmsOtpMessage('1234'),
-      env: { SMS_GATEWAY_USERNAME: 'otp', SMS_GATEWAY_PASSWORD: 'secret' },
+      env,
       fetchImpl,
+      waitSentMs: 50,
+      pollMs: 10,
     });
 
-    expect(result).toEqual({ ok: true, messageId: 'msg_1', state: 'Pending' });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ ok: true, messageId: 'msg_1', state: 'Sent' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test('si el celular no procesa el SMS no se toma como enviado', async () => {
+    const fetchImpl = jest.fn(async (_url, init) => {
+      if (init.method === 'POST') {
+        return {
+          status: 202,
+          json: async () => ({ id: 'msg_stuck', state: 'Pending' }),
+        };
+      }
+      return {
+        status: 200,
+        json: async () => ({ id: 'msg_stuck', state: 'Pending' }),
+      };
+    });
+
+    const result = await sendSmsGatewayMessage({
+      phone: '3878630173',
+      text: 'x',
+      env,
+      fetchImpl,
+      waitSentMs: 0,
+      pollMs: 10,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: 'sms_gateway_still_pending',
+      messageId: 'msg_stuck',
+      state: 'Pending',
+    });
+    expect(fetchImpl.mock.calls.some((call) => call[1]?.method === 'DELETE')).toBe(true);
   });
 
   test('HTTP 401 no se toma como enviado', async () => {
@@ -138,7 +182,7 @@ describe('sendSmsGatewayMessage', () => {
     const result = await sendSmsGatewayMessage({
       phone: '3878630173',
       text: 'x',
-      env: { SMS_GATEWAY_USERNAME: 'otp', SMS_GATEWAY_PASSWORD: 'secret' },
+      env,
       fetchImpl: async () => {
         throw err;
       },
