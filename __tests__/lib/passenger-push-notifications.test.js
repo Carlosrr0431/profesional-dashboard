@@ -51,4 +51,25 @@ describe('passengerPushNotifications', () => {
     };
     expect(resolvePassengerPushStatus(sent)).toBeNull();
   });
+
+  it('al reencolar tras cancelar el chofer avisa buscando otro conductor', () => {
+    const trip = {
+      status: 'queued',
+      cancel_reason: 'Cancelado por el chofer',
+      wa_context: { passenger_push_statuses: ['accepted'] },
+    };
+    expect(resolvePassengerPushStatus(trip)).toBe('queued_driver_release');
+    const content = getPassengerTripPushContent('queued_driver_release');
+    expect(content.title).toMatch(/otro conductor/i);
+    expect(content.body).toMatch(/no pudo continuar/i);
+  });
+
+  it('cancelled por el chofer en pickup avisa buscando otro conductor, no viaje cancelado', () => {
+    expect(resolvePassengerPushStatus({
+      status: 'cancelled',
+      started_at: null,
+      cancel_reason: 'Cancelado por el chofer',
+      wa_context: { passenger_push_statuses: ['accepted', 'going_to_pickup'] },
+    })).toBe('queued_driver_release');
+  });
 });

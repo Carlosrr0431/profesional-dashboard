@@ -137,6 +137,51 @@ export function canRequeuePendingTrip(trip) {
   return true;
 }
 
+export const DRIVER_RELEASE_REASON = 'Cancelado por el chofer';
+export const DRIVER_RELEASABLE_STATUSES = ['pending', 'accepted', 'going_to_pickup'];
+
+export function isAssignedDriverReleaseStatus(status) {
+  const normalized = String(status || '').toLowerCase();
+  return normalized === 'accepted' || normalized === 'going_to_pickup';
+}
+
+export function isDriverReleasedSearchReason(reason) {
+  return String(reason || '').toLowerCase().includes('cancelado por el chofer');
+}
+
+/**
+ * El chofer puede devolver el mismo viaje a la cola (mismo id).
+ * Pending: rechazo de oferta. Assigned: canceló de camino al origen.
+ * Street hail asignado no se reencola: no hay pasajero esperando.
+ *
+ * APK vieja: el chofer escribe cancelled en pickup. Mismo viaje, mismo id.
+ * No reabre si ya había salido (started_at) ni viajes en calle.
+ */
+export function canRecoverCancelledDriverReleaseToQueue(trip) {
+  if (!trip) return false;
+  if (String(trip.status || '').toLowerCase() !== 'cancelled') return false;
+  if (trip.started_at) return false;
+  if (!trip.driver_id) return false;
+  if (isPassengerInitiatedCancellation(trip)) return false;
+  if (!isDriverReleasedSearchReason(trip.cancel_reason)) return false;
+  if (isStreetHailReassignmentBlocked(trip)) return false;
+  return true;
+}
+
+export function canDriverReleaseTripToQueue(trip) {
+  if (!trip) return false;
+  if (isPassengerInitiatedCancellation(trip)) return false;
+  const status = String(trip.status || '').toLowerCase();
+  if (status === 'pending') return true;
+  if (isAssignedDriverReleaseStatus(status)) {
+    return !isStreetHailReassignmentBlocked(trip);
+  }
+  if (status === 'cancelled') {
+    return canRecoverCancelledDriverReleaseToQueue(trip);
+  }
+  return false;
+}
+
 /** Cierra un pending de calle vencido: no hay pasajero esperando otro chofer. */
 export function buildStreetHailPendingCancelUpdate(trip = {}) {
   return {

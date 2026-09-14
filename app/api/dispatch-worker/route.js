@@ -25,6 +25,8 @@ import { isPassengerInitiatedCancellation } from '../../../src/lib/passengerTrip
 import { isStreetHailReassignmentBlocked } from '../../../src/lib/shouldReassignCancelledTrip';
 import { isPassengerAppTrip, shouldPreservePickupOriginOnAssign } from '../../../shared/trip-contract.js';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
+import { recoverCancelledDriverReleases } from '../../../src/lib/driverReleaseTrip';
+import { notifyPassengerDriverReleased } from '../../../src/lib/notifyPassengerDriverReleased';
 import { sendWhatsmeowText, getWhatsmeowApiKey } from '../../../src/lib/whatsmeowClient';
 import {
   getDefaultWhatsmeowLine,
@@ -1721,6 +1723,30 @@ async function promoteScheduledTripsBeforeDispatch() {
   });
 }
 
+async function recoverDriverCancelledPickupTrips() {
+  const supabase = getSupabaseAdmin();
+  const result = await recoverCancelledDriverReleases(supabase);
+
+  if (result.error) {
+    logWorker('recover_driver_cancel_error', {
+      error: summarizeDbError(result.error),
+    });
+    return { recovered: 0, error: true };
+  }
+
+  for (const item of result.released || []) {
+    logWorker('recover_driver_cancel_requeued', {
+      tripId: item.tripId,
+      driverId: item.driverId,
+    });
+    if (item.releasedTrip) {
+      void notifyPassengerDriverReleased(supabase, item.releasedTrip).catch(() => {});
+    }
+  }
+
+  return { recovered: result.recovered || 0 };
+}
+
 async function runDispatchWorkerCycle() {
   const nowMs = Date.now();
   const pushBackoffActive = pushProviderBackoffUntil > nowMs;
@@ -1743,6 +1769,7 @@ async function runDispatchWorkerCycle() {
 
   const scheduledResult = await promoteScheduledTripsBeforeDispatch();
   const expireResult = await expireTimedOutPendingTrips();
+  const recoverResult = await recoverDriverCancelledPickupTrips();
   const claimedItems = await claimDispatchBatch();
 
   const summary = {
@@ -1756,6 +1783,7 @@ async function runDispatchWorkerCycle() {
     skipped: 0,
     errors: 0,
     expiredPending: expireResult.expired || 0,
+    recoveredDriverCancel: recoverResult.recovered || 0,
     results: [],
   };
 
@@ -1784,6 +1812,7 @@ async function runDispatchWorkerCycle() {
     skipped: summary.skipped,
     errors: summary.errors,
     expiredPending: summary.expiredPending,
+    recoveredDriverCancel: summary.recoveredDriverCancel,
     results: DISPATCH_VERBOSE_LOGS ? summary.results : undefined,
   });
 

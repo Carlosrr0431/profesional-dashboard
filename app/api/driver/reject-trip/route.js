@@ -1,11 +1,12 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { triggerDispatchWorker } from '../../../../src/lib/triggerDispatchWorker';
-import { buildPendingToQueuedUpdate } from '../../../../src/lib/tripRequeue';
+import { canDriverReleaseTripToQueue } from '../../../../src/lib/tripRequeue';
 import {
-  buildWaContextWithExcludedDriver,
-  getTripDispatchExcludedDriverIds,
-} from '../../../../src/lib/dispatchExclusions';
+  isDriverReleaseAlreadyApplied,
+  releaseTripToQueue,
+} from '../../../../src/lib/driverReleaseTrip';
+import { notifyPassengerDriverReleased } from '../../../../src/lib/notifyPassengerDriverReleased';
 
 export const maxDuration = 60;
 
@@ -18,12 +19,6 @@ function getSupabaseAdmin() {
   });
 }
 
-function isRejectAlreadyApplied(tripRow, driverId) {
-  const status = String(tripRow?.status || '').toLowerCase();
-  if (status !== 'queued' || tripRow?.driver_id) return false;
-  return getTripDispatchExcludedDriverIds(tripRow.wa_context).includes(String(driverId));
-}
-
 async function getDriverForUser(supabase, userId) {
   const { data, error } = await supabase
     .from('drivers')
@@ -32,6 +27,16 @@ async function getDriverForUser(supabase, userId) {
     .maybeSingle();
   if (error) throw error;
   return data?.id || null;
+}
+
+function schedulePassengerReleaseNotice(supabase, trip) {
+  if (!trip?.id) return;
+  const run = () => notifyPassengerDriverReleased(supabase, trip).catch(() => {});
+  try {
+    after(run);
+  } catch {
+    void run();
+  }
 }
 
 export async function POST(request) {
@@ -56,7 +61,6 @@ export async function POST(request) {
     const body = await request.json().catch(() => ({}));
     const tripId = String(body?.tripId || body?.trip_id || '').trim();
     const reason = String(body?.reason || 'Rechazado por chofer').trim();
-    const isTimeout = reason === 'Tiempo agotado';
 
     if (!tripId) {
       return NextResponse.json({ success: false, error: 'tripId es requerido' }, { status: 400 });
@@ -64,7 +68,7 @@ export async function POST(request) {
 
     const { data: tripRow, error: tripError } = await supabase
       .from('trips')
-      .select('id, status, driver_id, wa_context, notes, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng')
+      .select('id, status, driver_id, wa_context, notes, passenger_phone, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, cancel_reason, started_at')
       .eq('id', tripId)
       .maybeSingle();
 
@@ -74,7 +78,7 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'Viaje no encontrado' }, { status: 404 });
     }
 
-    if (isRejectAlreadyApplied(tripRow, driverId)) {
+    if (isDriverReleaseAlreadyApplied(tripRow, driverId)) {
       return NextResponse.json({ success: true, tripId: tripRow.id, idempotent: true });
     }
 
@@ -82,56 +86,51 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'Viaje no asignado a este chofer' }, { status: 403 });
     }
 
-    if (tripRow.status !== 'pending') {
+    if (!canDriverReleaseTripToQueue(tripRow)) {
       return NextResponse.json({
         success: false,
-        error: 'El viaje ya no está pendiente',
+        error: 'El viaje ya no se puede devolver a la cola',
         unavailable: true,
       }, { status: 409 });
     }
 
-    const wa_context = buildWaContextWithExcludedDriver(
-      tripRow.wa_context,
+    const { data, wasAssigned, releasedTrip, error, unavailable } = await releaseTripToQueue(supabase, {
+      tripRow,
       driverId,
-      isTimeout ? 'driver_timeout' : 'driver_rejected',
-    );
-
-    const { data, error } = await supabase
-      .from('trips')
-      .update(buildPendingToQueuedUpdate(tripRow, {
-        next_dispatch_at: new Date().toISOString(),
-        wa_context,
-        cancel_reason: isTimeout ? 'Tiempo agotado' : reason,
-      }))
-      .eq('id', tripId)
-      .eq('driver_id', driverId)
-      .eq('status', 'pending')
-      .select('id')
-      .maybeSingle();
+      reason,
+    });
 
     if (error) throw error;
 
     if (!data?.id) {
       const { data: refreshedTrip } = await supabase
         .from('trips')
-        .select('id, status, driver_id, wa_context')
+        .select('id, status, driver_id, wa_context, notes, passenger_phone, cancel_reason')
         .eq('id', tripId)
         .maybeSingle();
 
-      if (refreshedTrip && isRejectAlreadyApplied(refreshedTrip, driverId)) {
+      if (refreshedTrip && isDriverReleaseAlreadyApplied(refreshedTrip, driverId)) {
         return NextResponse.json({ success: true, tripId: refreshedTrip.id, idempotent: true });
       }
 
       return NextResponse.json({
         success: false,
-        error: 'El viaje ya no estaba pendiente',
+        error: unavailable ? 'El viaje ya no se puede devolver a la cola' : 'El viaje ya no estaba asignado a este chofer',
         unavailable: true,
       }, { status: 409 });
     }
 
     triggerDispatchWorker({ reason: 'driver_reject', tripId: data.id });
+    if (wasAssigned) {
+      schedulePassengerReleaseNotice(supabase, releasedTrip);
+    }
 
-    return NextResponse.json({ success: true, tripId: data.id });
+    return NextResponse.json({
+      success: true,
+      tripId: data.id,
+      requeued: true,
+      sameTrip: true,
+    });
   } catch (err) {
     return NextResponse.json(
       { success: false, error: err?.message || 'Error interno' },

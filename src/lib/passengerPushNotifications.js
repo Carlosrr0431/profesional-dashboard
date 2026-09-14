@@ -47,11 +47,40 @@ export function buildPassengerPushWaContext(waContext, status) {
   };
 }
 
+export function clearPassengerAssignmentPushStatuses(waContext) {
+  const ctx = parseWaContext(waContext);
+  const sent = getPassengerPushSentStatuses(ctx);
+  sent.delete('pending');
+  sent.delete('accepted');
+  sent.delete('going_to_pickup');
+  sent.delete('in_progress');
+  return {
+    ...ctx,
+    passenger_push_statuses: [...sent],
+  };
+}
+
+export function isDriverReleasedRequeue(trip) {
+  const status = String(trip?.status || '').trim().toLowerCase();
+  const driverReleased = String(trip?.cancel_reason || '')
+    .toLowerCase()
+    .includes('cancelado por el chofer');
+  if (!driverReleased) return false;
+  if (status === 'queued') return true;
+  if (status === 'cancelled' && !trip?.started_at) return true;
+  return false;
+}
+
 export function getPassengerTripPushContent(status, { driverName } = {}) {
   const normalizedStatus = String(status || '').trim().toLowerCase();
   const driver = String(driverName || '').trim();
 
   const messages = {
+    queued_driver_release: {
+      title: 'Buscando otro conductor',
+      body: 'El chofer no pudo continuar. Seguimos buscando uno disponible.',
+      channelId: 'viajes',
+    },
     pending: {
       title: 'Asignando conductor',
       body: 'Un conductor está confirmando tu viaje.',
@@ -95,11 +124,15 @@ export function getPassengerTripPushContent(status, { driverName } = {}) {
  */
 export function resolvePassengerPushStatus(trip) {
   const tripStatus = String(trip?.status || '').trim().toLowerCase();
+  const sent = getPassengerPushSentStatuses(trip?.wa_context);
+
+  if (isDriverReleasedRequeue(trip) && !sent.has('queued_driver_release')) {
+    return 'queued_driver_release';
+  }
+
   if (!PASSENGER_PUSHABLE_STATUSES.includes(tripStatus)) {
     return null;
   }
-
-  const sent = getPassengerPushSentStatuses(trip?.wa_context);
 
   if (tripStatus === 'going_to_pickup') {
     if (!sent.has('accepted')) return 'accepted';
