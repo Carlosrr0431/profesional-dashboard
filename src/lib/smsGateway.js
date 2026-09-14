@@ -1,4 +1,4 @@
-import { normalizePhoneForWhatsApp } from './passengerAuthPhone';
+import { extractLocalArMobileDigits } from './passengerAuthPhone';
 
 /** Cloud pública de SMSGate. Servidor propio: SMS_GATEWAY_URL=https://tu-dominio/api/3rdparty/v1 */
 export const SMS_GATEWAY_CLOUD_BASE = 'https://api.sms-gate.app/3rdparty/v1';
@@ -51,10 +51,9 @@ export function isSmsGatewayFailedState(state) {
   return SMS_FAIL_STATES.has(String(state || ''));
 }
 
-/** E.164 AR móvil: +549 + 10 locales. */
+/** SMS AR: 10 dígitos locales, igual que en SMSGate. El 9 es de WhatsApp, no de SMS. */
 export function toSmsE164(phone) {
-  const digits = normalizePhoneForWhatsApp(phone);
-  return digits ? `+${digits}` : '';
+  return extractLocalArMobileDigits(phone) || '';
 }
 
 export function buildPassengerSmsOtpMessage(code) {

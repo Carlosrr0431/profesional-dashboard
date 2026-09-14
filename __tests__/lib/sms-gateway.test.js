@@ -55,10 +55,10 @@ describe('sms gateway config', () => {
 });
 
 describe('sms helpers', () => {
-  test('arma E.164 AR con 9 móvil', () => {
-    expect(toSmsE164('3878630173')).toBe('+5493878630173');
-    expect(toSmsE164('543878630173')).toBe('+5493878630173');
-    expect(toSmsE164('+54 9 387 863-0173')).toBe('+5493878630173');
+  test('usa 10 dígitos locales, sin el 9 de WhatsApp', () => {
+    expect(toSmsE164('3878630173')).toBe('3878630173');
+    expect(toSmsE164('543878630173')).toBe('3878630173');
+    expect(toSmsE164('+54 9 387 863-0173')).toBe('3878630173');
     expect(toSmsE164('')).toBe('');
   });
 
@@ -77,12 +77,12 @@ describe('sms helpers', () => {
 
   test('el payload usa textMessage y el destino E.164', () => {
     expect(buildSmsGatewayPayload({
-      phoneE164: '+5493878630173',
+      phoneE164: '3878630173',
       text: 'hola',
       config: { deviceId: 'dev_1', simNumber: 1 },
     })).toEqual({
       textMessage: { text: 'hola' },
-      phoneNumbers: ['+5493878630173'],
+      phoneNumbers: ['3878630173'],
       ttl: 3600,
       priority: 100,
       withDeliveryReport: true,
@@ -102,7 +102,7 @@ describe('sendSmsGatewayMessage', () => {
       expect(init.method).toBe('POST');
       expect(init.headers.Authorization).toMatch(/^Basic /);
       const body = JSON.parse(init.body);
-      expect(body.phoneNumbers).toEqual(['+5493878630173']);
+      expect(body.phoneNumbers).toEqual(['3878630173']);
       expect(body.textMessage.text).toContain('1234');
       return {
         status: 202,
