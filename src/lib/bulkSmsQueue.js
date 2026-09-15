@@ -1,6 +1,6 @@
 /**
  * Cola de difusión masiva (SMS + WhatsApp).
- * WhatsApp no usa la cola de viajes: ritmo propio de 30s y línea de negocio.
+ * WhatsApp no usa la cola de viajes: ritmo propio de 30s por el WhatsApp activo.
  */
 
 import { createHash } from 'node:crypto';
@@ -137,6 +137,10 @@ export function triggerSmsQueueWorker(meta = {}) {
     .catch(() => {
       void run();
     });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function chunk(list, size) {
@@ -691,6 +695,7 @@ export async function processWhatsappBulkBatch({
         .eq('id', 1);
       await markQueueResult(supabase, row, { ok: true, messageId: sent.messageId });
       results.push({ claimed: true, sent: true, queueId: row.id, messageId: sent.messageId || null });
+      if (i < limit - 1) await sleep(WHATSAPP_BULK_INTERVAL_MS);
       continue;
     }
 

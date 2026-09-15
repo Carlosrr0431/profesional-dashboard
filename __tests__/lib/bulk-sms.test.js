@@ -124,7 +124,7 @@ describe('horario silencioso ART', () => {
 });
 
 describe('línea de WhatsApp para difusión', () => {
-  test('nunca usa la línea de OTP de pasajeros', () => {
+  test('usa el WhatsApp activo +54 9 3872 13-8777', () => {
     const previous = process.env.WHATSMEOW_LINES;
     process.env.WHATSMEOW_LINES = JSON.stringify([
       { phone: '5493872138777', agent_code: 'Profesional_Pasajeros' },
@@ -133,8 +133,8 @@ describe('línea de WhatsApp para difusión', () => {
     jest.resetModules();
     const { getBulkWhatsappLine, PASSENGER_OTP_AGENT_CODE } = require('../../src/lib/whatsmeowLines');
     const line = getBulkWhatsappLine();
-    expect(line.agentCode).toBe('Profesional_1');
-    expect(line.agentCode).not.toBe(PASSENGER_OTP_AGENT_CODE);
+    expect(line.agentCode).toBe(PASSENGER_OTP_AGENT_CODE);
+    expect(line.phone).toMatch(/3872138777/);
     if (previous === undefined) delete process.env.WHATSMEOW_LINES;
     else process.env.WHATSMEOW_LINES = previous;
     jest.resetModules();

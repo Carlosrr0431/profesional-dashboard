@@ -156,7 +156,7 @@ export default function BulkSmsPanel({ onBack }) {
       }
       toast.success(
         isWhatsapp
-          ? `Encolados ${payload.queuedCount} WhatsApp. Salen uno cada 30 s, sin mezclarse con los viajes.`
+          ? `Encolados ${payload.queuedCount} WhatsApp. Salen uno cada 30 s por +54 9 3872 13-8777.`
           : `Encolados ${payload.queuedCount} SMS. Salen de a uno, sin saturar el celular.`,
       );
       setConfirmOpen(false);
@@ -239,10 +239,10 @@ export default function BulkSmsPanel({ onBack }) {
             <ChannelCard
               active={channel === BULK_CHANNEL_WHATSAPP}
               title="WhatsApp"
-              subtitle="Texto + imagen real. 1 cada 30 s. No usa la cola de viajes."
+              subtitle="Texto + foto. 1 cada 30 s por +54 9 3872 13-8777."
               ready={whatsappConfigured}
-              readyLabel="Línea de negocio lista"
-              blockedLabel="Falta línea de WhatsApp de negocio"
+              readyLabel="WhatsApp activo listo"
+              blockedLabel="Falta el WhatsApp activo"
               onClick={() => setChannel(BULK_CHANNEL_WHATSAPP)}
             />
           </div>
@@ -250,7 +250,7 @@ export default function BulkSmsPanel({ onBack }) {
           {!channelReady ? (
             <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {isWhatsapp
-                ? 'No hay una línea de WhatsApp de negocio. La de OTP de pasajeros no se usa para difusión, para no arriesgar bloqueos.'
+                ? 'No hay un WhatsApp activo. La difusión sale por +54 9 3872 13-8777.'
                 : 'SMSGate no está configurado. El OTP y el SMS masivo usan el mismo celular.'}
             </div>
           ) : null}
@@ -458,7 +458,7 @@ export default function BulkSmsPanel({ onBack }) {
             </p>
             <p className="mt-2 text-[14px] text-slate-500">
               {isWhatsapp
-                ? 'Salen de a uno cada 30 segundos. No se mezclan con los mensajes de viajes.'
+                ? 'Salen de a uno cada 30 segundos por +54 9 3872 13-8777. No se mezclan con los mensajes de viajes.'
                 : 'Salen de a uno cada 12 segundos. El OTP sigue teniendo prioridad.'}
             </p>
             <p className="mt-3 whitespace-pre-wrap rounded-2xl bg-slate-50 px-4 py-3 text-[13px] text-navy-900">

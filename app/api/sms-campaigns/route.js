@@ -69,7 +69,7 @@ export async function POST(request) {
     if (payload.channel === BULK_CHANNEL_WHATSAPP && !getBulkWhatsappLine()) {
       return NextResponse.json({
         ok: false,
-        error: 'No hay una línea de WhatsApp de negocio configurada para difusión.',
+        error: 'No hay WhatsApp activo configurado (+54 9 3872 13-8777).',
       }, { status: 400 });
     }
 
