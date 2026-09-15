@@ -45,7 +45,7 @@ export async function POST(request) {
     link: body?.link || '',
     imageUrl: body?.imageUrl || body?.image_url || '',
     channel: normalizeBulkChannel(body?.channel),
-    respectQuietHours: body?.respectQuietHours !== false,
+    respectQuietHours: false,
   };
 
   try {

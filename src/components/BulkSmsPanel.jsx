@@ -67,7 +67,6 @@ export default function BulkSmsPanel({ onBack }) {
   const [body, setBody] = useState('');
   const [link, setLink] = useState('');
   const [imageUrl, setImageUrl] = useState('');
-  const [respectQuietHours, setRespectQuietHours] = useState(true);
   const [campaigns, setCampaigns] = useState([]);
   const [gatewayConfigured, setGatewayConfigured] = useState(true);
   const [whatsappConfigured, setWhatsappConfigured] = useState(true);
@@ -148,7 +147,7 @@ export default function BulkSmsPanel({ onBack }) {
           link,
           imageUrl,
           channel,
-          respectQuietHours,
+          respectQuietHours: false,
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -364,20 +363,6 @@ export default function BulkSmsPanel({ onBack }) {
                   {composedText || (isWhatsapp && previewImage ? 'La foto va con este texto vacío, solo como imagen.' : 'El mensaje va a aparecer acá.')}
                 </p>
               </div>
-              <label className="mt-4 flex items-start gap-3 rounded-2xl border border-slate-200 px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={respectQuietHours}
-                  onChange={(event) => setRespectQuietHours(event.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-gray-300 text-navy-900 focus:ring-navy-900"
-                />
-                <span>
-                  <span className="block text-[13px] font-medium text-navy-900">No enviar de noche</span>
-                  <span className="block text-[12px] text-slate-500">
-                    Entre 21:00 y 09:00 (Salta) la cola espera a la mañana.
-                  </span>
-                </span>
-              </label>
               <button
                 type="button"
                 disabled={!canSubmit}
@@ -473,8 +458,8 @@ export default function BulkSmsPanel({ onBack }) {
             </p>
             <p className="mt-2 text-[14px] text-slate-500">
               {isWhatsapp
-                ? `Salen de a uno cada 30 segundos${respectQuietHours ? ', y no de noche' : ''}. No se mezclan con los mensajes de viajes.`
-                : `Salen de a uno cada 12 segundos${respectQuietHours ? ', y no de noche' : ''}. El OTP sigue teniendo prioridad.`}
+                ? 'Salen de a uno cada 30 segundos. No se mezclan con los mensajes de viajes.'
+                : 'Salen de a uno cada 12 segundos. El OTP sigue teniendo prioridad.'}
             </p>
             <p className="mt-3 whitespace-pre-wrap rounded-2xl bg-slate-50 px-4 py-3 text-[13px] text-navy-900">
               {composedText || '—'}

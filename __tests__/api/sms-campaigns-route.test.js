@@ -79,7 +79,7 @@ describe('sms-campaigns API', () => {
       expect.objectContaining({
         phones: '3878630173',
         createdBy: 'op-1',
-        respectQuietHours: true,
+        respectQuietHours: false,
       }),
       expect.objectContaining({ supabase: { mocked: true } }),
     );

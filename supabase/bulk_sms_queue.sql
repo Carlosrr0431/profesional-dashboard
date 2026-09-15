@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS public.sms_campaigns (
   recipient_count integer NOT NULL DEFAULT 0 CHECK (recipient_count >= 0),
   queued_count integer NOT NULL DEFAULT 0 CHECK (queued_count >= 0),
   skipped_count integer NOT NULL DEFAULT 0 CHECK (skipped_count >= 0),
-  respect_quiet_hours boolean NOT NULL DEFAULT true
+  respect_quiet_hours boolean NOT NULL DEFAULT false
 );
 
 CREATE TABLE IF NOT EXISTS public.sms_outbound_queue (
@@ -80,6 +80,7 @@ ALTER TABLE public.sms_outbound_queue
 
 UPDATE public.sms_campaigns SET channel = 'sms' WHERE channel IS NULL;
 UPDATE public.sms_outbound_queue SET channel = 'sms' WHERE channel IS NULL;
+ALTER TABLE public.sms_campaigns ALTER COLUMN respect_quiet_hours SET DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS idx_sms_outbound_ready
   ON public.sms_outbound_queue (channel, available_at, created_at)

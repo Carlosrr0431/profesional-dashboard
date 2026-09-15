@@ -179,7 +179,7 @@ export async function previewBulkSmsCampaign({
   link = '',
   imageUrl = '',
   channel = BULK_CHANNEL_SMS,
-  respectQuietHours = true,
+  respectQuietHours = false,
   now = new Date(),
 } = {}, { supabase } = {}) {
   const parsed = parseBulkSmsRecipients(phones);
@@ -267,7 +267,7 @@ export async function createBulkSmsCampaign({
   link,
   imageUrl,
   channel = BULK_CHANNEL_SMS,
-  respectQuietHours = true,
+  respectQuietHours = false,
   createdBy = null,
   createdByEmail = '',
   now = new Date(),
