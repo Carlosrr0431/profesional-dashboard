@@ -59,4 +59,16 @@ describe('driverRoles (dashboard)', () => {
     expect(payload.owner_id).toBe('owner-1');
     expect(payload.phone).toBe('3878630173');
   });
+
+  it('normaliza y valida el correo de ingreso', () => {
+    const {
+      normalizeLoginEmail,
+      isCompleteLoginEmail,
+      isSyntheticAuthEmail,
+    } = require('../../src/lib/driverRoles');
+    expect(normalizeLoginEmail('  Juan@Gmail.com ')).toBe('juan@gmail.com');
+    expect(isCompleteLoginEmail('juan@gmail.com')).toBe(true);
+    expect(isSyntheticAuthEmail('owner.1@profesional.test')).toBe(true);
+    expect(isSyntheticAuthEmail('juan@gmail.com')).toBe(false);
+  });
 });

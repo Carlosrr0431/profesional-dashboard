@@ -131,19 +131,27 @@ export default function DriverManagement({ onBack }) {
     setError('');
     try {
       if (editDriver) {
-        const { email, password, ...profile } = formData;
+        const { email, password, email_password, login_email, ...profile } = formData;
         const updates = { ...profile };
         if (password) updates.password = password;
+        if (email_password) updates.email_password = email_password;
+        if (login_email !== undefined) updates.login_email = login_email;
         const result = await updateDriver(editDriver.id, updates);
         const phoneChanged = String(profile.phone || '').trim() !== String(editDriver.phone || '').trim();
-        const passwordMsg = password ? ' Contraseña de ingreso actualizada.' : '';
+        const passwordMsg = password ? ' Contraseña del teléfono actualizada.' : '';
+        const emailPasswordMsg = email_password ? ' Contraseña del correo actualizada.' : '';
+        const emailChanged = String(login_email || '').trim().toLowerCase()
+          !== String(editDriver.login_email || '').trim().toLowerCase();
+        const emailMsg = emailChanged
+          ? (login_email ? ' Correo de ingreso actualizado.' : ' Correo de ingreso quitado.')
+          : '';
         const partners = result?.partners || [];
         const phoneMsg = phoneChanged
           ? (partners.length
             ? ` Teléfono unificado con ${partners.map((p) => p.full_name).join(', ')}: flotas de socios juntas.`
             : ' El ingreso a la app queda con el nuevo teléfono; el anterior ya no sirve.')
           : '';
-        toast.success(`Chofer "${profile.full_name || editDriver.full_name}" actualizado.${passwordMsg}${phoneMsg}`);
+        toast.success(`Chofer "${profile.full_name || editDriver.full_name}" actualizado.${passwordMsg}${emailPasswordMsg}${emailMsg}${phoneMsg}`);
       } else {
         await createDriver(formData);
         toast.success(`Chofer "${formData.full_name}" creado correctamente`);

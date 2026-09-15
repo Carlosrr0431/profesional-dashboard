@@ -1,5 +1,18 @@
 /** Mismo dominio que conductores regulares; sin "+" (Supabase Auth lo rechaza). */
 const ASSIGNED_DRIVER_EMAIL_DOMAIN = 'profesional.test';
+const LOGIN_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+export function normalizeLoginEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+export function isCompleteLoginEmail(value) {
+  return LOGIN_EMAIL_RE.test(normalizeLoginEmail(value));
+}
+
+export function isSyntheticAuthEmail(value) {
+  return normalizeLoginEmail(value).endsWith(`@${ASSIGNED_DRIVER_EMAIL_DOMAIN}`);
+}
 
 export function normalizeDriverPhone(phone) {
   let digits = String(phone || '').replace(/\D/g, '');

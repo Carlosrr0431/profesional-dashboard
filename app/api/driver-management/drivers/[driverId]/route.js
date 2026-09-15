@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   adminUpdateDriverPassword,
   adminUpdateDriverLoginPhone,
+  adminUpdateDriverEmailLogin,
 } from '../../../../../src/lib/driverPhoneProvision';
 import {
   BILLING_MODE_COMMISSION,
@@ -44,8 +45,13 @@ export async function PATCH(request, { params }) {
     }
 
     const password = typeof updates.password === 'string' ? updates.password.trim() : '';
+    const emailPassword = typeof updates.email_password === 'string'
+      ? updates.email_password.trim()
+      : '';
     const hasPhoneUpdate = Object.prototype.hasOwnProperty.call(updates, 'phone');
+    const hasLoginEmailUpdate = Object.prototype.hasOwnProperty.call(updates, 'login_email');
     const phoneUpdate = hasPhoneUpdate ? updates.phone : undefined;
+    const loginEmailUpdate = hasLoginEmailUpdate ? updates.login_email : undefined;
     const {
       password: _password,
       email: _email,
@@ -53,6 +59,10 @@ export async function PATCH(request, { params }) {
       phone_normalized: _phoneNormalized,
       auth_email: _authEmail,
       user_id: _userId,
+      login_email: _loginEmail,
+      email_password: _emailPassword,
+      email_user_id: _emailUserId,
+      email_password_initialized: _emailPasswordInitialized,
       ...driverUpdates
     } = updates;
 
@@ -70,6 +80,26 @@ export async function PATCH(request, { params }) {
             },
           },
           { status: passwordResult.status || 400 },
+        );
+      }
+    }
+
+    if (hasLoginEmailUpdate || emailPassword) {
+      const emailResult = await adminUpdateDriverEmailLogin({
+        driverId,
+        loginEmail: hasLoginEmailUpdate ? loginEmailUpdate : undefined,
+        password: emailPassword,
+      });
+      if (!emailResult.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: {
+              code: 'EMAIL_UPDATE_FAILED',
+              message: emailResult.message || 'No se pudo actualizar el correo de ingreso',
+            },
+          },
+          { status: emailResult.status || 400 },
         );
       }
     }

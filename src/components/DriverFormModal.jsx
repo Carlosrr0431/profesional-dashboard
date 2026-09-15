@@ -44,10 +44,11 @@ export default function DriverFormModal({
   const isEdit = !!driver;
   const assigned = isEdit && isAssignedDriver(driver);
   const [showPasswordField, setShowPasswordField] = useState(false);
+  const [showEmailPasswordField, setShowEmailPasswordField] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const [form, setForm] = useState({
-    full_name: '', phone: '', email: '', password: '',
+    full_name: '', phone: '', email: '', login_email: '', password: '', email_password: '',
     driver_number: '', vehicle_type: 'auto', vehicle_brand: '',
     vehicle_model: '', vehicle_plate: '', vehicle_color: '',
     license_expiry: '', billing_mode: BILLING_MODE_COMMISSION,
@@ -55,13 +56,15 @@ export default function DriverFormModal({
 
   useEffect(() => {
     setConfirmDelete(false);
+    setShowPasswordField(false);
+    setShowEmailPasswordField(false);
   }, [driver?.id]);
 
   useEffect(() => {
     if (driver) {
       setForm({
         full_name: driver.full_name || '', phone: driver.phone || '',
-        email: '', password: '',
+        email: '', login_email: driver.login_email || '', password: '', email_password: '',
         driver_number: driver.driver_number?.toString() || '',
         vehicle_type: driver.vehicle_type || 'auto',
         vehicle_brand: driver.vehicle_brand || '', vehicle_model: driver.vehicle_model || '',
@@ -83,6 +86,9 @@ export default function DriverFormModal({
     if (!data.license_expiry) data.license_expiry = null;
     data.billing_mode = normalizeBillingMode(data.billing_mode);
     if (isEdit && !String(data.password || '').trim()) delete data.password;
+    if (!String(data.email_password || '').trim()) delete data.email_password;
+    data.login_email = String(data.login_email || data.email || '').trim().toLowerCase();
+    if (!isEdit) data.email = data.login_email || data.email;
     onSave(data);
   };
 
@@ -155,18 +161,38 @@ export default function DriverFormModal({
               icon={<svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>}
             >
               {!isEdit ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={LABEL}>Email *</label>
-                    <input type="email" required value={form.email} onChange={(e) => handleChange('email', e.target.value)} placeholder="chofer@email.com" className={FIELD} />
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={LABEL}>Correo para ingresar *</label>
+                      <input
+                        type="email"
+                        required
+                        value={form.email}
+                        onChange={(e) => handleChange('email', e.target.value)}
+                        placeholder="chofer@email.com"
+                        className={FIELD}
+                      />
+                    </div>
+                    <div>
+                      <label className={LABEL}>Contraseña del correo *</label>
+                      <input
+                        type="password"
+                        required
+                        minLength={8}
+                        value={form.password}
+                        onChange={(e) => handleChange('password', e.target.value)}
+                        placeholder="Mínimo 8 caracteres"
+                        className={FIELD}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className={LABEL}>Contraseña *</label>
-                    <input type="password" required minLength={6} value={form.password} onChange={(e) => handleChange('password', e.target.value)} placeholder="Mínimo 6 caracteres" className={FIELD} />
-                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    El correo es un ingreso aparte del teléfono. La clave del teléfono se puede cargar después, al editar.
+                  </p>
                 </div>
               ) : (
-                <>
+                <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3.5 py-2.5">
                     <div className="min-w-0">
                       <p className="text-[11px] font-medium text-slate-400">{phoneLogin ? 'Ingreso con teléfono' : 'Cuenta'}</p>
@@ -177,25 +203,84 @@ export default function DriverFormModal({
                     </div>
                     <button
                       type="button"
-                      onClick={() => setShowPasswordField((v) => !v)}
+                      onClick={() => {
+                        setShowPasswordField((v) => {
+                          const next = !v;
+                          if (!next) handleChange('password', '');
+                          return next;
+                        });
+                      }}
                       className={`flex-shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all ${showPasswordField ? 'bg-accent/12 text-accent' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
                     >
                       {showPasswordField ? 'Cancelar' : 'Cambiar contraseña'}
                     </button>
                   </div>
-                  {showPasswordField && (
-                    <div className="mt-3">
-                      <label className={LABEL}>Nueva contraseña</label>
+                  {showPasswordField ? (
+                    <div>
+                      <label className={LABEL}>Nueva contraseña del teléfono</label>
                       <input
                         type="password" minLength={8} autoFocus autoComplete="new-password"
                         value={form.password} onChange={(e) => handleChange('password', e.target.value)}
                         placeholder="Mínimo 8 caracteres"
                         className={FIELD}
                       />
-                      <p className="mt-1.5 text-[11px] text-slate-400">El chofer usará esta clave para ingresar a la app móvil.</p>
                     </div>
-                  )}
-                </>
+                  ) : null}
+
+                  <div className="rounded-xl bg-slate-50 px-3.5 py-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-medium text-slate-400">Ingreso con correo</p>
+                        <p className="text-[13px] font-semibold text-slate-900 truncate">
+                          {driver?.login_email || 'Todavía no tiene correo'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowEmailPasswordField((v) => {
+                            const next = !v;
+                            if (!next) handleChange('email_password', '');
+                            return next;
+                          });
+                        }}
+                        className={`flex-shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all ${showEmailPasswordField ? 'bg-accent/12 text-accent' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
+                      >
+                        {showEmailPasswordField ? 'Cancelar' : (driver?.login_email ? 'Cambiar contraseña' : 'Cargar clave')}
+                      </button>
+                    </div>
+                    <div className="mt-3">
+                      <label className={LABEL}>Correo</label>
+                      <input
+                        type="email"
+                        value={form.login_email}
+                        onChange={(e) => handleChange('login_email', e.target.value)}
+                        placeholder="chofer@email.com"
+                        className={FIELD}
+                        autoComplete="off"
+                      />
+                    </div>
+                    {showEmailPasswordField ? (
+                      <div className="mt-3">
+                        <label className={LABEL}>
+                          {driver?.login_email ? 'Nueva contraseña del correo' : 'Contraseña del correo'}
+                        </label>
+                        <input
+                          type="password"
+                          minLength={8}
+                          autoComplete="new-password"
+                          value={form.email_password}
+                          onChange={(e) => handleChange('email_password', e.target.value)}
+                          placeholder="Mínimo 8 caracteres"
+                          className={FIELD}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Teléfono y correo tienen claves distintas. Mínimo 8 caracteres. Dejá el correo vacío para quitarlo.
+                  </p>
+                </div>
               )}
             </Section>
 

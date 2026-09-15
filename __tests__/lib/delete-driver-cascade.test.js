@@ -161,6 +161,15 @@ describe('deleteDriverCascade', () => {
     expect(deletedIds).not.toContain('owner-1');
   });
 
+  it('también borra la cuenta Auth del correo', async () => {
+    const { client, deletedUsers } = createCascadeClient({
+      driver: { ...owner, email_user_id: 'email-auth-owner' },
+      assigned: [],
+    });
+    await deleteDriverCascade(client, 'owner-1');
+    expect(deletedUsers).toEqual(['auth-owner', 'email-auth-owner']);
+  });
+
   it('viaje activo bloquea el delete', async () => {
     const { client, deletedIds } = createCascadeClient({
       driver: owner,

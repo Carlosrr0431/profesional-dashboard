@@ -55,7 +55,7 @@ export async function deleteDriverCascade(supabase, driverId) {
 
   const { data: driver, error: fetchError } = await supabase
     .from('drivers')
-    .select('id, user_id, full_name, owner_id, is_assigned_driver')
+    .select('id, user_id, email_user_id, full_name, owner_id, is_assigned_driver')
     .eq('id', id)
     .maybeSingle();
 
@@ -84,6 +84,9 @@ export async function deleteDriverCascade(supabase, driverId) {
   for (const row of rowsToDelete) {
     if (row.user_id) {
       await supabase.auth.admin.deleteUser(row.user_id).catch(() => {});
+    }
+    if (row.email_user_id && row.email_user_id !== row.user_id) {
+      await supabase.auth.admin.deleteUser(row.email_user_id).catch(() => {});
     }
   }
 
@@ -153,7 +156,7 @@ export async function deleteDriverCascade(supabase, driverId) {
 async function loadAssignedDrivers(supabase, ownerId) {
   const { data, error } = await supabase
     .from('drivers')
-    .select('id, user_id, full_name, owner_id, is_assigned_driver')
+    .select('id, user_id, email_user_id, full_name, owner_id, is_assigned_driver')
     .eq('owner_id', ownerId)
     .eq('is_assigned_driver', true);
 

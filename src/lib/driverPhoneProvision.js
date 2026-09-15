@@ -2,7 +2,10 @@ import { getSupabaseAdmin } from './supabaseAdmin';
 import {
   buildAssignedDriverAuthEmail,
   buildOwnerAuthEmail,
+  isCompleteLoginEmail,
+  isSyntheticAuthEmail,
   normalizeDriverPhone,
+  normalizeLoginEmail,
 } from './driverRoles';
 
 function isDuplicateAuthUserError(error) {
@@ -410,6 +413,279 @@ export async function adminUpdateDriverLoginPhone({ driverId, phone }) {
     partnered: partnerOwners.length > 0,
     partners: partnerOwners,
     data: updated,
+  };
+}
+
+async function findDriverOwningAuthUser(admin, authUserId, excludeDriverId = null) {
+  if (!authUserId) return null;
+  const { data, error } = await admin
+    .from('drivers')
+    .select('id, full_name, user_id, email_user_id')
+    .or(`user_id.eq.${authUserId},email_user_id.eq.${authUserId}`);
+  if (error) throw error;
+  return (data || []).find((row) => row.id !== excludeDriverId) || null;
+}
+
+async function findDriverByLoginEmail(admin, email, excludeDriverId = null) {
+  const normalized = normalizeLoginEmail(email);
+  if (!normalized) return null;
+  const { data, error } = await admin
+    .from('drivers')
+    .select('id, full_name')
+    .eq('login_email', normalized);
+  if (error) throw error;
+  return (data || []).find((row) => row.id !== excludeDriverId) || null;
+}
+
+async function ensureSeparateEmailAuthUser(admin, {
+  email,
+  password,
+  fullName,
+  metadata,
+  forbiddenUserId,
+  driverId,
+}) {
+  const existingId = await findAuthUserIdByEmail(admin, email);
+  if (existingId && forbiddenUserId && existingId === forbiddenUserId) {
+    return {
+      ok: false,
+      status: 409,
+      message: 'Ese correo ya es la cuenta del teléfono. Usá otro correo personal.',
+    };
+  }
+  if (existingId) {
+    const owner = await findDriverOwningAuthUser(admin, existingId, driverId);
+    if (owner?.id) {
+      return {
+        ok: false,
+        status: 409,
+        message: `El correo ya está en uso por ${owner.full_name || 'otro chofer'}`,
+      };
+    }
+    if (password) {
+      const { error: updateError } = await admin.auth.admin.updateUserById(existingId, {
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: fullName, ...metadata },
+      });
+      if (updateError) throw updateError;
+    }
+    return { ok: true, userId: existingId };
+  }
+
+  const userId = await ensureAuthUser(admin, { email, password, fullName, metadata });
+  if (forbiddenUserId && userId === forbiddenUserId) {
+    return {
+      ok: false,
+      status: 409,
+      message: 'Ese correo ya es la cuenta del teléfono. Usá otro correo personal.',
+    };
+  }
+  return { ok: true, userId };
+}
+
+/**
+ * Primera clave de correo del chofer (cuenta Auth distinta a la del teléfono).
+ */
+export async function provisionDriverEmailAuth({ driverId, email, password }) {
+  const loginEmail = normalizeLoginEmail(email);
+  const cleanedPassword = String(password || '');
+
+  if (!driverId) {
+    return { ok: false, status: 400, message: 'Falta el identificador del chofer' };
+  }
+  if (!isCompleteLoginEmail(loginEmail) || isSyntheticAuthEmail(loginEmail)) {
+    return { ok: false, status: 400, message: 'Correo inválido' };
+  }
+  if (cleanedPassword.length < 8) {
+    return { ok: false, status: 400, message: 'La contraseña debe tener al menos 8 caracteres' };
+  }
+
+  const admin = getSupabaseAdmin();
+  const { data: driver, error: driverError } = await admin
+    .from('drivers')
+    .select(
+      'id,user_id,email_user_id,login_email,email_password_initialized,is_assigned_driver,owner_id,full_name,driver_number',
+    )
+    .eq('id', driverId)
+    .maybeSingle();
+
+  if (driverError) throw driverError;
+  if (!driver?.id) {
+    return { ok: false, status: 404, message: 'Chofer no encontrado' };
+  }
+  if (normalizeLoginEmail(driver.login_email) !== loginEmail) {
+    return { ok: false, status: 403, message: 'El correo no coincide con el registro' };
+  }
+
+  const alreadyConfigured = Boolean(driver.email_password_initialized && driver.email_user_id);
+  if (alreadyConfigured) {
+    return {
+      ok: false,
+      status: 409,
+      message: 'Este perfil ya tiene contraseña de correo. Ingresá con tu correo y contraseña.',
+    };
+  }
+
+  const ensured = await ensureSeparateEmailAuthUser(admin, {
+    email: loginEmail,
+    password: cleanedPassword,
+    fullName: driver.full_name,
+    metadata: { driver_email_login: true },
+    forbiddenUserId: driver.user_id,
+    driverId,
+  });
+  if (!ensured.ok) return ensured;
+
+  const { error: linkError } = await admin
+    .from('drivers')
+    .update({
+      login_email: loginEmail,
+      email_user_id: ensured.userId,
+      email_password_initialized: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', driverId);
+
+  if (linkError) throw linkError;
+  return { ok: true, login_email: loginEmail };
+}
+
+/**
+ * Carga o cambia el correo de ingreso y/o su contraseña (distinta a la del teléfono).
+ */
+export async function adminUpdateDriverEmailLogin({ driverId, loginEmail, password }) {
+  const hasEmailArg = loginEmail !== undefined;
+  const nextEmail = hasEmailArg ? normalizeLoginEmail(loginEmail) : undefined;
+  const cleanedPassword = String(password || '').trim();
+
+  if (!driverId) {
+    return { ok: false, status: 400, message: 'Falta el identificador del chofer' };
+  }
+  if (cleanedPassword && cleanedPassword.length < 8) {
+    return { ok: false, status: 400, message: 'La contraseña del correo debe tener al menos 8 caracteres' };
+  }
+
+  const admin = getSupabaseAdmin();
+  const { data: driver, error: driverError } = await admin
+    .from('drivers')
+    .select(
+      'id,user_id,email_user_id,login_email,email_password_initialized,full_name,is_assigned_driver,owner_id,driver_number',
+    )
+    .eq('id', driverId)
+    .maybeSingle();
+
+  if (driverError) throw driverError;
+  if (!driver?.id) {
+    return { ok: false, status: 404, message: 'Chofer no encontrado' };
+  }
+
+  const currentEmail = normalizeLoginEmail(driver.login_email);
+  const resolvedEmail = hasEmailArg ? nextEmail : currentEmail;
+
+  if (hasEmailArg && !resolvedEmail) {
+    if (cleanedPassword) {
+      return {
+        ok: false,
+        status: 400,
+        message: 'Cargá un correo antes de cambiar su contraseña',
+      };
+    }
+    const { error: clearError } = await admin
+      .from('drivers')
+      .update({
+        login_email: null,
+        email_user_id: null,
+        email_password_initialized: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', driverId);
+    if (clearError) throw clearError;
+    return { ok: true, cleared: true, login_email: null };
+  }
+
+  if (!isCompleteLoginEmail(resolvedEmail) || isSyntheticAuthEmail(resolvedEmail)) {
+    return {
+      ok: false,
+      status: 400,
+      message: 'Correo inválido. Usá un correo personal, no @profesional.test.',
+    };
+  }
+
+  const emailConflict = await findDriverByLoginEmail(admin, resolvedEmail, driverId);
+  if (emailConflict?.id) {
+    return {
+      ok: false,
+      status: 409,
+      message: `El correo ya está en uso por ${emailConflict.full_name || 'otro chofer'}`,
+    };
+  }
+
+  let emailUserId = driver.email_user_id && driver.email_user_id !== driver.user_id
+    ? driver.email_user_id
+    : null;
+
+  if (cleanedPassword || !emailUserId || resolvedEmail !== currentEmail) {
+    if (cleanedPassword || !emailUserId) {
+      if (!cleanedPassword && !emailUserId) {
+        const { error: saveEmailOnly } = await admin
+          .from('drivers')
+          .update({
+            login_email: resolvedEmail,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', driverId);
+        if (saveEmailOnly) throw saveEmailOnly;
+        return {
+          ok: true,
+          login_email: resolvedEmail,
+          email_user_id: null,
+          password_updated: false,
+        };
+      }
+
+      const ensured = await ensureSeparateEmailAuthUser(admin, {
+        email: resolvedEmail,
+        password: cleanedPassword || undefined,
+        fullName: driver.full_name,
+        metadata: { driver_email_login: true },
+        forbiddenUserId: driver.user_id,
+        driverId,
+      });
+      if (!ensured.ok) return ensured;
+      emailUserId = ensured.userId;
+    } else if (resolvedEmail !== currentEmail) {
+      const existingAuth = await findAuthUserIdByEmail(admin, resolvedEmail);
+      if (existingAuth && existingAuth !== emailUserId) {
+        return {
+          ok: false,
+          status: 409,
+          message: 'Ya existe una cuenta de acceso con ese correo. Usá otro.',
+        };
+      }
+      const { error: authUpdateError } = await admin.auth.admin.updateUserById(emailUserId, {
+        email: resolvedEmail,
+        email_confirm: true,
+      });
+      if (authUpdateError) throw authUpdateError;
+    }
+  }
+
+  const driverPatch = {
+    login_email: resolvedEmail,
+    updated_at: new Date().toISOString(),
+  };
+  if (emailUserId) driverPatch.email_user_id = emailUserId;
+  if (cleanedPassword) driverPatch.email_password_initialized = true;
+
+  const { error: linkError } = await admin.from('drivers').update(driverPatch).eq('id', driverId);
+  if (linkError) throw linkError;
+
+  return {
+    ok: true,
+    login_email: resolvedEmail,
+    email_user_id: emailUserId || null,
+    password_updated: Boolean(cleanedPassword),
   };
 }
 
