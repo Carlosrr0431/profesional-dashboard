@@ -30,6 +30,7 @@ import TariffsPanel from './components/TariffsPanel';
 import GeocodeErrorsPanel from './components/GeocodeErrorsPanel';
 import EmulatorGpsSimulator from './components/EmulatorGpsSimulator';
 import AdminUsersPanel from './components/admin/AdminUsersPanel';
+import BulkSmsPanel from './components/BulkSmsPanel';
 import DashboardBrand from './components/DashboardBrand';
 import DashboardLoadingScreen from './components/DashboardLoadingScreen';
 import { useTripStatistics } from './hooks/useTripStatistics';
@@ -49,6 +50,7 @@ const VIEWS = {
   geocodeErrors: 'geocodeErrors',
   emulatorGps: 'emulatorGps',
   adminUsers: 'adminUsers',
+  sms: 'sms',
 };
 
 const DASHBOARD_BASE = '/admin/dashboard';
@@ -64,11 +66,15 @@ const VIEW_SLUG = {
   [VIEWS.emulatorGps]: 'sim-gps',
   [VIEWS.adminUsers]: 'usuarios',
   [VIEWS.geocodeErrors]: 'geocode',
+  [VIEWS.sms]: 'masivos',
 };
 
-const SLUG_VIEW = Object.fromEntries(
-  Object.entries(VIEW_SLUG).map(([view, slug]) => [slug, view]),
-);
+const SLUG_VIEW = {
+  ...Object.fromEntries(
+    Object.entries(VIEW_SLUG).map(([view, slug]) => [slug, view]),
+  ),
+  sms: VIEWS.sms,
+};
 
 function pathForView(view) {
   const slug = VIEW_SLUG[view] ?? '';
@@ -539,6 +545,20 @@ export default function App() {
         Zonas
       </NavTab>
 
+      <NavTab
+        compact={compact}
+        active={currentView === VIEWS.sms}
+        onClick={() => goTo(currentView === VIEWS.sms ? VIEWS.map : VIEWS.sms)}
+        icon={
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8-1.05 0-2.05-.17-2.96-.48L3 21l1.64-4.37C3.61 15.4 3 13.76 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+        }
+      >
+        Masivos
+      </NavTab>
+
       {isSuperAdmin ? (
         <NavTab
           compact={compact}
@@ -612,6 +632,10 @@ export default function App() {
         onClick={() => goTo(currentView === VIEWS.zones ? VIEWS.map : VIEWS.zones)}
         icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z" /></svg>}
         label="Zonas" />
+      <SideNavItem active={currentView === VIEWS.sms}
+        onClick={() => goTo(currentView === VIEWS.sms ? VIEWS.map : VIEWS.sms)}
+        icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8-1.05 0-2.05-.17-2.96-.48L3 21l1.64-4.37C3.61 15.4 3 13.76 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>}
+        label="Masivos" />
       {isSuperAdmin ? (
         <SideNavItem active={currentView === VIEWS.emulatorGps}
           onClick={() => goTo(currentView === VIEWS.emulatorGps ? VIEWS.map : VIEWS.emulatorGps)}
@@ -840,6 +864,10 @@ export default function App() {
         ) : currentView === VIEWS.geocodeErrors ? (
           <div className="flex-1 min-h-0 flex">
             <GeocodeErrorsPanel onBack={() => goTo(VIEWS.map)} />
+          </div>
+        ) : currentView === VIEWS.sms ? (
+          <div className="flex-1 min-h-0 flex">
+            <BulkSmsPanel onBack={() => goTo(VIEWS.map)} />
           </div>
         ) : isSuperAdmin && currentView === VIEWS.emulatorGps ? (
           <div className="flex-1 w-full min-w-0 min-h-0 flex flex-col">

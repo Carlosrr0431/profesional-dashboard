@@ -291,6 +291,56 @@ export async function sendWhatsmeowText(agentCode, to, text, {
 }
 
 /**
+ * POST /api/messages/send-image — imagen real (no el link).
+ * `image` es base64 sin prefijo data:. No usar check-number.
+ */
+export async function sendWhatsmeowImageDirect(agentCode, to, {
+  imageBase64,
+  caption = '',
+} = {}, { apiKey } = {}) {
+  const image = String(imageBase64 || '').replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '').trim();
+  if (!agentCode || !to || !image) {
+    return { success: false, error: 'agentCode, to e image son requeridos' };
+  }
+
+  try {
+    const rawTo = String(to || '').trim();
+    const phonePayload = isWhatsappJid(rawTo)
+      ? rawTo
+      : (normalizeWhatsmeowPhone(rawTo) || rawTo.replace(/\D/g, ''));
+    if (!phonePayload) {
+      return { success: false, error: 'destinatario inválido' };
+    }
+    const result = await whatsmeowFetch('/api/messages/send-image', {
+      method: 'POST',
+      apiKey,
+      body: {
+        agent_code: agentCode,
+        phone: phonePayload,
+        image,
+        caption: String(caption || '').trim(),
+      },
+    });
+    const messageId = extractMessageId(result.data);
+    if (!result.ok || result.data?.success === false) {
+      return {
+        success: false,
+        error: result.data?.message || result.data?.error || result.text?.slice(0, 200) || `HTTP ${result.status}`,
+        payload: result.data,
+      };
+    }
+    return {
+      success: true,
+      messageId: messageId || `out_${Date.now()}`,
+      payload: result.data,
+      destinatario: phonePayload,
+    };
+  } catch (err) {
+    return { success: false, error: err?.message || 'send_image_failed' };
+  }
+}
+
+/**
  * Envío de poll vía cola por línea (espera el messageId real para matchear votos).
  * `{ bypassQueue: true }` fuerza inmediato.
  */

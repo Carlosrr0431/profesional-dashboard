@@ -159,6 +159,18 @@ export function getDefaultWhatsmeowLine() {
   return listWhatsmeowLines()[0] || null;
 }
 
+/** Línea de negocio para difusión. Nunca la de OTP de pasajeros. */
+export function getBulkWhatsappLine() {
+  const otpPhone = digitsOnly(PASSENGER_OTP_LINE_PHONE);
+  return listWhatsmeowLines().find((line) => {
+    const code = String(line?.agentCode || '').toLowerCase();
+    const phone = digitsOnly(line?.phone);
+    if (code === PASSENGER_OTP_AGENT_CODE.toLowerCase()) return false;
+    if (otpPhone && (phone === otpPhone || phone.endsWith('3872138777'))) return false;
+    return true;
+  }) || null;
+}
+
 export function resolveWhatsmeowLine(telefonoParam) {
   const needle = digitsOnly(telefonoParam);
   if (!needle) return null;

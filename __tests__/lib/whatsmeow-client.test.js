@@ -6,6 +6,7 @@ const {
   resolveWhatsmeowJid,
   sendWhatsmeowText,
   sendWhatsmeowPoll,
+  sendWhatsmeowImageDirect,
 } = require('../../src/lib/whatsmeowClient');
 
 describe('normalizeWhatsmeowPhone', () => {
@@ -143,5 +144,41 @@ describe('resolveWhatsmeowJid + send', () => {
     );
     expect(result.success).toBe(true);
     expect(bodies[0].phone).toBe('123456789012345@lid');
+  });
+
+  test('sendWhatsmeowImageDirect manda multimedia a send-image, sin check-number', async () => {
+    const bodies = [];
+    const urls = [];
+    global.fetch = jest.fn(async (url, opts = {}) => {
+      urls.push(String(url));
+      bodies.push(JSON.parse(opts.body || '{}'));
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ success: true, data: { message_id: 'img_1' } }),
+        json: async () => ({ success: true, data: { message_id: 'img_1' } }),
+      };
+    });
+
+    const result = await sendWhatsmeowImageDirect(
+      'Profesional_1',
+      '3875550100',
+      {
+        imageBase64: 'data:image/jpeg;base64,AQIDBA==',
+        caption: 'Promo de hoy',
+      },
+      { apiKey: 'k' },
+    );
+    expect(result.success).toBe(true);
+    expect(result.messageId).toBe('img_1');
+    expect(urls.some((item) => item.includes('/api/messages/send-image'))).toBe(true);
+    expect(urls.some((item) => item.includes('/api/check-number'))).toBe(false);
+    expect(bodies[0]).toMatchObject({
+      agent_code: 'Profesional_1',
+      phone: '5493875550100',
+      image: 'AQIDBA==',
+      caption: 'Promo de hoy',
+    });
+    expect(bodies[0].image).not.toMatch(/^data:/);
   });
 });

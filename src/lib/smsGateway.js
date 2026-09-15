@@ -67,12 +67,22 @@ export function buildSmsGatewayAuthHeader(config) {
   return `Basic ${basic}`;
 }
 
-export function buildSmsGatewayPayload({ phoneE164, text, config }) {
+/** OTP usa 100 para saltar la cola del J7. El SMS masivo debe ir más bajo. */
+export const SMS_GATEWAY_OTP_PRIORITY = 100;
+export const SMS_GATEWAY_BULK_PRIORITY = 0;
+
+export function buildSmsGatewayPayload({
+  phoneE164,
+  text,
+  config,
+  priority = SMS_GATEWAY_OTP_PRIORITY,
+}) {
+  const parsed = Number(priority);
   const payload = {
     textMessage: { text },
     phoneNumbers: [phoneE164],
     ttl: 3600,
-    priority: 100,
+    priority: Number.isFinite(parsed) ? parsed : SMS_GATEWAY_OTP_PRIORITY,
     withDeliveryReport: true,
   };
   if (config?.deviceId) payload.deviceId = config.deviceId;
@@ -107,6 +117,7 @@ export async function sendSmsGatewayMessage({
   text,
   env = process.env,
   fetchImpl = fetch,
+  priority = SMS_GATEWAY_OTP_PRIORITY,
 }) {
   const config = getSmsGatewayConfig(env);
   if (!config) return { ok: false, reason: 'missing_sms_gateway_config' };
@@ -120,7 +131,7 @@ export async function sendSmsGatewayMessage({
   try {
     ({ response, data } = await fetchSmsGatewayJson(url, {
       method: 'POST',
-      body: JSON.stringify(buildSmsGatewayPayload({ phoneE164, text, config })),
+      body: JSON.stringify(buildSmsGatewayPayload({ phoneE164, text, config, priority })),
       config,
       fetchImpl,
     }));

@@ -1,6 +1,8 @@
 const {
   SMS_GATEWAY_CLOUD_BASE,
   SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS,
+  SMS_GATEWAY_OTP_PRIORITY,
+  SMS_GATEWAY_BULK_PRIORITY,
   getSmsGatewayConfig,
   isSmsGatewayConfigured,
   resolveOtpDeliveryChannel,
@@ -89,6 +91,20 @@ describe('sms helpers', () => {
       deviceId: 'dev_1',
       simNumber: 1,
     });
+  });
+
+  test('el masivo baja la prioridad y no adjunta MMS', () => {
+    expect(SMS_GATEWAY_BULK_PRIORITY).toBeLessThan(SMS_GATEWAY_OTP_PRIORITY);
+    const payload = buildSmsGatewayPayload({
+      phoneE164: '3878630173',
+      text: 'Promo\nhttps://ejemplo.test/foto.jpg',
+      priority: SMS_GATEWAY_BULK_PRIORITY,
+    });
+    expect(payload.priority).toBe(0);
+    expect(payload.textMessage).toEqual({ text: 'Promo\nhttps://ejemplo.test/foto.jpg' });
+    expect(payload).not.toHaveProperty('dataMessage');
+    expect(payload).not.toHaveProperty('mms');
+    expect(payload).not.toHaveProperty('media');
   });
 });
 
