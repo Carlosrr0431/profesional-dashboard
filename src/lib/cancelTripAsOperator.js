@@ -1,6 +1,6 @@
-import { isPassengerAppTrip } from '../../shared/trip-contract.js';
 import {
-  OPERATOR_CANCELLABLE_STATUSES,
+  canOperatorCancelTrip,
+  getOperatorCancellableStatuses,
   buildOperatorCancelledTripUpdate,
 } from './passengerTripCancel';
 
@@ -46,7 +46,7 @@ export async function cancelTripAsOperator(supabase, tripId) {
     return { trip: existing, alreadyCancelled: true };
   }
 
-  if (!OPERATOR_CANCELLABLE_STATUSES.includes(status)) {
+  if (!canOperatorCancelTrip(existing)) {
     throw operatorCancelError(
       'Este viaje ya no se puede cancelar desde acá (fue asignado o cancelado).',
       'not_cancellable',
@@ -57,7 +57,7 @@ export async function cancelTripAsOperator(supabase, tripId) {
     .from('trips')
     .update(buildOperatorCancelledTripUpdate(existing))
     .eq('id', id)
-    .in('status', OPERATOR_CANCELLABLE_STATUSES)
+    .in('status', getOperatorCancellableStatuses(existing))
     .select(OPERATOR_CANCEL_TRIP_SELECT)
     .maybeSingle();
 

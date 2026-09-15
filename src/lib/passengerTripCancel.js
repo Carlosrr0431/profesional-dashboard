@@ -1,3 +1,5 @@
+import { isStreetHailTrip, STREET_HAIL_PASSENGER_NAME } from '../../shared/trip-contract.js';
+
 export const PASSENGER_CANCEL_REASON = '[PASSENGER_APP] Cancelado por el pasajero';
 export const WHATSAPP_CANCEL_REASON = 'Pasajero canceló por WhatsApp';
 export const OPERATOR_CANCEL_REASON = '[MANUAL_CANCEL] Cancelado por operador';
@@ -54,6 +56,42 @@ export const OPERATOR_CANCELLABLE_STATUSES = [
 ];
 
 /**
+ * Un viaje en calle nace ya asignado / en curso, así que no pasa por cola.
+ * El operador igual tiene que poder cerrarlo desde el dashboard.
+ */
+export const OPERATOR_STREET_HAIL_LIVE_STATUSES = [
+  'accepted',
+  'in_progress',
+];
+
+function getWaContextSource(trip) {
+  const raw = trip?.wa_context;
+  if (!raw) return '';
+  if (typeof raw === 'object') return String(raw.source || '').trim();
+  if (typeof raw !== 'string') return '';
+  try {
+    return String(JSON.parse(raw)?.source || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+export function isStreetHailOperatorTrip(trip) {
+  if (!trip) return false;
+  if (isStreetHailTrip(trip)) return true;
+  if (getWaContextSource(trip) === 'street_hail') return true;
+  const name = String(trip.passenger_name || trip.passengerName || '').trim();
+  return name === STREET_HAIL_PASSENGER_NAME;
+}
+
+export function getOperatorCancellableStatuses(trip) {
+  if (isStreetHailOperatorTrip(trip)) {
+    return [...OPERATOR_CANCELLABLE_STATUSES, ...OPERATOR_STREET_HAIL_LIVE_STATUSES];
+  }
+  return OPERATOR_CANCELLABLE_STATUSES;
+}
+
+/**
  * Payload de cancelación.
  * Conserva driver_id cuando el viaje ya estaba asignado, para que Realtime
  * llegue al chofer (ownsNow) y se refleje al instante en driver-app.
@@ -93,5 +131,7 @@ export function buildOperatorCancelledTripUpdate(existing = {}, extra = {}) {
 }
 
 export function canOperatorCancelTrip(trip) {
-  return OPERATOR_CANCELLABLE_STATUSES.includes(String(trip?.status || '').toLowerCase());
+  const status = String(trip?.status || '').toLowerCase();
+  if (!status) return false;
+  return getOperatorCancellableStatuses(trip).includes(status);
 }

@@ -216,6 +216,28 @@ describe('operator cancel', () => {
     expect(canOperatorCancelTrip({ status: 'in_progress' })).toBe(false);
   });
 
+  it('canOperatorCancelTrip permite cancelar un viaje en calle en curso', () => {
+    const streetHail = {
+      status: 'in_progress',
+      notes: '[STREET_HAIL]\nViaje tomado en calle. Destino a definir.',
+      wa_context: { source: 'street_hail' },
+      passenger_name: 'Pasajero en calle',
+    };
+    expect(canOperatorCancelTrip(streetHail)).toBe(true);
+    expect(canOperatorCancelTrip({
+      status: 'accepted',
+      notes: '[STREET_HAIL]',
+    })).toBe(true);
+    expect(canOperatorCancelTrip({
+      status: 'in_progress',
+      passengerName: 'Pasajero en calle',
+    })).toBe(true);
+    expect(canOperatorCancelTrip({
+      status: 'in_progress',
+      notes: '[APPROACH_ONLY] Pedido por WhatsApp',
+    })).toBe(false);
+  });
+
   it('cancelTripAsOperator actualiza el viaje y lo saca de la cola', async () => {
     const existing = { id: 't1', status: 'queued', driver_id: null };
     const updated = {
@@ -275,5 +297,62 @@ describe('operator cancel', () => {
     await expect(cancelTripAsOperator(supabase, 't2')).rejects.toMatchObject({
       code: 'not_cancellable',
     });
+  });
+
+  it('cancelTripAsOperator cierra un viaje en calle en curso y no lo reencola', async () => {
+    const existing = {
+      id: 'street-1',
+      status: 'in_progress',
+      driver_id: 'driver-56',
+      passenger_name: 'Pasajero en calle',
+      notes: '[STREET_HAIL]\nViaje tomado en calle. Destino a definir.',
+      wa_context: { source: 'street_hail' },
+    };
+    const updated = {
+      ...existing,
+      status: 'cancelled',
+      dispatch_status: 'cancelled',
+      cancel_reason: OPERATOR_CANCEL_REASON,
+    };
+    const calls = [];
+    const makeQuery = (result) => {
+      const query = {
+        select: () => query,
+        eq: () => query,
+        in: (column, values) => {
+          if (column === 'status') calls.push({ type: 'status_in', values });
+          return query;
+        },
+        update: (payload) => {
+          calls.push({ type: 'update', payload });
+          return query;
+        },
+        delete: () => {
+          calls.push({ type: 'delete' });
+          return query;
+        },
+        maybeSingle: () => Promise.resolve(result),
+      };
+      return query;
+    };
+
+    let fromCount = 0;
+    const supabase = {
+      from: (table) => {
+        fromCount += 1;
+        calls.push({ type: 'from', table });
+        if (fromCount === 1) return makeQuery({ data: existing, error: null });
+        if (fromCount === 2) return makeQuery({ data: updated, error: null });
+        return makeQuery({ data: null, error: null });
+      },
+    };
+
+    const result = await cancelTripAsOperator(supabase, 'street-1');
+    expect(result.alreadyCancelled).toBe(false);
+    expect(result.trip.status).toBe('cancelled');
+    expect(calls.find((item) => item.type === 'update')?.payload.cancel_reason).toBe(OPERATOR_CANCEL_REASON);
+    expect(calls.find((item) => item.type === 'update')?.payload.driver_id).toBeUndefined();
+    expect(calls.find((item) => item.type === 'status_in')?.values).toContain('in_progress');
+    expect(calls.some((item) => item.type === 'delete')).toBe(true);
   });
 });
