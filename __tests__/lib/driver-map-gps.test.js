@@ -223,6 +223,21 @@ describe('nextGpsFromDriverRow', () => {
     expect(next.lat).toBe(-24.80);
     expect(next.updatedAt).toBe('2026-09-06T20:00:05.000Z');
   });
+
+  it('no pisa coordenadas si coordsChangedInRow es false (ej. update de billing o disponibilidad)', () => {
+    const next = nextGpsFromDriverRow(
+      { lat: -24.805, lng: -65.405, updatedAt: '2026-09-06T20:00:05.000Z' },
+      {
+        current_lat: -24.700, // vieja coordenada en la BD
+        current_lng: -65.300,
+        updated_at: '2026-09-06T20:00:10.000Z',
+      },
+      false, // coordsChangedInRow: las columnas no cambiaron en este UPDATE
+    );
+    expect(next.lat).toBe(-24.805);
+    expect(next.lng).toBe(-65.405);
+    expect(next.updatedAt).toBe('2026-09-06T20:00:05.000Z');
+  });
 });
 
 describe('applyDriverLocationRealtime', () => {

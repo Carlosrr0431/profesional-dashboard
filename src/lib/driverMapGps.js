@@ -129,6 +129,8 @@ export function applyDriverLocationRealtime(drivers, loc) {
 
   const prev = drivers[idx];
   const locValid = hasValidDriverCoords(loc.lat, loc.lng);
+  if (!locValid) return drivers;
+
   const locTs = toTs(loc.updated_at || loc.recorded_at);
   const prevTs = toTs(prev.updatedAt);
   const locIsFresher = !prevTs || !locTs || locTs >= prevTs;
@@ -137,7 +139,15 @@ export function applyDriverLocationRealtime(drivers, loc) {
   const nextLng = locValid && locIsFresher ? toCoordNumber(loc.lng, prev.lng) : prev.lng;
   const nextSpeed = toSpeedMps(loc.speed ?? loc.speed_kmh, prev.speed || 0);
   const nextHeading = toCoordNumber(loc.heading, prev.heading || 0);
-  const coordsChanged = nextLat !== prev.lat || nextLng !== prev.lng;
+
+  // Filtrar micro-ruido de GPS estacionario (< 0.8m)
+  const distM = haversineMeters(prev.lat, prev.lng, nextLat, nextLng);
+  const isStationaryJitter = distM < 0.8 && nextSpeed < 0.6 && hasValidDriverCoords(prev.lat, prev.lng);
+
+  const effectiveLat = isStationaryJitter ? prev.lat : nextLat;
+  const effectiveLng = isStationaryJitter ? prev.lng : nextLng;
+  const coordsChanged = effectiveLat !== prev.lat || effectiveLng !== prev.lng;
+
   if (
     !coordsChanged
     && nextSpeed === prev.speed
@@ -150,8 +160,8 @@ export function applyDriverLocationRealtime(drivers, loc) {
     ? gpsTimestampForCoordChange(prev.updatedAt, loc.updated_at || loc.recorded_at)
     : (prev.updatedAt || loc.updated_at || loc.recorded_at);
   const gps = {
-    lat: nextLat,
-    lng: nextLng,
+    lat: effectiveLat,
+    lng: effectiveLng,
     speed: nextSpeed,
     heading: nextHeading,
     updatedAt: nextUpdatedAt,
@@ -224,21 +234,41 @@ export function inferPinMotion({
 }
 
 /**
- * current_lat por subscribe es un evento live del celular.
- * No usar drivers.updated_at para descartarlo: un billing UPDATE
- * posterior deja ese timestamp más nuevo, y un GPS frecuente puede
- * no tocar updated_at.
+ * current_lat por subscribe desde la tabla drivers.
+ * Solo se toma si:
+ * 1) prev no tiene coordenadas válidas todavía (bootstrap inicial), O
+ * 2) coordsChangedInRow es true (el UPDATE de drivers realmente movió lat/lng en la BD).
+ *
+ * Si el UPDATE fue solo de billing, comisión o disponibilidad (coordsChangedInRow = false),
+ * o si no trae coordenadas válidas, se preservan las coordenadas vivas de telemetry
+ * para evitar que el pin retroceda a un punto viejo.
  */
-export function nextGpsFromDriverRow(prev, row) {
-  const hasCoords = hasValidDriverCoords(row?.current_lat, row?.current_lng);
-  if (!hasCoords) {
+export function nextGpsFromDriverRow(prev, row, coordsChangedInRow = true) {
+  const hasRowCoords = hasValidDriverCoords(row?.current_lat, row?.current_lng);
+  const hasPrevCoords = hasValidDriverCoords(prev?.lat, prev?.lng);
+
+  if (!hasPrevCoords) {
+    if (!hasRowCoords) {
+      return { lat: prev?.lat || 0, lng: prev?.lng || 0, updatedAt: prev?.updatedAt };
+    }
+    return {
+      lat: toCoordNumber(row.current_lat, 0),
+      lng: toCoordNumber(row.current_lng, 0),
+      updatedAt: row.updated_at || new Date().toISOString(),
+    };
+  }
+
+  // Si las coordenadas no cambiaron en este UPDATE de drivers, preservar telemetry
+  if (!coordsChangedInRow || !hasRowCoords) {
     return { lat: prev.lat, lng: prev.lng, updatedAt: prev.updatedAt };
   }
+
   const nextLat = toCoordNumber(row.current_lat, prev.lat);
   const nextLng = toCoordNumber(row.current_lng, prev.lng);
   if (nextLat === prev.lat && nextLng === prev.lng) {
     return { lat: prev.lat, lng: prev.lng, updatedAt: prev.updatedAt };
   }
+
   return {
     lat: nextLat,
     lng: nextLng,

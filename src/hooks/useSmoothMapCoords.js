@@ -1,33 +1,30 @@
 import { useEffect, useRef, useState } from 'react';
-import { haversineMeters, pinMoveDurationMs } from '../lib/driverMapGps';
+import { haversineMeters } from '../lib/driverMapGps';
 
-// Frame throttling para ~60 FPS
 const FRAME_MS = 16;
-const DEFAULT_LERP_MS = 750;
-const MIN_LERP_MS = 200;
-const MAX_LERP_MS = 1400;
-
-/**
- * Curva de desaceleración cúbica (ease-out cubic):
- * Inicia a velocidad uniforme y desacelera suavemente al llegar al destino.
- * Comportamiento idéntico al marcador de Uber o Google Maps.
- */
-function easeOutCubic(t) {
-  return 1 - Math.pow(1 - t, 3);
-}
+const DEFAULT_DURATION_MS = 1000;
+const MIN_DURATION_MS = 400;
+const MAX_DURATION_MS = 2200;
 
 /**
  * useSmoothMapCoords
  *
  * Mueve fluidamente el pin de cada chofer desde su posición visible actual
- * hasta la nueva posición reportada por GPS / Realtime, sin titileos ni
- * saltos abruptos.
+ * hasta la nueva posición reportada por GPS / Realtime, con movimiento uniforme
+ * y continuo estilo Uber / Google Maps (sin aceleraciones bruscas, sin frenazos,
+ * y sin retrocesos).
  *
- * Elimina la extrapolación a futuro (dead-reckoning) que hacía que el pin
- * apareciera adelantado en esquinas y luego retrocediera de golpe (ping-pong).
- *
- * Se detiene completamente una vez alcanzado el objetivo (cero costo de CPU
- * en reposo), lo que permite escalar a 40+ o más choferes simultáneos.
+ * Mejoras clave:
+ * 1. Movimiento uniforme continuo (velocidad constante entre coordenadas consecutivas).
+ * 2. Cadencia adaptativa: ajusta la duración del deslizamiento al ritmo real con el que
+ *    el celular emite los puntos (ej. 1s - 1.5s), garantizando que el auto nunca se
+ *    quede "congelado" esperando la siguiente señal.
+ * 3. Handover fluido: si llega un nuevo punto mientras el pin está en camino, la nueva
+ *    animación parte exactamente de las coordenadas donde se encuentra en pantalla,
+ *    sin saltos ni tirones.
+ * 4. Filtro de micro-ruido estacionario (< 0.8m con auto detenido).
+ * 5. Salto instantáneo en reconexiones / teletransportes (> 500m).
+ * 6. 0% de CPU en reposo una vez que el auto se detiene por completo.
  */
 export function useSmoothMapCoords(lat, lng, speedMps = 0, headingDeg = 0) {
   const [display, setDisplay] = useState({ lat, lng });
@@ -35,6 +32,7 @@ export function useSmoothMapCoords(lat, lng, speedMps = 0, headingDeg = 0) {
   const bootRef = useRef(true);
   const animRef = useRef(0);
   const lastPaintRef = useRef(0);
+  const lastTargetTimeRef = useRef(0);
 
   useEffect(() => {
     const target = { lat: Number(lat), lng: Number(lng) };
@@ -46,54 +44,69 @@ export function useSmoothMapCoords(lat, lng, speedMps = 0, headingDeg = 0) {
       bootRef.current = false;
       displayRef.current = target;
       setDisplay(target);
+      lastTargetTimeRef.current = performance.now();
       return undefined;
     }
 
     const start = displayRef.current;
     const distM = haversineMeters(start.lat, start.lng, target.lat, target.lng);
 
-    // Si el movimiento es casi nulo (< 0.6 m), mantener posición
-    if (distM < 0.6) {
+    // Micro-movimiento / jitter de GPS quieto (< 0.8 m)
+    if (distM < 0.8) {
       return undefined;
     }
 
-    // Si es un salto grande (> 800 m, ej. reconnect inicial o teleport), posicionar directo
-    if (distM > 800) {
+    // Salto grande (> 500 m, ej. reconexión inicial o teleport): posicionar directo
+    if (distM > 500) {
       cancelAnimationFrame(animRef.current);
       displayRef.current = target;
       setDisplay(target);
+      lastTargetTimeRef.current = performance.now();
       return undefined;
     }
 
-    // Cancelar animación anterior si estaba en curso
+    // Cancelar animación anterior si estaba en curso (handover suave desde posición visible actual)
     cancelAnimationFrame(animRef.current);
     lastPaintRef.current = 0;
 
-    // Duración de la transición suave: proporcional a velocidad/distancia
-    const speed = Number(speedMps) || 0;
-    const dynamicMs = pinMoveDurationMs(distM, speed);
-    const duration = Math.min(MAX_LERP_MS, Math.max(MIN_LERP_MS, dynamicMs || DEFAULT_LERP_MS));
+    const now = performance.now();
+    const lastTargetTime = lastTargetTimeRef.current;
+    lastTargetTimeRef.current = now;
 
-    const startTime = performance.now();
+    // Calcular cadencia real entre señales GPS recibidas
+    const timeDelta = lastTargetTime ? (now - lastTargetTime) : DEFAULT_DURATION_MS;
+    const speed = Number(speedMps) || 0;
+
+    // Duración adaptativa: calculada según el intervalo real de emisión y la velocidad
+    let duration = DEFAULT_DURATION_MS;
+    if (timeDelta > 200 && timeDelta < 3000) {
+      // Usar el intervalo real + 5% de buffer para que el pin siga deslizándose fluidamente
+      // hasta que entre el siguiente paquete de GPS, eliminando pausas/congelamientos
+      duration = timeDelta * 1.05;
+    } else if (speed > 1.0) {
+      duration = (distM / speed) * 1000;
+    }
+    duration = Math.min(MAX_DURATION_MS, Math.max(MIN_DURATION_MS, duration));
+
+    const startTime = now;
     const startLat = start.lat;
     const startLng = start.lng;
 
-    const tick = (now) => {
-      const elapsed = now - startTime;
-      const t = Math.min(elapsed / duration, 1);
-      const ease = easeOutCubic(t);
+    const tick = (currentTime) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
 
-      const curLat = startLat + (target.lat - startLat) * ease;
-      const curLng = startLng + (target.lng - startLng) * ease;
+      // Interpolación lineal uniforme: velocidad constante y movimiento perfectamente fluido
+      const curLat = startLat + (target.lat - startLat) * progress;
+      const curLng = startLng + (target.lng - startLng) * progress;
 
-      if (now - lastPaintRef.current >= FRAME_MS || t >= 1) {
-        lastPaintRef.current = now;
+      if (currentTime - lastPaintRef.current >= FRAME_MS || progress >= 1) {
+        lastPaintRef.current = currentTime;
         displayRef.current = { lat: curLat, lng: curLng };
         setDisplay({ lat: curLat, lng: curLng });
       }
 
-      // Continuar animando hasta llegar exactamente al objetivo; luego detenerse (sin extrapolation)
-      if (t < 1) {
+      if (progress < 1) {
         animRef.current = requestAnimationFrame(tick);
       }
     };

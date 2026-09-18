@@ -148,7 +148,11 @@ export function useDrivers() {
               billing_mode: row.billing_mode ?? prevDriver.billingMode,
               commission_blocked: row.commission_blocked ?? prevDriver.commissionBlocked,
             };
-            const gps = nextGpsFromDriverRow(prevDriver, row);
+            const oldRow = payload.old;
+            const coordsChangedInRow = oldRow
+              ? (oldRow.current_lat !== row.current_lat || oldRow.current_lng !== row.current_lng)
+              : true;
+            const gps = nextGpsFromDriverRow(prevDriver, row, coordsChangedInRow);
             const nextLat = gps.lat;
             const nextLng = gps.lng;
             const nextUpdatedAt = gps.updatedAt;
