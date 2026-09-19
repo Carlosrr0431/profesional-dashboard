@@ -43,6 +43,13 @@ const MAP_CSS = `
   padding: 2px 6px !important;
 }
 .maplibregl-ctrl-logo { display: none !important; }
+.map-pick-arrow,
+.map-pick-arrow .maplibregl-map,
+.map-pick-arrow .maplibregl-canvas-container,
+.map-pick-arrow .maplibregl-canvas-container.maplibregl-interactive,
+.map-pick-arrow .maplibregl-canvas {
+  cursor: default !important;
+}
 .maplibregl-popup-content {
   padding: 0 !important;
   border-radius: 14px !important;
@@ -340,7 +347,10 @@ const MapView = memo(function MapView({
   }, [previewRoute]);
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div
+      className={pickMode ? 'map-pick-arrow' : undefined}
+      style={{ width: '100%', height: '100%', position: 'relative', cursor: pickMode ? 'default' : undefined }}
+    >
       <style>{MAP_CSS}</style>
       <Map
         ref={internalMapRef}
