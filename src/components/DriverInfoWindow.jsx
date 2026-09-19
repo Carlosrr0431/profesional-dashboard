@@ -1,6 +1,7 @@
 import { timeAgo, formatSpeed, formatPrice, getTripStatus } from '../lib/utils';
 import DriverAvatar from './DriverAvatar';
 import { DriverRatingChip } from './DriverRatingView';
+import TripNotesEditor from './TripNotesEditor';
 
 function getDriverStatusInfo(driver) {
   if (driver.dispatchBlocked) {
@@ -187,6 +188,13 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onSendAudio, on
             <p className="mt-0.5 truncate text-xs text-slate-600">
               → {driver.activeTrip.destination_address || 'Sin destino'}
             </p>
+            <TripNotesEditor
+              compact
+              className="mt-2 border-red-100 bg-white"
+              tripId={driver.activeTrip.id}
+              notes={driver.activeTrip.notes}
+              status={driver.activeTrip.status}
+            />
           </div>
         ) : null}
 

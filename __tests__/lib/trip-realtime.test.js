@@ -106,6 +106,32 @@ describe('tripRealtime', () => {
     expect(hold).toHaveLength(1);
   });
 
+  it('actualiza las notas del viaje activo del chofer en tiempo real', () => {
+    const drivers = [{
+      id: 'd1',
+      activeTrip: {
+        id: 't1',
+        driver_id: 'd1',
+        status: 'going_to_pickup',
+        passenger_name: 'Ana',
+        destination_address: 'Mitre 100',
+        notes: 'Portón negro',
+      },
+    }];
+    const next = applyTripRealtimeToDrivers(drivers, {
+      eventType: 'UPDATE',
+      new: {
+        id: 't1',
+        driver_id: 'd1',
+        status: 'going_to_pickup',
+        passenger_name: 'Ana',
+        destination_address: 'Mitre 100',
+        notes: 'Esperar en la esquina',
+      },
+    });
+    expect(next[0].activeTrip.notes).toBe('Esperar en la esquina');
+  });
+
   it('el snapshot HTTP no reponer un viaje que Realtime acaba de cancelar', () => {
     const now = Date.parse('2026-09-07T00:46:48.000Z');
     const prev = [{

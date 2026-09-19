@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { SpaButton, SpaIcon, SpaKicker, SpaPanel } from './ui';
+import SpaTripNotes from './SpaTripNotes';
 import { formatArs } from './money';
 import { buildWaitFeeView, isWaitTimerActive } from './waitFee';
 
@@ -93,6 +94,8 @@ export default function TripLiveSheet({
   primaryVariant = 'primary',
   busy = false,
   waitTrip = null,
+  notes = null,
+  tripId = null,
 }) {
   const showChat = chatAvailable && typeof onChat === 'function';
   const actions = [
@@ -143,6 +146,8 @@ export default function TripLiveSheet({
           </p>
         ) : null}
       </div>
+
+      <SpaTripNotes notes={notes} tripId={tripId} />
 
       {actions.length > 0 ? (
         <div className="spa-actions">

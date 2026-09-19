@@ -644,6 +644,29 @@ export default function TripAssignModal({
                 onSelect={(place) => { setDestAddress(place.formattedAddress); setDestLat(place.lat); setDestLng(place.lng); }}
               />
             </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px' }}>
+              <div style={{ width: 1, height: 16, background: '#E2E8F0', marginLeft: 6 }} />
+            </div>
+
+            <div style={{ padding: '10px 14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <NotesDot />
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>
+                  NOTAS <span style={{ fontWeight: 400, color: '#94A3B8' }}>(opcional)</span>
+                </span>
+              </div>
+              <textarea
+                rows={3}
+                maxLength={800}
+                placeholder="Datos adicionales del viaje…"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                style={notesAreaStyle}
+                onFocus={(e) => { e.target.style.borderColor = '#0F172A'; e.target.style.boxShadow = '0 0 0 3px rgba(15,23,42,0.08)'; }}
+                onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
+              />
+            </div>
           </div>
 
           {/* ── Tarjeta de ruta ──────────────────────────────────────────── */}
@@ -706,7 +729,7 @@ export default function TripAssignModal({
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; }}
           >
             <span style={{ fontSize: 10 }}>{showOptional ? '▲' : '▼'}</span>
-            {showOptional ? 'Ocultar datos opcionales' : '+ Agregar pasajero, teléfono y notas'}
+            {showOptional ? 'Ocultar datos opcionales' : '+ Agregar pasajero y teléfono'}
           </button>
 
           {showOptional && (
@@ -740,20 +763,6 @@ export default function TripAssignModal({
                     onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
                   />
                 </div>
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>
-                  📝 NOTAS
-                </label>
-                <input
-                  type="text"
-                  placeholder="Instrucciones adicionales..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  style={optInputStyle}
-                  onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
-                  onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
-                />
               </div>
             </div>
           )}
@@ -869,6 +878,9 @@ function DestDot() {
 function DestDotSmall() {
   return <div style={{ width: 8, height: 8, borderRadius: 2, background: '#059669', flexShrink: 0 }} />;
 }
+function NotesDot() {
+  return <div style={{ width: 10, height: 10, borderRadius: 3, background: '#0F172A', border: '2px solid #94A3B8', flexShrink: 0 }} />;
+}
 
 function RouteLoadingSkeleton() {
   return (
@@ -953,4 +965,13 @@ const optInputStyle = {
   outline: 'none',
   fontFamily: 'inherit',
   transition: 'border-color 0.15s, box-shadow 0.15s',
+};
+
+const notesAreaStyle = {
+  ...optInputStyle,
+  boxSizing: 'border-box',
+  minHeight: 76,
+  resize: 'vertical',
+  lineHeight: 1.45,
+  fontWeight: 500,
 };

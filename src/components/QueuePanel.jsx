@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useToast } from '../context/ToastContext';
+import TripNotesEditor from './TripNotesEditor';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -153,6 +154,12 @@ function QueueItem({ item, isFirst }) {
         <p className="text-[10px] text-gray-300 mt-1.5">
           En cola desde {formatDateTime(item.queuedAt)}
         </p>
+        <TripNotesEditor
+          compact
+          tripId={item.id}
+          notes={item.notes}
+          status={item.status || 'queued'}
+        />
       </div>
     </div>
   );

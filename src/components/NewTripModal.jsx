@@ -713,6 +713,29 @@ export default function NewTripModal({
                 onSelect={onDestSelect}
               />
             </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px' }}>
+              <div style={{ width: 1, height: 16, background: '#E2E8F0', marginLeft: 6 }} />
+            </div>
+
+            <div style={{ padding: asPopover ? '8px 12px 10px' : '10px 14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                <NotesDot />
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em' }}>
+                  NOTAS <span style={{ fontWeight: 500, color: '#CBD5E1' }}>opcional</span>
+                </span>
+              </div>
+              <textarea
+                rows={3}
+                maxLength={800}
+                placeholder="Datos adicionales del viaje…"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                style={notesAreaStyle}
+                onFocus={(e) => { e.target.style.borderColor = '#0F172A'; e.target.style.boxShadow = '0 0 0 3px rgba(15,23,42,0.08)'; }}
+                onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
+              />
+            </div>
           </div>
 
           <div
@@ -938,35 +961,26 @@ export default function NewTripModal({
             onMouseLeave={(e) => { e.currentTarget.style.color = '#64748B'; }}
           >
             <span style={{ fontSize: 9, color: '#94A3B8' }}>{showOptional ? '▲' : '+'}</span>
-            {showOptional ? 'Ocultar datos opcionales' : (isScheduled ? 'Agregar notas' : 'Pasajero, teléfono y notas')}
+            {showOptional ? 'Ocultar datos opcionales' : 'Pasajero y teléfono'}
           </button>
 
           {showOptional && (
             <div style={{ marginBottom: 12 }}>
-              {!isScheduled ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>👤 PASAJERO</label>
-                    <input type="text" placeholder="Nombre" value={passengerName} onChange={(e) => setPassengerName(e.target.value)} style={optInputStyle}
-                      onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
-                      onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>📞 TELÉFONO</label>
-                    <input type="tel" placeholder="Ej: 3874001234" value={passengerPhone} onChange={(e) => setPassengerPhone(e.target.value)} style={optInputStyle}
-                      onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
-                      onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
-                    />
-                  </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>👤 PASAJERO</label>
+                  <input type="text" placeholder="Nombre" value={passengerName} onChange={(e) => setPassengerName(e.target.value)} style={optInputStyle}
+                    onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
+                    onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
+                  />
                 </div>
-              ) : null}
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>📝 NOTAS</label>
-                <input type="text" placeholder="Instrucciones adicionales..." value={notes} onChange={(e) => setNotes(e.target.value)} style={optInputStyle}
-                  onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
-                  onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
-                />
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>📞 TELÉFONO</label>
+                  <input type="tel" placeholder="Ej: 3874001234" value={passengerPhone} onChange={(e) => setPassengerPhone(e.target.value)} style={optInputStyle}
+                    onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
+                    onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -1116,6 +1130,9 @@ function DestDot() {
 function DestDotSmall() {
   return <div style={{ width: 8, height: 8, borderRadius: 2, background: '#059669', flexShrink: 0 }} />;
 }
+function NotesDot() {
+  return <div style={{ width: 10, height: 10, borderRadius: 3, background: '#0F172A', border: '2px solid #94A3B8', flexShrink: 0 }} />;
+}
 
 const optInputStyle = {
   width: '100%', padding: '9px 12px',
@@ -1123,4 +1140,13 @@ const optInputStyle = {
   borderRadius: 10, color: '#0F172A',
   fontSize: 13, outline: 'none', fontFamily: 'inherit',
   transition: 'border-color 0.15s, box-shadow 0.15s',
+};
+
+const notesAreaStyle = {
+  ...optInputStyle,
+  boxSizing: 'border-box',
+  minHeight: 76,
+  resize: 'vertical',
+  lineHeight: 1.45,
+  fontWeight: 500,
 };

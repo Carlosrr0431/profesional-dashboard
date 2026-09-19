@@ -2,6 +2,7 @@
 
 import AssignFreeDriverPicker from './AssignFreeDriverPicker';
 import CancelTripButton from './CancelTripButton';
+import TripNotesEditor from './TripNotesEditor';
 import { canOperatorCancelTrip } from '../lib/passengerTripCancel';
 import { DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS } from '../lib/promoteDueScheduledTrips';
 
@@ -140,6 +141,13 @@ function QueueCard({ item, index, onCancelled }) {
         ) : null}
       </div>
 
+      <TripNotesEditor
+        compact
+        tripId={item.id}
+        notes={item.notes}
+        status={item.status || 'queued'}
+      />
+
       <CancelTripButton
         compact
         className="mt-3"
@@ -167,6 +175,12 @@ function LiveTripCard({ trip, onCancelled }) {
       {driverName ? (
         <p className="mt-1 text-[11px] text-slate-400">Móvil · {driverName}</p>
       ) : null}
+      <TripNotesEditor
+        compact
+        tripId={trip.id}
+        notes={trip.notes}
+        status={trip.status}
+      />
       {canCancel ? (
         <CancelTripButton
           compact
@@ -214,6 +228,12 @@ function ScheduledCard({ item, drivers, onAssigned, onCancelled }) {
           </div>
         ) : null}
       </div>
+      <TripNotesEditor
+        compact
+        tripId={item.id}
+        notes={item.notes}
+        status={item.status || 'scheduled'}
+      />
       <AssignFreeDriverPicker
         compact
         trip={item}

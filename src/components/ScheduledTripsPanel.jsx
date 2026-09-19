@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useToast } from '../context/ToastContext';
 import { scheduledSourceBadgeClass, scheduledSourceLabel } from '../lib/scheduledTripSource';
 import AssignFreeDriverPicker from './AssignFreeDriverPicker';
+import TripNotesEditor from './TripNotesEditor';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -227,6 +228,12 @@ function ScheduledTripCard({ trip, onCancel, drivers, onAssigned }) {
               )}
             </div>
           </div>
+          <TripNotesEditor
+            compact
+            tripId={trip.id}
+            notes={trip.notes}
+            status={trip.status || 'scheduled'}
+          />
           <AssignFreeDriverPicker
             trip={trip}
             drivers={drivers}

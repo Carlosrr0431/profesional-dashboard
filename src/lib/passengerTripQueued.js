@@ -296,7 +296,7 @@ export function buildPassengerQueuedTripPayload({
     fare,
     source: resolveQueuedTripSource(source),
     destinationHint,
-    extraNotes: sanitizeText(notes) || null,
+    extraNotes: sanitizeText(notes, 800) || null,
     waypoints,
     scheduledFor,
     scheduledDisplay,

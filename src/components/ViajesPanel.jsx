@@ -10,6 +10,7 @@ import {
   toAnchorString,
 } from '../lib/commissionPaymentPeriods';
 import CancelTripButton from './CancelTripButton';
+import TripNotesEditor from './TripNotesEditor';
 import TripsRangePicker from './TripsRangePicker';
 
 const STATUS_FILTERS = [
@@ -174,6 +175,12 @@ function QueueCard({ item, isFirst, onCancelled }) {
           <p className="mt-0.5 text-[11px] text-slate-500">{formatPhone(item.phone)}</p>
           <p className="mt-1.5 text-[12px] font-medium leading-snug text-navy-800">{item.pickupAddress}</p>
           <p className="mt-1 text-[10px] text-slate-400">En cola desde {formatDateTime(item.queuedAt)}</p>
+          <TripNotesEditor
+            compact
+            tripId={item.id}
+            notes={item.notes}
+            status={item.status || 'queued'}
+          />
           <CancelTripButton
             className="mt-2"
             tripId={item.id}
@@ -244,6 +251,14 @@ function TripCard({ trip, onCancelled }) {
       {trip.cancelReason ? (
         <p className="mt-2 pl-1 text-[11px] text-rose-600">Cancelado: {trip.cancelReason}</p>
       ) : null}
+
+      <TripNotesEditor
+        compact
+        className="ml-1"
+        tripId={trip.id}
+        notes={trip.notes}
+        status={trip.status}
+      />
 
       {canOperatorCancelTrip(trip) ? (
         <CancelTripButton

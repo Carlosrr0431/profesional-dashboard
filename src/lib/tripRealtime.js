@@ -64,6 +64,7 @@ export function toFleetActiveTrip(row) {
     status: row.status,
     passenger_name: row.passenger_name,
     destination_address: row.destination_address,
+    notes: row.notes || null,
   };
 }
 
@@ -94,6 +95,7 @@ export function applyTripRealtimeToDrivers(drivers, payload, now = Date.now()) {
       if (
         driver.activeTrip?.id === active.id
         && driver.activeTrip?.status === active.status
+        && (driver.activeTrip?.notes || null) === (active.notes || null)
       ) {
         return driver;
       }

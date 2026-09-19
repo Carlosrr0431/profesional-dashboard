@@ -179,7 +179,7 @@ export async function POST(req) {
       finalDestinationLocation,
       passengerName: sanitizeText(payload?.passengerName, 120) || null,
       passengerPhone: normalizePhone(payload?.passengerPhone),
-      notes: sanitizeText(payload?.notes, 500) || null,
+      notes: sanitizeText(payload?.notes, 800) || null,
       destinationHint: destinationAddress || null,
       fare,
       source,

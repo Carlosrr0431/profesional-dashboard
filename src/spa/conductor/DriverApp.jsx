@@ -9,6 +9,7 @@ import { formatArs } from '../shared/money';
 import { normalizeDriverPhone } from '../shared/phone';
 import { DRIVER_STATUS, isOpenTripStatus } from '../shared/tripStatus';
 import { tripDropoffPoint, tripNavTarget, tripPickupPoint } from '../shared/tripPoints';
+import { cleanTripNotesForDriverDisplay } from '../../../shared/trip-contract.js';
 import { SpaBackHome, SpaBrand, SpaButton, SpaEmpty, SpaKicker, SpaNotice, SpaPanel, SpaSheet, SpaSwitch, SpaTabs, SpaTripRow, haptic, spaFieldClass } from '../shared/ui';
 import { SpaAuthScreen, SpaBootScreen, SpaMapScreen } from '../shared/SpaShell';
 import InstallAppButton from '../shared/InstallAppButton';
@@ -732,6 +733,8 @@ export default function DriverApp() {
                 personMeta={activeTrip.passenger_phone || null}
                 pickup={pickup?.address || activeTrip.origin_address}
                 destination={dropoff?.address || activeTrip.destination_address}
+                notes={cleanTripNotesForDriverDisplay(activeTrip.notes)}
+                tripId={activeTrip.id}
                 priceLabel={activeTrip.price ? formatArs(activeTrip.price) : null}
                 chatAvailable={chatReady}
                 chatUnread={tripChat.unreadCount}

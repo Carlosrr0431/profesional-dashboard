@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useToast } from '../context/ToastContext';
+import TripNotesEditor from './TripNotesEditor';
 
 const FILTERS = [
   { id: 'all', label: 'Todos' },
@@ -183,6 +184,13 @@ function TripCard({ trip }) {
       {trip.cancelReason ? (
         <p className="mt-2 text-[11px] text-danger/80">Cancelado: {trip.cancelReason}</p>
       ) : null}
+
+      <TripNotesEditor
+        compact
+        tripId={trip.id}
+        notes={trip.notes}
+        status={trip.status}
+      />
     </div>
   );
 }

@@ -239,4 +239,18 @@ describe('approachOnlyTripPayload', () => {
     expect(payload.notes).toContain('[SCHEDULED_SOURCE] dashboard');
     expect(payload.notes).not.toContain('[PASSENGER_APP]');
   });
+
+  it('persiste las notas del operador en trips.notes', () => {
+    const payload = buildApproachOnlyTripInsertPayload({
+      pickupLocation: pickup,
+      finalDestinationLocation: null,
+      passengerName: 'Pasajero',
+      source: 'dashboard',
+      extraNotes: 'Portón negro, timbre 2.',
+    });
+
+    expect(payload.notes).toContain('[DASHBOARD]');
+    expect(payload.notes).toContain('Portón negro, timbre 2.');
+    expect(payload.notes).not.toContain('Viaje ingresado desde el panel de operaciones.');
+  });
 });
