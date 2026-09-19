@@ -43,10 +43,6 @@ const MAP_CSS = `
   padding: 2px 6px !important;
 }
 .maplibregl-ctrl-logo { display: none !important; }
-.map-pick-cursor .maplibregl-canvas-container,
-.map-pick-cursor .maplibregl-canvas {
-  cursor: crosshair !important;
-}
 .maplibregl-popup-content {
   padding: 0 !important;
   border-radius: 14px !important;
@@ -132,7 +128,7 @@ const DriverMapPin = memo(function DriverMapPin({
         alt={driver.full_name ?? driver.fullName ?? 'chofer'}
         draggable={false}
         style={{
-          cursor: interactive ? 'pointer' : 'crosshair',
+          cursor: interactive ? 'pointer' : 'default',
           pointerEvents: interactive ? 'auto' : 'none',
           display: 'block',
           transform: isSelected || isMultiSelected ? 'scale(1.08)' : 'scale(1)',
@@ -344,10 +340,7 @@ const MapView = memo(function MapView({
   }, [previewRoute]);
 
   return (
-    <div
-      className={pickMode ? 'map-pick-cursor' : undefined}
-      style={{ width: '100%', height: '100%', position: 'relative' }}
-    >
+    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <style>{MAP_CSS}</style>
       <Map
         ref={internalMapRef}
@@ -443,7 +436,7 @@ const MapView = memo(function MapView({
                 alt="pasajero"
                 draggable={false}
                 style={{
-                  cursor: pickMode ? 'crosshair' : (multiSelectMode ? 'default' : 'pointer'),
+                  cursor: pickMode || multiSelectMode ? 'default' : 'pointer',
                   pointerEvents: pickMode ? 'none' : 'auto',
                   display: 'block',
                 }}
