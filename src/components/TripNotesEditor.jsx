@@ -32,6 +32,7 @@ export default function TripNotesEditor({
   const editable = canOperatorEditTripNotes({ id: tripId, status });
   const dirty = draft !== saved;
   const inline = variant === 'inline';
+  const row = variant === 'row';
 
   useEffect(() => {
     setLocalSaved(null);
@@ -102,6 +103,26 @@ export default function TripNotesEditor({
     }
   };
 
+  if (!open && row) {
+    if (!editable) return null;
+    return (
+      <div
+        className={`min-w-0 flex-1 ${className}`}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={openEditor}
+          aria-expanded={false}
+          className="flex h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-white text-[13px] font-bold text-navy-800 transition-colors hover:bg-slate-50"
+        >
+          {saved ? 'Editar nota' : 'Agregar nota'}
+        </button>
+      </div>
+    );
+  }
+
   if (!open && inline) {
     const rowClass = `flex w-full items-center gap-2 rounded-xl bg-white px-2.5 py-2 text-left ring-1 ring-slate-200/90 ${className}`;
     const body = (
@@ -169,7 +190,7 @@ export default function TripNotesEditor({
 
   return (
     <div
-      className={`rounded-xl border border-slate-200 bg-white ${inline ? 'mt-2 p-2' : compact ? 'mt-3 p-2' : 'mt-3 p-2.5'} ${className}`}
+      className={`rounded-xl border border-slate-200 bg-white ${row ? 'w-full basis-full p-2' : inline ? 'mt-2 p-2' : compact ? 'mt-3 p-2' : 'mt-3 p-2.5'} ${className}`}
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -183,7 +204,7 @@ export default function TripNotesEditor({
       </div>
       <textarea
         ref={textareaRef}
-        rows={inline ? 2 : compact ? 3 : 4}
+        rows={inline || row ? 2 : compact ? 3 : 4}
         maxLength={HUMAN_TRIP_NOTES_MAX_LENGTH}
         disabled={!editable || busy}
         value={draft}

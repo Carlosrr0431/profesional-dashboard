@@ -1053,7 +1053,7 @@ export default function App() {
                   onOpenScheduled={() => { setMapPopover(null); goTo(VIEWS.scheduled); }}
                 />
 
-                <div className="pointer-events-auto flex w-full items-end gap-2 md:w-auto">
+                <div className={`pointer-events-auto flex w-full items-end gap-2 md:w-auto ${mapFullscreen ? 'gap-2.5' : ''}`}>
                   {!mapFullscreen && !fleetDrawerOpen && !panelDriverId ? (
                     <button
                       type="button"
@@ -1070,7 +1070,7 @@ export default function App() {
                       </span>
                     </button>
                   ) : null}
-                  <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+                  <div className={`ml-auto flex min-w-0 flex-wrap items-center justify-end ${mapFullscreen ? 'gap-2.5' : 'gap-1.5 sm:gap-2'}`}>
                   <button
                     type="button"
                     title={multiSelectMode ? `Selección activa (${multiSelectedIds.size})` : 'Audio a choferes'}
@@ -1083,13 +1083,15 @@ export default function App() {
                         setVoiceChatDriver(null);
                       }
                     }}
-                    className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-xl active:scale-[0.97] transition-all sm:h-11 sm:w-11 ${
+                    className={`relative flex shrink-0 items-center justify-center rounded-full shadow-xl active:scale-[0.97] transition-all ${
+                      mapFullscreen ? 'h-12 w-12 sm:h-14 sm:w-14' : 'h-10 w-10 sm:h-11 sm:w-11'
+                    } ${
                       multiSelectMode
                         ? 'bg-navy-900 text-white shadow-navy-900/35'
                         : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
                     }`}
                   >
-                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                    <svg className={mapFullscreen ? 'h-5 w-5' : 'h-4 w-4'} fill="currentColor" viewBox="0 0 24 24">
                       <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
                       <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
                     </svg>
@@ -1108,7 +1110,11 @@ export default function App() {
                       type="button"
                       title={`Audio nuevo de ${incomingDriverVoice[0].name}`}
                       onClick={() => openIncomingDriverVoice(incomingDriverVoice[0])}
-                      className="relative flex h-10 max-w-[11.5rem] items-center gap-1.5 rounded-full bg-accent px-3 text-[12px] font-bold text-white shadow-xl shadow-accent/30 active:scale-[0.97] transition-all sm:h-11 sm:max-w-[14rem] sm:px-3.5 sm:text-[12.5px]"
+                      className={`relative flex items-center gap-1.5 rounded-full bg-accent font-bold text-white shadow-xl shadow-accent/30 active:scale-[0.97] transition-all ${
+                        mapFullscreen
+                          ? 'h-12 max-w-[16rem] px-4 text-[14px] sm:h-14 sm:max-w-[18rem] sm:px-5 sm:text-[15px]'
+                          : 'h-10 max-w-[11.5rem] px-3 text-[12px] sm:h-11 sm:max-w-[14rem] sm:px-3.5 sm:text-[12.5px]'
+                      }`}
                     >
                       <span className="relative flex h-2 w-2 shrink-0">
                         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-70" />
@@ -1130,7 +1136,11 @@ export default function App() {
                   ) : null}
                   {queueData.stats.inQueue > 0 && (
                     <button
-                      className={`flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-bold shadow-xl active:scale-[0.97] transition-all sm:h-11 sm:gap-2.5 sm:px-4 sm:text-[12.5px] ${
+                      className={`flex items-center rounded-full font-bold shadow-xl active:scale-[0.97] transition-all ${
+                        mapFullscreen
+                          ? 'h-12 gap-2 px-4 text-[14px] sm:h-14 sm:gap-2.5 sm:px-5 sm:text-[15px]'
+                          : 'h-10 gap-1.5 px-3 text-[12px] sm:h-11 sm:gap-2.5 sm:px-4 sm:text-[12.5px]'
+                      } ${
                         mapPopover === 'queue'
                           ? 'bg-amber-500 text-white shadow-amber-500/40 scale-[1.02]'
                           : 'bg-amber-500 text-white shadow-amber-400/35 hover:bg-amber-400 hover:shadow-amber-400/50 hover:scale-[1.02]'
@@ -1146,7 +1156,11 @@ export default function App() {
                   )}
                   {scheduledData.stats.dispatchSoon > 0 && (
                     <button
-                      className={`flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-bold shadow-xl active:scale-[0.97] transition-all sm:h-11 sm:gap-2.5 sm:px-4 sm:text-[12.5px] ${
+                      className={`flex items-center rounded-full font-bold shadow-xl active:scale-[0.97] transition-all ${
+                        mapFullscreen
+                          ? 'h-12 gap-2 px-4 text-[14px] sm:h-14 sm:gap-2.5 sm:px-5 sm:text-[15px]'
+                          : 'h-10 gap-1.5 px-3 text-[12px] sm:h-11 sm:gap-2.5 sm:px-4 sm:text-[12.5px]'
+                      } ${
                         mapPopover === 'scheduled-due'
                           ? 'bg-violet-600 text-white shadow-violet-600/40 scale-[1.02]'
                           : 'bg-violet-600 text-white shadow-violet-500/35 hover:bg-violet-500 hover:shadow-violet-500/50 hover:scale-[1.02]'
@@ -1163,14 +1177,18 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setMapPopover(mapPopover === 'trips' ? null : 'trips')}
-                    className={`flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-bold shadow-xl active:scale-[0.97] transition-all sm:h-11 sm:gap-2 sm:px-4 sm:text-[12.5px] ${
+                    className={`flex items-center rounded-full font-bold shadow-xl active:scale-[0.97] transition-all ${
+                      mapFullscreen
+                        ? 'h-12 gap-2 px-4 text-[14px] sm:h-14 sm:gap-2.5 sm:px-5 sm:text-[15px]'
+                        : 'h-10 gap-1.5 px-3 text-[12px] sm:h-11 sm:gap-2 sm:px-4 sm:text-[12.5px]'
+                    } ${
                       mapPopover === 'trips'
                         ? 'bg-accent text-white shadow-accent/35'
                         : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
                     }`}
                     title="Ver viajes activos"
                   >
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className={mapFullscreen ? 'h-5 w-5' : 'h-4 w-4'} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10m16 0V8a1 1 0 00-1-1h-3.5M6 8h2" />
                     </svg>
@@ -1182,14 +1200,18 @@ export default function App() {
                       setTripModalDriver(null);
                       setMapPopover(mapPopover === 'new-trip' ? null : 'new-trip');
                     }}
-                    className={`flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-bold shadow-2xl active:scale-[0.97] transition-all sm:h-11 sm:gap-2.5 sm:px-5 sm:text-[13px] ${
+                    className={`flex items-center rounded-full font-bold shadow-2xl active:scale-[0.97] transition-all ${
+                      mapFullscreen
+                        ? 'h-12 gap-2 px-4 text-[14px] sm:h-14 sm:gap-2.5 sm:px-6 sm:text-[15px]'
+                        : 'h-10 gap-1.5 px-3 text-[12px] sm:h-11 sm:gap-2.5 sm:px-5 sm:text-[13px]'
+                    } ${
                       mapPopover === 'new-trip'
                         ? 'bg-navy-800 text-white shadow-navy-900/45'
                         : 'bg-navy-900 text-white shadow-navy-900/35 hover:bg-navy-800 hover:shadow-navy-900/50 hover:scale-[1.01]'
                     }`}
                     title="Nuevo viaje"
                   >
-                    <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className={`${mapFullscreen ? 'h-5 w-5' : 'h-4 w-4'} flex-shrink-0`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
                     </svg>
                     <span className="hidden sm:inline">Nuevo viaje</span>

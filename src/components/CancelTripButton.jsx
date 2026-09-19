@@ -9,6 +9,7 @@ export default function CancelTripButton({
   tripId,
   onCancelled,
   compact = false,
+  row = false,
   className = '',
   passengerName = '',
   address = '',
@@ -116,9 +117,11 @@ export default function CancelTripButton({
           setOpen(true);
         }}
         disabled={busy}
-        className={compact
-          ? 'flex h-11 w-full items-center justify-center rounded-2xl border border-rose-200 bg-white text-[13px] font-bold text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-50'
-          : 'flex h-10 items-center justify-center rounded-xl border border-rose-200 bg-white px-4 text-[13px] font-bold text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-50'}
+        className={row
+          ? 'flex h-10 w-full items-center justify-center rounded-xl border border-rose-200 bg-white text-[13px] font-bold text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-50'
+          : compact
+            ? 'flex h-11 w-full items-center justify-center rounded-2xl border border-rose-200 bg-white text-[13px] font-bold text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-50'
+            : 'flex h-10 items-center justify-center rounded-xl border border-rose-200 bg-white px-4 text-[13px] font-bold text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-50'}
       >
         Cancelar
       </button>

@@ -5,6 +5,7 @@ import CancelTripButton from './CancelTripButton';
 import TripNotesEditor from './TripNotesEditor';
 import { canOperatorCancelTrip } from '../lib/passengerTripCancel';
 import { DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS } from '../lib/promoteDueScheduledTrips';
+import { cleanTripNotesForDriverDisplay } from '../../shared/trip-contract.js';
 
 const LIST_KINDS = new Set(['queue', 'trips', 'scheduled-due']);
 
@@ -64,7 +65,7 @@ function DockCard({ tone = 'navy', title, meta, children, footer }) {
           </span>
         ) : null}
       </div>
-      <div className="map-dock-scroll max-h-[min(440px,calc(100dvh-14rem))] overflow-y-auto overscroll-contain px-2.5 pb-2">
+      <div className="map-dock-scroll max-h-[min(560px,calc(100dvh-12rem))] overflow-y-auto overscroll-contain px-2.5 pb-2">
         {children}
       </div>
       {footer}
@@ -141,21 +142,22 @@ function QueueCard({ item, index, onCancelled }) {
         ) : null}
       </div>
 
-      <TripNotesEditor
-        compact
-        tripId={item.id}
-        notes={item.notes}
-        status={item.status || 'queued'}
-      />
-
-      <CancelTripButton
-        compact
-        className="mt-3"
-        tripId={item.id}
-        passengerName={item.passengerName}
-        address={[origin, dest].filter(Boolean).join(' → ')}
-        onCancelled={onCancelled}
-      />
+      <div className="mt-2.5 flex flex-wrap items-stretch gap-2">
+        <TripNotesEditor
+          variant="row"
+          tripId={item.id}
+          notes={item.notes}
+          status={item.status || 'queued'}
+        />
+        <CancelTripButton
+          row
+          className="min-w-0 flex-1"
+          tripId={item.id}
+          passengerName={item.passengerName}
+          address={[origin, dest].filter(Boolean).join(' → ')}
+          onCancelled={onCancelled}
+        />
+      </div>
     </article>
   );
 }
@@ -164,33 +166,40 @@ function LiveTripCard({ trip, onCancelled }) {
   const meta = tripStatusMeta(trip.status);
   const canCancel = canOperatorCancelTrip(trip);
   const driverName = trip.driver?.fullName || trip.driver?.full_name || (typeof trip.driver === 'string' ? trip.driver : null);
+  const note = cleanTripNotesForDriverDisplay(trip.notes) || '';
+  const address = trip.pickupAddress || trip.destination || '—';
 
   return (
-    <article className="mb-2 rounded-2xl border border-slate-100 bg-slate-50/80 p-3 last:mb-0">
+    <article className="mb-1.5 rounded-2xl border border-slate-100 bg-slate-50/90 px-3 py-2.5 last:mb-0">
       <div className="flex items-start justify-between gap-2">
-        <p className="truncate text-[13px] font-bold text-slate-900">{trip.passengerName}</p>
-        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${meta.cls}`}>{meta.label}</span>
+        <p className="min-w-0 truncate text-[15px] font-bold leading-tight text-navy-900">{trip.passengerName}</p>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${meta.cls}`}>{meta.label}</span>
       </div>
-      <p className="mt-1.5 text-[12px] leading-snug text-slate-600">{trip.pickupAddress || trip.destination || '—'}</p>
+      <p className="mt-1 line-clamp-2 text-[13px] font-semibold leading-snug text-slate-800">{address}</p>
       {driverName ? (
-        <p className="mt-1 text-[11px] text-slate-400">Móvil · {driverName}</p>
+        <p className="mt-1 truncate text-[12px] font-semibold text-slate-600">Móvil · {driverName}</p>
       ) : null}
-      <TripNotesEditor
-        compact
-        tripId={trip.id}
-        notes={trip.notes}
-        status={trip.status}
-      />
-      {canCancel ? (
-        <CancelTripButton
-          compact
-          className="mt-3"
+      {note ? (
+        <p className="mt-1 truncate text-[13px] font-bold text-navy-800">{note}</p>
+      ) : null}
+      <div className="mt-2.5 flex flex-wrap items-stretch gap-2">
+        <TripNotesEditor
+          variant="row"
           tripId={trip.id}
-          passengerName={trip.passengerName}
-          address={trip.pickupAddress || trip.destination || ''}
-          onCancelled={onCancelled}
+          notes={trip.notes}
+          status={trip.status}
         />
-      ) : null}
+        {canCancel ? (
+          <CancelTripButton
+            row
+            className="min-w-0 flex-1"
+            tripId={trip.id}
+            passengerName={trip.passengerName}
+            address={address}
+            onCancelled={onCancelled}
+          />
+        ) : null}
+      </div>
     </article>
   );
 }
@@ -228,25 +237,27 @@ function ScheduledCard({ item, drivers, onAssigned, onCancelled }) {
           </div>
         ) : null}
       </div>
-      <TripNotesEditor
-        compact
-        tripId={item.id}
-        notes={item.notes}
-        status={item.status || 'scheduled'}
-      />
+      <div className="mt-2.5 flex flex-wrap items-stretch gap-2">
+        <TripNotesEditor
+          variant="row"
+          tripId={item.id}
+          notes={item.notes}
+          status={item.status || 'scheduled'}
+        />
+        <CancelTripButton
+          row
+          className="min-w-0 flex-1"
+          tripId={item.id}
+          passengerName={item.passenger_name || 'Pasajero'}
+          address={item.pickupAddress || item.origin_address || item.destination_address || ''}
+          onCancelled={onCancelled}
+        />
+      </div>
       <AssignFreeDriverPicker
         compact
         trip={item}
         drivers={drivers}
         onAssigned={onAssigned}
-      />
-      <CancelTripButton
-        compact
-        className="mt-2"
-        tripId={item.id}
-        passengerName={item.passenger_name || 'Pasajero'}
-        address={item.pickupAddress || item.origin_address || item.destination_address || ''}
-        onCancelled={onCancelled}
       />
     </article>
   );
