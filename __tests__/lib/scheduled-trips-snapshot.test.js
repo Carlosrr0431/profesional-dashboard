@@ -119,6 +119,25 @@ describe('scheduledTripsSnapshot', () => {
     expect(accepted).toEqual([]);
   });
 
+  it('actualiza la nota de un programado sin sacarlo de la agenda', () => {
+    const scheduled = {
+      id: '1',
+      status: 'scheduled',
+      scheduled_for: '2026-08-31T23:00:00.000Z',
+      passenger_name: 'Ana',
+      notes: '[SCHEDULED_FOR] 2026-08-31T23:00:00.000Z\nPortón negro',
+    };
+    const next = applyScheduledRealtimePayload([scheduled], {
+      eventType: 'UPDATE',
+      old: { id: '1' },
+      new: { id: '1', notes: '[SCHEDULED_FOR] 2026-08-31T23:00:00.000Z\nEsperar en la esquina' },
+    });
+    expect(next).toHaveLength(1);
+    expect(next[0].status).toBe('scheduled');
+    expect(next[0].passenger_name).toBe('Ana');
+    expect(next[0].notes).toContain('Esperar en la esquina');
+  });
+
   it('upsert agrega el viaje creado desde el panel', () => {
     const trip = {
       id: 'new',

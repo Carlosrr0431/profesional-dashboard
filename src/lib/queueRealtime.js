@@ -55,12 +55,24 @@ export function applyQueueRealtimeChange(currentList, payload) {
   const id = realtimeTripId(payload);
   if (!id) return list;
 
-  if (tripLeftWaitQueue(payload)) {
+  const incoming = payload?.new && typeof payload.new === 'object' ? payload.new : null;
+  const previous = payload?.old && typeof payload.old === 'object' ? payload.old : null;
+  const row = incoming && previous ? { ...previous, ...incoming } : incoming;
+  const existing = list.find((item) => item.id === id) || null;
+
+  if (existing && incoming && incoming.status == null && incoming.dispatch_status == null) {
+    return list.map((item) => (
+      item.id === id
+        ? { ...item, notes: Object.prototype.hasOwnProperty.call(incoming, 'notes') ? (incoming.notes || null) : item.notes }
+        : item
+    ));
+  }
+
+  if (tripLeftWaitQueue({ ...payload, new: row || incoming })) {
     const next = list.filter((item) => item.id !== id);
     return next.length === list.length ? list : reindexQueuePositions(next);
   }
 
-  const row = payload?.new;
   if (!row?.id || !tripBelongsInWaitQueue(row)) return list;
 
   const mapped = mapTripToQueueItem(row);

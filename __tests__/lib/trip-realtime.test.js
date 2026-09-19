@@ -132,6 +132,53 @@ describe('tripRealtime', () => {
     expect(next[0].activeTrip.notes).toBe('Esperar en la esquina');
   });
 
+  it('actualiza la nota en cola sin sacar el viaje si el payload es parcial', () => {
+    const queue = [{
+      id: 'q1',
+      position: 1,
+      passengerName: 'Uno',
+      pickupAddress: 'Mitre 100',
+      notes: 'Portón negro',
+      status: 'queued',
+    }];
+    const next = applyTripRealtimeToQueue(queue, {
+      eventType: 'UPDATE',
+      old: { id: 'q1' },
+      new: { id: 'q1', notes: 'Esperar en la esquina' },
+    });
+    expect(next).toHaveLength(1);
+    expect(next[0].passengerName).toBe('Uno');
+    expect(next[0].pickupAddress).toBe('Mitre 100');
+    expect(next[0].notes).toBe('Esperar en la esquina');
+  });
+
+  it('actualiza la nota del dock Viajes sin borrar origen ni pasajero', () => {
+    const range = {
+      start: '2026-09-18T03:00:00.000Z',
+      end: '2026-09-19T03:00:00.000Z',
+    };
+    const live = [
+      mapLiveTripFromRow({
+        id: 't1',
+        passenger_name: 'Ana',
+        origin_address: 'Mitre 100',
+        destination_address: 'Belgrano 50',
+        status: 'going_to_pickup',
+        notes: 'Portón negro',
+        created_at: '2026-09-18T12:00:00.000Z',
+      }, range),
+    ];
+    const next = applyTripRealtimeToLiveList(live, {
+      eventType: 'UPDATE',
+      old: { id: 't1' },
+      new: { id: 't1', notes: 'Esperar en la esquina' },
+    }, range);
+    expect(next[0].notes).toBe('Esperar en la esquina');
+    expect(next[0].passengerName).toBe('Ana');
+    expect(next[0].pickupAddress).toBe('Belgrano 50');
+    expect(next[0].status).toBe('going_to_pickup');
+  });
+
   it('el snapshot HTTP no reponer un viaje que Realtime acaba de cancelar', () => {
     const now = Date.parse('2026-09-07T00:46:48.000Z');
     const prev = [{

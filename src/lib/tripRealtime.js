@@ -21,6 +21,21 @@ function payloadRow(value) {
   return value && typeof value === 'object' ? value : null;
 }
 
+function mergePayloadRow(payload) {
+  const row = payloadRow(payload?.new);
+  const previous = payloadRow(payload?.old);
+  if (row && previous) return { ...previous, ...row };
+  return row;
+}
+
+function hasOwn(obj, key) {
+  return obj != null && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function isPartialTripPatch(row) {
+  return Boolean(row?.id) && row.status == null && row.dispatch_status == null;
+}
+
 function statusOf(row) {
   return String(row?.status || '').toLowerCase();
 }
@@ -78,11 +93,28 @@ function driverHoldsTrip(driver, tripId, relatedDriverIds) {
 export function applyTripRealtimeToDrivers(drivers, payload, now = Date.now()) {
   const list = Array.isArray(drivers) ? drivers : [];
   const event = realtimeEvent(payload);
-  const row = payloadRow(payload?.new);
+  const incoming = payloadRow(payload?.new);
   const previous = payloadRow(payload?.old);
-  const tripId = row?.id || previous?.id;
+  const tripId = incoming?.id || previous?.id;
   if (!tripId) return list;
 
+  if (event !== 'DELETE' && isPartialTripPatch(incoming) && hasOwn(incoming, 'notes')) {
+    let patched = false;
+    const next = list.map((driver) => {
+      if (driver.activeTrip?.id !== tripId) return driver;
+      const notes = incoming.notes || null;
+      if ((driver.activeTrip.notes || null) === notes) return driver;
+      patched = true;
+      return {
+        ...driver,
+        activeTrip: { ...driver.activeTrip, notes },
+        activeTripAppliedAt: now,
+      };
+    });
+    return patched ? next : list;
+  }
+
+  const row = mergePayloadRow(payload);
   const active = event === 'DELETE' ? null : toFleetActiveTrip(row);
   const assignedDriverId = active?.driver_id || null;
   const relatedDriverIds = new Set(
@@ -171,19 +203,29 @@ export function mapLiveTripFromRow(trip, range) {
 export function applyTripRealtimeToLiveList(trips, payload, range) {
   const list = Array.isArray(trips) ? trips : [];
   const event = realtimeEvent(payload);
-  const row = payloadRow(payload?.new);
+  const incoming = payloadRow(payload?.new);
   const previous = payloadRow(payload?.old);
+  const row = mergePayloadRow(payload);
 
   if (event === 'DELETE') {
-    const id = previous?.id || row?.id;
+    const id = previous?.id || incoming?.id;
     if (!id) return list;
     return list.filter((item) => item.id !== id);
   }
 
   if (!row?.id) return list;
 
-  const mapped = mapLiveTripFromRow(row, range);
   const idx = list.findIndex((item) => item.id === row.id);
+  if (idx >= 0 && isPartialTripPatch(incoming)) {
+    const next = [...list];
+    next[idx] = {
+      ...list[idx],
+      notes: hasOwn(incoming, 'notes') ? (incoming.notes || null) : list[idx].notes,
+    };
+    return next;
+  }
+
+  const mapped = mapLiveTripFromRow(row, range);
   if (idx >= 0) {
     const next = [...list];
     next[idx] = {
@@ -216,6 +258,7 @@ export function mapQueueItemFromRow(trip, position = 1) {
     durationMinutes: trip.duration_minutes != null ? Number(trip.duration_minutes) : null,
     dispatchAttempts: trip.dispatch_attempts ?? 0,
     notes: trip.notes || null,
+    status: trip.status || 'queued',
   };
 }
 
@@ -226,18 +269,33 @@ function reindexQueue(queue) {
 export function applyTripRealtimeToQueue(queue, payload) {
   const list = Array.isArray(queue) ? queue : [];
   const event = realtimeEvent(payload);
-  const row = payloadRow(payload?.new);
+  const incoming = payloadRow(payload?.new);
   const previous = payloadRow(payload?.old);
-  const id = row?.id || previous?.id;
+  const row = mergePayloadRow(payload);
+  const id = incoming?.id || previous?.id || row?.id;
   if (!id) return list;
 
-  if (event === 'DELETE' || !isQueuedTrip(row)) {
+  if (event === 'DELETE') {
     if (!list.some((item) => item.id === id)) return list;
     return reindexQueue(list.filter((item) => item.id !== id));
   }
 
-  const mapped = mapQueueItemFromRow(row);
   const idx = list.findIndex((item) => item.id === id);
+  if (idx >= 0 && isPartialTripPatch(incoming)) {
+    const next = [...list];
+    next[idx] = {
+      ...list[idx],
+      notes: hasOwn(incoming, 'notes') ? (incoming.notes || null) : list[idx].notes,
+    };
+    return next;
+  }
+
+  if (!isQueuedTrip(row)) {
+    if (idx < 0) return list;
+    return reindexQueue(list.filter((item) => item.id !== id));
+  }
+
+  const mapped = mapQueueItemFromRow(row);
   if (idx >= 0) {
     const next = [...list];
     next[idx] = { ...list[idx], ...mapped, position: list[idx].position };

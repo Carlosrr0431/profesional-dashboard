@@ -48,8 +48,14 @@ export function applyScheduledRealtimePayload(trips, payload) {
 
   if (!row?.id) return list;
 
-  if (isVisibleScheduledBooking(row)) {
-    return mergeScheduledBookingRows(list, [row]);
+  const existing = list.find((item) => item.id === row.id) || null;
+  if (existing && row.status == null) {
+    return mergeScheduledBookingRows(list, [{ ...existing, ...row }]);
+  }
+
+  const merged = { ...(existing || {}), ...(previous || {}), ...row };
+  if (isVisibleScheduledBooking(merged)) {
+    return mergeScheduledBookingRows(list, [merged]);
   }
 
   return list.filter((item) => item.id !== row.id);

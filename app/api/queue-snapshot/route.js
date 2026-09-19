@@ -79,6 +79,7 @@ export async function GET() {
       durationMinutes: trip.duration_minutes ? Number(trip.duration_minutes) : null,
       dispatchAttempts: trip.dispatch_attempts ?? 0,
       notes: trip.notes || null,
+      status: 'queued',
     }));
 
     const log = (recentTrips || []).map((trip) => ({

@@ -38,6 +38,31 @@ describe('updateTripNotesAsOperator', () => {
     expect(canOperatorEditTripNotes({ id: 't1', status: 'completed' })).toBe(false);
     expect(canOperatorEditTripNotes({ id: 't1', status: 'cancelled' })).toBe(false);
     expect(canOperatorEditTripNotes({ id: 't1', status: 'in_progress' })).toBe(true);
+    expect(canOperatorEditTripNotes({ id: 't1', status: 'queued' })).toBe(true);
+    expect(canOperatorEditTripNotes({ id: 't1', status: 'scheduled' })).toBe(true);
+  });
+
+  it('conserva tags de un viaje programado al editar la nota humana', async () => {
+    const existing = {
+      id: 'trip-sch',
+      status: 'scheduled',
+      notes: [
+        '[SCHEDULED_FOR] 2026-09-19T12:00:00.000Z',
+        '[SCHEDULED_DISPLAY] sáb 19:00',
+        'Portón negro',
+      ].join('\n'),
+    };
+    const supabase = createNotesSupabase({
+      existing,
+      updated: { ...existing, notes: 'placeholder' },
+    });
+
+    await updateTripNotesAsOperator(supabase, 'trip-sch', 'Esperar en la esquina');
+
+    const payload = supabase.builder.update.mock.calls[0][0];
+    expect(payload.notes).toContain('[SCHEDULED_FOR] 2026-09-19T12:00:00.000Z');
+    expect(payload.notes).toContain('[SCHEDULED_DISPLAY] sáb 19:00');
+    expect(cleanTripNotesForDriverDisplay(payload.notes)).toBe('Esperar en la esquina');
   });
 
   it('conserva marcadores y cambia el texto del chofer', async () => {

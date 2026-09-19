@@ -88,6 +88,20 @@ describe('applyQueueRealtimeChange', () => {
     expect(next[0].position).toBe(1);
     expect(next[1].position).toBe(2);
   });
+
+  it('actualiza la nota en cola sin sacar el viaje', () => {
+    const next = applyQueueRealtimeChange([{
+      ...queuedCarlos,
+      notes: 'Portón negro',
+    }], {
+      eventType: 'UPDATE',
+      old: { id: 'trip-carlos' },
+      new: { id: 'trip-carlos', notes: 'Esperar en la esquina' },
+    });
+    expect(next).toHaveLength(1);
+    expect(next[0].passengerName).toBe('Carlos');
+    expect(next[0].notes).toBe('Esperar en la esquina');
+  });
 });
 
 describe('applyPendingRealtimeChange', () => {
