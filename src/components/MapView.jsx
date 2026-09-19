@@ -15,6 +15,7 @@ import { MAP_STYLE, mapLibreOptions } from '../lib/mapLibre';
 import { shouldShowDriverOnMap } from '../lib/driverPresence';
 import { useSmoothMapCoords } from '../hooks/useSmoothMapCoords';
 import { resizeMapInstance } from '../lib/mapFullscreen';
+import { extractMapClickLngLat } from '../lib/mapPointPick';
 
 const MAP_CSS = `
 .maplibregl-map { font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
@@ -42,6 +43,10 @@ const MAP_CSS = `
   padding: 2px 6px !important;
 }
 .maplibregl-ctrl-logo { display: none !important; }
+.map-pick-cursor .maplibregl-canvas-container,
+.map-pick-cursor .maplibregl-canvas {
+  cursor: crosshair !important;
+}
 .maplibregl-popup-content {
   padding: 0 !important;
   border-radius: 14px !important;
@@ -74,7 +79,7 @@ const ROUTE_ORIGIN_LAYER = {
 const ROUTE_DEST_LAYER = {
   id: 'route-dest',
   type: 'circle',
-  paint: { 'circle-radius': 9, 'circle-color': '#1D4ED8', 'circle-stroke-width': 3, 'circle-stroke-color': '#fff' },
+  paint: { 'circle-radius': 9, 'circle-color': '#059669', 'circle-stroke-width': 3, 'circle-stroke-color': '#fff' },
 };
 
 function buildRouteGeoJSON(polylineCoords) {
@@ -104,6 +109,7 @@ const DriverMapPin = memo(function DriverMapPin({
   heading,
   isSelected,
   isMultiSelected,
+  interactive = true,
   onSelect,
 }) {
   const smooth = useSmoothMapCoords(lat, lng, speed, heading);
@@ -114,6 +120,7 @@ const DriverMapPin = memo(function DriverMapPin({
       latitude={smooth.lat}
       anchor="bottom"
       onClick={(e) => {
+        if (!interactive) return;
         e.originalEvent.stopPropagation();
         onSelect(driver);
       }}
@@ -125,7 +132,8 @@ const DriverMapPin = memo(function DriverMapPin({
         alt={driver.full_name ?? driver.fullName ?? 'chofer'}
         draggable={false}
         style={{
-          cursor: 'pointer',
+          cursor: interactive ? 'pointer' : 'crosshair',
+          pointerEvents: interactive ? 'auto' : 'none',
           display: 'block',
           transform: isSelected || isMultiSelected ? 'scale(1.08)' : 'scale(1)',
           transition: 'transform 0.12s ease-out',
@@ -140,6 +148,7 @@ const DriverMapPin = memo(function DriverMapPin({
   && prev.heading === next.heading
   && prev.isSelected === next.isSelected
   && prev.isMultiSelected === next.isMultiSelected
+  && prev.interactive === next.interactive
   && prev.driver?.id === next.driver?.id
   && prev.driver?.driverNumber === next.driver?.driverNumber
   && prev.driver?.isOnline === next.driver?.isOnline
@@ -225,6 +234,8 @@ const MapView = memo(function MapView({
   onSendAudio,
   mapFullscreen = false,
   onToggleMapFullscreen,
+  pickMode = null,
+  onPickLocation,
 }) {
   const [activeInfo, setActiveInfo] = useState(null);
   const internalMapRef = useRef(null);
@@ -272,11 +283,23 @@ const MapView = memo(function MapView({
       : null;
   });
 
-  const handleMapClick = useCallback(() => {
+  const handleMapClick = useCallback((event) => {
+    if (pickMode && onPickLocation) {
+      const target = event?.originalEvent?.target;
+      if (target?.closest?.('.maplibregl-ctrl')) return;
+      const point = extractMapClickLngLat(event);
+      if (point) onPickLocation(point);
+      return;
+    }
     if (!multiSelectMode) setActiveInfo(null);
-  }, [multiSelectMode]);
+  }, [pickMode, onPickLocation, multiSelectMode]);
+
+  useEffect(() => {
+    if (pickMode) setActiveInfo(null);
+  }, [pickMode]);
 
   const handleDriverSelect = useCallback((driver) => {
+    if (pickMode) return;
     if (multiSelectMode) {
       onToggleMultiSelect?.(driver.id);
       return;
@@ -284,7 +307,7 @@ const MapView = memo(function MapView({
     setActiveInfo({ type: 'driver', data: driver });
     onSelectDriver?.(driver.id);
     onDriverClick?.(driver);
-  }, [multiSelectMode, onToggleMultiSelect, onSelectDriver, onDriverClick]);
+  }, [pickMode, multiSelectMode, onToggleMultiSelect, onSelectDriver, onDriverClick]);
 
   const routeGeoJSON = buildRouteGeoJSON(previewRoute?.polylineCoords);
   const routeOriginJSON = buildPointGeoJSON(previewRoute?.origin?.lat, previewRoute?.origin?.lng);
@@ -311,11 +334,20 @@ const MapView = memo(function MapView({
     const lng = Number(previewRoute?.origin?.lng);
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
       internalMapRef.current.flyTo({ center: [lng, lat], zoom: 16, duration: 900 });
+      return;
+    }
+    const destLat = Number(previewRoute?.destination?.lat);
+    const destLng = Number(previewRoute?.destination?.lng);
+    if (Number.isFinite(destLat) && Number.isFinite(destLng)) {
+      internalMapRef.current.flyTo({ center: [destLng, destLat], zoom: 16, duration: 900 });
     }
   }, [previewRoute]);
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div
+      className={pickMode ? 'map-pick-cursor' : undefined}
+      style={{ width: '100%', height: '100%', position: 'relative' }}
+    >
       <style>{MAP_CSS}</style>
       <Map
         ref={internalMapRef}
@@ -376,6 +408,7 @@ const MapView = memo(function MapView({
               heading={Number(driver.heading) || 0}
               isSelected={!multiSelectMode && driver.id === resolvedSelectedId}
               isMultiSelected={isMultiSelected}
+              interactive={!pickMode}
               onSelect={handleDriverSelect}
             />
           );
@@ -397,6 +430,7 @@ const MapView = memo(function MapView({
               latitude={pasLat}
               anchor="center"
               onClick={(e) => {
+                if (pickMode) return;
                 e.originalEvent.stopPropagation();
                 if (multiSelectMode) return;
                 setActiveInfo({ type: 'trip', data: trip });
@@ -408,7 +442,11 @@ const MapView = memo(function MapView({
                 height={spec.height}
                 alt="pasajero"
                 draggable={false}
-                style={{ cursor: multiSelectMode ? 'default' : 'pointer', display: 'block' }}
+                style={{
+                  cursor: pickMode ? 'crosshair' : (multiSelectMode ? 'default' : 'pointer'),
+                  pointerEvents: pickMode ? 'none' : 'auto',
+                  display: 'block',
+                }}
               />
             </Marker>
           );

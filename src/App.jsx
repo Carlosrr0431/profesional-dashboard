@@ -13,6 +13,7 @@ import Sidebar from './components/Sidebar';
 import DriverPanel from './components/DriverPanel';
 import TripAssignModal from './components/TripAssignModal';
 import NewTripModal from './components/NewTripModal';
+import { mapPickModeLabel } from './lib/mapPointPick';
 import AiAgentConfirmModal from './components/AiAgentConfirmModal';
 import WhatsAppSessionModal from './components/WhatsAppSessionModal';
 import DriverManagement from './components/DriverManagement';
@@ -132,6 +133,8 @@ export default function App() {
   const [voiceChatDriver, setVoiceChatDriver] = useState(null);
   // Ruta de preview al asignar viaje: { polylineCoords?, origin, destination? } | null
   const [previewRoute,    setPreviewRoute]    = useState(null);
+  const [mapPickMode,     setMapPickMode]     = useState(null);
+  const mapPickSessionRef = useRef(null);
   const [fleetDrawerOpen,   setFleetDrawerOpen] = useState(false);
   const [isDesktopLayout,   setIsDesktopLayout] = useState(false);
   const [mapPopover,        setMapPopover]       = useState(null);
@@ -142,6 +145,17 @@ export default function App() {
   const closePopover = useCallback(() => {
     setMapPopover(null);
     setPreviewRoute(null);
+    mapPickSessionRef.current = null;
+    setMapPickMode(null);
+  }, []);
+
+  const handleMapPickModeChange = useCallback((session) => {
+    mapPickSessionRef.current = session || null;
+    setMapPickMode(session?.mode || null);
+  }, []);
+
+  const handleMapPickLocation = useCallback((point) => {
+    mapPickSessionRef.current?.onPick?.(point);
   }, []);
 
   const openIncomingDriverVoice = useCallback((item) => {
@@ -925,6 +939,8 @@ export default function App() {
                 multiSelectedIds={multiSelectedIds}
                 onToggleMultiSelect={toggleMultiSelect}
                 previewRoute={previewRoute}
+                pickMode={mapPickMode}
+                onPickLocation={mapPickMode ? handleMapPickLocation : undefined}
                 mapFullscreen={mapFullscreen}
                 onToggleMapFullscreen={toggleMapFullscreen}
                 onSendAudio={(driver) => {
@@ -932,6 +948,40 @@ export default function App() {
                   setVoiceChatDriver(driver);
                 }}
               />
+
+              {mapPickMode ? (
+                <div className="absolute left-3 right-3 top-3 z-20 sm:left-1/2 sm:right-auto sm:top-4 sm:w-auto sm:max-w-[min(420px,calc(100vw-2rem))] sm:-translate-x-1/2">
+                  <div className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-2xl backdrop-blur-md sm:px-4 ${
+                    mapPickMode === 'origin'
+                      ? 'border-rose-200 bg-white/97 shadow-rose-200/40'
+                      : 'border-emerald-200 bg-white/97 shadow-emerald-200/40'
+                  }`}>
+                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                      mapPickMode === 'origin' ? 'bg-rose-500 text-white' : 'bg-emerald-600 text-white'
+                    }`}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M12 21s7-6.2 7-11.2A7 7 0 1 0 5 9.8C5 14.8 12 21 12 21Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                        <circle cx="12" cy="9.8" r="2.2" fill="currentColor" />
+                      </svg>
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-bold text-navy-900">
+                        {mapPickModeLabel(mapPickMode)}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Se guarda latitud y longitud de ese punto.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => mapPickSessionRef.current?.onCancel?.()}
+                      className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-semibold text-slate-600 hover:bg-slate-50"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               {/* ── Banner de selección múltiple ─────────────────────── */}
               {multiSelectMode && (
@@ -1190,6 +1240,7 @@ export default function App() {
           onClose={closePopover}
           onSuccess={handleNewTripSuccess}
           onRouteChange={setPreviewRoute}
+          onMapPickModeChange={handleMapPickModeChange}
           calculatePrice={calculatePrice}
           tariffPerKm={tariffPerKm}
           tariffBase={tariffBase}

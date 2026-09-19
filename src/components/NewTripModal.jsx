@@ -5,6 +5,14 @@ import { formatError } from '../lib/errorFormat';
 import { isWithinSaltaCapital } from '../lib/constants';
 import { useToast } from '../context/ToastContext';
 import AddressAutocomplete from './AddressAutocomplete';
+import MapPickButton from './MapPickButton';
+import {
+  MAP_PICK_SOURCE,
+  buildMapPickedPlace,
+  formatPickedCoordsLabel,
+  geocodeSourceBadge,
+  validateMapPickInSalta,
+} from '../lib/mapPointPick';
 import { ScheduleDatePicker, ScheduleTimePicker } from './ScheduleDateTimePickers';
 import {
   DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS,
@@ -24,6 +32,14 @@ import {
 const MODAL_STYLES = `
 @keyframes _ntm_spin { to { transform: rotate(360deg); } }
 @keyframes _ntm_fade { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+@keyframes _ntm_pick_pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(225,29,72,0.35); }
+  50% { box-shadow: 0 0 0 8px rgba(225,29,72,0); }
+}
+@keyframes _ntm_pick_pulse_dest {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(5,150,105,0.35); }
+  50% { box-shadow: 0 0 0 8px rgba(5,150,105,0); }
+}
 ._ntm_scroll {
   scrollbar-width: thin;
   scrollbar-color: #E2E8F0 transparent;
@@ -54,6 +70,7 @@ export default function NewTripModal({
   tariffBase,
   commissionPercent,
   onRouteChange,
+  onMapPickModeChange,
   asPopover = false,
   drivers = [],
 }) {
@@ -75,6 +92,10 @@ export default function NewTripModal({
   const [destLabel, setDestLabel] = useState('');
   const [destLat, setDestLat] = useState(null);
   const [destLng, setDestLng] = useState(null);
+  const [destGeocodeSource, setDestGeocodeSource] = useState(null);
+  const [mapPickTarget, setMapPickTarget] = useState(null);
+  const [mapPickBusy, setMapPickBusy] = useState(false);
+  const mapPickBusyRef = useRef(false);
 
   /* Opcionales */
   const [passengerName, setPassengerName] = useState('');
@@ -98,9 +119,12 @@ export default function NewTripModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  /* ── Limpiar ruta al desmontar ─────────────────────────────────────────── */
+  /* ── Limpiar ruta y modo mapa al desmontar ─────────────────────────────── */
   useEffect(() => {
-    return () => { onRouteChange?.(null); };
+    return () => {
+      onRouteChange?.(null);
+      onMapPickModeChange?.(null);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -157,11 +181,13 @@ export default function NewTripModal({
       return;
     }
 
-    if (hasPickupPoint) {
+    if (hasPickupPoint || (destLat != null && destLng != null)) {
       onRouteChange({
         polylineCoords: [],
-        origin: { lat: pickupLat, lng: pickupLng, label: pickupLabel },
-        destination: null,
+        origin: hasPickupPoint ? { lat: pickupLat, lng: pickupLng, label: pickupLabel } : null,
+        destination: destLat != null && destLng != null
+          ? { lat: destLat, lng: destLng, label: destLabel }
+          : null,
       });
       return;
     }
@@ -202,6 +228,101 @@ export default function NewTripModal({
     setPickupGeocodeSource(place.geocodeSource || null);
     setError('');
   };
+
+  const onDestSelect = (place) => {
+    const lat = Number(place?.lat);
+    const lng = Number(place?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setError('No se pudo ubicar el destino. Elegilo de nuevo de la lista.');
+      setDestLabel(''); setDestLat(null); setDestLng(null); setDestGeocodeSource(null);
+      return;
+    }
+    if (!isWithinSaltaCapital(lat, lng)) {
+      setError('La dirección debe estar dentro de Salta Capital.');
+      setDestLabel(''); setDestLat(null); setDestLng(null); setDestGeocodeSource(null);
+      return;
+    }
+    setDestLabel(place.formattedAddress || '');
+    setDestLat(lat);
+    setDestLng(lng);
+    setDestGeocodeSource(place.geocodeSource || null);
+    setError('');
+  };
+
+  const stopMapPick = useCallback(() => {
+    mapPickBusyRef.current = false;
+    setMapPickTarget(null);
+    setMapPickBusy(false);
+    onMapPickModeChange?.(null);
+  }, [onMapPickModeChange]);
+
+  const startMapPick = useCallback((target) => {
+    if (mapPickTarget === target) {
+      stopMapPick();
+      return;
+    }
+    setError('');
+    setShowOnMap(true);
+    setMapPickTarget(target);
+  }, [mapPickTarget, stopMapPick]);
+
+  const applyMapPickedPoint = useCallback(async (point) => {
+    const target = mapPickTarget;
+    if (!target || mapPickBusyRef.current) return;
+    const checked = validateMapPickInSalta(point?.latitude, point?.longitude);
+    if (!checked.ok) {
+      setError(checked.message);
+      return;
+    }
+
+    const { latitude, longitude } = checked;
+    const coordsLabel = formatPickedCoordsLabel(latitude, longitude);
+    const pendingPlace = buildMapPickedPlace({ lat: latitude, lng: longitude });
+    if (target === 'origin') onPickupSelect(pendingPlace);
+    else onDestSelect(pendingPlace);
+
+    mapPickBusyRef.current = true;
+    setMapPickBusy(true);
+    try {
+      const qs = new URLSearchParams({ lat: String(latitude), lng: String(longitude) });
+      const response = await fetch(`/api/geo/reverse?${qs}`);
+      const payload = await response.json().catch(() => ({}));
+      const reverse = payload?.ok ? payload.data : null;
+      const place = buildMapPickedPlace({
+        lat: latitude,
+        lng: longitude,
+        reverse: reverse?.formattedAddress
+          ? reverse
+          : { formattedAddress: coordsLabel },
+      });
+      if (target === 'origin') onPickupSelect(place);
+      else onDestSelect(place);
+    } finally {
+      stopMapPick();
+    }
+  }, [mapPickTarget, stopMapPick]);
+
+  useEffect(() => {
+    if (!mapPickTarget) {
+      onMapPickModeChange?.(null);
+      return undefined;
+    }
+    onMapPickModeChange?.({
+      mode: mapPickTarget,
+      onPick: applyMapPickedPoint,
+      onCancel: stopMapPick,
+    });
+    return () => onMapPickModeChange?.(null);
+  }, [mapPickTarget, applyMapPickedPoint, stopMapPick, onMapPickModeChange]);
+
+  useEffect(() => {
+    if (!mapPickTarget) return undefined;
+    const onKey = (event) => {
+      if (event.key === 'Escape') stopMapPick();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mapPickTarget, stopMapPick]);
 
   const setScheduledMode = (next) => {
     setIsScheduled((prev) => {
@@ -469,19 +590,22 @@ export default function NewTripModal({
   return (
     <div
       className={asPopover
-        ? 'fixed inset-0 z-[9999] flex items-stretch bg-navy-900/45 md:inset-auto md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:left-auto md:right-4 md:top-auto md:block md:w-[min(440px,calc(100vw-2rem))] md:bg-transparent'
+        ? (mapPickTarget
+          ? 'pointer-events-none fixed inset-0 z-[9999] md:pointer-events-auto md:inset-auto md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:left-auto md:right-4 md:top-auto md:block md:w-[min(440px,calc(100vw-2rem))] md:bg-transparent'
+          : 'fixed inset-0 z-[9999] flex items-stretch bg-navy-900/45 md:inset-auto md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:left-auto md:right-4 md:top-auto md:block md:w-[min(440px,calc(100vw-2rem))] md:bg-transparent')
         : 'fixed inset-0 z-[9999] flex items-center justify-center bg-[rgba(15,23,42,0.65)] p-3 backdrop-blur-[6px]'}
       onClick={asPopover ? undefined : ((e) => e.target === e.currentTarget && onClose())}
     >
       <style>{MODAL_STYLES}</style>
       <div
         className={asPopover
-          ? 'flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden rounded-none bg-white md:h-auto md:max-h-[min(88vh,calc(100dvh-5.5rem))] md:rounded-[22px] md:border md:border-slate-200/85 md:bg-white/94 md:shadow-[0_18px_50px_rgba(15,23,42,0.16),0_2px_8px_rgba(15,23,42,0.06)]'
+          ? `flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden rounded-none bg-white md:h-auto md:max-h-[min(88vh,calc(100dvh-5.5rem))] md:rounded-[22px] md:border md:border-slate-200/85 md:bg-white/94 md:shadow-[0_18px_50px_rgba(15,23,42,0.16),0_2px_8px_rgba(15,23,42,0.06)]${mapPickTarget ? ' hidden md:flex' : ''}`
           : 'flex max-h-[min(92vh,100dvh)] w-full max-w-[520px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_24px_64px_rgba(0,0,0,0.28)]'}
         style={{
           backdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
           WebkitBackdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
           animation: '_ntm_fade 0.18s ease',
+          pointerEvents: 'auto',
         }}
       >
         {/* Header */}
@@ -549,26 +673,18 @@ export default function NewTripModal({
                 }}
                 onSelect={onPickupSelect}
               />
-              {pickupLat != null && pickupGeocodeSource && (
-                <div style={{ marginTop: 4 }}>
-                  <span
-                    title={pickupGeocodeSource === 'supabase_cache' ? 'Coordenadas desde cache en base de datos' : 'Coordenadas desde Google Place Details Essentials'}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      padding: '2px 8px',
-                      borderRadius: 999,
-                      fontSize: 10,
-                      fontWeight: 700,
-                      letterSpacing: '0.03em',
-                      background: pickupGeocodeSource === 'supabase_cache' ? '#ECFDF5' : '#EFF6FF',
-                      color: pickupGeocodeSource === 'supabase_cache' ? '#047857' : '#1D4ED8',
-                    }}
-                  >
-                    {pickupGeocodeSource === 'supabase_cache' ? 'cache BD' : 'Google'}
-                  </span>
-                </div>
-              )}
+              <MapPickButton
+                kind="origin"
+                active={mapPickTarget === 'origin'}
+                picked={pickupLat != null && pickupGeocodeSource === MAP_PICK_SOURCE}
+                busy={mapPickBusy && mapPickTarget === 'origin'}
+                onClick={() => startMapPick('origin')}
+              />
+              <GeocodeSourceHint
+                source={pickupGeocodeSource}
+                lat={pickupLat}
+                lng={pickupLng}
+              />
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px' }}>
@@ -589,25 +705,25 @@ export default function NewTripModal({
                 value={destLabel}
                 accentColor="#059669"
                 inputIcon={<DestDotSmall />}
-                onChange={(text) => { setDestLabel(text); setDestLat(null); setDestLng(null); }}
-                onSelect={(place) => {
-                  const lat = Number(place?.lat);
-                  const lng = Number(place?.lng);
-                  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-                    setError('No se pudo ubicar el destino. Elegilo de nuevo de la lista.');
-                    setDestLabel(''); setDestLat(null); setDestLng(null);
-                    return;
-                  }
-                  if (!isWithinSaltaCapital(lat, lng)) {
-                    setError('La dirección debe estar dentro de Salta Capital.');
-                    setDestLabel(''); setDestLat(null); setDestLng(null);
-                    return;
-                  }
-                  setDestLabel(place.formattedAddress);
-                  setDestLat(lat);
-                  setDestLng(lng);
-                  setError('');
+                onChange={(text) => {
+                  setDestLabel(text);
+                  setDestLat(null);
+                  setDestLng(null);
+                  setDestGeocodeSource(null);
                 }}
+                onSelect={onDestSelect}
+              />
+              <MapPickButton
+                kind="dest"
+                active={mapPickTarget === 'dest'}
+                picked={destLat != null && destGeocodeSource === MAP_PICK_SOURCE}
+                busy={mapPickBusy && mapPickTarget === 'dest'}
+                onClick={() => startMapPick('dest')}
+              />
+              <GeocodeSourceHint
+                source={destGeocodeSource}
+                lat={destLat}
+                lng={destLng}
               />
               <p style={{ margin: '5px 0 0', fontSize: 10, color: '#94A3B8' }}>
                 Vacío: el chofer lo define al subir.
@@ -955,6 +1071,45 @@ function enqueueActionLabel(driverMode, selectedDriver) {
     return Number.isFinite(n) ? `Encolar a móvil #${n}` : 'Encolar a este chofer';
   }
   return 'Encolar viaje';
+}
+
+function GeocodeSourceHint({ source, lat, lng }) {
+  const badge = geocodeSourceBadge(source);
+  const coords = formatPickedCoordsLabel(lat, lng);
+  if (!badge && !coords) return null;
+  const tones = {
+    cache: { background: '#ECFDF5', color: '#047857' },
+    map: { background: '#FFF7ED', color: '#C2410C' },
+    google: { background: '#EFF6FF', color: '#1D4ED8' },
+  };
+  const tone = tones[badge?.tone] || tones.google;
+  return (
+    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+      {badge ? (
+        <span
+          title={badge.title}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: '2px 8px',
+            borderRadius: 999,
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.03em',
+            background: tone.background,
+            color: tone.color,
+          }}
+        >
+          {badge.label}
+        </span>
+      ) : null}
+      {coords ? (
+        <span style={{ fontSize: 10, color: '#64748B', fontVariantNumeric: 'tabular-nums' }}>
+          GPS {coords}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 function CalendarIcon({ size = 14, color = 'currentColor' }) {
