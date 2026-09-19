@@ -33,10 +33,12 @@ const MODAL_STYLES = `
 @keyframes _ntm_fade { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
 ._ntm_scroll {
   scrollbar-width: thin;
-  scrollbar-color: #E2E8F0 transparent;
+  scrollbar-color: #475569 #E2E8F0;
 }
-._ntm_scroll::-webkit-scrollbar { width: 6px; }
-._ntm_scroll::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 99px; }
+._ntm_scroll::-webkit-scrollbar { width: 8px; }
+._ntm_scroll::-webkit-scrollbar-track { background: #E2E8F0; border-radius: 99px; }
+._ntm_scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 99px; }
+._ntm_scroll::-webkit-scrollbar-thumb:hover { background: #334155; }
 `;
 
 function Spinner({ size = 14, color = '#DC2626' }) {
@@ -89,10 +91,7 @@ export default function NewTripModal({
   const mapPickBusyRef = useRef(false);
 
   /* Opcionales */
-  const [passengerName, setPassengerName] = useState('');
-  const [passengerPhone, setPassengerPhone] = useState('');
   const [notes, setNotes] = useState('');
-  const [showOptional, setShowOptional] = useState(false);
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
@@ -383,10 +382,6 @@ export default function NewTripModal({
         setError('Completá el día y la hora del viaje programado.');
         return;
       }
-      if (passengerPhone.trim() && passengerPhone.replace(/\D/g, '').length < 8) {
-        setError('Si cargás teléfono, usá al menos 8 dígitos.');
-        return;
-      }
       const coerced = coerceArScheduleIfTonightStillValid(scheduleDate, scheduleTime);
       const scheduledUtc = arLocalDateTimeToUtcDate(coerced.date, coerced.time);
       if (!scheduledUtc) {
@@ -423,8 +418,8 @@ export default function NewTripModal({
           pickupLat,
           pickupLng,
           placeId: placeId || null,
-          passengerName: passengerName.trim() || null,
-          passengerPhone: passengerPhone.trim() || null,
+          passengerName: null,
+          passengerPhone: null,
           ...(destLabel.trim() ? { destinationHint: destLabel.trim() } : {}),
           ...(destLat != null && destLng != null
             && Number.isFinite(Number(destLat)) && Number.isFinite(Number(destLng))
@@ -787,20 +782,6 @@ export default function NewTripModal({
                   <ScheduleTimePicker value={scheduleTime} onChange={setScheduleTime} />
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
-                <div>
-                  <label style={scheduleFieldLabelStyle}>
-                    Nombre <span style={{ fontWeight: 500, color: '#94A3B8' }}>opcional</span>
-                  </label>
-                  <input type="text" placeholder="Nombre" value={passengerName} onChange={(e) => setPassengerName(e.target.value)} style={optInputStyle} />
-                </div>
-                <div>
-                  <label style={scheduleFieldLabelStyle}>
-                    Teléfono <span style={{ fontWeight: 500, color: '#94A3B8' }}>opcional</span>
-                  </label>
-                  <input type="tel" placeholder="Ej: 3874001234" value={passengerPhone} onChange={(e) => setPassengerPhone(e.target.value)} style={optInputStyle} />
-                </div>
-              </div>
               <p style={{ margin: 0, fontSize: 11, color: '#64748B', lineHeight: 1.45 }}>
                 Se busca chofer {DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS / 60000} minutos antes.
               </p>
@@ -945,45 +926,6 @@ export default function NewTripModal({
               )}
             </div>
           ) : null}
-
-          {/* Opcionales */}
-          <button
-            type="button"
-            onClick={() => setShowOptional((v) => !v)}
-            style={{
-              width: '100%', marginBottom: showOptional ? 8 : 2,
-              padding: '4px 2px', background: 'none', border: 'none',
-              color: '#64748B', fontSize: 12, fontWeight: 600,
-              cursor: 'pointer', textAlign: 'left',
-              display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#0F172A'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = '#64748B'; }}
-          >
-            <span style={{ fontSize: 9, color: '#94A3B8' }}>{showOptional ? '▲' : '+'}</span>
-            {showOptional ? 'Ocultar datos opcionales' : 'Pasajero y teléfono'}
-          </button>
-
-          {showOptional && (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>👤 PASAJERO</label>
-                  <input type="text" placeholder="Nombre" value={passengerName} onChange={(e) => setPassengerName(e.target.value)} style={optInputStyle}
-                    onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
-                    onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>📞 TELÉFONO</label>
-                  <input type="tel" placeholder="Ej: 3874001234" value={passengerPhone} onChange={(e) => setPassengerPhone(e.target.value)} style={optInputStyle}
-                    onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
-                    onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
 
           </div>
 

@@ -23,10 +23,12 @@ const MODAL_STYLES = `
 }
 ._tm_scroll {
   scrollbar-width: thin;
-  scrollbar-color: #E2E8F0 transparent;
+  scrollbar-color: #475569 #E2E8F0;
 }
-._tm_scroll::-webkit-scrollbar { width: 6px; }
-._tm_scroll::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 99px; }
+._tm_scroll::-webkit-scrollbar { width: 8px; }
+._tm_scroll::-webkit-scrollbar-track { background: #E2E8F0; border-radius: 99px; }
+._tm_scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 99px; }
+._tm_scroll::-webkit-scrollbar-thumb:hover { background: #334155; }
 `;
 
 /* ── Primitivas UI ────────────────────────────────────────────────────────── */
@@ -116,10 +118,7 @@ export default function TripAssignModal({
   const [destLng, setDestLng] = useState(null);
 
   /* Opcionales */
-  const [passengerName, setPassengerName] = useState('');
-  const [passengerPhone, setPassengerPhone] = useState('');
   const [notes, setNotes] = useState('');
-  const [showOptional, setShowOptional] = useState(false);
 
   /* Ruta */
   const [routeLoading, setRouteLoading] = useState(false);
@@ -311,8 +310,8 @@ export default function TripAssignModal({
         },
         body: JSON.stringify({
           driver_id: driver.id,
-          passenger_name: passengerName.trim() || 'Pasajero',
-          passenger_phone: passengerPhone.trim() || null,
+          passenger_name: 'Pasajero',
+          passenger_phone: null,
           destination_address: finalOriginAddress,
           destination_lat: finalOriginLat,
           destination_lng: finalOriginLng,
@@ -709,61 +708,6 @@ export default function TripAssignModal({
                 <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Mostrar ruta en el mapa</span>
               </div>
               <ToggleSwitch checked={showOnMap} onChange={setShowOnMap} />
-            </div>
-          )}
-
-          {/* ── Campos opcionales ────────────────────────────────────────── */}
-          <button
-            type="button"
-            onClick={() => setShowOptional((v) => !v)}
-            style={{
-              width: '100%', marginBottom: showOptional ? 12 : 4,
-              padding: '7px 12px',
-              background: 'none', border: '1px dashed #E2E8F0',
-              borderRadius: 8, color: '#64748B',
-              fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              textAlign: 'left', display: 'flex', alignItems: 'center', gap: 6,
-              transition: 'border-color 0.15s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#94A3B8'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; }}
-          >
-            <span style={{ fontSize: 10 }}>{showOptional ? '▲' : '▼'}</span>
-            {showOptional ? 'Ocultar datos opcionales' : '+ Agregar pasajero y teléfono'}
-          </button>
-
-          {showOptional && (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>
-                    👤 PASAJERO
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Nombre"
-                    value={passengerName}
-                    onChange={(e) => setPassengerName(e.target.value)}
-                    style={optInputStyle}
-                    onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
-                    onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', marginBottom: 5, letterSpacing: '0.04em' }}>
-                    📞 TELÉFONO
-                  </label>
-                  <input
-                    type="tel"
-                    placeholder="Ej: 3874001234"
-                    value={passengerPhone}
-                    onChange={(e) => setPassengerPhone(e.target.value)}
-                    style={optInputStyle}
-                    onFocus={(e) => { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.1)'; }}
-                    onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
-                  />
-                </div>
-              </div>
             </div>
           )}
 
