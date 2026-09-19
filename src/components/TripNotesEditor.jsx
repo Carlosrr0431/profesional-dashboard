@@ -18,6 +18,7 @@ export default function TripNotesEditor({
   notes,
   status,
   compact = false,
+  variant = 'card',
   className = '',
 }) {
   const toast = useToast();
@@ -30,6 +31,7 @@ export default function TripNotesEditor({
   const saved = localSaved ?? incoming;
   const editable = canOperatorEditTripNotes({ id: tripId, status });
   const dirty = draft !== saved;
+  const inline = variant === 'inline';
 
   useEffect(() => {
     setLocalSaved(null);
@@ -100,6 +102,39 @@ export default function TripNotesEditor({
     }
   };
 
+  if (!open && inline) {
+    const rowClass = `flex w-full items-center gap-2 rounded-xl bg-white px-2.5 py-2 text-left ring-1 ring-slate-200/90 ${className}`;
+    const body = (
+      <>
+        <span className={`min-w-0 flex-1 truncate text-[12.5px] leading-snug ${saved ? 'text-slate-800' : 'text-slate-400'}`}>
+          {saved || 'Agregar nota para el chofer'}
+        </span>
+        {editable ? (
+          <span className="shrink-0 rounded-full bg-navy-900 px-2.5 py-1 text-[11px] font-bold text-white">
+            {saved ? 'Editar' : 'Agregar'}
+          </span>
+        ) : null}
+      </>
+    );
+    if (!editable) {
+      return (
+        <div className={`mt-2 ${rowClass}`} onClick={(event) => event.stopPropagation()}>
+          {body}
+        </div>
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={openEditor}
+        aria-expanded={false}
+        className={`mt-2 ${rowClass} transition hover:ring-slate-300`}
+      >
+        {body}
+      </button>
+    );
+  }
+
   if (!open) {
     return (
       <div
@@ -134,7 +169,7 @@ export default function TripNotesEditor({
 
   return (
     <div
-      className={`rounded-xl border border-slate-200 bg-white ${compact ? 'mt-3 p-2' : 'mt-3 p-2.5'} ${className}`}
+      className={`rounded-xl border border-slate-200 bg-white ${inline ? 'mt-2 p-2' : compact ? 'mt-3 p-2' : 'mt-3 p-2.5'} ${className}`}
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -148,7 +183,7 @@ export default function TripNotesEditor({
       </div>
       <textarea
         ref={textareaRef}
-        rows={compact ? 3 : 4}
+        rows={inline ? 2 : compact ? 3 : 4}
         maxLength={HUMAN_TRIP_NOTES_MAX_LENGTH}
         disabled={!editable || busy}
         value={draft}

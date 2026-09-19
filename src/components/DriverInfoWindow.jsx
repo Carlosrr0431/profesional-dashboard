@@ -15,7 +15,7 @@ function getDriverStatusInfo(driver) {
     const s = getTripStatus(driver.activeTrip.status);
     return {
       label: s.label,
-      className: 'bg-red-50 text-red-600 ring-red-200',
+      className: 'bg-rose-50 text-rose-600 ring-rose-200',
       busy: true,
     };
   }
@@ -33,22 +33,15 @@ function getDriverStatusInfo(driver) {
   };
 }
 
-function Badge({ children, className }) {
+function Fact({ children, tone = 'slate' }) {
+  const tones = {
+    slate: 'bg-slate-50 text-slate-600 ring-slate-100',
+    plate: 'bg-white text-rose-600 ring-slate-200',
+  };
   return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-none ${className}`}
-    >
+    <span className={`inline-flex max-w-full items-center truncate rounded-full px-2 py-1 text-[11px] font-semibold ring-1 ${tones[tone] || tones.slate}`}>
       {children}
     </span>
-  );
-}
-
-function InfoStat({ label, value }) {
-  return (
-    <div className="min-w-0 rounded-xl bg-slate-50 px-2 py-2.5 text-center ring-1 ring-slate-100">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="mt-1 truncate text-[13px] font-semibold text-navy-900">{value}</p>
-    </div>
   );
 }
 
@@ -56,10 +49,20 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onSendAudio, on
   const name = String(driver.fullName || 'Chofer').trim();
   const status = getDriverStatusInfo(driver);
   const canAssign = !status.busy;
-  const vehicleLabel = [driver.vehicleBrand, driver.vehicleModel].filter(Boolean).join(' ') || '—';
+  const vehicleKind = driver.vehicleType === 'moto' ? 'Moto' : 'Auto';
+  const vehicleLabel = [vehicleKind, driver.vehicleBrand, driver.vehicleModel].filter(Boolean).join(' ');
   const phone = driver.isAssignedDriver
     ? (driver.ownerPhone || driver.fleetContactPhone || 'Sin teléfono')
     : (driver.phone || 'Sin teléfono');
+  const mobileLabel = driver.driverNumber != null
+    ? (driver.isAssignedDriver ? `Móvil #${driver.driverNumber}` : `#${driver.driverNumber}`)
+    : null;
+  const meta = [
+    phone,
+    driver.isFleetOwner ? 'Titular' : null,
+    driver.isAssignedDriver ? 'Asignado' : null,
+    mobileLabel,
+  ].filter(Boolean).join(' · ');
 
   let actionLabel = 'Asignar viaje';
   if (!canAssign) {
@@ -70,207 +73,135 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onSendAudio, on
   }
 
   return (
-    <div className="w-full overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_16px_40px_rgba(15,23,42,0.18)]">
-      {/* Header */}
-      <div className="relative border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-4 pb-3.5 pt-4">
-        <div className="flex items-start gap-3">
-          <DriverAvatar
-            photoUrl={driver.photoUrl}
-            name={name}
-            size="md"
-            online={driver.isOnline}
-            ringClassName={
-              driver.isOnline
-                ? 'ring-2 ring-emerald-200'
-                : 'ring-2 ring-slate-200'
-            }
-          />
-
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-2">
-              <h3 className="truncate text-[15px] font-bold leading-snug text-navy-900">
-                {name}
-              </h3>
-              {onClose ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onClose();
-                  }}
-                  aria-label="Cerrar"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-lg leading-none text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
-                >
-                  ×
-                </button>
-              ) : null}
-            </div>
-
-            <p className="mt-0.5 truncate text-xs text-slate-500">{phone}</p>
-
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {driver.isFleetOwner ? (
-                <Badge className="bg-amber-50 text-amber-700">Titular</Badge>
-              ) : null}
-              {driver.isAssignedDriver ? (
-                <Badge className="bg-indigo-50 text-indigo-700">Asignado</Badge>
-              ) : null}
-              {driver.driverNumber != null ? (
-                <Badge className="bg-red-50 text-red-600">
-                  {driver.isAssignedDriver ? `Móvil #${driver.driverNumber}` : `#${driver.driverNumber}`}
-                </Badge>
-              ) : null}
-              <Badge className={`ring-1 ${status.className}`}>{status.label}</Badge>
-            </div>
-
-            {driver.isAssignedDriver && driver.ownerName ? (
-              <p className="mt-1.5 truncate text-[11px] text-indigo-600">
-                Vehículo de {driver.ownerName}
-              </p>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      {/* Body */}
-      <div className="space-y-3 px-4 py-3.5">
-        <div className="grid grid-cols-[auto_1fr_auto] gap-2">
-          <div
-            className={`flex min-w-[52px] flex-col items-center justify-center rounded-xl px-2.5 py-2.5 ${
-              driver.vehicleType === 'moto'
-                ? 'bg-amber-50 text-amber-700'
-                : 'bg-red-50 text-red-600'
-            }`}
-          >
-            <span className="text-base leading-none" aria-hidden>
-              {driver.vehicleType === 'moto' ? '🏍️' : '🚗'}
-            </span>
-            <span className="mt-1 text-[10px] font-bold">
-              {driver.vehicleType === 'moto' ? 'Moto' : 'Auto'}
+    <div className="w-full overflow-hidden rounded-[28px] bg-white shadow-[0_24px_60px_-24px_rgba(15,23,42,0.45)] ring-1 ring-slate-200/80">
+      <div className="flex items-start gap-3 px-4 pb-2.5 pt-3.5">
+        <DriverAvatar
+          photoUrl={driver.photoUrl}
+          name={name}
+          size="md"
+          online={driver.isOnline}
+          ringClassName={driver.isOnline ? 'ring-2 ring-emerald-200' : 'ring-2 ring-slate-200'}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="min-w-0 truncate text-[15px] font-bold leading-tight text-navy-900">
+              {name}
+            </h3>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ${status.className}`}>
+              {status.label}
             </span>
           </div>
-
-          <div className="min-w-0 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-100">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Vehículo</p>
-            <p className="mt-0.5 truncate text-[13px] font-semibold text-navy-900">{vehicleLabel}</p>
-          </div>
-
-          <div className="min-w-[72px] rounded-xl bg-slate-50 px-2.5 py-2.5 text-center ring-1 ring-slate-100">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Patente</p>
-            <p className="mt-0.5 text-[13px] font-bold tracking-wide text-red-600">
-              {driver.vehiclePlate || '—'}
+          <p className="mt-0.5 truncate text-[12px] text-slate-500">{meta}</p>
+          {driver.isAssignedDriver && driver.ownerName ? (
+            <p className="mt-0.5 truncate text-[11px] text-indigo-600">
+              Vehículo de {driver.ownerName}
             </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 min-[360px]:grid-cols-3">
-          <InfoStat label="Velocidad" value={formatSpeed(driver.speed)} />
-          <div className="min-w-0 rounded-xl bg-amber-50/70 px-2 py-2.5 text-center ring-1 ring-amber-100">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Calificación</p>
-            <div className="mt-1 flex justify-center">
-              <DriverRatingChip driver={{
-                rating: driver.rating,
-                rating_count: driver.ratingCount,
-              }} compact />
-            </div>
-          </div>
-          <InfoStat label="Viajes" value={String(driver.totalTrips ?? 0)} />
-        </div>
-
-        <div className="flex items-center justify-between gap-2 text-[11px]">
-          <span className="text-slate-400">Última actualización</span>
-          <span className="shrink-0 font-semibold text-red-500">{timeAgo(driver.updatedAt)}</span>
-        </div>
-
-        {driver.activeTrip ? (
-          <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2.5">
-            <p className="text-[11px] font-bold text-red-600">Viaje activo</p>
-            <p className="mt-0.5 truncate text-xs text-slate-600">
-              → {driver.activeTrip.destination_address || 'Sin destino'}
-            </p>
-            <TripNotesEditor
-              compact
-              className="mt-2 border-red-100 bg-white"
-              tripId={driver.activeTrip.id}
-              notes={driver.activeTrip.notes}
-              status={driver.activeTrip.status}
-            />
-          </div>
-        ) : null}
-
-        {driver.commissionBalance > 0 ? (
-          <div
-            className={`rounded-xl border px-3 py-2.5 ${
-              driver.commissionOverdue
-                ? 'border-red-100 bg-red-50'
-                : 'border-amber-100 bg-amber-50'
-            }`}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <p
-                className={`min-w-0 truncate text-[11px] font-bold ${
-                  driver.commissionOverdue ? 'text-red-600' : 'text-amber-700'
-                }`}
-              >
-                {driver.commissionOverdue ? 'Comisión vencida' : 'Comisión pendiente'}
-              </p>
-              <p
-                className={`shrink-0 text-sm font-bold ${
-                  driver.commissionOverdue ? 'text-red-600' : 'text-amber-700'
-                }`}
-              >
-                {formatPrice(driver.commissionBalance)}
-              </p>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      {/* Footer actions */}
-      <div className="border-t border-slate-100 px-4 py-3">
-        <div className="flex gap-2">
-          {onSendAudio ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSendAudio(driver);
-              }}
-              title={`Enviar audio solo a ${name}`}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-accent/25 bg-accent/5 px-3 py-2.5 text-[13px] font-bold text-accent transition hover:bg-accent/10"
-            >
-              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-              </svg>
-              Audio
-            </button>
           ) : null}
+        </div>
+        {onClose ? (
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              if (canAssign && onAssignTrip) onAssignTrip(driver);
+              onClose();
             }}
-            disabled={!canAssign}
-            title={
-              canAssign
-                ? 'Asignar un viaje'
-                : driver.dispatchBlocked
-                  ? (driver.commissionBlocked ? 'Bloqueo manual' : 'Comisión vencida')
-                  : driver.activeTrip
-                    ? 'Chofer en viaje'
-                    : 'Chofer desconectado'
-            }
-            className={`flex flex-[1.4] items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[13px] font-bold transition ${
-              canAssign
-                ? 'bg-accent text-white shadow-sm hover:bg-accent-light'
-                : 'cursor-not-allowed bg-slate-100 text-slate-400'
-            }`}
+            aria-label="Cerrar"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
           >
-            {actionLabel}
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.4" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3">
+        <Fact>{vehicleLabel}</Fact>
+        {driver.vehiclePlate ? <Fact tone="plate">{driver.vehiclePlate}</Fact> : null}
+        <Fact>{formatSpeed(driver.speed)}</Fact>
+        <DriverRatingChip
+          compact
+          driver={{ rating: driver.rating, rating_count: driver.ratingCount }}
+        />
+        <Fact>{`${driver.totalTrips ?? 0} viajes`}</Fact>
+        <span className="ml-auto text-[11px] font-medium text-slate-400">
+          {timeAgo(driver.updatedAt)}
+        </span>
+      </div>
+
+      {driver.activeTrip ? (
+        <div className="mx-4 mb-3 rounded-2xl bg-rose-50/90 px-3 py-2.5 ring-1 ring-rose-100">
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-rose-500">Viaje activo</p>
+              <p className="mt-0.5 truncate text-[13px] font-semibold text-slate-800">
+                {driver.activeTrip.destination_address || 'Sin destino'}
+              </p>
+            </div>
+          </div>
+          <TripNotesEditor
+            variant="inline"
+            tripId={driver.activeTrip.id}
+            notes={driver.activeTrip.notes}
+            status={driver.activeTrip.status}
+          />
         </div>
+      ) : null}
+
+      <div className="flex items-center gap-2 border-t border-slate-100 px-4 py-3">
+        {driver.commissionBalance > 0 ? (
+          <div className={`min-w-0 flex-1 ${driver.commissionOverdue ? 'text-rose-600' : 'text-amber-700'}`}>
+            <p className="truncate text-[10px] font-bold uppercase tracking-wide">
+              {driver.commissionOverdue ? 'Comisión vencida' : 'Comisión pendiente'}
+            </p>
+            <p className="truncate text-[15px] font-bold leading-tight">
+              {formatPrice(driver.commissionBalance)}
+            </p>
+          </div>
+        ) : (
+          <div className="min-w-0 flex-1" />
+        )}
+        {onSendAudio ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSendAudio(driver);
+            }}
+            title={`Enviar audio solo a ${name}`}
+            className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-accent/25 bg-accent/5 px-3 text-[13px] font-bold text-accent transition hover:bg-accent/10"
+          >
+            <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+            </svg>
+            Audio
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (canAssign && onAssignTrip) onAssignTrip(driver);
+          }}
+          disabled={!canAssign}
+          title={
+            canAssign
+              ? 'Asignar un viaje'
+              : driver.dispatchBlocked
+                ? (driver.commissionBlocked ? 'Bloqueo manual' : 'Comisión vencida')
+                : driver.activeTrip
+                  ? 'Chofer en viaje'
+                  : 'Chofer desconectado'
+          }
+          className={`flex h-10 min-w-[7.5rem] items-center justify-center rounded-xl px-3.5 text-[13px] font-bold transition ${
+            canAssign
+              ? 'bg-accent text-white shadow-sm hover:bg-accent-light'
+              : 'cursor-not-allowed bg-slate-100 text-slate-400'
+          }`}
+        >
+          {actionLabel}
+        </button>
       </div>
     </div>
   );
