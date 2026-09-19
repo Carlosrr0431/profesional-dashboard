@@ -135,8 +135,19 @@ export function applyDriverLocationRealtime(drivers, loc) {
   const prevTs = toTs(prev.updatedAt);
   const locIsFresher = !prevTs || !locTs || locTs >= prevTs;
 
-  const nextLat = locValid && locIsFresher ? toCoordNumber(loc.lat, prev.lat) : prev.lat;
-  const nextLng = locValid && locIsFresher ? toCoordNumber(loc.lng, prev.lng) : prev.lng;
+  const rawLat = locValid && locIsFresher ? toCoordNumber(loc.lat, prev.lat) : prev.lat;
+  const rawLng = locValid && locIsFresher ? toCoordNumber(loc.lng, prev.lng) : prev.lng;
+  const simulating = Boolean(prev.gpsSimulationActive);
+  const acceptForward = simulating || shouldAcceptForwardGpsStep({
+    fromLat: prev.lat,
+    fromLng: prev.lng,
+    toLat: rawLat,
+    toLng: rawLng,
+    headingDeg: prev.heading,
+    speedMps: prev.speed,
+  });
+  const nextLat = acceptForward ? rawLat : prev.lat;
+  const nextLng = acceptForward ? rawLng : prev.lng;
   const nextSpeed = toSpeedMps(loc.speed ?? loc.speed_kmh, prev.speed || 0);
   const nextHeading = toCoordNumber(loc.heading, prev.heading || 0);
 
@@ -213,6 +224,59 @@ export function bearingDegrees(lat1, lng1, lat2, lng2) {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
+export function headingDeltaDegrees(fromDeg, toDeg) {
+  const delta = Math.abs(Number(fromDeg) - Number(toDeg)) % 360;
+  return delta > 180 ? 360 - delta : delta;
+}
+
+/**
+ * El emulador manda un rastro continuo. El GPS real a veces manda un punto
+ * viejo o jitter hacia atrás: eso traba o revierte el pin. Se ignora.
+ *
+ * reverseMax crece con la velocidad: el pin visual se adelanta hasta
+ * MAX_GPS_EXTRAPOLATE_MS y un heartbeat viejo no debe animarlo para atrás.
+ */
+export const GPS_REVERSE_MAX_M = 28;
+export const GPS_TELEPORT_M = 80;
+export const GPS_REVERSE_HEADING_DEG = 110;
+
+export function reverseWindowMeters(speedMps = 0) {
+  const speed = toSpeedMps(speedMps, 0);
+  return Math.max(
+    GPS_REVERSE_MAX_M,
+    speed * (MAX_GPS_EXTRAPOLATE_MS / 1000) + 15,
+  );
+}
+
+export function shouldAcceptForwardGpsStep({
+  fromLat,
+  fromLng,
+  toLat,
+  toLng,
+  headingDeg = 0,
+  speedMps = 0,
+  reverseMaxM,
+  teleportM = GPS_TELEPORT_M,
+} = {}) {
+  if (!hasValidDriverCoords(fromLat, fromLng) || !hasValidDriverCoords(toLat, toLng)) {
+    return true;
+  }
+  const dist = haversineMeters(fromLat, fromLng, toLat, toLng);
+  if (dist < 1) return true;
+  if (dist >= teleportM) return true;
+  const heading = Number(headingDeg);
+  if (!Number.isFinite(heading)) return true;
+  const speed = toSpeedMps(speedMps, 0);
+  const reverseMax = Number.isFinite(Number(reverseMaxM))
+    ? Number(reverseMaxM)
+    : reverseWindowMeters(speed);
+  const moveHeading = bearingDegrees(fromLat, fromLng, toLat, toLng);
+  if (headingDeltaDegrees(heading, moveHeading) > GPS_REVERSE_HEADING_DEG && dist < reverseMax) {
+    return false;
+  }
+  return true;
+}
+
 /** Velocidad/rumbo para seguir andando entre eventos de subscribe. */
 export function inferPinMotion({
   fromLat,
@@ -269,10 +333,35 @@ export function nextGpsFromDriverRow(prev, row, coordsChangedInRow = true) {
     return { lat: prev.lat, lng: prev.lng, updatedAt: prev.updatedAt };
   }
 
+  const simulating = Boolean(row?.gps_simulation_active || prev?.gpsSimulationActive);
+  if (!simulating && !shouldAcceptForwardGpsStep({
+    fromLat: prev.lat,
+    fromLng: prev.lng,
+    toLat: nextLat,
+    toLng: nextLng,
+    headingDeg: prev.heading,
+    speedMps: prev.speed,
+  })) {
+    return { lat: prev.lat, lng: prev.lng, updatedAt: prev.updatedAt };
+  }
+
+  const intervalMs = Math.max(80, (Date.now() - toTs(prev.updatedAt)) || 800);
+  const motion = inferPinMotion({
+    fromLat: prev.lat,
+    fromLng: prev.lng,
+    toLat: nextLat,
+    toLng: nextLng,
+    reportedSpeed: prev.speed,
+    reportedHeading: prev.heading,
+    intervalMs,
+  });
+
   return {
     lat: nextLat,
     lng: nextLng,
     updatedAt: gpsTimestampForCoordChange(prev.updatedAt, row.updated_at),
+    speed: motion.speed,
+    heading: motion.heading,
   };
 }
 
