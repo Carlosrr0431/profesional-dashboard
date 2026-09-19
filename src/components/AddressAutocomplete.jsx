@@ -69,6 +69,8 @@ export default function AddressAutocomplete({
   disabled = false,
   required = false,
   inputIcon = null,
+  endAction = null,
+  emphasized = false,
   accentColor = '#DC2626',
 }) {
   const [query, setQuery] = useState(value || '');
@@ -244,8 +246,9 @@ export default function AddressAutocomplete({
     }
   };
 
-  const borderColor = focused ? accentColor : '#E2E8F0';
-  const shadowColor = focused ? `${accentColor}20` : 'transparent';
+  const lit = focused || emphasized;
+  const borderColor = lit ? accentColor : '#E2E8F0';
+  const shadowColor = lit ? `${accentColor}22` : 'transparent';
 
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
@@ -260,13 +263,24 @@ export default function AddressAutocomplete({
         </label>
       )}
 
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-        {/* Left icon */}
-        {inputIcon && (
-          <span style={{ position: 'absolute', left: 11, pointerEvents: 'none', display: 'flex', alignItems: 'center' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: `0 ${endAction ? 5 : 12}px 0 ${inputIcon ? 10 : 12}px`,
+          background: disabled ? '#F8FAFC' : '#FFFFFF',
+          border: `1.5px solid ${borderColor}`,
+          borderRadius: 10,
+          boxShadow: `0 0 0 3px ${shadowColor}`,
+          transition: 'border-color 0.15s, box-shadow 0.15s',
+        }}
+      >
+        {inputIcon ? (
+          <span style={{ pointerEvents: 'none', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
             {inputIcon}
           </span>
-        )}
+        ) : null}
 
         <input
           ref={inputRef}
@@ -280,27 +294,30 @@ export default function AddressAutocomplete({
           disabled={disabled}
           autoComplete="off"
           style={{
-            width: '100%',
-            padding: `10px ${loading ? 38 : 14}px 10px ${inputIcon ? 34 : 14}px`,
-            background: disabled ? '#F8FAFC' : '#FFFFFF',
-            border: `1.5px solid ${borderColor}`,
-            borderRadius: 10,
+            flex: 1,
+            minWidth: 0,
+            padding: '10px 0',
+            background: 'transparent',
+            border: 'none',
             color: '#0F172A',
             fontSize: 13,
             outline: 'none',
             fontFamily: 'inherit',
-            boxShadow: `0 0 0 3px ${shadowColor}`,
-            transition: 'border-color 0.15s, box-shadow 0.15s',
             cursor: disabled ? 'not-allowed' : 'text',
           }}
         />
 
-        {/* Right spinner */}
-        {loading && (
-          <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>
+        {loading ? (
+          <span style={{ display: 'flex', flexShrink: 0 }}>
             <Spinner />
           </span>
-        )}
+        ) : null}
+
+        {endAction ? (
+          <span style={{ display: 'flex', flexShrink: 0 }}>
+            {endAction}
+          </span>
+        ) : null}
       </div>
 
       {/* Dropdown */}

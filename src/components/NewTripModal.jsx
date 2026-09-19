@@ -10,7 +10,6 @@ import {
   MAP_PICK_SOURCE,
   buildMapPickedPlace,
   formatPickedCoordsLabel,
-  geocodeSourceBadge,
   validateMapPickInSalta,
 } from '../lib/mapPointPick';
 import { ScheduleDatePicker, ScheduleTimePicker } from './ScheduleDateTimePickers';
@@ -32,14 +31,6 @@ import {
 const MODAL_STYLES = `
 @keyframes _ntm_spin { to { transform: rotate(360deg); } }
 @keyframes _ntm_fade { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
-@keyframes _ntm_pick_pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(225,29,72,0.35); }
-  50% { box-shadow: 0 0 0 8px rgba(225,29,72,0); }
-}
-@keyframes _ntm_pick_pulse_dest {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(5,150,105,0.35); }
-  50% { box-shadow: 0 0 0 8px rgba(5,150,105,0); }
-}
 ._ntm_scroll {
   scrollbar-width: thin;
   scrollbar-color: #E2E8F0 transparent;
@@ -661,7 +652,17 @@ export default function NewTripModal({
                 placeholder="Ej: Belgrano 1200, Salta"
                 value={pickupLabel}
                 accentColor="#DC2626"
+                emphasized={mapPickTarget === 'origin'}
                 inputIcon={<OriginDotSmall />}
+                endAction={(
+                  <MapPickButton
+                    kind="origin"
+                    active={mapPickTarget === 'origin'}
+                    picked={pickupLat != null && pickupGeocodeSource === MAP_PICK_SOURCE}
+                    busy={mapPickBusy && mapPickTarget === 'origin'}
+                    onClick={() => startMapPick('origin')}
+                  />
+                )}
                 onChange={(text) => {
                   setPickupLabel(text);
                   setPickupLat(null);
@@ -672,18 +673,6 @@ export default function NewTripModal({
                   setPickupGeocodeSource(null);
                 }}
                 onSelect={onPickupSelect}
-              />
-              <MapPickButton
-                kind="origin"
-                active={mapPickTarget === 'origin'}
-                picked={pickupLat != null && pickupGeocodeSource === MAP_PICK_SOURCE}
-                busy={mapPickBusy && mapPickTarget === 'origin'}
-                onClick={() => startMapPick('origin')}
-              />
-              <GeocodeSourceHint
-                source={pickupGeocodeSource}
-                lat={pickupLat}
-                lng={pickupLng}
               />
             </div>
 
@@ -704,7 +693,17 @@ export default function NewTripModal({
                 placeholder="Ej: Av. San Martín 500, Salta"
                 value={destLabel}
                 accentColor="#059669"
+                emphasized={mapPickTarget === 'dest'}
                 inputIcon={<DestDotSmall />}
+                endAction={(
+                  <MapPickButton
+                    kind="dest"
+                    active={mapPickTarget === 'dest'}
+                    picked={destLat != null && destGeocodeSource === MAP_PICK_SOURCE}
+                    busy={mapPickBusy && mapPickTarget === 'dest'}
+                    onClick={() => startMapPick('dest')}
+                  />
+                )}
                 onChange={(text) => {
                   setDestLabel(text);
                   setDestLat(null);
@@ -713,21 +712,6 @@ export default function NewTripModal({
                 }}
                 onSelect={onDestSelect}
               />
-              <MapPickButton
-                kind="dest"
-                active={mapPickTarget === 'dest'}
-                picked={destLat != null && destGeocodeSource === MAP_PICK_SOURCE}
-                busy={mapPickBusy && mapPickTarget === 'dest'}
-                onClick={() => startMapPick('dest')}
-              />
-              <GeocodeSourceHint
-                source={destGeocodeSource}
-                lat={destLat}
-                lng={destLng}
-              />
-              <p style={{ margin: '5px 0 0', fontSize: 10, color: '#94A3B8' }}>
-                Vacío: el chofer lo define al subir.
-              </p>
             </div>
           </div>
 
@@ -1071,45 +1055,6 @@ function enqueueActionLabel(driverMode, selectedDriver) {
     return Number.isFinite(n) ? `Encolar a móvil #${n}` : 'Encolar a este chofer';
   }
   return 'Encolar viaje';
-}
-
-function GeocodeSourceHint({ source, lat, lng }) {
-  const badge = geocodeSourceBadge(source);
-  const coords = formatPickedCoordsLabel(lat, lng);
-  if (!badge && !coords) return null;
-  const tones = {
-    cache: { background: '#ECFDF5', color: '#047857' },
-    map: { background: '#FFF7ED', color: '#C2410C' },
-    google: { background: '#EFF6FF', color: '#1D4ED8' },
-  };
-  const tone = tones[badge?.tone] || tones.google;
-  return (
-    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-      {badge ? (
-        <span
-          title={badge.title}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            padding: '2px 8px',
-            borderRadius: 999,
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: '0.03em',
-            background: tone.background,
-            color: tone.color,
-          }}
-        >
-          {badge.label}
-        </span>
-      ) : null}
-      {coords ? (
-        <span style={{ fontSize: 10, color: '#64748B', fontVariantNumeric: 'tabular-nums' }}>
-          GPS {coords}
-        </span>
-      ) : null}
-    </div>
-  );
 }
 
 function CalendarIcon({ size = 14, color = 'currentColor' }) {
