@@ -2,6 +2,7 @@
 
 import {
   pickDriverGps,
+  applyLiveGpsToDrivers,
   mergeSnapshotKeepingFresherGps,
   gpsTimestampForCoordChange,
   applyDriverLocationRealtime,
@@ -23,7 +24,7 @@ describe('pickDriverGps', () => {
     updated_at: '2026-09-06T19:59:58.000Z',
   };
 
-  it('prioriza current_lat si es más nuevo que driver_locations', () => {
+  it('usa el heartbeat live aunque drivers.updated_at sea más nuevo', () => {
     const gps = pickDriverGps({
       lat: -24.78,
       lng: -65.42,
@@ -32,8 +33,8 @@ describe('pickDriverGps', () => {
       heading: 90,
     }, driver, now);
 
-    expect(gps.lat).toBe(-24.79);
-    expect(gps.lng).toBe(-65.41);
+    expect(gps.lat).toBe(-24.78);
+    expect(gps.lng).toBe(-65.42);
     expect(gps.speed).toBe(12);
     expect(gps.heading).toBe(90);
   });
@@ -77,6 +78,33 @@ describe('pickDriverGps', () => {
     expect(gps.lat).toBe(-24.78);
     expect(gps.lng).toBe(-65.42);
     expect(gps.speed).toBe(9);
+  });
+});
+
+describe('applyLiveGpsToDrivers', () => {
+  it('pisa current_lat viejo con el heartbeat fresco', () => {
+    const now = Date.parse('2026-09-06T20:00:00.000Z');
+    const drivers = applyLiveGpsToDrivers(
+      [{
+        id: 'd1',
+        current_lat: -24.79,
+        current_lng: -65.41,
+        updated_at: '2026-09-06T19:59:59.000Z',
+      }],
+      {
+        d1: {
+          driver_id: 'd1',
+          lat: -24.801,
+          lng: -65.430,
+          updated_at: '2026-09-06T19:59:58.000Z',
+        },
+      },
+      now,
+    );
+
+    expect(drivers[0].current_lat).toBe(-24.801);
+    expect(drivers[0].current_lng).toBe(-65.430);
+    expect(drivers[0].lat).toBe(-24.801);
   });
 });
 

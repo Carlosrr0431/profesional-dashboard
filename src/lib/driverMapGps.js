@@ -18,6 +18,8 @@ function toSpeedMps(value, fallback = 0) {
 
 export const MAX_GPS_EXTRAPOLATE_MS = 3500;
 export const MIN_MOVE_SPEED_MPS = 0.6;
+/** Heartbeat de flota (~800 ms). Si es más reciente que esto, es la posición real del auto. */
+export const LIVE_DRIVER_GPS_MS = 20_000;
 const EARTH_M = 6371000;
 
 export function haversineMeters(lat1, lng1, lat2, lng2) {
@@ -69,11 +71,30 @@ export function pinMoveDurationMs(distanceM, speedMps) {
   return Math.round(Math.min(1600, Math.max(140, travelMs)));
 }
 
+export function isLiveDriverGpsTimestamp(updatedAt, now = Date.now(), maxAgeMs = LIVE_DRIVER_GPS_MS) {
+  const ts = toTs(updatedAt);
+  if (!ts) return false;
+  const age = Number(now) - ts;
+  return age <= maxAgeMs && age >= -2_000;
+}
+
+export function indexDriverLocationsById(rows) {
+  const map = Object.create(null);
+  for (const row of rows || []) {
+    const id = row?.driver_id;
+    if (id) map[id] = row;
+  }
+  return map;
+}
+
 /**
  * Coords más frescas entre current_* y driver_locations.
  * speed/heading siempre salen del heartbeat si existe.
+ *
+ * No usar drivers.updated_at como hora GPS: cualquier PATCH (comisión, disponibilidad)
+ * lo pisa y haría ganar un current_lat viejo frente al heartbeat real.
  */
-export function pickDriverGps(loc, driver) {
+export function pickDriverGps(loc, driver, now = Date.now()) {
   const locLat = loc?.lat;
   const locLng = loc?.lng;
   const curLat = driver?.current_lat;
@@ -86,7 +107,9 @@ export function pickDriverGps(loc, driver) {
   const curUpdatedAt = driver?.updated_at || null;
 
   if (curValid && locValid) {
-    const useLoc = toTs(locUpdatedAt) > toTs(curUpdatedAt);
+    const locTs = toTs(locUpdatedAt);
+    const curTs = toTs(curUpdatedAt);
+    const useLoc = isLiveDriverGpsTimestamp(locUpdatedAt, now) || locTs > curTs;
     return {
       lat: toCoordNumber(useLoc ? locLat : curLat, 0),
       lng: toCoordNumber(useLoc ? locLng : curLng, 0),
@@ -120,6 +143,24 @@ export function pickDriverGps(loc, driver) {
     speed,
     heading,
   };
+}
+
+export function applyLiveGpsToDriver(driver, loc, now = Date.now()) {
+  if (!driver) return driver;
+  const gps = pickDriverGps(loc, driver, now);
+  if (!hasValidDriverCoords(gps.lat, gps.lng)) return driver;
+  return {
+    ...driver,
+    current_lat: gps.lat,
+    current_lng: gps.lng,
+    lat: gps.lat,
+    lng: gps.lng,
+  };
+}
+
+export function applyLiveGpsToDrivers(drivers, locByDriver, now = Date.now()) {
+  if (!Array.isArray(drivers) || drivers.length === 0) return drivers || [];
+  return drivers.map((driver) => applyLiveGpsToDriver(driver, locByDriver?.[driver?.id] || null, now));
 }
 
 export function applyDriverLocationRealtime(drivers, loc) {

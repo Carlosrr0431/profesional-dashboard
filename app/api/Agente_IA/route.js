@@ -93,6 +93,7 @@ import {
   formatIntersectionLabelFromQuery,
 } from '../../../shared/salta-address.js';
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
+import { applyLiveGpsToDrivers, indexDriverLocationsById } from '../../../src/lib/driverMapGps';
 import {
   buildPendingToQueuedUpdate,
   buildStreetHailPendingCancelUpdate,
@@ -6949,15 +6950,24 @@ async function chooseDriver(
     allowExclusionRelaxation,
     passengerPhone: passengerPhoneNormalized ? maskPhone(passengerPhoneNormalized) : null,
   });
-  const { data: driversRaw, error } = await selectDriversCompat(
-    getSupabase(),
-    'id, full_name, phone, push_token, current_lat, current_lng, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
-    (query) => query.eq('is_available', true),
-  );
+  const [{ data: driversRaw, error }, locsRes] = await Promise.all([
+    selectDriversCompat(
+      getSupabase(),
+      'id, full_name, phone, push_token, current_lat, current_lng, updated_at, vehicle_brand, vehicle_model, vehicle_plate, vehicle_color, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
+      (query) => query.eq('is_available', true),
+    ),
+    getSupabase()
+      .from('driver_locations')
+      .select('driver_id, lat, lng, speed, heading, updated_at, recorded_at'),
+  ]);
   if (error) throw error;
 
   // Cobro por comisiones: 1 sem. trabajo + 3 días gracia. Semanal: solo bloqueo manual.
-  const drivers = (driversRaw || []).filter((d) => isDriverEligibleForDispatch(d));
+  const locByDriver = indexDriverLocationsById(locsRes?.error ? [] : locsRes?.data);
+  const drivers = applyLiveGpsToDrivers(
+    (driversRaw || []).filter((d) => isDriverEligibleForDispatch(d)),
+    locByDriver,
+  );
   const suspendedByCommission = (driversRaw || []).length - drivers.length;
   if (suspendedByCommission > 0) {
     logWebhook('drivers_suspended_by_commission', { suspendedCount: suspendedByCommission });
