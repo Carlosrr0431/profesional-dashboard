@@ -8,6 +8,8 @@ const {
   COMMISSION_WORK_WEEK_DAYS,
   COMMISSION_PAYMENT_GRACE_DAYS,
   normalizeBillingMode,
+  isWeeklyBillingMode,
+  shouldShowCommissionDebtUi,
   resolveCommissionOverdue,
   isDriverEligibleForDispatch,
   resolveDispatchBlockReason,
@@ -85,6 +87,16 @@ describe('driver-billing', () => {
     };
     expect(isDriverEligibleForDispatch(driver)).toBe(false);
     expect(resolveDispatchBlockReason(driver)).toBe('manual');
+  });
+
+  test('shouldShowCommissionDebtUi solo para plan de comisiones', () => {
+    expect(shouldShowCommissionDebtUi(null)).toBe(false);
+    expect(shouldShowCommissionDebtUi(BILLING_MODE_COMMISSION)).toBe(true);
+    expect(shouldShowCommissionDebtUi({ billing_mode: BILLING_MODE_COMMISSION, pending_commission: 400 })).toBe(true);
+    expect(shouldShowCommissionDebtUi(BILLING_MODE_WEEKLY)).toBe(false);
+    expect(shouldShowCommissionDebtUi({ billingMode: BILLING_MODE_WEEKLY, balance: 900 })).toBe(false);
+    expect(shouldShowCommissionDebtUi({ isWeekly: true, billingMode: BILLING_MODE_COMMISSION })).toBe(false);
+    expect(isWeeklyBillingMode(BILLING_MODE_WEEKLY)).toBe(true);
   });
 
   test('manual block wins over both modes', () => {

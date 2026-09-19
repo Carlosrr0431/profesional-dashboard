@@ -93,6 +93,7 @@ export function buildAssignedDriverInsertPayload(owner, { fullName, phone, phone
     vehicle_color: root.vehicle_color ?? null,
     vehicle_photo_url: root.vehicle_photo_url ?? null,
     vehicle_type: root.vehicle_type || 'auto',
+    billing_mode: root.billing_mode || 'commission_current',
     is_available: false,
     rating: 5.0,
     total_trips: 0,
