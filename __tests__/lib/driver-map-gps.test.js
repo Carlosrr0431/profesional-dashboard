@@ -10,6 +10,8 @@ import {
   extrapolateGps,
   inferPinMotion,
   nextGpsFromDriverRow,
+  reverseWindowMeters,
+  shouldAcceptForwardGpsStep,
   MAX_GPS_EXTRAPOLATE_MS,
 } from '../../src/lib/driverMapGps';
 
@@ -238,6 +240,39 @@ describe('nextGpsFromDriverRow', () => {
     expect(next.lng).toBe(-65.405);
     expect(next.updatedAt).toBe('2026-09-06T20:00:05.000Z');
   });
+
+  it('no aplica current_lat si el chofer iba hacia el este y el punto vuelve atrás', () => {
+    const next = nextGpsFromDriverRow(
+      { lat: -24.80, lng: -65.40, updatedAt: '2026-09-06T20:00:05.000Z', speed: 12, heading: 90 },
+      {
+        current_lat: -24.80,
+        current_lng: -65.4002,
+        updated_at: '2026-09-06T20:00:06.000Z',
+      },
+    );
+    expect(next.lat).toBe(-24.80);
+    expect(next.lng).toBe(-65.40);
+  });
+
+  it('acepta current_lat en simulación aunque el rumbo previo apunte al revés', () => {
+    const next = nextGpsFromDriverRow(
+      {
+        lat: -24.80,
+        lng: -65.40,
+        updatedAt: '2026-09-06T20:00:05.000Z',
+        speed: 12,
+        heading: 90,
+        gpsSimulationActive: true,
+      },
+      {
+        current_lat: -24.80,
+        current_lng: -65.4002,
+        updated_at: '2026-09-06T20:00:06.000Z',
+        gps_simulation_active: true,
+      },
+    );
+    expect(next.lng).toBe(-65.4002);
+  });
 });
 
 describe('applyDriverLocationRealtime', () => {
@@ -279,6 +314,42 @@ describe('applyDriverLocationRealtime', () => {
     expect(next[0].lng).toBe(-65.40);
     expect(next[0].speed).toBe(11);
   });
+
+  it('no revierte el pin con un heartbeat más nuevo hacia atrás', () => {
+    const moving = [{
+      ...base[0],
+      speed: 12,
+      heading: 90,
+    }];
+    const next = applyDriverLocationRealtime(moving, {
+      driver_id: 'd1',
+      lat: -24.80,
+      lng: -65.4002,
+      speed: 12,
+      heading: 90,
+      updated_at: '2026-09-06T20:00:02.000Z',
+    });
+    expect(next[0].lat).toBe(-24.80);
+    expect(next[0].lng).toBe(-65.40);
+  });
+
+  it('no revierte el pin si el punto viejo está a ~40 m (coasting del mapa)', () => {
+    const moving = [{
+      ...base[0],
+      speed: 12,
+      heading: 90,
+    }];
+    const next = applyDriverLocationRealtime(moving, {
+      driver_id: 'd1',
+      lat: -24.80,
+      lng: -65.4004,
+      speed: 12,
+      heading: 90,
+      updated_at: '2026-09-06T20:00:02.000Z',
+    });
+    expect(next[0].lat).toBe(-24.80);
+    expect(next[0].lng).toBe(-65.40);
+  });
 });
 
 describe('pinMoveDurationMs', () => {
@@ -290,6 +361,31 @@ describe('pinMoveDurationMs', () => {
   it('acota saltos sin velocidad', () => {
     expect(pinMoveDurationMs(20, 0)).toBe(650);
     expect(pinMoveDurationMs(0, 10)).toBe(0);
+  });
+});
+
+describe('shouldAcceptForwardGpsStep', () => {
+  it('rechaza un snap-back de ~40 m a 12 m/s (pin adelantado por coasting)', () => {
+    expect(reverseWindowMeters(12)).toBeGreaterThan(40);
+    expect(shouldAcceptForwardGpsStep({
+      fromLat: -24.80,
+      fromLng: -65.40,
+      toLat: -24.80,
+      toLng: -65.4004,
+      headingDeg: 90,
+      speedMps: 12,
+    })).toBe(false);
+  });
+
+  it('acepta seguir hacia el este', () => {
+    expect(shouldAcceptForwardGpsStep({
+      fromLat: -24.80,
+      fromLng: -65.40,
+      toLat: -24.80,
+      toLng: -65.3996,
+      headingDeg: 90,
+      speedMps: 12,
+    })).toBe(true);
   });
 });
 

@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { haversineMeters } from '../lib/driverMapGps';
+import {
+  bearingDegrees,
+  extrapolateGps,
+  haversineMeters,
+  MAX_GPS_EXTRAPOLATE_MS,
+  MIN_MOVE_SPEED_MPS,
+  shouldAcceptForwardGpsStep,
+} from '../lib/driverMapGps';
 
 const FRAME_MS = 16;
 const DEFAULT_DURATION_MS = 1000;
@@ -33,6 +40,7 @@ export function useSmoothMapCoords(lat, lng, speedMps = 0, headingDeg = 0) {
   const animRef = useRef(0);
   const lastPaintRef = useRef(0);
   const lastTargetTimeRef = useRef(0);
+  const courseRef = useRef(Number(headingDeg) || 0);
 
   useEffect(() => {
     const target = { lat: Number(lat), lng: Number(lng) };
@@ -45,6 +53,7 @@ export function useSmoothMapCoords(lat, lng, speedMps = 0, headingDeg = 0) {
       displayRef.current = target;
       setDisplay(target);
       lastTargetTimeRef.current = performance.now();
+      if (Number.isFinite(Number(headingDeg))) courseRef.current = Number(headingDeg);
       return undefined;
     }
 
@@ -53,6 +62,25 @@ export function useSmoothMapCoords(lat, lng, speedMps = 0, headingDeg = 0) {
 
     // Micro-movimiento / jitter de GPS quieto (< 0.8 m)
     if (distM < 0.8) {
+      return undefined;
+    }
+
+    const reportedHeading = Number(headingDeg);
+    const course = Number.isFinite(reportedHeading) && reportedHeading !== 0
+      ? reportedHeading
+      : courseRef.current;
+
+    // Punto hacia atrás respecto del pin YA DIBUJADO (a menudo adelantado por
+    // coasting): no animar atrás. Frenar el coast para que el GPS alcance.
+    if (!shouldAcceptForwardGpsStep({
+      fromLat: start.lat,
+      fromLng: start.lng,
+      toLat: target.lat,
+      toLng: target.lng,
+      headingDeg: course,
+      speedMps,
+    })) {
+      cancelAnimationFrame(animRef.current);
       return undefined;
     }
 
@@ -88,6 +116,10 @@ export function useSmoothMapCoords(lat, lng, speedMps = 0, headingDeg = 0) {
     }
     duration = Math.min(MAX_DURATION_MS, Math.max(MIN_DURATION_MS, duration));
 
+    if (distM >= 1) {
+      courseRef.current = bearingDegrees(start.lat, start.lng, target.lat, target.lng);
+    }
+
     const startTime = now;
     const startLat = start.lat;
     const startLng = start.lng;
@@ -95,18 +127,28 @@ export function useSmoothMapCoords(lat, lng, speedMps = 0, headingDeg = 0) {
     const tick = (currentTime) => {
       const elapsed = currentTime - startTime;
       const progress = Math.min(elapsed / duration, 1);
+      let curLat = startLat + (target.lat - startLat) * progress;
+      let curLng = startLng + (target.lng - startLng) * progress;
+      let keepGoing = progress < 1;
 
-      // Interpolación lineal uniforme: velocidad constante y movimiento perfectamente fluido
-      const curLat = startLat + (target.lat - startLat) * progress;
-      const curLng = startLng + (target.lng - startLng) * progress;
+      // Entre heartbeats el pin sigue andando a la velocidad del celular (como Uber).
+      if (progress >= 1 && speed > MIN_MOVE_SPEED_MPS) {
+        const extraMs = elapsed - duration;
+        if (extraMs < MAX_GPS_EXTRAPOLATE_MS) {
+          const coast = extrapolateGps(target.lat, target.lng, speed, courseRef.current, extraMs);
+          curLat = coast.lat;
+          curLng = coast.lng;
+          keepGoing = true;
+        }
+      }
 
-      if (currentTime - lastPaintRef.current >= FRAME_MS || progress >= 1) {
+      if (currentTime - lastPaintRef.current >= FRAME_MS || !keepGoing) {
         lastPaintRef.current = currentTime;
         displayRef.current = { lat: curLat, lng: curLng };
         setDisplay({ lat: curLat, lng: curLng });
       }
 
-      if (progress < 1) {
+      if (keepGoing) {
         animRef.current = requestAnimationFrame(tick);
       }
     };
