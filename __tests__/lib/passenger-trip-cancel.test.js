@@ -13,8 +13,10 @@ const {
   buildStreetHailPendingCancelUpdate,
 } = require('../../src/lib/tripRequeue');
 const {
+  isDashboardAssignReassignmentBlocked,
   isStreetHailReassignmentBlocked,
   shouldReassignCancelledTrip,
+  shouldWaitForOperatorDispatch,
 } = require('../../src/lib/shouldReassignCancelledTrip');
 const { cancelTripAsOperator } = require('../../src/lib/cancelTripAsOperator');
 
@@ -102,6 +104,17 @@ describe('canRequeuePendingTrip', () => {
     ).toBe(false);
   });
 
+  it('devuelve a cola una asignación manual del panel para que la operadora la derive', () => {
+    expect(
+      canRequeuePendingTrip({
+        status: 'pending',
+        notes: '[APPROACH_ONLY]\n[DASHBOARD_ASSIGN]\nViaje asignado desde el panel de operaciones.',
+        wa_context: { source: 'dashboard_assign' },
+        cancel_reason: '[AUTO_REQUEUE] Sin respuesta del chofer',
+      })
+    ).toBe(true);
+  });
+
   it('sigue reencolando un pending de WhatsApp con timeout', () => {
     expect(
       canRequeuePendingTrip({
@@ -141,15 +154,53 @@ describe('shouldReassignCancelledTrip no rompe el flujo normal', () => {
     ).toBe(true);
   });
 
-  it('sigue reasignando un viaje del panel cancelado por el chofer', () => {
+  it('sigue reasignando un viaje del panel en cola cancelado por el chofer', () => {
     expect(
       shouldReassignCancelledTrip({
         cancel_reason: 'Cancelado por el chofer',
         passenger_phone: '5493875559999',
-        notes: '[APPROACH_ONLY]\n[DASHBOARD_ASSIGN]',
+        notes: '[APPROACH_ONLY]\n[DASHBOARD]\nViaje ingresado desde el panel de operaciones.',
         wa_context: { source: 'dashboard' },
       })
     ).toBe(true);
+  });
+
+  it('no clona una asignación manual del panel: el mismo viaje queda para la operadora', () => {
+    const dashboardAssign = {
+      cancel_reason: 'Rechazado por chofer',
+      notes: '[APPROACH_ONLY]\n[DASHBOARD_ASSIGN]\nViaje asignado desde el panel de operaciones.',
+      wa_context: { source: 'dashboard_assign' },
+    };
+    expect(isDashboardAssignReassignmentBlocked(dashboardAssign)).toBe(true);
+    expect(shouldReassignCancelledTrip(dashboardAssign)).toBe(false);
+  });
+
+  it('Elegir chofer del modal queda como asignación manual y no caza al más cercano', () => {
+    const elegirChofer = {
+      cancel_reason: 'Rechazado por chofer',
+      notes: '[APPROACH_ONLY]\n[DASHBOARD]\n[DASHBOARD_ASSIGN]\nViaje ingresado desde el panel de operaciones.',
+      wa_context: {
+        source: 'dashboard_assign',
+        manual_assign: true,
+        preferred_driver_id: 'drv-9',
+        dispatch_excluded_driver_ids: ['drv-9'],
+      },
+    };
+    expect(isDashboardAssignReassignmentBlocked(elegirChofer)).toBe(true);
+    expect(shouldReassignCancelledTrip(elegirChofer)).toBe(false);
+    expect(shouldWaitForOperatorDispatch(elegirChofer)).toBe(true);
+    expect(shouldWaitForOperatorDispatch({
+      notes: '[APPROACH_ONLY]\n[DASHBOARD]\n[DASHBOARD_ASSIGN]',
+      wa_context: {
+        source: 'dashboard_assign',
+        manual_assign: true,
+        preferred_driver_id: 'drv-9',
+      },
+    })).toBe(false);
+    expect(isDashboardAssignReassignmentBlocked({
+      notes: '[APPROACH_ONLY]\n[DASHBOARD]\nViaje ingresado desde el panel de operaciones.',
+      wa_context: { source: 'dashboard' },
+    })).toBe(false);
   });
 
   it('no reasigna cancelación del pasajero ni del operador', () => {

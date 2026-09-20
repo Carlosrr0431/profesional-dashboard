@@ -14,7 +14,7 @@ import {
   resolveQueuedTripSource,
   hasFiniteLatLng,
 } from '../../../../src/lib/passengerTripQueued';
-import { mergePreferredDriverWaContext } from '../../../../src/lib/assignExistingTrip';
+import { appendDashboardAssignNotes, mergePreferredDriverWaContext } from '../../../../src/lib/assignExistingTrip';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -197,6 +197,7 @@ export async function POST(req) {
         tripPayload.wa_context,
         preferredDriverId,
       );
+      tripPayload.notes = appendDashboardAssignNotes(tripPayload.notes);
     }
 
     if (

@@ -1,4 +1,4 @@
-﻿import OpenAI, { toFile } from 'openai';
+import OpenAI, { toFile } from 'openai';
 import { createClient } from '@supabase/supabase-js';
 import { deepseekChatCompletion } from '../../../src/lib/deepseekClient';
 import { ADDRESS_NORMALIZE_SYSTEM_PROMPT } from '../../../src/lib/tripIntentSystemPrompt';
@@ -106,6 +106,7 @@ import {
   buildWhatsAppCancelledTripUpdate,
 } from '../../../src/lib/passengerTripCancel';
 import {
+  isDashboardAssignReassignmentBlocked,
   isStreetHailReassignmentBlocked,
   shouldReassignCancelledTrip as shouldReassignCancelledTripLib,
 } from '../../../src/lib/shouldReassignCancelledTrip';
@@ -5519,7 +5520,7 @@ async function rejectPendingTripAsDriver({ tripId, driverId, reason = 'Rechazado
     return { ok: false, reason: 'trip_not_pending', unavailable: true };
   }
 
-  return { ok: true, tripId: data.id };
+  return { ok: true, tripId: data.id, dashboardAssign: isDashboardAssignReassignmentBlocked(tripRow) };
 }
 
 function getTripPickupPoint(trip) {
@@ -12212,7 +12213,9 @@ async function processWebhookBody(body, requestMeta = {}) {
         reason,
       });
 
-      triggerDispatchWorker({ reason: 'driver_reject', tripId: rejectResult.tripId });
+      if (!rejectResult.dashboardAssign) {
+        triggerDispatchWorker({ reason: 'driver_reject', tripId: rejectResult.tripId });
+      }
 
       return {
         status: 200,

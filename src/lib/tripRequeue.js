@@ -184,16 +184,20 @@ export function canDriverReleaseTripToQueue(trip) {
   return false;
 }
 
-/** Cierra un pending de calle vencido: no hay pasajero esperando otro chofer. */
-export function buildStreetHailPendingCancelUpdate(trip = {}) {
+function buildNoFailoverPendingCancelUpdate(trip = {}, fallbackReason) {
   return {
     status: 'cancelled',
     dispatch_status: 'cancelled',
-    cancel_reason: String(trip.cancel_reason || '').trim() || 'Viaje en calle sin reasignar',
+    cancel_reason: String(trip.cancel_reason || '').trim() || fallbackReason,
     next_dispatch_at: null,
     wa_notified_at: trip.wa_notified_at || new Date().toISOString(),
     status_updated_at: new Date().toISOString(),
   };
+}
+
+/** Cierra un pending de calle vencido: no hay pasajero esperando otro chofer. */
+export function buildStreetHailPendingCancelUpdate(trip = {}) {
+  return buildNoFailoverPendingCancelUpdate(trip, 'Viaje en calle sin reasignar');
 }
 
 export function buildPendingToQueuedUpdate(trip, extras = {}) {

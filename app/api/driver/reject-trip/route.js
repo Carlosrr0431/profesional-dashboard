@@ -2,6 +2,7 @@ import { after, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { triggerDispatchWorker } from '../../../../src/lib/triggerDispatchWorker';
 import { canDriverReleaseTripToQueue } from '../../../../src/lib/tripRequeue';
+import { isDashboardAssignReassignmentBlocked } from '../../../../src/lib/shouldReassignCancelledTrip';
 import {
   isDriverReleaseAlreadyApplied,
   releaseTripToQueue,
@@ -120,7 +121,9 @@ export async function POST(request) {
       }, { status: 409 });
     }
 
-    triggerDispatchWorker({ reason: 'driver_reject', tripId: data.id });
+    if (!isDashboardAssignReassignmentBlocked(tripRow)) {
+      triggerDispatchWorker({ reason: 'driver_reject', tripId: data.id });
+    }
     if (wasAssigned) {
       schedulePassengerReleaseNotice(supabase, releasedTrip);
     }

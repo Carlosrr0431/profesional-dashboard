@@ -30,6 +30,16 @@ describe('canDriverReleaseTripToQueue', () => {
       notes: '[STREET_HAIL]\nViaje en calle',
       passenger_phone: null,
     })).toBe(false);
+    expect(canDriverReleaseTripToQueue({
+      status: 'pending',
+      notes: '[APPROACH_ONLY]\n[DASHBOARD_ASSIGN]',
+      wa_context: { source: 'dashboard_assign' },
+    })).toBe(true);
+    expect(canDriverReleaseTripToQueue({
+      status: 'going_to_pickup',
+      notes: '[APPROACH_ONLY]\n[DASHBOARD_ASSIGN]',
+      wa_context: { source: 'dashboard_assign' },
+    })).toBe(true);
   });
 
   it('no suelta un viaje que el pasajero ya canceló', () => {
@@ -60,6 +70,11 @@ describe('canDriverReleaseTripToQueue', () => {
       passenger_phone: null,
       wa_context: { source: 'street_hail' },
     })).toBe(false);
+    expect(canRecoverCancelledDriverReleaseToQueue({
+      ...passengerCancelled,
+      notes: '[APPROACH_ONLY]\n[DASHBOARD_ASSIGN]',
+      wa_context: { source: 'dashboard_assign' },
+    })).toBe(true);
   });
 });
 

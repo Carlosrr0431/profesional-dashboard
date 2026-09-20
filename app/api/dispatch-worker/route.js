@@ -22,7 +22,11 @@ import {
   resolveDispatchPickupCoords,
 } from '../../../src/lib/tripRequeue';
 import { isPassengerInitiatedCancellation } from '../../../src/lib/passengerTripCancel';
-import { isStreetHailReassignmentBlocked } from '../../../src/lib/shouldReassignCancelledTrip';
+import {
+  isDashboardAssignReassignmentBlocked,
+  isStreetHailReassignmentBlocked,
+  shouldWaitForOperatorDispatch,
+} from '../../../src/lib/shouldReassignCancelledTrip';
 import { isPassengerAppTrip, shouldPreservePickupOriginOnAssign } from '../../../shared/trip-contract.js';
 import { resolveGpsStreetAddress } from '../../../src/lib/resolveGpsStreetAddress';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
@@ -639,6 +643,7 @@ async function chooseDriverForClaim(
     queueAgeMs = null,
     allowedRadiiKm = null,
     excludedDriverIds = null,
+    preferredOnly = false,
   } = {}
 ) {
   const { pickupLat, pickupLng } = resolveDispatchPickupCoords(trip);
@@ -857,6 +862,15 @@ async function chooseDriverForClaim(
         preferred: true,
       };
     }
+    if (preferredOnly) {
+      logWorkerVerbose('driver_select_preferred_only_unavailable', {
+        tripId: trip?.id || null,
+        preferredDriverId,
+      });
+      return null;
+    }
+  } else if (preferredOnly) {
+    return null;
   }
 
   const scored = reachableDrivers
@@ -1174,6 +1188,7 @@ async function selectDriverForClaimAttempt(
     queueAgeMs,
     excludedDriverIds,
     effectiveAttemptNoRef,
+    preferredOnly = false,
   } = {}
 ) {
   let driverSelection = null;
@@ -1186,6 +1201,7 @@ async function selectDriverForClaimAttempt(
       queueAgeMs,
       allowedRadiiKm,
       excludedDriverIds,
+      preferredOnly,
     });
 
     if (driverSelection?.driver) break;
@@ -1327,6 +1343,22 @@ async function processDispatchClaim(claim) {
       logWorkerVerbose('claim_skip_street_hail', { tripId, status: streetHailStatus });
       return { status: 'street_hail' };
     }
+
+    if (shouldWaitForOperatorDispatch(trip)) {
+      await releaseDispatchClaim({
+        tripId,
+        lockToken,
+        result: 'done',
+        errorCode: 'dashboard_assign_manual',
+      });
+      logWorkerVerbose('claim_skip_dashboard_assign_waiting_operator', {
+        tripId,
+        status: String(trip.status || '').toLowerCase(),
+      });
+      return { status: 'dashboard_assign_manual' };
+    }
+
+    const preferredOnly = isDashboardAssignReassignmentBlocked(trip);
 
     if (String(trip.status || '').toLowerCase() !== 'queued') {
       await releaseDispatchClaim({
@@ -1471,10 +1503,11 @@ async function processDispatchClaim(claim) {
       queueAgeMs,
       excludedDriverIds: activeExcludedDriverIds,
       effectiveAttemptNoRef,
+      preferredOnly,
     });
     effectiveAttemptNo = effectiveAttemptNoRef.value;
 
-    if (!driverSelection?.driver && canResetTimeoutRoundExclusions(trip.wa_context)) {
+    if (!preferredOnly && !driverSelection?.driver && canResetTimeoutRoundExclusions(trip.wa_context)) {
       const roundState = normalizeDispatchExclusionState(trip.wa_context);
       const resetContext = clearTimeoutRoundExclusions(trip.wa_context);
       const { error: resetError } = await supabase
@@ -1500,6 +1533,7 @@ async function processDispatchClaim(claim) {
           queueAgeMs,
           excludedDriverIds: activeExcludedDriverIds,
           effectiveAttemptNoRef,
+          preferredOnly,
         });
         effectiveAttemptNo = effectiveAttemptNoRef.value;
       } else {
@@ -1511,6 +1545,16 @@ async function processDispatchClaim(claim) {
     }
 
     if (!driverSelection?.driver) {
+      if (preferredOnly) {
+        await releaseDispatchClaim({
+          tripId,
+          lockToken,
+          result: 'done',
+          errorCode: 'dashboard_assign_manual',
+        });
+        logWorkerVerbose('claim_skip_dashboard_assign_preferred_unavailable', { tripId });
+        return { status: 'dashboard_assign_manual' };
+      }
       await releaseDispatchClaim({
         tripId,
         lockToken,

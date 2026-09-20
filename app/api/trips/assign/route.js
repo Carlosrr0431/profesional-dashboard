@@ -106,7 +106,7 @@ export async function POST(request) {
     distance_km: toNumberOrNull(body?.distance_km ?? body?.distanceKm),
     duration_minutes: toNumberOrNull(body?.duration_minutes ?? body?.durationMinutes),
     notes: tripNotes,
-    wa_context: { dispatch_excluded_driver_ids: [], source: 'dashboard_assign' },
+    wa_context: { dispatch_excluded_driver_ids: [], source: 'dashboard_assign', manual_assign: true },
   };
 
   try {

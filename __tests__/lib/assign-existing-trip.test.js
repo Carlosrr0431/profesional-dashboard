@@ -8,6 +8,8 @@ const {
   findDashboardDriversByNumber,
   resolvePreferredDriverId,
   mergePreferredDriverWaContext,
+  appendDashboardAssignNotes,
+  stampManualDashboardAssign,
   dashboardDriverAvailability,
 } = require('../../src/lib/assignExistingTrip');
 
@@ -47,6 +49,10 @@ describe('assignExistingTrip', () => {
       status: 'pending',
       assigned_at: assignedAt,
       dispatch_status: 'waiting_acceptance',
+      wa_context: {
+        preferred_driver_id: 'drv-1',
+        manual_assign: true,
+      },
     });
 
     const legacy = buildAssignExistingTripUpdate({
@@ -57,6 +63,12 @@ describe('assignExistingTrip', () => {
     expect(legacy.origin_lat).toBe(-24.78);
     expect(legacy.origin_lng).toBe(-65.42);
     expect(legacy.origin_address).toMatch(/-24\.78000/);
+    expect(legacy.notes).toContain('[DASHBOARD_ASSIGN]');
+    expect(legacy.wa_context).toEqual({
+      source: 'dashboard_assign',
+      manual_assign: true,
+      preferred_driver_id: 'drv-1',
+    });
 
     const withStreet = buildAssignExistingTripUpdate({
       trip: { notes: '[APPROACH_ONLY]\n[DASHBOARD_ASSIGN]', origin_address: null },
@@ -108,13 +120,26 @@ describe('assignExistingTrip', () => {
     expect(dashboardDriverAvailability(drivers[2]).code).toBe('busy');
   });
 
-  it('guarda y lee el chofer preferido en wa_context', () => {
+  it('guarda y lee el chofer preferido como asignación manual', () => {
     expect(resolvePreferredDriverId(null)).toBeNull();
     expect(resolvePreferredDriverId({ preferred_driver_id: 'drv-9' })).toBe('drv-9');
     expect(resolvePreferredDriverId('{"preferred_driver_id":"drv-9"}')).toBe('drv-9');
     expect(mergePreferredDriverWaContext({ source: 'dashboard' }, 'drv-9')).toEqual({
-      source: 'dashboard',
+      source: 'dashboard_assign',
+      manual_assign: true,
       preferred_driver_id: 'drv-9',
+    });
+    expect(appendDashboardAssignNotes('[APPROACH_ONLY]\n[DASHBOARD]\nViaje ingresado desde el panel.')).toContain('[DASHBOARD_ASSIGN]');
+    expect(stampManualDashboardAssign({
+      trip: { notes: '[APPROACH_ONLY]\n[DASHBOARD]', wa_context: { source: 'dashboard' } },
+      driverId: 'drv-9',
+    })).toEqual({
+      notes: '[APPROACH_ONLY]\n[DASHBOARD]\n[DASHBOARD_ASSIGN]',
+      wa_context: {
+        source: 'dashboard_assign',
+        manual_assign: true,
+        preferred_driver_id: 'drv-9',
+      },
     });
   });
 });
