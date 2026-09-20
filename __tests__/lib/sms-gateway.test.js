@@ -64,11 +64,17 @@ describe('sms helpers', () => {
     expect(toSmsE164('')).toBe('');
   });
 
-  test('el SMS del OTP incluye el código y cabe en un segmento', () => {
-    const text = buildPassengerSmsOtpMessage('2580');
-    expect(text).toContain('2580');
-    expect(text).toMatch(/codigo/i);
-    expect(text.length).toBeLessThanOrEqual(160);
+  test('el SMS del OTP incluye el código, cabe en un segmento y no parece plantilla de verificación', () => {
+    const texts = new Set();
+    for (let i = 0; i < 20; i += 1) {
+      const text = buildPassengerSmsOtpMessage('2580');
+      texts.add(text);
+      expect(text).toContain('2580');
+      expect(text.length).toBeLessThanOrEqual(160);
+      expect(text).toMatch(/^[A-Za-z0-9 ,.-]+$/);
+      expect(text.toLowerCase()).not.toMatch(/codigo|otp|verificacion|no lo compartas|valido/);
+    }
+    expect(texts.size).toBeGreaterThan(1);
   });
 
   test('arma Basic y Bearer', () => {
@@ -85,9 +91,9 @@ describe('sms helpers', () => {
     })).toEqual({
       textMessage: { text: 'hola' },
       phoneNumbers: ['3878630173'],
-      ttl: 3600,
+      ttl: 600,
       priority: 100,
-      withDeliveryReport: true,
+      withDeliveryReport: false,
       deviceId: 'dev_1',
       simNumber: 1,
     });
@@ -101,6 +107,8 @@ describe('sms helpers', () => {
       priority: SMS_GATEWAY_BULK_PRIORITY,
     });
     expect(payload.priority).toBe(0);
+    expect(payload.ttl).toBe(3600);
+    expect(payload.withDeliveryReport).toBe(true);
     expect(payload.textMessage).toEqual({ text: 'Promo\nhttps://ejemplo.test/foto.jpg' });
     expect(payload).not.toHaveProperty('dataMessage');
     expect(payload).not.toHaveProperty('mms');
@@ -159,10 +167,47 @@ describe('sendSmsGatewayMessage', () => {
       phone: '3878630173',
       text: 'x',
       env,
+      retries: 0,
       fetchImpl: async () => {
         throw err;
       },
     });
     expect(result).toEqual({ ok: false, reason: 'sms_gateway_timeout' });
+  });
+
+  test('un timeout de OTP reintenta una vez el mismo mensaje', async () => {
+    const err = new Error('The operation was aborted.');
+    err.name = 'AbortError';
+    const fetchImpl = jest.fn()
+      .mockRejectedValueOnce(err)
+      .mockResolvedValueOnce({
+        status: 202,
+        json: async () => ({ id: 'msg_retry', state: 'Pending' }),
+      });
+
+    const result = await sendSmsGatewayMessage({
+      phone: '3878630173',
+      text: 'x',
+      env,
+      fetchImpl,
+    });
+
+    expect(result).toEqual({ ok: true, messageId: 'msg_retry', state: 'Pending' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test('un 401 no se reintenta', async () => {
+    const fetchImpl = jest.fn(async () => ({
+      status: 401,
+      json: async () => ({ message: 'unauthorized' }),
+    }));
+    const result = await sendSmsGatewayMessage({
+      phone: '3878630173',
+      text: 'x',
+      env,
+      fetchImpl,
+    });
+    expect(result.ok).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

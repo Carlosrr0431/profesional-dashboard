@@ -6,8 +6,20 @@ export const SMS_GATEWAY_CLOUD_BASE = 'https://api.sms-gate.app/3rdparty/v1';
 /** SMSGate mide esto en horas (0 = sin filtro). 1 = dispositivo visto en la última hora. */
 export const SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS = 1;
 
-const SMS_GATEWAY_TIMEOUT_MS = 12_000;
+const SMS_GATEWAY_TIMEOUT_MS = 8_000;
+const SMS_OTP_TTL_SECONDS = 600;
+const SMS_BULK_TTL_SECONDS = 3600;
 const SMS_FAIL_STATES = new Set(['Failed', 'Cancelled']);
+
+/** Sin tildes: GSM-7, un solo segmento, más rápido en la radio del J7. */
+const OTP_SMS_PHRASES = [
+  (n) => `Hola, en Profesional Pasajero usa ${n} y seguis`,
+  (n) => `Dale, para entrar a la app de Profesional usa ${n}`,
+  (n) => `Hola, en la app de Profesional pone ${n}`,
+  (n) => `Listo, para seguir en Profesional Pasajero usa ${n}`,
+  (n) => `Hola, te dejo ${n} para la app de Profesional`,
+  (n) => `Dale, en Profesional Pasajero anota ${n} y listo`,
+];
 
 export function getSmsGatewayConfig(env = process.env) {
   const username = String(env.SMS_GATEWAY_USERNAME || '').trim();
@@ -58,7 +70,8 @@ export function toSmsE164(phone) {
 
 export function buildPassengerSmsOtpMessage(code) {
   const digits = String(code || '').replace(/\D/g, '').padStart(4, '0').slice(-4);
-  return `Profesional Pasajero: tu codigo es ${digits}. Valido 10 minutos. No lo compartas.`;
+  const pick = Math.floor(Math.random() * OTP_SMS_PHRASES.length);
+  return OTP_SMS_PHRASES[pick](digits);
 }
 
 export function buildSmsGatewayAuthHeader(config) {
@@ -71,19 +84,36 @@ export function buildSmsGatewayAuthHeader(config) {
 export const SMS_GATEWAY_OTP_PRIORITY = 100;
 export const SMS_GATEWAY_BULK_PRIORITY = 0;
 
+export function isOtpSmsPriority(priority) {
+  const parsed = Number(priority);
+  return Number.isFinite(parsed) ? parsed >= SMS_GATEWAY_OTP_PRIORITY : true;
+}
+
+export function isRetryableSmsGatewayReason(reason) {
+  const value = String(reason || '');
+  return value === 'sms_gateway_timeout'
+    || value === 'sms_gateway_network_error'
+    || value.includes('network');
+}
+
 export function buildSmsGatewayPayload({
   phoneE164,
   text,
   config,
   priority = SMS_GATEWAY_OTP_PRIORITY,
+  withDeliveryReport,
+  ttl,
 }) {
   const parsed = Number(priority);
+  const resolvedPriority = Number.isFinite(parsed) ? parsed : SMS_GATEWAY_OTP_PRIORITY;
+  const otp = isOtpSmsPriority(resolvedPriority);
   const payload = {
     textMessage: { text },
     phoneNumbers: [phoneE164],
-    ttl: 3600,
-    priority: Number.isFinite(parsed) ? parsed : SMS_GATEWAY_OTP_PRIORITY,
-    withDeliveryReport: true,
+    ttl: Number.isFinite(Number(ttl)) ? Number(ttl) : (otp ? SMS_OTP_TTL_SECONDS : SMS_BULK_TTL_SECONDS),
+    priority: resolvedPriority,
+    // El DLR ocupa la radio del J7 esperando el informe de la operadora.
+    withDeliveryReport: withDeliveryReport ?? !otp,
   };
   if (config?.deviceId) payload.deviceId = config.deviceId;
   if (config?.simNumber) payload.simNumber = config.simNumber;
@@ -112,12 +142,59 @@ async function fetchSmsGatewayJson(url, { method = 'GET', body, config, fetchImp
   }
 }
 
+async function postSmsGatewayMessage({
+  phoneE164,
+  text,
+  config,
+  fetchImpl,
+  priority,
+  withDeliveryReport,
+  ttl,
+}) {
+  const url = `${config.baseUrl}/messages?deviceActiveWithin=${SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS}&skipPhoneValidation=true`;
+  try {
+    const { response, data } = await fetchSmsGatewayJson(url, {
+      method: 'POST',
+      body: JSON.stringify(buildSmsGatewayPayload({
+        phoneE164,
+        text,
+        config,
+        priority,
+        withDeliveryReport,
+        ttl,
+      })),
+      config,
+      fetchImpl,
+    });
+    if (response.status !== 200 && response.status !== 202) {
+      const msg = data?.message || data?.error || `sms_gateway_http_${response.status}`;
+      return { ok: false, reason: String(msg), status: response.status };
+    }
+
+    const messageId = data?.id || null;
+    const state = data?.state || 'Pending';
+    if (isSmsGatewayFailedState(state)) {
+      return { ok: false, reason: 'sms_gateway_failed', messageId, state };
+    }
+    // Pending es correcto: la cloud encola y el J7 manda en segundo plano.
+    return { ok: true, messageId, state };
+  } catch (error) {
+    if (isSmsGatewayAbortError(error)) {
+      return { ok: false, reason: 'sms_gateway_timeout' };
+    }
+    return { ok: false, reason: error?.message || 'sms_gateway_network_error' };
+  }
+}
+
 export async function sendSmsGatewayMessage({
   phone,
   text,
   env = process.env,
   fetchImpl = fetch,
   priority = SMS_GATEWAY_OTP_PRIORITY,
+  withDeliveryReport,
+  ttl,
+  retries,
 }) {
   const config = getSmsGatewayConfig(env);
   if (!config) return { ok: false, reason: 'missing_sms_gateway_config' };
@@ -125,36 +202,25 @@ export async function sendSmsGatewayMessage({
   const phoneE164 = toSmsE164(phone);
   if (!phoneE164) return { ok: false, reason: 'invalid_phone' };
 
-  const url = `${config.baseUrl}/messages?deviceActiveWithin=${SMS_GATEWAY_DEVICE_ACTIVE_WITHIN_HOURS}&skipPhoneValidation=true`;
-  let response;
-  let data;
-  try {
-    ({ response, data } = await fetchSmsGatewayJson(url, {
-      method: 'POST',
-      body: JSON.stringify(buildSmsGatewayPayload({ phoneE164, text, config, priority })),
+  const otp = isOtpSmsPriority(priority);
+  const maxAttempts = Math.max(1, Number.isFinite(Number(retries)) ? Number(retries) + 1 : (otp ? 2 : 1));
+  let last = { ok: false, reason: 'sms_gateway_network_error' };
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    last = await postSmsGatewayMessage({
+      phoneE164,
+      text,
       config,
       fetchImpl,
-    }));
-  } catch (error) {
-    if (isSmsGatewayAbortError(error)) {
-      return { ok: false, reason: 'sms_gateway_timeout' };
-    }
-    return { ok: false, reason: error?.message || 'sms_gateway_network_error' };
+      priority,
+      withDeliveryReport,
+      ttl,
+    });
+    if (last.ok) return last;
+    if (attempt >= maxAttempts || !isRetryableSmsGatewayReason(last.reason)) return last;
   }
 
-  if (response.status !== 200 && response.status !== 202) {
-    const msg = data?.message || data?.error || `sms_gateway_http_${response.status}`;
-    return { ok: false, reason: String(msg), status: response.status };
-  }
-
-  const messageId = data?.id || null;
-  const state = data?.state || 'Pending';
-  if (isSmsGatewayFailedState(state)) {
-    return { ok: false, reason: 'sms_gateway_failed', messageId, state };
-  }
-  // Pending es correcto: la cloud encola y el J7 manda en segundo plano.
-  // No esperar ni cancelar: si cancelamos a los 8s el SMS nunca sale.
-  return { ok: true, messageId, state };
+  return last;
 }
 
 export async function sendSmsOtp(phone, code, options = {}) {
