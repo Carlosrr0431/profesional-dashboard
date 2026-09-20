@@ -12,6 +12,8 @@ export default function AssignFreeDriverPicker({
   drivers,
   onAssigned,
   compact = false,
+  row = false,
+  className = '',
 }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -46,15 +48,23 @@ export default function AssignFreeDriverPicker({
 
   const busy = Boolean(assigningId);
 
+  const buttonClass = row
+    ? 'flex h-10 w-full items-center justify-center rounded-xl border border-violet-200 bg-white text-[13px] font-bold text-violet-800 transition-colors hover:bg-violet-50 disabled:opacity-50'
+    : compact
+      ? 'w-full rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-50'
+      : 'text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 transition-all disabled:opacity-50';
+
   return (
-    <div className={compact ? 'mt-2' : 'w-full'}>
+    <div
+      className={`${row ? 'mt-2 w-full min-w-0' : compact ? 'mt-2' : 'w-full'} ${className}`}
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         disabled={busy}
-        className={compact
-          ? 'w-full rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-50'
-          : 'text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 transition-all disabled:opacity-50'}
+        className={buttonClass}
       >
         {open ? 'Cerrar lista' : 'Asignar chofer'}
       </button>

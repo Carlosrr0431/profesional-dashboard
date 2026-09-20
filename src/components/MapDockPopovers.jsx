@@ -93,9 +93,50 @@ function EmptyDock({ text }) {
   );
 }
 
-function QueueCard({ item, index, onCancelled }) {
+function DockTripActions({
+  trip,
+  status,
+  passengerName,
+  address,
+  drivers,
+  onAssigned,
+  onCancelled,
+}) {
+  const tripForAssign = { ...trip, status };
+
+  return (
+    <>
+      <div className="mt-2.5 flex flex-wrap items-stretch gap-2">
+        <TripNotesEditor
+          variant="row"
+          tripId={trip.id}
+          notes={trip.notes}
+          status={status}
+        />
+        <CancelTripButton
+          row
+          className="min-w-0 flex-1"
+          tripId={trip.id}
+          passengerName={passengerName}
+          address={address}
+          onCancelled={onCancelled}
+        />
+      </div>
+      <AssignFreeDriverPicker
+        row
+        trip={tripForAssign}
+        drivers={drivers}
+        onAssigned={onAssigned}
+      />
+    </>
+  );
+}
+
+function QueueCard({ item, index, drivers, onAssigned, onCancelled }) {
   const origin = item.originAddress || item.pickupAddress || '—';
   const dest = item.destinationAddress || null;
+  const status = item.status || 'queued';
+  const address = [origin, dest].filter(Boolean).join(' → ');
 
   return (
     <article className="mb-2 rounded-2xl border border-slate-100 bg-slate-50/80 p-3 last:mb-0">
@@ -142,22 +183,15 @@ function QueueCard({ item, index, onCancelled }) {
         ) : null}
       </div>
 
-      <div className="mt-2.5 flex flex-wrap items-stretch gap-2">
-        <TripNotesEditor
-          variant="row"
-          tripId={item.id}
-          notes={item.notes}
-          status={item.status || 'queued'}
-        />
-        <CancelTripButton
-          row
-          className="min-w-0 flex-1"
-          tripId={item.id}
-          passengerName={item.passengerName}
-          address={[origin, dest].filter(Boolean).join(' → ')}
-          onCancelled={onCancelled}
-        />
-      </div>
+      <DockTripActions
+        trip={item}
+        status={status}
+        passengerName={item.passengerName}
+        address={address}
+        drivers={drivers}
+        onAssigned={onAssigned}
+        onCancelled={onCancelled}
+      />
     </article>
   );
 }
@@ -205,59 +239,59 @@ function LiveTripCard({ trip, onCancelled }) {
 }
 
 function ScheduledCard({ item, drivers, onAssigned, onCancelled }) {
+  const origin = item.pickupAddress || item.origin_address || '—';
+  const dest = item.dropoffAddress || item.destination_address || null;
+  const destShown = dest && dest !== origin ? dest : null;
+  const passengerName = item.passenger_name || item.passengerName || 'Pasajero';
+  const status = item.status || 'scheduled';
+  const address = [origin, destShown].filter(Boolean).join(' → ');
+  const note = cleanTripNotesForDriverDisplay(item.notes) || '';
+
   return (
-    <article className="mb-2 rounded-2xl border border-violet-100 bg-violet-50/50 p-3 last:mb-0">
+    <article className="mb-2 rounded-2xl border border-slate-100 bg-slate-50/80 p-3 last:mb-0">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-[13px] font-bold text-slate-900">{item.passenger_name || 'Pasajero'}</p>
+          <p className="truncate text-[13px] font-bold text-slate-900">{passengerName}</p>
           {item.phone ? (
-            <p className="mt-0.5 text-[11px] text-slate-400">{maskPhone(item.phone)}</p>
+            <p className="mt-1 text-[11px] text-slate-400">{maskPhone(item.phone)}</p>
           ) : null}
         </div>
         <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-bold text-violet-700 shadow-sm ring-1 ring-violet-100">
           {item.countdown}
         </span>
       </div>
+
       {item.sourceLabel ? (
         <p className="mt-1.5 text-[11px] font-semibold text-slate-500">
           {item.sourceLabel}{item.isDispatching ? ' · Buscando chofer' : ''}
         </p>
       ) : null}
-      <div className="mt-2 space-y-1.5">
+
+      <div className="mt-2.5 space-y-1.5 pl-1">
         <div className="flex items-start gap-2">
-          <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-violet-500" />
-          <p className="text-[12px] leading-snug text-slate-600">
-            {item.pickupAddress || item.origin_address || item.destination_address || '—'}
-          </p>
+          <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accent" />
+          <p className="text-[12px] leading-snug text-slate-600">{origin}</p>
         </div>
-        {item.destination_address && item.origin_address ? (
+        {destShown ? (
           <div className="flex items-start gap-2">
             <span className="mt-1.5 h-2 w-2 shrink-0 rounded bg-navy-900" />
-            <p className="text-[12px] leading-snug text-slate-600">{item.destination_address}</p>
+            <p className="text-[12px] leading-snug text-slate-600">{destShown}</p>
           </div>
         ) : null}
       </div>
-      <div className="mt-2.5 flex flex-wrap items-stretch gap-2">
-        <TripNotesEditor
-          variant="row"
-          tripId={item.id}
-          notes={item.notes}
-          status={item.status || 'scheduled'}
-        />
-        <CancelTripButton
-          row
-          className="min-w-0 flex-1"
-          tripId={item.id}
-          passengerName={item.passenger_name || 'Pasajero'}
-          address={item.pickupAddress || item.origin_address || item.destination_address || ''}
-          onCancelled={onCancelled}
-        />
-      </div>
-      <AssignFreeDriverPicker
-        compact
+
+      {note ? (
+        <p className="mt-2 truncate pl-1 text-[13px] font-bold text-navy-800">{note}</p>
+      ) : null}
+
+      <DockTripActions
         trip={item}
+        status={status}
+        passengerName={passengerName}
+        address={address}
         drivers={drivers}
         onAssigned={onAssigned}
+        onCancelled={onCancelled}
       />
     </article>
   );
@@ -287,7 +321,14 @@ export default function MapDockPopovers({
           <EmptyDock text="Cola vacía" />
         ) : (
           list.map((item, index) => (
-            <QueueCard key={item.id || index} item={item} index={index} onCancelled={onCancelled} />
+            <QueueCard
+              key={item.id || index}
+              item={item}
+              index={index}
+              drivers={drivers}
+              onAssigned={onCancelled}
+              onCancelled={onCancelled}
+            />
           ))
         )}
       </DockCard>
@@ -333,7 +374,7 @@ export default function MapDockPopovers({
               key={item.id || index}
               item={item}
               drivers={drivers}
-              onAssigned={() => scheduledData.refetch?.()}
+              onAssigned={onCancelled}
               onCancelled={onCancelled}
             />
           ))
