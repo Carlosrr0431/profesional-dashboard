@@ -10,7 +10,7 @@ import {
 } from '../lib/tripCardMeta';
 import { cleanTripNotesForDriverDisplay } from '../../shared/trip-contract.js';
 import CancelTripButton from './CancelTripButton';
-import { DriverMobileBlock, TripRouteLines } from './TripCardBits';
+import { DriverMobileCorner, TripRouteLines } from './TripCardBits';
 import TripNotesEditor from './TripNotesEditor';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -105,9 +105,11 @@ function ScheduledTripCard({ trip, drivers, onRefresh }) {
             <p className="mt-0.5 truncate text-[12px] font-medium text-slate-500">{passengerName}</p>
           ) : null}
         </div>
-        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${urgencyChipClass(urgency)}`}>
-          {countdown}
-        </span>
+        <DriverMobileCorner assigned={assigned}>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${urgencyChipClass(urgency)}`}>
+            {countdown}
+          </span>
+        </DriverMobileCorner>
       </div>
 
       <p className="mt-1 truncate text-[12px] font-semibold text-slate-500">
@@ -115,7 +117,6 @@ function ScheduledTripCard({ trip, drivers, onRefresh }) {
         {trip.isDispatching ? ' · Buscando chofer' : ''}
       </p>
       <TripRouteLines pickup={pickup} dest={dest} />
-      <DriverMobileBlock assigned={assigned} />
       {note ? (
         <p className="mt-1 truncate text-[13px] font-bold text-navy-800">{note}</p>
       ) : null}

@@ -2,7 +2,7 @@
 
 import AssignFreeDriverPicker from './AssignFreeDriverPicker';
 import CancelTripButton from './CancelTripButton';
-import { DriverMobileBlock, TripRouteLines } from './TripCardBits';
+import { DriverMobileCorner, TripRouteLines } from './TripCardBits';
 import TripNotesEditor from './TripNotesEditor';
 import { canOperatorCancelTrip } from '../lib/passengerTripCancel';
 import { DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS } from '../lib/promoteDueScheduledTrips';
@@ -218,10 +218,11 @@ function LiveTripCard({ trip, drivers, onCancelled }) {
             <p className="mt-0.5 truncate text-[12px] font-medium text-slate-500">{passengerName}</p>
           ) : null}
         </div>
-        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${meta.cls}`}>{meta.label}</span>
+        <DriverMobileCorner assigned={assigned}>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${meta.cls}`}>{meta.label}</span>
+        </DriverMobileCorner>
       </div>
       <TripRouteLines pickup={pickup} dest={dest} />
-      <DriverMobileBlock assigned={assigned} />
       {note ? (
         <p className="mt-1 truncate text-[13px] font-bold text-navy-800">{note}</p>
       ) : null}
@@ -268,9 +269,11 @@ function ScheduledCard({ item, drivers, onAssigned, onCancelled }) {
             <p className="mt-1 text-[11px] text-slate-400">{maskPhone(item.phone)}</p>
           ) : null}
         </div>
-        <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-bold text-violet-700 shadow-sm ring-1 ring-violet-100">
-          {item.countdown}
-        </span>
+        <DriverMobileCorner assigned={assigned}>
+          <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-bold text-violet-700 shadow-sm ring-1 ring-violet-100">
+            {item.countdown}
+          </span>
+        </DriverMobileCorner>
       </div>
 
       {item.isDispatching ? (
@@ -278,7 +281,6 @@ function ScheduledCard({ item, drivers, onAssigned, onCancelled }) {
       ) : null}
 
       <TripRouteLines pickup={pickup} dest={dest} />
-      <DriverMobileBlock assigned={assigned} />
 
       {note ? (
         <p className="mt-2 truncate text-[13px] font-bold text-navy-800">{note}</p>

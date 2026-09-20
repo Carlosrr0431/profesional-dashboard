@@ -19,19 +19,20 @@ export function TripRouteLines({ pickup, dest }) {
   );
 }
 
-export function DriverMobileBlock({ assigned }) {
-  if (!assigned?.number && !assigned?.name) return null;
-
+export function DriverMobileCorner({ assigned, children }) {
   return (
-    <div className="mt-2 flex flex-col items-center justify-center rounded-xl bg-white px-3 py-2 text-center ring-1 ring-slate-200">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Móvil</p>
-      {assigned.number ? (
-        <p className="mt-0.5 text-[28px] font-black leading-none tabular-nums tracking-tight text-navy-900">
+    <div className="flex shrink-0 flex-col items-end gap-1 text-right">
+      {assigned?.number ? (
+        <p
+          title={assigned.name ? `Móvil ${assigned.number} · ${assigned.name}` : `Móvil ${assigned.number}`}
+          className="text-[18px] font-black leading-none tabular-nums tracking-tight text-navy-900"
+        >
           {assigned.number}
         </p>
       ) : null}
-      {assigned.name ? (
-        <p className="mt-1 max-w-full truncate text-[12px] font-semibold text-slate-600">
+      {children}
+      {assigned?.name ? (
+        <p className="max-w-[7.5rem] truncate text-[10px] font-medium leading-tight text-slate-500">
           {assigned.name}
         </p>
       ) : null}
