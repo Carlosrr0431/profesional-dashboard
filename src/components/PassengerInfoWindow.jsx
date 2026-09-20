@@ -1,4 +1,9 @@
 import { timeAgo } from '../lib/utils';
+import {
+  canManuallyAssignExistingTrip,
+  driverDisplayName,
+} from '../lib/assignExistingTrip';
+import AssignFreeDriverPicker from './AssignFreeDriverPicker';
 
 function formatPickupAddress(address) {
   const raw = String(address || '').trim();
@@ -9,166 +14,145 @@ function formatPickupAddress(address) {
 }
 
 function getQueueStatusMeta(status) {
-  if (status === 'pending') {
+  const key = String(status || '').toLowerCase();
+  if (key === 'pending') {
     return {
       label: 'Esperando aceptación',
-      tone: '#DC2626',
-      bg: 'rgba(220, 38, 38, 0.08)',
-      ring: 'rgba(220, 38, 38, 0.18)',
+      className: 'bg-rose-50 text-rose-600 ring-rose-200',
+      avatarClass: 'bg-rose-50 text-rose-600 ring-2 ring-rose-200',
+    };
+  }
+  if (key === 'scheduled') {
+    return {
+      label: 'Programado',
+      className: 'bg-sky-50 text-sky-700 ring-sky-200',
+      avatarClass: 'bg-sky-50 text-sky-700 ring-2 ring-sky-200',
     };
   }
   return {
     label: 'En cola',
-    tone: '#D97706',
-    bg: 'rgba(245, 158, 11, 0.1)',
-    ring: 'rgba(245, 158, 11, 0.22)',
+    className: 'bg-amber-50 text-amber-700 ring-amber-200',
+    avatarClass: 'bg-amber-50 text-amber-700 ring-2 ring-amber-200',
   };
 }
 
-export default function PassengerInfoWindow({ trip }) {
-  const status = getQueueStatusMeta(trip?.status);
-  const initials = String(trip?.passengerName || 'P')
+function resolveOfferedDriver(trip, drivers) {
+  const id = trip?.driverId || trip?.driver_id;
+  if (!id) return null;
+  return (Array.isArray(drivers) ? drivers : []).find((driver) => driver?.id === id) || null;
+}
+
+function passengerInitials(name) {
+  return String(name || 'P')
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0])
     .join('')
     .toUpperCase() || 'P';
+}
+
+export default function PassengerInfoWindow({
+  trip,
+  drivers = [],
+  onClose,
+  onAssigned,
+}) {
+  const status = getQueueStatusMeta(trip?.status);
+  const initials = passengerInitials(trip?.passengerName);
+  const canAssign = canManuallyAssignExistingTrip(trip);
+  const offered = resolveOfferedDriver(trip, drivers);
+  const pickup = formatPickupAddress(trip?.address || trip?.origin_address);
+  const destinationRaw = String(trip?.destinationAddress || trip?.destination_address || '').trim();
+  const destination = destinationRaw ? formatPickupAddress(destinationRaw) : '';
+  const showDestination = Boolean(destination) && destination !== pickup;
+  const offeredLabel = offered
+    ? `${driverDisplayName(offered)}${offered.driverNumber != null ? ` · #${offered.driverNumber}` : ''}`
+    : null;
 
   return (
-    <div
-      className="passenger-iw-card"
-      style={{
-        minWidth: 248,
-        maxWidth: 280,
-        fontFamily: 'Inter, system-ui, sans-serif',
-        padding: '14px 14px 12px',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
+    <div className="w-full overflow-hidden rounded-[28px] bg-white shadow-[0_24px_60px_-24px_rgba(15,23,42,0.45)] ring-1 ring-slate-200/80">
+      <div className="flex items-start gap-3 px-4 pb-2.5 pt-3.5">
         <div
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 12,
-            background: status.bg,
-            border: `1px solid ${status.ring}`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: status.tone,
-            fontSize: 13,
-            fontWeight: 800,
-            flexShrink: 0,
-          }}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-[13px] font-extrabold ${status.avatarClass}`}
         >
           {initials}
         </div>
-
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <p
-              style={{
-                margin: 0,
-                fontSize: 14,
-                fontWeight: 700,
-                color: '#0F172A',
-                lineHeight: 1.2,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="min-w-0 truncate text-[15px] font-bold leading-tight text-navy-900">
               {trip?.passengerName || 'Pasajero'}
+            </h3>
+            <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${status.className}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${trip?.status === 'pending' ? 'bg-rose-600' : trip?.status === 'scheduled' ? 'bg-sky-600' : 'bg-amber-500'}`} />
+              {status.label}
+            </span>
+          </div>
+          <p className="mt-0.5 text-[12px] text-slate-500">
+            Espera {timeAgo(trip?.createdAt)}
+            {trip?.passengerPhone ? ` · ${trip.passengerPhone}` : ''}
+          </p>
+        </div>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onClose();
+            }}
+            aria-label="Cerrar"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.4" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        ) : null}
+      </div>
+
+      <div className="mx-4 mb-3 space-y-2">
+        <div className="rounded-2xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-100">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Retiro</p>
+          <p className="mt-0.5 text-[13px] font-semibold leading-snug text-slate-800">{pickup}</p>
+        </div>
+        {showDestination ? (
+          <div className="rounded-2xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-100">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Destino</p>
+            <p className="mt-0.5 truncate text-[13px] font-semibold text-slate-800">{destination}</p>
+          </div>
+        ) : null}
+        {offeredLabel ? (
+          <div className="rounded-2xl bg-rose-50/90 px-3 py-2.5 ring-1 ring-rose-100">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-rose-500">Ofertado a</p>
+            <p className="mt-0.5 truncate text-[13px] font-semibold text-slate-800">{offeredLabel}</p>
+            <p className="mt-0.5 text-[11px] leading-snug text-rose-600">
+              Todavía no aceptó. Podés derivarlo a otro móvil, incluso si está en viaje.
             </p>
           </div>
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-              color: status.tone,
-              background: status.bg,
-              border: `1px solid ${status.ring}`,
-              borderRadius: 999,
-              padding: '3px 8px',
+        ) : null}
+      </div>
+
+      {canAssign ? (
+        <div className="border-t border-slate-100 px-4 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-violet-600">
+            Derivar ahora
+          </p>
+          <p className="mt-0.5 text-[12px] leading-snug text-slate-500">
+            Si el chofer está ocupado, el viaje queda como siguiente y se activa al terminar el actual.
+          </p>
+          <AssignFreeDriverPicker
+            trip={trip}
+            drivers={drivers}
+            compact
+            onAssigned={() => {
+              onAssigned?.();
+              onClose?.();
             }}
-          >
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: status.tone,
-                boxShadow: `0 0 0 3px ${status.ring}`,
-              }}
-            />
-            {status.label}
-          </span>
+          />
         </div>
-      </div>
-
-      <div
-        style={{
-          background: '#F8FAFC',
-          border: '1px solid #E2E8F0',
-          borderRadius: 12,
-          padding: '10px 12px',
-          marginBottom: 10,
-        }}
-      >
-        <p
-          style={{
-            margin: '0 0 4px',
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: '0.06em',
-            textTransform: 'uppercase',
-            color: '#94A3B8',
-          }}
-        >
-          Retiro
-        </p>
-        <p
-          style={{
-            margin: 0,
-            fontSize: 13,
-            fontWeight: 600,
-            color: '#334155',
-            lineHeight: 1.45,
-          }}
-        >
-          {formatPickupAddress(trip?.address)}
-        </p>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <span style={{ fontSize: 11, color: '#94A3B8' }}>Tiempo de espera</span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#0F172A' }}>{timeAgo(trip?.createdAt)}</span>
-      </div>
-
-      {trip?.passengerPhone && (
-        <div
-          style={{
-            marginTop: 10,
-            paddingTop: 10,
-            borderTop: '1px solid #EEF2F7',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
-          }}
-        >
-          <span style={{ fontSize: 11, color: '#94A3B8' }}>Teléfono</span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>{trip.passengerPhone}</span>
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
-export { formatPickupAddress, getQueueStatusMeta };
+export { formatPickupAddress, getQueueStatusMeta, resolveOfferedDriver };

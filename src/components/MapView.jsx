@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
-import Map, { Marker, Popup, Source, Layer, NavigationControl, useControl } from 'react-map-gl/maplibre';
+import Map, { Marker, Source, Layer, NavigationControl, useControl } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { SALTA_CENTER, DEFAULT_ZOOM } from '../lib/constants';
@@ -249,7 +249,7 @@ const MapView = memo(function MapView({
     : new Set(Array.isArray(multiSelectedIds) ? multiSelectedIds : []);
 
   useEffect(() => {
-    if (activeInfo?.type !== 'driver') return undefined;
+    if (activeInfo?.type !== 'driver' && activeInfo?.type !== 'trip') return undefined;
     const onKeyDown = (event) => {
       if (event.key === 'Escape') setActiveInfo(null);
     };
@@ -455,33 +455,34 @@ const MapView = memo(function MapView({
           );
         })}
 
-        {activeInfo?.type === 'trip' && !multiSelectMode && (
-          <Popup
-            longitude={Number(
-              activeInfo.data.passenger_lng
-              ?? activeInfo.data.pickup_lng
-              ?? activeInfo.data.origin_lng
-              ?? activeInfo.data.lng,
-            )}
-            latitude={Number(
-              activeInfo.data.passenger_lat
-              ?? activeInfo.data.pickup_lat
-              ?? activeInfo.data.origin_lat
-              ?? activeInfo.data.lat,
-            )}
-            anchor="bottom"
-            offset={[0, -8]}
-            onClose={() => setActiveInfo(null)}
-            closeOnClick={false}
-            maxWidth="300px"
-          >
-            <PassengerInfoWindow
-              trip={activeInfo.data}
-              onClose={() => setActiveInfo(null)}
-            />
-          </Popup>
-        )}
       </Map>
+
+      {activeInfo?.type === 'trip' && !multiSelectMode ? (
+        <>
+          <button
+            type="button"
+            aria-label="Cerrar detalle del pasajero"
+            className="absolute inset-0 z-[15] border-0 bg-slate-900/25 p-0"
+            onClick={() => setActiveInfo(null)}
+          />
+          <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
+            <div
+              className="pointer-events-auto w-full max-w-[min(440px,calc(100%-2rem))] overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Pasajero ${activeInfo.data.passengerName || ''}`}
+            >
+              <PassengerInfoWindow
+                trip={activeInfo.data}
+                drivers={drivers}
+                onClose={() => setActiveInfo(null)}
+                onAssigned={() => setActiveInfo(null)}
+              />
+            </div>
+          </div>
+        </>
+      ) : null}
 
       {activeInfo?.type === 'driver' && !multiSelectMode ? (
         <>

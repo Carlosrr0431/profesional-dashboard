@@ -4,7 +4,7 @@ import { DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS } from '../lib/promoteDueScheduledT
 
 const PENDING_STATUSES = ['queued', 'pending'];
 const TRIP_SELECT =
-  'id, passenger_name, passenger_phone, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, created_at, status, notes, scheduled_for';
+  'id, passenger_name, passenger_phone, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, created_at, status, notes, scheduled_for, driver_id';
 
 function resolvePickupCoord(trip) {
   const lat = Number(trip?.origin_lat ?? trip?.destination_lat);
@@ -21,6 +21,8 @@ function mapPendingTrip(trip) {
     passengerName: trip.passenger_name || 'Pasajero',
     passengerPhone: trip.passenger_phone || '',
     address: trip.origin_address || trip.destination_address || 'Sin dirección',
+    destinationAddress: trip.destination_address || '',
+    driverId: trip.driver_id || null,
     lat: coord.lat,
     lng: coord.lng,
     createdAt: trip.created_at,
