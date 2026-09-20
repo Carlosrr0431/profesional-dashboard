@@ -2,9 +2,17 @@
 
 import AssignFreeDriverPicker from './AssignFreeDriverPicker';
 import CancelTripButton from './CancelTripButton';
+import { DriverMobileBlock, TripRouteLines } from './TripCardBits';
 import TripNotesEditor from './TripNotesEditor';
 import { canOperatorCancelTrip } from '../lib/passengerTripCancel';
 import { DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS } from '../lib/promoteDueScheduledTrips';
+import {
+  resolveAssignedDriver,
+  tripCreatedFromLabel,
+  tripDisplayPassengerName,
+  tripRouteAddresses,
+  tripRouteLine,
+} from '../lib/tripCardMeta';
 import { cleanTripNotesForDriverDisplay } from '../../shared/trip-contract.js';
 
 const LIST_KINDS = new Set(['queue', 'trips', 'scheduled-due']);
@@ -133,10 +141,11 @@ function DockTripActions({
 }
 
 function QueueCard({ item, index, drivers, onAssigned, onCancelled }) {
-  const origin = item.originAddress || item.pickupAddress || '—';
-  const dest = item.destinationAddress || null;
   const status = item.status || 'queued';
-  const address = [origin, dest].filter(Boolean).join(' → ');
+  const createdFrom = tripCreatedFromLabel(item);
+  const passengerName = tripDisplayPassengerName(item);
+  const { pickup, dest } = tripRouteAddresses(item);
+  const address = tripRouteLine(item);
 
   return (
     <article className="mb-2 rounded-2xl border border-slate-100 bg-slate-50/80 p-3 last:mb-0">
@@ -146,7 +155,12 @@ function QueueCard({ item, index, drivers, onAssigned, onCancelled }) {
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[11px] font-bold text-white">
               {item.position ?? index + 1}
             </span>
-            <p className="truncate text-[13px] font-bold text-slate-900">{item.passengerName}</p>
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-bold text-slate-900">{createdFrom}</p>
+              {passengerName ? (
+                <p className="truncate text-[11px] font-medium text-slate-500">{passengerName}</p>
+              ) : null}
+            </div>
           </div>
           {item.phone ? (
             <p className="mt-1 pl-8 text-[11px] text-slate-400">{maskPhone(item.phone)}</p>
@@ -157,18 +171,7 @@ function QueueCard({ item, index, drivers, onAssigned, onCancelled }) {
         </span>
       </div>
 
-      <div className="mt-2.5 space-y-1.5 pl-1">
-        <div className="flex items-start gap-2">
-          <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accent" />
-          <p className="text-[12px] leading-snug text-slate-600">{origin}</p>
-        </div>
-        {dest ? (
-          <div className="flex items-start gap-2">
-            <span className="mt-1.5 h-2 w-2 shrink-0 rounded bg-navy-900" />
-            <p className="text-[12px] leading-snug text-slate-600">{dest}</p>
-          </div>
-        ) : null}
-      </div>
+      <TripRouteLines pickup={pickup} dest={dest} />
 
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 pl-1 text-[11px] text-slate-500">
         {item.price ? (
@@ -186,7 +189,7 @@ function QueueCard({ item, index, drivers, onAssigned, onCancelled }) {
       <DockTripActions
         trip={item}
         status={status}
-        passengerName={item.passengerName}
+        passengerName={passengerName || createdFrom}
         address={address}
         drivers={drivers}
         onAssigned={onAssigned}
@@ -196,23 +199,29 @@ function QueueCard({ item, index, drivers, onAssigned, onCancelled }) {
   );
 }
 
-function LiveTripCard({ trip, onCancelled }) {
+function LiveTripCard({ trip, drivers, onCancelled }) {
   const meta = tripStatusMeta(trip.status);
   const canCancel = canOperatorCancelTrip(trip);
-  const driverName = trip.driver?.fullName || trip.driver?.full_name || (typeof trip.driver === 'string' ? trip.driver : null);
+  const createdFrom = tripCreatedFromLabel(trip);
+  const passengerName = tripDisplayPassengerName(trip);
+  const { pickup, dest } = tripRouteAddresses(trip);
+  const address = tripRouteLine(trip);
+  const assigned = resolveAssignedDriver(trip, drivers);
   const note = cleanTripNotesForDriverDisplay(trip.notes) || '';
-  const address = trip.pickupAddress || trip.destination || '—';
 
   return (
     <article className="mb-1.5 rounded-2xl border border-slate-100 bg-slate-50/90 px-3 py-2.5 last:mb-0">
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 truncate text-[15px] font-bold leading-tight text-navy-900">{trip.passengerName}</p>
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-bold leading-tight text-navy-900">{createdFrom}</p>
+          {passengerName ? (
+            <p className="mt-0.5 truncate text-[12px] font-medium text-slate-500">{passengerName}</p>
+          ) : null}
+        </div>
         <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${meta.cls}`}>{meta.label}</span>
       </div>
-      <p className="mt-1 line-clamp-2 text-[13px] font-semibold leading-snug text-slate-800">{address}</p>
-      {driverName ? (
-        <p className="mt-1 truncate text-[12px] font-semibold text-slate-600">Móvil · {driverName}</p>
-      ) : null}
+      <TripRouteLines pickup={pickup} dest={dest} />
+      <DriverMobileBlock assigned={assigned} />
       {note ? (
         <p className="mt-1 truncate text-[13px] font-bold text-navy-800">{note}</p>
       ) : null}
@@ -228,7 +237,7 @@ function LiveTripCard({ trip, onCancelled }) {
             row
             className="min-w-0 flex-1"
             tripId={trip.id}
-            passengerName={trip.passengerName}
+            passengerName={passengerName || createdFrom}
             address={address}
             onCancelled={onCancelled}
           />
@@ -239,19 +248,22 @@ function LiveTripCard({ trip, onCancelled }) {
 }
 
 function ScheduledCard({ item, drivers, onAssigned, onCancelled }) {
-  const origin = item.pickupAddress || item.origin_address || '—';
-  const dest = item.dropoffAddress || item.destination_address || null;
-  const destShown = dest && dest !== origin ? dest : null;
-  const passengerName = item.passenger_name || item.passengerName || 'Pasajero';
+  const createdFrom = tripCreatedFromLabel(item);
+  const passengerName = tripDisplayPassengerName(item);
+  const { pickup, dest } = tripRouteAddresses(item);
   const status = item.status || 'scheduled';
-  const address = [origin, destShown].filter(Boolean).join(' → ');
+  const address = tripRouteLine(item);
+  const assigned = resolveAssignedDriver(item, drivers);
   const note = cleanTripNotesForDriverDisplay(item.notes) || '';
 
   return (
     <article className="mb-2 rounded-2xl border border-slate-100 bg-slate-50/80 p-3 last:mb-0">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-[13px] font-bold text-slate-900">{passengerName}</p>
+          <p className="truncate text-[13px] font-bold text-slate-900">{createdFrom}</p>
+          {passengerName ? (
+            <p className="mt-0.5 truncate text-[12px] font-medium text-slate-500">{passengerName}</p>
+          ) : null}
           {item.phone ? (
             <p className="mt-1 text-[11px] text-slate-400">{maskPhone(item.phone)}</p>
           ) : null}
@@ -261,33 +273,21 @@ function ScheduledCard({ item, drivers, onAssigned, onCancelled }) {
         </span>
       </div>
 
-      {item.sourceLabel ? (
-        <p className="mt-1.5 text-[11px] font-semibold text-slate-500">
-          {item.sourceLabel}{item.isDispatching ? ' · Buscando chofer' : ''}
-        </p>
+      {item.isDispatching ? (
+        <p className="mt-1.5 text-[11px] font-semibold text-slate-500">Buscando chofer</p>
       ) : null}
 
-      <div className="mt-2.5 space-y-1.5 pl-1">
-        <div className="flex items-start gap-2">
-          <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accent" />
-          <p className="text-[12px] leading-snug text-slate-600">{origin}</p>
-        </div>
-        {destShown ? (
-          <div className="flex items-start gap-2">
-            <span className="mt-1.5 h-2 w-2 shrink-0 rounded bg-navy-900" />
-            <p className="text-[12px] leading-snug text-slate-600">{destShown}</p>
-          </div>
-        ) : null}
-      </div>
+      <TripRouteLines pickup={pickup} dest={dest} />
+      <DriverMobileBlock assigned={assigned} />
 
       {note ? (
-        <p className="mt-2 truncate pl-1 text-[13px] font-bold text-navy-800">{note}</p>
+        <p className="mt-2 truncate text-[13px] font-bold text-navy-800">{note}</p>
       ) : null}
 
       <DockTripActions
         trip={item}
         status={status}
-        passengerName={passengerName}
+        passengerName={passengerName || createdFrom}
         address={address}
         drivers={drivers}
         onAssigned={onAssigned}
@@ -349,7 +349,7 @@ export default function MapDockPopovers({
           <EmptyDock text="Sin viajes activos" />
         ) : (
           list.map((trip, index) => (
-            <LiveTripCard key={trip.id || index} trip={trip} onCancelled={onCancelled} />
+            <LiveTripCard key={trip.id || index} trip={trip} drivers={drivers} onCancelled={onCancelled} />
           ))
         )}
       </DockCard>

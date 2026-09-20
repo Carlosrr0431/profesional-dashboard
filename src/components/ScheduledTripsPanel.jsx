@@ -1,9 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useToast } from '../context/ToastContext';
 import { scheduledSourceLabel } from '../lib/scheduledTripSource';
+import {
+  resolveAssignedDriver,
+  tripCreatedFromLabel,
+  tripDisplayPassengerName,
+  tripRouteAddresses,
+  tripRouteLine,
+} from '../lib/tripCardMeta';
 import { cleanTripNotesForDriverDisplay } from '../../shared/trip-contract.js';
 import AssignFreeDriverPicker from './AssignFreeDriverPicker';
 import CancelTripButton from './CancelTripButton';
+import { DriverMobileBlock, TripRouteLines } from './TripCardBits';
 import TripNotesEditor from './TripNotesEditor';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -80,11 +88,11 @@ function ScheduledTripCard({ trip, drivers, onRefresh }) {
   const urgency = liveUrgency(ms);
   const { label: countdown } = formatWhen(ms);
   const ar = trip.arFormatted;
-  const passengerName = trip.passenger_name || trip.passengerName || 'Pasajero';
-  const origin = trip.pickupAddress || trip.origin_address || '—';
-  const dest = trip.dropoffAddress || trip.destination_address || null;
-  const destShown = dest && dest !== origin ? dest : null;
-  const address = [origin, destShown].filter(Boolean).join(' → ');
+  const createdFrom = tripCreatedFromLabel(trip);
+  const passengerName = tripDisplayPassengerName(trip);
+  const { pickup, dest } = tripRouteAddresses(trip);
+  const address = tripRouteLine(trip);
+  const assigned = resolveAssignedDriver(trip, drivers);
   const note = cleanTripNotesForDriverDisplay(trip.notes) || '';
   const status = trip.status || 'scheduled';
   const whenLabel = [ar?.wday, ar?.day, ar?.month, ar?.time].filter(Boolean).join(' · ');
@@ -92,7 +100,12 @@ function ScheduledTripCard({ trip, drivers, onRefresh }) {
   return (
     <article className="rounded-2xl border border-slate-100 bg-slate-50/90 px-3 py-2.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 truncate text-[15px] font-bold leading-tight text-navy-900">{passengerName}</p>
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-bold leading-tight text-navy-900">{createdFrom}</p>
+          {passengerName ? (
+            <p className="mt-0.5 truncate text-[12px] font-medium text-slate-500">{passengerName}</p>
+          ) : null}
+        </div>
         <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${urgencyChipClass(urgency)}`}>
           {countdown}
         </span>
@@ -100,13 +113,10 @@ function ScheduledTripCard({ trip, drivers, onRefresh }) {
 
       <p className="mt-1 truncate text-[12px] font-semibold text-slate-500">
         {whenLabel || '—'}
-        {trip.sourceLabel ? ` · ${trip.sourceLabel}` : ''}
         {trip.isDispatching ? ' · Buscando chofer' : ''}
       </p>
-      <p className="mt-1 line-clamp-2 text-[13px] font-semibold leading-snug text-slate-800">{origin}</p>
-      {destShown ? (
-        <p className="mt-0.5 line-clamp-1 text-[12px] font-medium text-slate-600">{destShown}</p>
-      ) : null}
+      <TripRouteLines pickup={pickup} dest={dest} />
+      <DriverMobileBlock assigned={assigned} />
       {note ? (
         <p className="mt-1 truncate text-[13px] font-bold text-navy-800">{note}</p>
       ) : null}
@@ -122,7 +132,7 @@ function ScheduledTripCard({ trip, drivers, onRefresh }) {
           row
           className="min-w-0 flex-1"
           tripId={trip.id}
-          passengerName={passengerName}
+          passengerName={passengerName || createdFrom}
           address={address}
           onCancelled={onRefresh}
         />
@@ -151,8 +161,10 @@ function TimelineMarker({ trip }) {
         'bg-violet-400'
       }`} />
       <span className="text-[11px] font-bold text-navy-900 tabular-nums w-11 flex-shrink-0">{ar?.time ?? '—'}</span>
-      <span className="text-[11px] text-navy-800 truncate font-medium">{trip.passenger_name || 'Pasajero'}</span>
-      <span className="text-[9px] text-gray-400 flex-shrink-0">{trip.sourceLabel || scheduledSourceLabel(trip.scheduledSource)}</span>
+      <span className="text-[11px] text-navy-800 truncate font-medium">{tripCreatedFromLabel(trip)}</span>
+      <span className="text-[9px] text-gray-400 flex-shrink-0 truncate max-w-[42%]">
+        {tripDisplayPassengerName(trip) || trip.pickupAddress || scheduledSourceLabel(trip.scheduledSource)}
+      </span>
       <span className={`text-[10px] ml-auto flex-shrink-0 ${color}`}>{label}</span>
     </div>
   );

@@ -18,8 +18,8 @@ describe('scheduledTripSource', () => {
     expect(parseScheduledSource({ notes: '[SCHEDULED_SOURCE] passenger_app' })).toBe('passenger_app');
     expect(parseScheduledSource({ notes: '[PASSENGER_WEB]\n[PASSENGER_APP]' })).toBe('passenger_web');
     expect(parseScheduledSource({ notes: '[PASSENGER_APP]' })).toBe('passenger_app');
-    expect(scheduledSourceLabel('passenger_app')).toBe('App pasajeros');
-    expect(scheduledSourceLabel('passenger_web')).toBe('Web pasajeros');
+    expect(scheduledSourceLabel('passenger_app')).toBe('App de pasajeros');
+    expect(scheduledSourceLabel('passenger_web')).toBe('App web');
   });
 
   it('detecta WhatsApp por fallback y por tag', () => {

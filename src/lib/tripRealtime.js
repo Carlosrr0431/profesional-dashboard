@@ -192,6 +192,7 @@ export function mapLiveTripFromRow(trip, range) {
     durationMinutes: trip.duration_minutes != null ? Number(trip.duration_minutes) : null,
     commissionAmount: trip.commission_amount != null ? Number(trip.commission_amount) : null,
     notes: trip.notes || null,
+    driver_id: trip.driver_id || null,
     driver: trip.driver || null,
     isSelectedDay: inSelectedRange,
     isToday: isSameLocalDay(trip.created_at, toLocalDateInputValue()),

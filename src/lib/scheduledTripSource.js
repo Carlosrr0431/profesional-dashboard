@@ -4,8 +4,8 @@ const KNOWN_SOURCES = new Set(['dashboard', 'passenger_app', 'passenger_web', 'w
 
 const SOURCE_LABELS = {
   dashboard: 'Panel',
-  passenger_app: 'App pasajeros',
-  passenger_web: 'Web pasajeros',
+  passenger_app: 'App de pasajeros',
+  passenger_web: 'App web',
   whatsapp: 'WhatsApp',
 };
 

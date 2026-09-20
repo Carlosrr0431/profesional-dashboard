@@ -76,7 +76,7 @@ export async function GET(req) {
     if (driverIds.length > 0) {
       const { data: driversData, error: driversErr } = await supabase
         .from('drivers')
-        .select('id, full_name, vehicle_plate, vehicle_brand, vehicle_model, vehicle_color')
+        .select('id, full_name, vehicle_plate, vehicle_brand, vehicle_model, vehicle_color, driver_number')
         .in('id', driverIds);
       if (driversErr) throw driversErr;
       (driversData || []).forEach((d) => {
