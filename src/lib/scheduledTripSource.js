@@ -1,12 +1,13 @@
 import { detectTripSource } from './detectTripSource';
 
-const KNOWN_SOURCES = new Set(['dashboard', 'passenger_app', 'passenger_web', 'whatsapp']);
+const KNOWN_SOURCES = new Set(['dashboard', 'passenger_app', 'passenger_web', 'whatsapp', 'street_hail']);
 
 const SOURCE_LABELS = {
   dashboard: 'Panel',
   passenger_app: 'App de pasajeros',
   passenger_web: 'App web',
   whatsapp: 'WhatsApp',
+  street_hail: 'Viaje en calle',
 };
 
 const SOURCE_BADGE_CLASS = {
@@ -14,6 +15,7 @@ const SOURCE_BADGE_CLASS = {
   passenger_app: 'bg-sky-50 text-sky-700 border-sky-200',
   passenger_web: 'bg-cyan-50 text-cyan-700 border-cyan-200',
   whatsapp: 'bg-violet-50 text-violet-700 border-violet-200',
+  street_hail: 'bg-amber-50 text-amber-800 border-amber-200',
 };
 
 export function parseScheduledSource(trip) {

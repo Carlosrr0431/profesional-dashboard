@@ -79,7 +79,7 @@ const STATUS_LABELS = {
   cancelled: 'Cancelado',
 };
 
-const SOURCE_ORDER = ['passenger_web', 'passenger_app', 'whatsapp', 'dashboard', 'otro'];
+const SOURCE_ORDER = ['passenger_web', 'passenger_app', 'whatsapp', 'dashboard', 'street_hail', 'otro'];
 
 const SOURCE_META = {
   passenger_web: {
@@ -101,6 +101,11 @@ const SOURCE_META = {
     label: 'Panel',
     color: '#0F172A',
     hint: 'Carga operativa',
+  },
+  street_hail: {
+    label: 'Viaje en calle',
+    color: '#F59E0B',
+    hint: 'Tomado por el chofer',
   },
   otro: {
     label: 'Otro',
@@ -180,7 +185,7 @@ function ChannelMix({ items, total }) {
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {items.map((item) => {
           const percent = safeTotal > 0 ? Math.round((item.count / safeTotal) * 100) : 0;
           const isWeb = item.key === 'passenger_web';
