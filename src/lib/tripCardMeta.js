@@ -1,3 +1,8 @@
+import {
+  isCoordLikeAddress,
+  resolveTripFinalDestCoords,
+  resolveTripPickupCoords,
+} from '../../shared/trip-contract.js';
 import { detectTripSource } from './detectTripSource';
 import { isStreetHailOperatorTrip } from './passengerTripCancel';
 
@@ -11,10 +16,10 @@ export const TRIP_CREATED_FROM_LABELS = {
 
 const GENERIC_PASSENGER_NAME = /^(pasajero(?: en calle)?)$/i;
 
-function firstNonEmpty(...values) {
+function firstReadableAddress(...values) {
   for (const value of values) {
     const text = String(value || '').trim();
-    if (text && text !== '—') return text;
+    if (text && text !== '—' && !isCoordLikeAddress(text)) return text;
   }
   return '';
 }
@@ -48,18 +53,25 @@ export function tripDisplayPassengerName(trip) {
 }
 
 export function tripRouteAddresses(trip) {
-  const origin = firstNonEmpty(
+  const pickup = firstReadableAddress(
+    resolveTripPickupCoords(trip)?.address,
     trip?.origin_address,
     trip?.driverOrigin,
     trip?.originAddress,
-  );
-  const destRaw = firstNonEmpty(
+    trip?.destination_address,
+    trip?.dropoffAddress,
+    trip?.destinationAddress,
+    trip?.destination,
+    trip?.pickupAddress,
+  ) || '—';
+
+  const destRaw = firstReadableAddress(
+    resolveTripFinalDestCoords(trip)?.address,
     trip?.destination_address,
     trip?.dropoffAddress,
     trip?.destinationAddress,
     trip?.destination,
   );
-  const pickup = origin || firstNonEmpty(trip?.pickupAddress) || '—';
   const dest = destRaw && destRaw !== pickup ? destRaw : null;
   return { pickup, dest };
 }

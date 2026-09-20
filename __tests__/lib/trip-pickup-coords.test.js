@@ -114,6 +114,23 @@ describe('resolveTripPickupCoords', () => {
     expect(shouldPreservePickupOriginOnAssign(trip)).toBe(true);
   });
 
+  it('DASHBOARD_ASSIGN: retiro en destination_* aunque origin sea calle reverse-geocodificada', () => {
+    const trip = {
+      origin_address: 'Mendoza 1023',
+      origin_lat: -24.7943267,
+      origin_lng: -65.417385,
+      destination_address: 'Balcarce 1900',
+      destination_lat: -24.7658441,
+      destination_lng: -65.4098968,
+      notes: '[APPROACH_ONLY]\n[DASHBOARD_ASSIGN]\nViaje asignado desde el panel de operaciones.',
+    };
+
+    const pickup = resolveTripPickupCoords(trip);
+    expect(pickup.address).toBe('Balcarce 1900');
+    expect(pickup.lat).toBeCloseTo(-24.7658441, 5);
+    expect(shouldPreservePickupOriginOnAssign(trip)).toBe(false);
+  });
+
   it('passenger-app con destino acordado: no pide elegir destino al chofer', () => {
     const trip = {
       origin_address: 'Juana Hernandez 792, Salta',

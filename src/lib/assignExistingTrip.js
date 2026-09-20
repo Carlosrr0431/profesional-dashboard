@@ -1,4 +1,4 @@
-import { shouldPreservePickupOriginOnAssign } from '../../shared/trip-contract.js';
+import { isCoordLikeAddress, shouldPreservePickupOriginOnAssign } from '../../shared/trip-contract.js';
 
 export const ASSIGNABLE_EXISTING_TRIP_STATUSES = ['scheduled', 'queued', 'pending'];
 export const DRIVER_BUSY_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
@@ -103,7 +103,7 @@ export function dashboardDriverAvailability(driver) {
   return { code: 'free', label: 'Disponible', canAssign: true };
 }
 
-export function buildAssignExistingTripUpdate({ trip, driver, assignedAt }) {
+export function buildAssignExistingTripUpdate({ trip, driver, assignedAt, originAddress } = {}) {
   const { lat, lng } = resolveAssignDriverGps(driver);
   const update = {
     driver_id: driver.id,
@@ -113,7 +113,10 @@ export function buildAssignExistingTripUpdate({ trip, driver, assignedAt }) {
   };
 
   if (!shouldPreservePickupOriginOnAssign(trip) && hasValidDriverGps({ current_lat: lat, current_lng: lng })) {
-    update.origin_address = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    const street = String(originAddress || '').trim();
+    update.origin_address = street && !isCoordLikeAddress(street)
+      ? street
+      : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
     update.origin_lat = lat;
     update.origin_lng = lng;
   }

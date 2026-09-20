@@ -41,6 +41,16 @@ describe('tripCardMeta', () => {
       origin_address: 'Mitre 200',
       destination_address: 'Mitre 200',
     })).toEqual({ pickup: 'Mitre 200', dest: null });
+
+    expect(tripRouteAddresses({
+      origin_address: '-24.79433, -65.41738',
+      origin_lat: -24.7943267,
+      origin_lng: -65.417385,
+      destination_address: 'Balcarce 1900',
+      destination_lat: -24.7658441,
+      destination_lng: -65.4098968,
+      notes: '[APPROACH_ONLY]\n[DASHBOARD_ASSIGN]',
+    })).toEqual({ pickup: 'Balcarce 1900', dest: null });
   });
 
   it('resuelve el número de móvil desde la lista de choferes', () => {

@@ -57,6 +57,15 @@ describe('assignExistingTrip', () => {
     expect(legacy.origin_lat).toBe(-24.78);
     expect(legacy.origin_lng).toBe(-65.42);
     expect(legacy.origin_address).toMatch(/-24\.78000/);
+
+    const withStreet = buildAssignExistingTripUpdate({
+      trip: { notes: '[APPROACH_ONLY]\n[DASHBOARD_ASSIGN]', origin_address: null },
+      driver,
+      assignedAt,
+      originAddress: 'Mendoza 1023',
+    });
+    expect(withStreet.origin_address).toBe('Mendoza 1023');
+    expect(withStreet.origin_lat).toBe(-24.78);
   });
 
   it('usa el GPS live del mapa (lat) si current_lat está viejo', () => {

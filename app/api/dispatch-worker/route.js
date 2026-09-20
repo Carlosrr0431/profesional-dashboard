@@ -24,6 +24,7 @@ import {
 import { isPassengerInitiatedCancellation } from '../../../src/lib/passengerTripCancel';
 import { isStreetHailReassignmentBlocked } from '../../../src/lib/shouldReassignCancelledTrip';
 import { isPassengerAppTrip, shouldPreservePickupOriginOnAssign } from '../../../shared/trip-contract.js';
+import { resolveGpsStreetAddress } from '../../../src/lib/resolveGpsStreetAddress';
 import { trySendPassengerAppTripPush } from '../../../src/lib/passengerPushNotifications';
 import { recoverCancelledDriverReleases } from '../../../src/lib/driverReleaseTrip';
 import { notifyPassengerDriverReleased } from '../../../src/lib/notifyPassengerDriverReleased';
@@ -1573,9 +1574,11 @@ async function processDispatchClaim(claim) {
     // Legacy WhatsApp: origin_* = GPS del chofer al asignar.
     // Nuevo esquema / passenger-app: origin_* = recogida del pasajero (no pisar).
     if (!shouldPreservePickupOriginOnAssign(trip)) {
-      assignUpdate.origin_address = `${Number(selectedDriver.current_lat).toFixed(5)}, ${Number(selectedDriver.current_lng).toFixed(5)}`;
-      assignUpdate.origin_lat = Number(selectedDriver.current_lat);
-      assignUpdate.origin_lng = Number(selectedDriver.current_lng);
+      const driverLat = Number(selectedDriver.current_lat);
+      const driverLng = Number(selectedDriver.current_lng);
+      assignUpdate.origin_address = await resolveGpsStreetAddress(driverLat, driverLng);
+      assignUpdate.origin_lat = driverLat;
+      assignUpdate.origin_lng = driverLng;
     }
 
     const { data: assignedTrip, error: assignError } = await supabase

@@ -1,6 +1,8 @@
 import { isPassengerInitiatedCancellation, isOperatorInitiatedCancellation } from './passengerTripCancel';
 import { isStreetHailReassignmentBlocked } from './shouldReassignCancelledTrip';
 import {
+  buildFinalDestJsonMarker,
+  buildPickupJsonMarker,
   isPassengerAppTrip,
   isApproachOnlyTrip,
   isStreetHailTrip,
@@ -250,6 +252,9 @@ export function buildPendingToQueuedUpdate(trip, extras = {}) {
 
 export function buildDashboardAssignNotes({
   userNotes = '',
+  pickupAddress = null,
+  pickupLat = null,
+  pickupLng = null,
   dropoffAddress = null,
   dropoffLat = null,
   dropoffLng = null,
@@ -260,19 +265,21 @@ export function buildDashboardAssignNotes({
     String(userNotes || '').trim() || 'Viaje asignado desde el panel de operaciones.',
   ];
 
-  if (
-    dropoffAddress
-    && dropoffAddress !== 'A confirmar'
-    && hasValidPickupCoords(dropoffLat, dropoffLng)
-  ) {
-    parts.push(
-      `[FINAL_DEST_JSON:${JSON.stringify({
-        address: dropoffAddress,
-        lat: Number(dropoffLat),
-        lng: Number(dropoffLng),
-      })}]`
-    );
-  }
+  const pickupMarker = buildPickupJsonMarker({
+    address: pickupAddress,
+    lat: pickupLat,
+    lng: pickupLng,
+  });
+  if (pickupMarker) parts.push(pickupMarker);
+
+  const dropoffMarker = dropoffAddress && dropoffAddress !== 'A confirmar'
+    ? buildFinalDestJsonMarker({
+      address: dropoffAddress,
+      lat: dropoffLat,
+      lng: dropoffLng,
+    })
+    : null;
+  if (dropoffMarker) parts.push(dropoffMarker);
 
   return parts.join('\n');
 }

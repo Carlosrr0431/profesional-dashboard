@@ -3,7 +3,7 @@ import {
   isDriverEligibleForDispatch,
   resolveDispatchBlockReason,
 } from '../../../../shared/driver-billing.js';
-import { isPassengerAppTrip } from '../../../../shared/trip-contract.js';
+import { isPassengerAppTrip, shouldPreservePickupOriginOnAssign } from '../../../../shared/trip-contract.js';
 import { requireAdminUser } from '../../../../src/lib/adminAuthServer';
 import {
   ASSIGNABLE_EXISTING_TRIP_STATUSES,
@@ -11,6 +11,7 @@ import {
   buildAssignExistingTripUpdate,
   canManuallyAssignExistingTrip,
   hasValidDriverGps,
+  resolveAssignDriverGps,
 } from '../../../../src/lib/assignExistingTrip';
 import { applyLiveGpsToDriver } from '../../../../src/lib/driverMapGps';
 import { selectDriversCompat } from '../../../../src/lib/driversBillingSelect';
@@ -25,6 +26,7 @@ import {
 import { trySendPassengerAppTripPush } from '../../../../src/lib/passengerPushNotifications';
 import { getSupabaseAdmin } from '../../../../src/lib/supabaseAdmin';
 import { resolveDispatchPickupCoords } from '../../../../src/lib/tripRequeue';
+import { resolveGpsStreetAddress } from '../../../../src/lib/resolveGpsStreetAddress';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -206,10 +208,18 @@ export async function POST(request) {
       );
     }
 
+    const assignedAt = new Date().toISOString();
+    let originAddress;
+    if (!shouldPreservePickupOriginOnAssign(trip) && hasValidDriverGps(driver)) {
+      const gps = resolveAssignDriverGps(driver);
+      originAddress = await resolveGpsStreetAddress(gps.lat, gps.lng);
+    }
+
     const assignUpdate = buildAssignExistingTripUpdate({
       trip,
       driver,
-      assignedAt: new Date().toISOString(),
+      assignedAt,
+      originAddress,
     });
 
     if (assignUpdate.origin_lat != null && !hasValidDriverGps(driver)) {

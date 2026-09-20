@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { requireAdminUser } from '../../../../src/lib/adminAuthServer';
 import { getSupabaseAdmin } from '../../../../src/lib/supabaseAdmin';
 import { buildDashboardAssignNotes } from '../../../../src/lib/tripRequeue';
+import { isCoordLikeAddress } from '../../../../shared/trip-contract.js';
+import { resolveGpsStreetAddress } from '../../../../src/lib/resolveGpsStreetAddress';
 import {
   isDriverEligibleForDispatch,
   resolveDispatchBlockReason,
@@ -70,10 +72,21 @@ export async function POST(request) {
 
   const tripNotes = buildDashboardAssignNotes({
     userNotes,
+    pickupAddress: destinationAddress,
+    pickupLat: destinationLat,
+    pickupLng: destinationLng,
     dropoffAddress,
     dropoffLat,
     dropoffLng,
   });
+
+  const requestedOrigin = sanitizeText(body?.origin_address);
+  let originAddress = null;
+  if (hasDriverCoords) {
+    originAddress = requestedOrigin && !isCoordLikeAddress(requestedOrigin)
+      ? requestedOrigin
+      : await resolveGpsStreetAddress(driverLat, driverLng);
+  }
 
   const tripData = {
     driver_id: driverId,
@@ -82,9 +95,7 @@ export async function POST(request) {
     destination_address: destinationAddress,
     destination_lat: destinationLat,
     destination_lng: destinationLng,
-    origin_address: hasDriverCoords
-      ? (sanitizeText(body?.origin_address) || `${driverLat.toFixed(5)}, ${driverLng.toFixed(5)}`)
-      : null,
+    origin_address: originAddress,
     origin_lat: hasDriverCoords ? driverLat : null,
     origin_lng: hasDriverCoords ? driverLng : null,
     status: 'pending',

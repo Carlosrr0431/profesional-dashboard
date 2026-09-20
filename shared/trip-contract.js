@@ -51,6 +51,7 @@ const NOTES_MARKERS = {
   APPROACH_ONLY: '[APPROACH_ONLY]',
   WHATSAPP: '[WHATSAPP]',
   DASHBOARD: '[DASHBOARD]',
+  DASHBOARD_ASSIGN: '[DASHBOARD_ASSIGN]',
   PASSENGER_APP: '[PASSENGER_APP]',
   FINAL_DEST_JSON_PREFIX: '[FINAL_DEST_JSON:',
   PICKUP_JSON_PREFIX: '[PICKUP_JSON:',
@@ -129,6 +130,10 @@ function isPassengerAppTrip(trip) {
 
 function isStreetHailTrip(trip) {
   return String(trip?.notes || '').includes(NOTES_MARKERS.STREET_HAIL);
+}
+
+function isDashboardAssignTrip(trip) {
+  return String(trip?.notes || '').includes(NOTES_MARKERS.DASHBOARD_ASSIGN);
 }
 
 function buildStreetHailNotes(origin = {}) {
@@ -346,7 +351,7 @@ const MACHINE_NOTE_TAGS = [
   NOTES_MARKERS.WHATSAPP,
   NOTES_MARKERS.PASSENGER_APP,
   '[PASSENGER_WEB]',
-  '[DASHBOARD_ASSIGN]',
+  NOTES_MARKERS.DASHBOARD_ASSIGN,
   NOTES_MARKERS.DASHBOARD,
   NOTES_MARKERS.STREET_HAIL,
   '[FREE_RIDE]',
@@ -541,6 +546,18 @@ function usesPassengerAppPickupSchema(trip = {}) {
   return true;
 }
 
+function resolveDestinationPickupCoords(trip = {}) {
+  const destLat = Number(trip.destination_lat);
+  const destLng = Number(trip.destination_lng);
+  if (!Number.isFinite(destLat) || !Number.isFinite(destLng)) return null;
+  const destAddress = String(trip.destination_address || '').trim();
+  return {
+    address: destAddress || null,
+    lat: destLat,
+    lng: destLng,
+  };
+}
+
 function resolveWhatsappApproachPickupCoords(trip = {}) {
   const fromNotes = extractPickupFromNotes(trip?.notes);
   const noteLat = Number(fromNotes?.lat);
@@ -551,6 +568,13 @@ function resolveWhatsappApproachPickupCoords(trip = {}) {
       lat: noteLat,
       lng: noteLng,
     };
+  }
+
+  // Asignación directa del panel: destination_* es el retiro; origin_* es GPS del chofer
+  // (coords o calle reverse-geocodificada). No tratar origin como recogida.
+  if (isDashboardAssignTrip(trip)) {
+    const fromDest = resolveDestinationPickupCoords(trip);
+    if (fromDest) return fromDest;
   }
 
   const originLat = Number(trip.origin_lat);
@@ -569,15 +593,8 @@ function resolveWhatsappApproachPickupCoords(trip = {}) {
     };
   }
 
-  const destLat = Number(trip.destination_lat);
-  const destLng = Number(trip.destination_lng);
-  if (Number.isFinite(destLat) && Number.isFinite(destLng)) {
-    return {
-      address: trip.destination_address || null,
-      lat: destLat,
-      lng: destLng,
-    };
-  }
+  const fromDest = resolveDestinationPickupCoords(trip);
+  if (fromDest) return fromDest;
 
   if (Number.isFinite(originLat) && Number.isFinite(originLng)) {
     return {
@@ -606,6 +623,8 @@ function hasReadablePickupInOrigin(trip = {}) {
 function shouldPreservePickupOriginOnAssign(trip = {}) {
   if (isStreetHailTrip(trip)) return true;
   if (isPassengerAppTrip(trip)) return true;
+  // origin_* es la posición del chofer, no el retiro: se actualiza en cada asignación.
+  if (isDashboardAssignTrip(trip)) return false;
   if (notesContainPickupJson(trip?.notes)) return true;
   return hasReadablePickupInOrigin(trip);
 }
@@ -780,6 +799,7 @@ module.exports = {
   isApproachOnlyTrip,
   isPassengerAppTrip,
   isStreetHailTrip,
+  isDashboardAssignTrip,
   getScheduledTripSource,
   isPassengerAppScheduledTrip,
   isWhatsAppScheduledTrip,
