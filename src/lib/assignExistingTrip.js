@@ -10,9 +10,20 @@ export function canManuallyAssignExistingTrip(trip) {
 }
 
 export function hasValidDriverGps(driver) {
-  const lat = Number(driver?.current_lat ?? driver?.lat);
-  const lng = Number(driver?.current_lng ?? driver?.lng);
+  const { lat, lng } = resolveAssignDriverGps(driver);
   return Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
+}
+
+export function resolveAssignDriverGps(driver) {
+  const mapLat = Number(driver?.lat);
+  const mapLng = Number(driver?.lng);
+  if (Number.isFinite(mapLat) && Number.isFinite(mapLng) && !(mapLat === 0 && mapLng === 0)) {
+    return { lat: mapLat, lng: mapLng };
+  }
+  return {
+    lat: Number(driver?.current_lat),
+    lng: Number(driver?.current_lng),
+  };
 }
 
 export function isFreeDashboardDriver(driver) {
@@ -93,8 +104,7 @@ export function dashboardDriverAvailability(driver) {
 }
 
 export function buildAssignExistingTripUpdate({ trip, driver, assignedAt }) {
-  const lat = Number(driver?.current_lat ?? driver?.lat);
-  const lng = Number(driver?.current_lng ?? driver?.lng);
+  const { lat, lng } = resolveAssignDriverGps(driver);
   const update = {
     driver_id: driver.id,
     status: 'pending',

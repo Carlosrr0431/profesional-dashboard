@@ -12,6 +12,7 @@ import {
   canManuallyAssignExistingTrip,
   hasValidDriverGps,
 } from '../../../../src/lib/assignExistingTrip';
+import { applyLiveGpsToDriver } from '../../../../src/lib/driverMapGps';
 import { selectDriversCompat } from '../../../../src/lib/driversBillingSelect';
 import {
   getFirebaseMessagingClient,
@@ -53,6 +54,7 @@ const DRIVER_SELECT = [
   'push_token',
   'current_lat',
   'current_lng',
+  'updated_at',
   'is_available',
   'pending_commission',
   'commission_debt_since_at',
@@ -181,16 +183,11 @@ export async function POST(request) {
 
     const { data: locRows } = await supabase
       .from('driver_locations')
-      .select('lat, lng')
+      .select('lat, lng, updated_at, recorded_at')
       .eq('driver_id', driverId)
       .limit(1);
     const loc = Array.isArray(locRows) ? locRows[0] : locRows;
-
-    const driver = {
-      ...driverRow,
-      current_lat: Number(loc?.lat ?? driverRow.current_lat),
-      current_lng: Number(loc?.lng ?? driverRow.current_lng),
-    };
+    const driver = applyLiveGpsToDriver(driverRow, loc || null);
 
     const { data: busyTrip, error: busyError } = await supabase
       .from('trips')

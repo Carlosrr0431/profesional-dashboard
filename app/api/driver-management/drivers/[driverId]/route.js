@@ -174,6 +174,25 @@ export async function PATCH(request, { params }) {
 
     if (error) throw error;
 
+    if (
+      Object.prototype.hasOwnProperty.call(driverUpdates, 'billing_mode')
+      && data
+      && !data.is_assigned_driver
+    ) {
+      try {
+        await supabase
+          .from('drivers')
+          .update({
+            billing_mode: data.billing_mode,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('owner_id', data.id)
+          .eq('is_assigned_driver', true);
+      } catch (assignErr) {
+        console.warn('[driver-management] no se copió billing_mode a asignados', assignErr?.message);
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       data,

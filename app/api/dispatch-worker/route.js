@@ -51,6 +51,7 @@ import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 import { isDriverEligibleForDispatch } from '../../../shared/driver-billing.js';
 import { selectDriversCompat } from '../../../src/lib/driversBillingSelect';
 import { resolvePreferredDriverId } from '../../../src/lib/assignExistingTrip';
+import { applyLiveGpsToDrivers, indexDriverLocationsById } from '../../../src/lib/driverMapGps';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -669,16 +670,28 @@ async function chooseDriverForClaim(
     : getActiveDispatchExcludedDriverIds(trip?.wa_context);
   const excludedDriverIdsSet = new Set(excludedDriverIdList);
 
-  const { data: driversRaw, error } = await selectDriversCompat(
-    getSupabaseAdmin(),
-    'id, full_name, phone, push_token, current_lat, current_lng, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
-    (query) => query.eq('is_available', true),
-  );
+  const [{ data: driversRaw, error }, locsRes] = await Promise.all([
+    selectDriversCompat(
+      getSupabaseAdmin(),
+      'id, full_name, phone, push_token, current_lat, current_lng, updated_at, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
+      (query) => query.eq('is_available', true),
+    ),
+    getSupabaseAdmin()
+      .from('driver_locations')
+      .select('driver_id, lat, lng, speed, heading, updated_at, recorded_at'),
+  ]);
 
   if (error) throw error;
+  if (locsRes.error) {
+    logWorker('driver_locations_fetch_error', { error: summarizeDbError(locsRes.error) });
+  }
 
   // Cobro por comisiones: 1 sem. trabajo + 3 días gracia. Semanal: solo bloqueo manual.
-  const drivers = (driversRaw || []).filter((d) => isDriverEligibleForDispatch(d));
+  const locByDriver = indexDriverLocationsById(locsRes.error ? [] : locsRes.data);
+  const drivers = applyLiveGpsToDrivers(
+    (driversRaw || []).filter((d) => isDriverEligibleForDispatch(d)),
+    locByDriver,
+  );
 
   const suspendedCount = (driversRaw || []).length - drivers.length;
   if (suspendedCount > 0) {

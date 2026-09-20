@@ -59,6 +59,22 @@ describe('assignExistingTrip', () => {
     expect(legacy.origin_address).toMatch(/-24\.78000/);
   });
 
+  it('usa el GPS live del mapa (lat) si current_lat está viejo', () => {
+    const update = buildAssignExistingTripUpdate({
+      trip: { notes: '', origin_address: null, origin_lat: null, origin_lng: null },
+      driver: {
+        id: 'drv-1',
+        current_lat: -24.70,
+        current_lng: -65.30,
+        lat: -24.801,
+        lng: -65.430,
+      },
+      assignedAt: '2026-08-31T22:00:00.000Z',
+    });
+    expect(update.origin_lat).toBe(-24.801);
+    expect(update.origin_lng).toBe(-65.430);
+  });
+
   it('detecta GPS inválido en 0,0', () => {
     expect(hasValidDriverGps({ current_lat: 0, current_lng: 0 })).toBe(false);
     expect(hasValidDriverGps({ lat: -24.7, lng: -65.4 })).toBe(true);

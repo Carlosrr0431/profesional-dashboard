@@ -46,6 +46,7 @@ describe('driverRoles (dashboard)', () => {
       vehicle_model: 'Gol',
       vehicle_plate: 'AB123CD',
       vehicle_type: 'auto',
+      billing_mode: 'weekly_traditional',
     };
     const payload = buildAssignedDriverInsertPayload(owner, {
       fullName: 'Charly Brown',
@@ -58,6 +59,7 @@ describe('driverRoles (dashboard)', () => {
     expect(payload.vehicle_plate).toBe('AB123CD');
     expect(payload.owner_id).toBe('owner-1');
     expect(payload.phone).toBe('3878630173');
+    expect(payload.billing_mode).toBe('weekly_traditional');
   });
 
   it('normaliza y valida el correo de ingreso', () => {
