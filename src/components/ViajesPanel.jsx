@@ -83,7 +83,14 @@ function formatPrice(value) {
   }).format(value);
 }
 
-function tripStatusInfo(status) {
+function tripStatusInfo(status, trip) {
+  const nextId = trip?.nextAfterTripId || trip?.next_after_trip_id;
+  if (nextId && status === 'pending') {
+    return { label: 'Siguiente viaje', color: 'bg-violet-50 text-violet-700 border-violet-200', bar: 'bg-violet-500' };
+  }
+  if (nextId && status === 'accepted') {
+    return { label: 'Siguiente reservado', color: 'bg-violet-50 text-violet-700 border-violet-200', bar: 'bg-violet-500' };
+  }
   switch (status) {
     case 'queued':
       return { label: 'En cola', color: 'bg-amber-50 text-amber-700 border-amber-200', bar: 'bg-amber-500' };
@@ -166,6 +173,11 @@ function QueueCard({ item, isFirst, onCancelled }) {
                 Próximo
               </span>
             ) : null}
+            {item.nextAfterTripId ? (
+              <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-700">
+                Siguiente viaje
+              </span>
+            ) : null}
             <span className={`ml-auto rounded-full border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
               urgent ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-600'
             }`}>
@@ -174,7 +186,10 @@ function QueueCard({ item, isFirst, onCancelled }) {
           </div>
           <p className="mt-0.5 text-[11px] text-slate-500">{formatPhone(item.phone)}</p>
           <p className="mt-1.5 text-[12px] font-medium leading-snug text-navy-800">{item.pickupAddress}</p>
-          <p className="mt-1 text-[10px] text-slate-400">En cola desde {formatDateTime(item.queuedAt)}</p>
+          <p className="mt-1 text-[10px] text-slate-400">
+            {item.nextAfterTripId ? 'Siguiente viaje desde ' : 'En cola desde '}
+            {formatDateTime(item.queuedAt)}
+          </p>
           <TripNotesEditor
             compact
             tripId={item.id}
@@ -195,7 +210,7 @@ function QueueCard({ item, isFirst, onCancelled }) {
 }
 
 function TripCard({ trip, onCancelled }) {
-  const { label, color, bar } = tripStatusInfo(trip.status);
+  const { label, color, bar } = tripStatusInfo(trip.status, trip);
   const driverName = trip.driver?.full_name || null;
   const driverPlate = trip.driver?.vehicle_plate || '';
   const driverVehicle = [trip.driver?.vehicle_brand, trip.driver?.vehicle_model].filter(Boolean).join(' ');
@@ -236,8 +251,12 @@ function TripCard({ trip, onCancelled }) {
           ) : null}
           {driverVehicle ? <span className="text-[10px] text-slate-400">{driverVehicle}</span> : null}
         </div>
-      ) : trip.status === 'queued' || trip.status === 'pending' ? (
+      ) : trip.status === 'queued' || (trip.status === 'pending' && !trip.nextAfterTripId) ? (
         <p className="mt-2.5 pl-1 text-[11px] font-medium text-amber-600">Sin chofer asignado</p>
+      ) : trip.status === 'pending' && trip.nextAfterTripId ? (
+        <p className="mt-2.5 pl-1 text-[11px] font-medium text-violet-700">
+          Queda como siguiente. Arranca cuando termine el viaje actual.
+        </p>
       ) : null}
 
       <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1 pl-1 text-[10px] text-slate-400">
@@ -648,7 +667,9 @@ export default function ViajesPanel({
             <section className="rounded-2xl border border-slate-200/70 bg-white/90 p-3.5 shadow-sm shadow-slate-900/5">
               <div className="mb-3">
                 <h3 className="text-[13px] font-bold text-navy-900">Cola activa</h3>
-                <p className="text-[10px] text-slate-500">Orden FIFO · el #1 se despacha primero</p>
+                <p className="text-[10px] text-slate-500">
+                  FIFO · si nadie acepta, se ofrece como siguiente viaje a un chofer ocupado
+                </p>
               </div>
 
               {loading && queuedList.length === 0 ? (

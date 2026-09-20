@@ -7,7 +7,7 @@ const LIVE_STATUSES = ['queued', 'pending', 'accepted', 'going_to_pickup', 'in_p
 const TRIP_SELECT =
   'id, passenger_name, passenger_phone, origin_address, destination_address, ' +
   'status, created_at, accepted_at, started_at, completed_at, notes, driver_id, ' +
-  'cancel_reason, price, distance_km, duration_minutes, commission_amount, dispatch_status';
+  'cancel_reason, price, distance_km, duration_minutes, commission_amount, dispatch_status, next_after_trip_id';
 
 const RANGE_LIMITS = {
   day: 400,

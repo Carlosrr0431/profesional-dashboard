@@ -59,6 +59,8 @@ import { resolvePreferredDriverId } from '../../../src/lib/assignExistingTrip';
 import { applyLiveGpsToDrivers, indexDriverLocationsById } from '../../../src/lib/driverMapGps';
 import {
   pickBusyNextTripCandidate,
+  pickIdleThenBusyByRadius,
+  countUnacceptedDispatchOffers,
   shouldFallbackToBusyDrivers,
   buildNextTripOfferAssignUpdate,
   partitionDriverBusyTrips,
@@ -656,8 +658,10 @@ function selectBusyNextTripOffer({
   preferredDriverId,
   preferredOnly,
   normalizedAttemptNo,
+  unacceptedOffers = 0,
+  idleInRadiusCount = 0,
 }) {
-  if (!shouldFallbackToBusyDrivers({ idleInRadiusCount: 0 })) return null;
+  if (!shouldFallbackToBusyDrivers({ idleInRadiusCount, unacceptedOffers })) return null;
 
   const currentTripByDriverId = {};
   for (const liveTrip of liveBusyTrips || []) {
@@ -835,6 +839,10 @@ async function chooseDriverForClaim(
   const busyDriverPool = mergeDriversById(withoutExcluded, extraBusyDrivers);
 
   const preferredDriverIdForBusy = resolvePreferredDriverId(trip?.wa_context);
+  const unacceptedOffers = countUnacceptedDispatchOffers({
+    dispatchAttempts: Math.max(Number(trip?.dispatch_attempts) || 0, normalizedAttemptNo - 1),
+    excludedDriverCount: excludedDriverIdsSet.size,
+  });
   const busyOfferArgs = {
     trip,
     pickupLat,
@@ -847,6 +855,7 @@ async function chooseDriverForClaim(
     preferredDriverId: preferredDriverIdForBusy,
     preferredOnly,
     normalizedAttemptNo,
+    unacceptedOffers,
   };
 
   if (!withoutExcluded.length) {
@@ -924,6 +933,7 @@ async function chooseDriverForClaim(
     noChannelFiltered: noChannelFilteredCount,
     reachable: reachableDrivers.length,
     allowedRadiiKm: allowedRadii,
+    unacceptedOffers,
   });
 
   if (!reachableDrivers.length) {
@@ -1015,36 +1025,42 @@ async function chooseDriverForClaim(
     allowedRadiiKm: allowedRadii,
     nearestDistanceKm: scored[0] ? Number(scored[0].distanceKm.toFixed(3)) : null,
     ringDistribution,
+    unacceptedOffers,
   });
 
-  for (const radiusKm of allowedRadii) {
-    const inRadius = scored.filter((item) => item.distanceKm <= radiusKm);
-    if (inRadius.length > 0) {
-      const selected = {
-        ...inRadius[0],
-        radiusKm,
-        allowedRadiiKm: allowedRadii,
-      };
+  const selected = pickIdleThenBusyByRadius({
+    idleCandidates: scored,
+    allowedRadiiKm: allowedRadii,
+    unacceptedOffers,
+    pickBusyAtRadii: (radii) => selectBusyNextTripOffer({
+      ...busyOfferArgs,
+      allowedRadii: radii,
+      preferredDriverId,
+      preferredOnly,
+    }),
+  });
 
-      logWorker('driver_selected', {
-        tripId: trip?.id || null,
-        attemptNo: normalizedAttemptNo,
-        claimAttemptNo: normalizedClaimAttemptNo,
-        queueAgeSeconds,
-        driverId: selected?.driver?.id || null,
-        distanceKm: Number(selected.distanceKm.toFixed(3)),
-        scoreKm: Number(selected.scoreKm.toFixed(3)),
-        selectedRadiusKm: radiusKm,
-        allowedRadiiKm: allowedRadii,
-        hasPushToken: isLikelyFcmToken(selected?.driver?.push_token),
-        hasWhatsApp: normalizePhone(selected?.driver?.phone || '').length >= 8,
-      });
+  if (selected?.driver) {
+    if (selected.nextTrip) return selected;
 
-      return selected;
-    }
+    logWorker('driver_selected', {
+      tripId: trip?.id || null,
+      attemptNo: normalizedAttemptNo,
+      claimAttemptNo: normalizedClaimAttemptNo,
+      queueAgeSeconds,
+      driverId: selected?.driver?.id || null,
+      distanceKm: Number(selected.distanceKm.toFixed(3)),
+      scoreKm: Number(selected.scoreKm.toFixed(3)),
+      selectedRadiusKm: selected.radiusKm,
+      allowedRadiiKm: allowedRadii,
+      hasPushToken: isLikelyFcmToken(selected?.driver?.push_token),
+      hasWhatsApp: normalizePhone(selected?.driver?.phone || '').length >= 8,
+    });
+
+    return selected;
   }
 
-  if (shouldFallbackToBusyDrivers({ idleInRadiusCount: 0 })) {
+  if (shouldFallbackToBusyDrivers({ idleInRadiusCount: 0, unacceptedOffers })) {
     const busyOffer = selectBusyNextTripOffer({
       ...busyOfferArgs,
       preferredDriverId,

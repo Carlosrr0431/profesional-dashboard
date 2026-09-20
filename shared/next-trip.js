@@ -53,8 +53,53 @@ function shouldTreatAsLiveDriverTrip(trip) {
   return !getNextAfterTripId(trip);
 }
 
-function shouldFallbackToBusyDrivers({ idleInRadiusCount } = {}) {
+function countUnacceptedDispatchOffers({ dispatchAttempts, excludedDriverCount } = {}) {
+  const attempts = Math.max(0, Math.round(Number(dispatchAttempts) || 0));
+  const excluded = Math.max(0, Math.round(Number(excludedDriverCount) || 0));
+  return Math.max(attempts, excluded);
+}
+
+function shouldFallbackToBusyDrivers({ idleInRadiusCount, unacceptedOffers } = {}) {
+  if (Math.max(0, Number(unacceptedOffers) || 0) > 0) return true;
   return Math.max(0, Number(idleInRadiusCount) || 0) <= 0;
+}
+
+/**
+ * Por anillo: primero libres. Si el viaje ya se ofreció y nadie aceptó,
+ * el mismo anillo puede ir a un ocupado (siguiente viaje) en vez de
+ * seguir buscando un libre más lejos.
+ */
+function pickIdleThenBusyByRadius({
+  idleCandidates = [],
+  allowedRadiiKm = [],
+  unacceptedOffers = 0,
+  pickBusyAtRadii,
+} = {}) {
+  const radii = Array.isArray(allowedRadiiKm)
+    ? allowedRadiiKm.map((km) => Number(km)).filter((km) => Number.isFinite(km) && km > 0)
+    : [];
+  if (!radii.length) return null;
+
+  const idle = Array.isArray(idleCandidates) ? idleCandidates : [];
+
+  for (const radiusKm of radii) {
+    const idleInRadius = idle.filter((item) => Number(item?.distanceKm) <= radiusKm);
+    if (idleInRadius.length > 0) {
+      return {
+        ...idleInRadius[0],
+        radiusKm,
+        allowedRadiiKm: radii,
+      };
+    }
+
+    if (Math.max(0, Number(unacceptedOffers) || 0) <= 0) continue;
+    if (typeof pickBusyAtRadii !== 'function') continue;
+
+    const busy = pickBusyAtRadii(radii.filter((km) => km <= radiusKm));
+    if (busy?.driver) return busy;
+  }
+
+  return null;
 }
 
 function canOfferNextTripToBusyDriver({
@@ -270,7 +315,9 @@ module.exports = {
   isNextTripOffer,
   isReservedNextTrip,
   shouldTreatAsLiveDriverTrip,
+  countUnacceptedDispatchOffers,
   shouldFallbackToBusyDrivers,
+  pickIdleThenBusyByRadius,
   canOfferNextTripToBusyDriver,
   resolveBusyAnchorCoords,
   pickBusyNextTripCandidate,

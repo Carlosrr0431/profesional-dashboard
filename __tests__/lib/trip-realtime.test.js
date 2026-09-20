@@ -87,6 +87,24 @@ describe('tripRealtime', () => {
     expect(next[0].position).toBe(1);
   });
 
+  it('mantiene en cola un viaje ofertado como siguiente', () => {
+    const queue = [{ id: 'q1', position: 1, passengerName: 'Uno', status: 'queued' }];
+    const next = applyTripRealtimeToQueue(queue, {
+      eventType: 'UPDATE',
+      new: {
+        id: 'q1',
+        status: 'pending',
+        next_after_trip_id: 'live-1',
+        driver_id: 'd1',
+        passenger_name: 'Uno',
+        created_at: '2026-09-07T00:00:00.000Z',
+      },
+    });
+    expect(next).toHaveLength(1);
+    expect(next[0].status).toBe('pending');
+    expect(next[0].nextAfterTripId).toBe('live-1');
+  });
+
   it('agrega a la cola un viaje queued y ignora hold', () => {
     const inserted = applyTripRealtimeToQueue([], {
       eventType: 'INSERT',

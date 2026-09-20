@@ -13,13 +13,23 @@ function formatPickupAddress(address) {
   return parts.slice(0, 2).join(', ');
 }
 
-function getQueueStatusMeta(status) {
+function getQueueStatusMeta(status, extras = {}) {
   const key = String(status || '').toLowerCase();
+  const nextId = extras.nextAfterTripId || extras.next_after_trip_id;
+  if (nextId && (key === 'pending' || key === 'accepted')) {
+    return {
+      label: key === 'accepted' ? 'Siguiente reservado' : 'Siguiente viaje',
+      className: 'bg-violet-50 text-violet-700 ring-violet-200',
+      avatarClass: 'bg-violet-50 text-violet-700 ring-2 ring-violet-200',
+      dotClass: 'bg-violet-600',
+    };
+  }
   if (key === 'pending') {
     return {
       label: 'Esperando aceptación',
       className: 'bg-rose-50 text-rose-600 ring-rose-200',
       avatarClass: 'bg-rose-50 text-rose-600 ring-2 ring-rose-200',
+      dotClass: 'bg-rose-600',
     };
   }
   if (key === 'scheduled') {
@@ -27,12 +37,14 @@ function getQueueStatusMeta(status) {
       label: 'Programado',
       className: 'bg-sky-50 text-sky-700 ring-sky-200',
       avatarClass: 'bg-sky-50 text-sky-700 ring-2 ring-sky-200',
+      dotClass: 'bg-sky-600',
     };
   }
   return {
     label: 'En cola',
     className: 'bg-amber-50 text-amber-700 ring-amber-200',
     avatarClass: 'bg-amber-50 text-amber-700 ring-2 ring-amber-200',
+    dotClass: 'bg-amber-500',
   };
 }
 
@@ -58,7 +70,7 @@ export default function PassengerInfoWindow({
   onClose,
   onAssigned,
 }) {
-  const status = getQueueStatusMeta(trip?.status);
+  const status = getQueueStatusMeta(trip?.status, trip);
   const initials = passengerInitials(trip?.passengerName);
   const canAssign = canManuallyAssignExistingTrip(trip);
   const offered = resolveOfferedDriver(trip, drivers);
@@ -66,6 +78,7 @@ export default function PassengerInfoWindow({
   const destinationRaw = String(trip?.destinationAddress || trip?.destination_address || '').trim();
   const destination = destinationRaw ? formatPickupAddress(destinationRaw) : '';
   const showDestination = Boolean(destination) && destination !== pickup;
+  const nextAfterTripId = trip?.nextAfterTripId || trip?.next_after_trip_id;
   const offeredLabel = offered
     ? `${driverDisplayName(offered)}${offered.driverNumber != null ? ` · #${offered.driverNumber}` : ''}`
     : null;
@@ -84,7 +97,7 @@ export default function PassengerInfoWindow({
               {trip?.passengerName || 'Pasajero'}
             </h3>
             <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${status.className}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${trip?.status === 'pending' ? 'bg-rose-600' : trip?.status === 'scheduled' ? 'bg-sky-600' : 'bg-amber-500'}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${status.dotClass}`} />
               {status.label}
             </span>
           </div>
@@ -122,11 +135,15 @@ export default function PassengerInfoWindow({
           </div>
         ) : null}
         {offeredLabel ? (
-          <div className="rounded-2xl bg-rose-50/90 px-3 py-2.5 ring-1 ring-rose-100">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-rose-500">Ofertado a</p>
+          <div className={`rounded-2xl px-3 py-2.5 ring-1 ${nextAfterTripId ? 'bg-violet-50 ring-violet-100' : 'bg-rose-50/90 ring-rose-100'}`}>
+            <p className={`text-[10px] font-bold uppercase tracking-wide ${nextAfterTripId ? 'text-violet-600' : 'text-rose-500'}`}>
+              {nextAfterTripId ? 'Siguiente viaje' : 'Ofertado a'}
+            </p>
             <p className="mt-0.5 truncate text-[13px] font-semibold text-slate-800">{offeredLabel}</p>
-            <p className="mt-0.5 text-[11px] leading-snug text-rose-600">
-              Todavía no aceptó. Podés derivarlo a otro móvil, incluso si está en viaje.
+            <p className={`mt-0.5 text-[11px] leading-snug ${nextAfterTripId ? 'text-violet-700' : 'text-rose-600'}`}>
+              {nextAfterTripId
+                ? 'Arranca cuando termine el viaje actual. Si no acepta, podés derivarlo a otro móvil.'
+                : 'Todavía no aceptó. Podés derivarlo a otro móvil, incluso si está en viaje.'}
             </p>
           </div>
         ) : null}

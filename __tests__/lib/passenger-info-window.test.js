@@ -16,6 +16,7 @@ describe('PassengerInfoWindow helpers', () => {
     expect(getQueueStatusMeta('pending').label).toBe('Esperando aceptación');
     expect(getQueueStatusMeta('queued').label).toBe('En cola');
     expect(getQueueStatusMeta('scheduled').label).toBe('Programado');
+    expect(getQueueStatusMeta('pending', { nextAfterTripId: 'live-1' }).label).toBe('Siguiente viaje');
   });
 
   it('resuelve el chofer al que ya se ofertó el viaje pendiente', () => {

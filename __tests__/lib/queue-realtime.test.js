@@ -22,11 +22,18 @@ describe('tripBelongsInWaitQueue', () => {
     expect(tripBelongsInWaitQueue({ status: 'queued', dispatch_status: 'queued' })).toBe(true);
   });
 
-  it('rechaza cancelado, hold y cualquier status que no sea queued', () => {
+  it('rechaza cancelado, hold y pending normal', () => {
     expect(tripBelongsInWaitQueue({ status: 'cancelled' })).toBe(false);
     expect(tripBelongsInWaitQueue({ status: 'queued', dispatch_status: 'cancelled' })).toBe(false);
     expect(tripBelongsInWaitQueue({ status: 'queued', dispatch_status: 'hold' })).toBe(false);
     expect(tripBelongsInWaitQueue({ status: 'pending' })).toBe(false);
+  });
+
+  it('mantiene en cola un siguiente viaje pendiente de aceptación', () => {
+    expect(tripBelongsInWaitQueue({
+      status: 'pending',
+      next_after_trip_id: 'live-1',
+    })).toBe(true);
   });
 });
 
@@ -47,6 +54,23 @@ describe('applyQueueRealtimeChange', () => {
       old: { id: 'trip-carlos' },
     });
     expect(next).toEqual([]);
+  });
+
+  it('no saca de la cola un siguiente viaje pendiente', () => {
+    const next = applyQueueRealtimeChange([queuedCarlos], {
+      eventType: 'UPDATE',
+      new: {
+        id: 'trip-carlos',
+        status: 'pending',
+        next_after_trip_id: 'live-1',
+        passenger_name: 'Carlos',
+        created_at: '2026-08-29T12:00:00.000Z',
+      },
+      old: { id: 'trip-carlos', status: 'queued' },
+    });
+    expect(next).toHaveLength(1);
+    expect(next[0].nextAfterTripId).toBe('live-1');
+    expect(next[0].status).toBe('pending');
   });
 
   it('saca el viaje si solo cambia dispatch_status a cancelled', () => {

@@ -21,19 +21,29 @@ export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
 
-    // Cola de espera: viajes sin chofer asignado (status='queued'), orden FIFO
-    const { data: queuedTripsRaw, error: queuedErr } = await supabase
-      .from('trips')
-      .select('id, passenger_name, passenger_phone, origin_address, destination_address, destination_lat, destination_lng, price, distance_km, duration_minutes, dispatch_attempts, notes, created_at, dispatch_status')
-      .eq('status', 'queued')
-      .order('created_at', { ascending: true });
+    const queueSelect =
+      'id, passenger_name, passenger_phone, origin_address, destination_address, destination_lat, destination_lng, price, distance_km, duration_minutes, dispatch_attempts, notes, created_at, dispatch_status, status, next_after_trip_id, driver_id';
 
-    // Excluir placeholders en 'hold' que aún esperan respuesta de poll
-    const queuedTrips = (queuedTripsRaw || []).filter(
-      (t) => t.dispatch_status !== 'hold'
-    );
+    const [{ data: queuedTripsRaw, error: queuedErr }, { data: nextTripOffersRaw, error: nextTripErr }] = await Promise.all([
+      supabase
+        .from('trips')
+        .select(queueSelect)
+        .eq('status', 'queued')
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('trips')
+        .select(queueSelect)
+        .eq('status', 'pending')
+        .not('next_after_trip_id', 'is', null)
+        .order('created_at', { ascending: true }),
+    ]);
 
     if (queuedErr) throw queuedErr;
+    if (nextTripErr) throw nextTripErr;
+
+    const queuedTrips = [...(queuedTripsRaw || []), ...(nextTripOffersRaw || [])]
+      .filter((t) => t.dispatch_status !== 'hold')
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
     // Log de viajes recientes creados desde WhatsApp (marcados [APPROACH_ONLY])
     // Incluye todos los estados: pending, accepted, in_progress, completed, cancelled
@@ -41,7 +51,7 @@ export async function GET() {
       .from('trips')
       .select(
         'id, passenger_name, passenger_phone, destination_address, origin_address, ' +
-        'status, created_at, accepted_at, started_at, completed_at, notes, driver_id, cancel_reason'
+        'status, created_at, accepted_at, started_at, completed_at, notes, driver_id, cancel_reason, next_after_trip_id'
       )
       .ilike('notes', '%APPROACH_ONLY%')
       .order('created_at', { ascending: false })
@@ -79,7 +89,8 @@ export async function GET() {
       durationMinutes: trip.duration_minutes ? Number(trip.duration_minutes) : null,
       dispatchAttempts: trip.dispatch_attempts ?? 0,
       notes: trip.notes || null,
-      status: 'queued',
+      status: trip.status || 'queued',
+      nextAfterTripId: trip.next_after_trip_id || null,
     }));
 
     const log = (recentTrips || []).map((trip) => ({
@@ -96,6 +107,7 @@ export async function GET() {
       completedAt: trip.completed_at,
       driver: driversMap[trip.driver_id] || null,
       isToday: new Date(trip.created_at) >= todayStart,
+      nextAfterTripId: trip.next_after_trip_id || null,
     }));
 
     return NextResponse.json({ ok: true, data: { queue, log } });

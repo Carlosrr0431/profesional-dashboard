@@ -76,8 +76,17 @@ export function isLiveActiveTrip(row) {
   return LIVE_ACTIVE_STATUSES.has(statusOf(row));
 }
 
+function hasNextAfterTripId(row) {
+  const value = row?.next_after_trip_id ?? row?.nextAfterTripId;
+  return value != null && String(value).trim() !== '';
+}
+
 export function isQueuedTrip(row) {
-  return statusOf(row) === 'queued' && String(row?.dispatch_status || '') !== 'hold';
+  const dispatch = String(row?.dispatch_status || '').toLowerCase();
+  if (dispatch === 'hold' || dispatch === 'cancelled') return false;
+  const status = statusOf(row);
+  if (status === 'queued') return true;
+  return status === 'pending' && hasNextAfterTripId(row);
 }
 
 export function toFleetActiveTrip(row) {
@@ -261,6 +270,7 @@ export function mapLiveTripFromRow(trip, range) {
     notes: trip.notes || null,
     driver_id: trip.driver_id || null,
     driver: trip.driver || null,
+    nextAfterTripId: trip.next_after_trip_id || trip.nextAfterTripId || null,
     isSelectedDay: inSelectedRange,
     isToday: isSameLocalDay(trip.created_at, toLocalDateInputValue()),
     isActive: isLiveActiveTrip(trip),
@@ -327,6 +337,7 @@ export function mapQueueItemFromRow(trip, position = 1) {
     dispatchAttempts: trip.dispatch_attempts ?? 0,
     notes: trip.notes || null,
     status: trip.status || 'queued',
+    nextAfterTripId: trip.next_after_trip_id || trip.nextAfterTripId || null,
   };
 }
 

@@ -2,6 +2,7 @@ const {
   shouldFallbackToBusyDrivers,
   canOfferNextTripToBusyDriver,
   pickBusyNextTripCandidate,
+  pickIdleThenBusyByRadius,
   shouldAcceptAsNextTrip,
   isNextTripOffer,
   isReservedNextTrip,
@@ -38,6 +39,34 @@ describe('next-trip dispatch', () => {
   it('solo busca ocupados cuando no hay libres en el radio', () => {
     expect(shouldFallbackToBusyDrivers({ idleInRadiusCount: 2 })).toBe(false);
     expect(shouldFallbackToBusyDrivers({ idleInRadiusCount: 0 })).toBe(true);
+  });
+
+  it('busca ocupados si ya hubo ofertas sin aceptar, aunque haya libres', () => {
+    expect(shouldFallbackToBusyDrivers({ idleInRadiusCount: 2, unacceptedOffers: 1 })).toBe(true);
+  });
+
+  it('en el mismo anillo pasa a ocupados si el viaje no se aceptó', () => {
+    const idle = [{ driver: { id: 'far-idle' }, distanceKm: 5 }];
+    const selected = pickIdleThenBusyByRadius({
+      idleCandidates: idle,
+      allowedRadiiKm: [1, 6],
+      unacceptedOffers: 1,
+      pickBusyAtRadii: (radii) => (radii.includes(1)
+        ? { driver: { id: 'near-busy' }, nextTrip: true, radiusKm: 1 }
+        : null),
+    });
+    expect(selected.driver.id).toBe('near-busy');
+    expect(selected.nextTrip).toBe(true);
+  });
+
+  it('en el primer intento sigue eligiendo al libre aunque haya ocupados cerca', () => {
+    const selected = pickIdleThenBusyByRadius({
+      idleCandidates: [{ driver: { id: 'far-idle' }, distanceKm: 5 }],
+      allowedRadiiKm: [1, 6],
+      unacceptedOffers: 0,
+      pickBusyAtRadii: () => ({ driver: { id: 'near-busy' }, nextTrip: true }),
+    });
+    expect(selected.driver.id).toBe('far-idle');
   });
 
   it('no ofrece siguiente a quien ya rechazó este viaje', () => {

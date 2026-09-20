@@ -4,9 +4,11 @@ const MAP_PENDING_STATUSES = new Set(['queued', 'pending']);
 export function tripBelongsInWaitQueue(trip) {
   if (!trip) return false;
   const status = String(trip.status || '').toLowerCase();
-  if (status !== 'queued') return false;
   const dispatch = String(trip.dispatch_status || '').toLowerCase();
-  return !EXCLUDED_DISPATCH.has(dispatch);
+  if (EXCLUDED_DISPATCH.has(dispatch)) return false;
+  if (status === 'queued') return true;
+  const nextId = trip.next_after_trip_id ?? trip.nextAfterTripId;
+  return status === 'pending' && nextId != null && String(nextId).trim() !== '';
 }
 
 export function tripBelongsOnPendingMap(trip) {
@@ -47,6 +49,7 @@ export function mapTripToQueueItem(trip) {
     notes: trip.notes || null,
     status: trip.status || 'queued',
     dispatchStatus: trip.dispatch_status || null,
+    nextAfterTripId: trip.next_after_trip_id || trip.nextAfterTripId || null,
   };
 }
 
