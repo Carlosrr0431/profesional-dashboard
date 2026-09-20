@@ -1,16 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useToast } from '../context/ToastContext';
-import { scheduledSourceBadgeClass, scheduledSourceLabel } from '../lib/scheduledTripSource';
+import { scheduledSourceLabel } from '../lib/scheduledTripSource';
+import { cleanTripNotesForDriverDisplay } from '../../shared/trip-contract.js';
 import AssignFreeDriverPicker from './AssignFreeDriverPicker';
+import CancelTripButton from './CancelTripButton';
 import TripNotesEditor from './TripNotesEditor';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function maskPhone(phone) {
-  const p = String(phone || '');
-  if (p.length < 6) return p;
-  return `+${p.slice(0, 2)} *** ${p.slice(-4)}`;
-}
 
 function formatWhen(msUntil) {
   if (msUntil === null) return { label: '—', color: 'text-gray-400' };
@@ -64,184 +60,80 @@ function StatCard({ label, value, sub, color = 'violet' }) {
   }[color] || { ring: 'border-light-300 from-light-100', val: 'text-navy-800' };
 
   return (
-    <div className={`flex-1 rounded-2xl border bg-gradient-to-br ${colors.ring} to-white px-4 py-3`}>
-      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-1">{label}</p>
-      <p className={`text-2xl font-bold tabular-nums ${colors.val}`}>{value}</p>
-      {sub && <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>}
+    <div className={`flex-1 rounded-2xl border bg-gradient-to-br ${colors.ring} to-white px-3 py-2.5`}>
+      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">{label}</p>
+      <p className={`text-xl font-bold tabular-nums ${colors.val}`}>{value}</p>
+      {sub ? <p className="text-[11px] text-gray-400">{sub}</p> : null}
     </div>
   );
 }
 
-function SourceBadge({ source }) {
-  return (
-    <span className={`inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border ${scheduledSourceBadgeClass(source)}`}>
-      {scheduledSourceLabel(source)}
-    </span>
-  );
+function urgencyChipClass(urgency) {
+  if (urgency === 'imminent') return 'bg-amber-50 text-amber-700';
+  if (urgency === 'soon') return 'bg-sky-50 text-sky-700';
+  if (urgency === 'past') return 'bg-rose-50 text-rose-700';
+  return 'bg-violet-50 text-violet-700';
 }
 
-function UrgencyBadge({ urgency, countdown }) {
-  const styles = {
-    imminent: 'bg-warning/15 text-warning border-warning/35',
-    soon:     'bg-blue-500/12 text-blue-600 border-blue-400/30',
-    normal:   'bg-light-200 text-gray-500 border-light-300',
-    past:     'bg-danger/12 text-danger border-danger/30',
-  };
-  const icons = {
-    imminent: '⚡',
-    soon:     '🕐',
-    normal:   '📅',
-    past:     '⚠️',
-  };
-  return (
-    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${styles[urgency] || styles.normal}`}>
-      <span>{icons[urgency] || '📅'}</span>
-      {countdown}
-    </span>
-  );
-}
-
-function ScheduledTripCard({ trip, onCancel, drivers, onAssigned }) {
-  const [cancelling, setCancelling] = useState(false);
-  const [confirmCancel, setConfirmCancel] = useState(false);
+function ScheduledTripCard({ trip, drivers, onRefresh }) {
   const ms = liveMsUntil(trip);
   const urgency = liveUrgency(ms);
   const { label: countdown } = formatWhen(ms);
-
-  const handleCancel = async () => {
-    if (!confirmCancel) { setConfirmCancel(true); return; }
-    setCancelling(true);
-    try {
-      await onCancel(trip.id);
-    } catch {
-      setCancelling(false);
-      setConfirmCancel(false);
-    }
-  };
-
   const ar = trip.arFormatted;
-  const urgencyCls = {
-    imminent: 'border-warning/30 bg-gradient-to-r from-warning/5 to-transparent shadow-sm shadow-warning/10',
-    soon:     'border-blue-300/30 bg-gradient-to-r from-blue-50/60 to-transparent',
-    normal:   'border-light-300/60 bg-white/80 hover:border-light-400',
-    past:     'border-danger/25 bg-danger/3',
-  }[urgency] || 'border-light-300/60 bg-white/80';
+  const passengerName = trip.passenger_name || trip.passengerName || 'Pasajero';
+  const origin = trip.pickupAddress || trip.origin_address || '—';
+  const dest = trip.dropoffAddress || trip.destination_address || null;
+  const destShown = dest && dest !== origin ? dest : null;
+  const address = [origin, destShown].filter(Boolean).join(' → ');
+  const note = cleanTripNotesForDriverDisplay(trip.notes) || '';
+  const status = trip.status || 'scheduled';
+  const whenLabel = [ar?.wday, ar?.day, ar?.month, ar?.time].filter(Boolean).join(' · ');
 
   return (
-    <div className={`relative rounded-2xl border p-4 transition-all ${urgencyCls}`}>
-      {/* Top row: date block + name + urgency */}
-      <div className="flex items-start gap-3">
-
-        {/* Date block */}
-        <div className={`flex-shrink-0 w-14 rounded-xl overflow-hidden border text-center ${
-          urgency === 'imminent' ? 'border-warning/40 bg-warning/10' :
-          urgency === 'past'     ? 'border-danger/30 bg-danger/8' :
-                                        'border-light-300 bg-light-100'
-        }`}>
-          <div className={`py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-            urgency === 'imminent' ? 'bg-warning/20 text-warning' :
-            urgency === 'past'     ? 'bg-danger/15 text-danger' :
-                                          'bg-light-200 text-gray-400'
-          }`}>
-            {ar?.wday ?? '—'}
-          </div>
-          <div className={`py-1.5 ${
-            urgency === 'imminent' ? 'text-warning' :
-            urgency === 'past'     ? 'text-danger' :
-                                          'text-navy-900'
-          }`}>
-            <p className="text-lg font-bold leading-none tabular-nums">{ar?.day ?? '—'}</p>
-            <p className="text-[10px] font-medium text-gray-400 mt-0.5">{ar?.month ?? '—'}</p>
-          </div>
-          <div className={`py-1 border-t font-bold tabular-nums text-sm ${
-            urgency === 'imminent' ? 'border-warning/25 text-warning bg-warning/5' :
-            urgency === 'past'     ? 'border-danger/20 text-danger bg-danger/5' :
-                                          'border-light-300/60 text-navy-800 bg-white/50'
-          }`}>
-            {ar?.time ?? '—'}
-          </div>
-        </div>
-
-        {/* Info */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2 flex-wrap">
-            <div>
-              <p className="text-sm font-bold text-navy-900 leading-tight">{trip.passenger_name || 'Pasajero'}</p>
-              <p className="text-[11px] text-gray-400 mt-0.5">{maskPhone(trip.phone)}</p>
-            </div>
-            <UrgencyBadge urgency={urgency} countdown={countdown} />
-          </div>
-
-          {/* Pickup */}
-          <div className="flex items-start gap-1.5 mt-2.5">
-            <svg className="w-3.5 h-3.5 text-violet-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-            </svg>
-            <p className="text-[12px] font-medium text-navy-800 leading-snug">{trip.pickupAddress || trip.origin_address || trip.destination_address || '—'}</p>
-          </div>
-          {trip.dropoffAddress ? (
-            <div className="flex items-start gap-1.5 mt-1">
-              <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-sm bg-navy-800" />
-              <p className="text-[12px] text-navy-700 leading-snug">{trip.dropoffAddress}</p>
-            </div>
-          ) : null}
-
-          {/* Display text / confirmación */}
-          {trip.displayText && (
-            <p className="text-[11px] text-gray-400 mt-1.5 italic">"{trip.displayText}"</p>
-          )}
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <SourceBadge source={trip.scheduledSource} />
-            {trip.isDispatching ? (
-              <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200">
-                Buscando chofer
-              </span>
-            ) : null}
-          </div>
-
-          {/* ID + timestamp */}
-          <div className="flex items-center justify-between gap-2 mt-2.5 pt-2.5 border-t border-light-200/70">
-            <p className="text-[10px] text-gray-300">
-              #{String(trip.id).slice(0, 8)} · Reservado {new Date(trip.created_at).toLocaleString('es-AR', {
-                day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-              })}
-            </p>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <button
-                onClick={handleCancel}
-                disabled={cancelling}
-                className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-all ${
-                  confirmCancel
-                    ? 'bg-danger text-white hover:bg-danger/80'
-                    : 'text-danger/70 hover:text-danger hover:bg-danger/8 border border-transparent hover:border-danger/20'
-                } disabled:opacity-50`}
-              >
-                {cancelling ? '...' : confirmCancel ? '¿Confirmar cancelación?' : 'Cancelar'}
-              </button>
-              {confirmCancel && !cancelling && (
-                <button
-                  onClick={() => setConfirmCancel(false)}
-                  className="text-[11px] text-gray-400 hover:text-gray-600 px-2 py-1"
-                >
-                  No
-                </button>
-              )}
-            </div>
-          </div>
-          <TripNotesEditor
-            compact
-            tripId={trip.id}
-            notes={trip.notes}
-            status={trip.status || 'scheduled'}
-          />
-          <AssignFreeDriverPicker
-            trip={trip}
-            drivers={drivers}
-            onAssigned={onAssigned}
-          />
-        </div>
+    <article className="rounded-2xl border border-slate-100 bg-slate-50/90 px-3 py-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <p className="min-w-0 truncate text-[15px] font-bold leading-tight text-navy-900">{passengerName}</p>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${urgencyChipClass(urgency)}`}>
+          {countdown}
+        </span>
       </div>
-    </div>
+
+      <p className="mt-1 truncate text-[12px] font-semibold text-slate-500">
+        {whenLabel || '—'}
+        {trip.sourceLabel ? ` · ${trip.sourceLabel}` : ''}
+        {trip.isDispatching ? ' · Buscando chofer' : ''}
+      </p>
+      <p className="mt-1 line-clamp-2 text-[13px] font-semibold leading-snug text-slate-800">{origin}</p>
+      {destShown ? (
+        <p className="mt-0.5 line-clamp-1 text-[12px] font-medium text-slate-600">{destShown}</p>
+      ) : null}
+      {note ? (
+        <p className="mt-1 truncate text-[13px] font-bold text-navy-800">{note}</p>
+      ) : null}
+
+      <div className="mt-2.5 flex flex-wrap items-stretch gap-2">
+        <TripNotesEditor
+          variant="row"
+          tripId={trip.id}
+          notes={trip.notes}
+          status={status}
+        />
+        <CancelTripButton
+          row
+          className="min-w-0 flex-1"
+          tripId={trip.id}
+          passengerName={passengerName}
+          address={address}
+          onCancelled={onRefresh}
+        />
+      </div>
+      <AssignFreeDriverPicker
+        row
+        trip={{ ...trip, status }}
+        drivers={drivers}
+        onAssigned={onRefresh}
+      />
+    </article>
   );
 }
 
@@ -291,7 +183,6 @@ export default function ScheduledTripsPanel({
   loading,
   lastUpdated,
   refetch,
-  cancelScheduledTrip,
   drivers,
   onBack,
 }) {
@@ -317,16 +208,6 @@ export default function ScheduledTripsPanel({
     await refetch();
     setRefreshing(false);
     toast.success('Viajes programados actualizados');
-  };
-
-  const handleCancelTrip = async (tripId) => {
-    try {
-      await cancelScheduledTrip(tripId);
-      toast.success('Viaje programado cancelado');
-    } catch (err) {
-      toast.error(err?.message || 'No se pudo cancelar el viaje');
-      throw err;
-    }
   };
 
   // Separar por urgencia para el orden visual
@@ -394,7 +275,7 @@ export default function ScheduledTripsPanel({
       </div>
 
       {/* ── Stats ──────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 px-4 py-4 flex-shrink-0 w-full lg:px-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 px-4 py-3 flex-shrink-0 w-full lg:px-6">
         <StatCard
           label="Programados"
           value={loading ? '—' : liveStats.total}
@@ -443,7 +324,7 @@ export default function ScheduledTripsPanel({
             <p className="text-[10px] text-gray-400">Ordenado por hora de programación</p>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+          <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
             {loading ? (
               <div className="flex items-center justify-center py-20">
                 <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
@@ -459,9 +340,9 @@ export default function ScheduledTripsPanel({
                       <span className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse inline-block" />
                       Inminentes
                     </p>
-                    <div className="space-y-2.5">
+                    <div className="space-y-1.5">
                       {imminentTrips.map((t) => (
-                        <ScheduledTripCard key={t.id} trip={t} onCancel={handleCancelTrip} drivers={drivers} onAssigned={refetch} />
+                        <ScheduledTripCard key={t.id} trip={t} drivers={drivers} onRefresh={refetch} />
                       ))}
                     </div>
                   </div>
@@ -474,9 +355,9 @@ export default function ScheduledTripsPanel({
                       <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
                       Próximas 2 horas
                     </p>
-                    <div className="space-y-2.5">
+                    <div className="space-y-1.5">
                       {soonTrips.map((t) => (
-                        <ScheduledTripCard key={t.id} trip={t} onCancel={handleCancelTrip} drivers={drivers} onAssigned={refetch} />
+                        <ScheduledTripCard key={t.id} trip={t} drivers={drivers} onRefresh={refetch} />
                       ))}
                     </div>
                   </div>
@@ -489,9 +370,9 @@ export default function ScheduledTripsPanel({
                       <span className="w-1.5 h-1.5 rounded-full bg-violet-400 inline-block" />
                       Programados
                     </p>
-                    <div className="space-y-2.5">
+                    <div className="space-y-1.5">
                       {normalTrips.map((t) => (
-                        <ScheduledTripCard key={t.id} trip={t} onCancel={handleCancelTrip} drivers={drivers} onAssigned={refetch} />
+                        <ScheduledTripCard key={t.id} trip={t} drivers={drivers} onRefresh={refetch} />
                       ))}
                     </div>
                   </div>
@@ -504,9 +385,9 @@ export default function ScheduledTripsPanel({
                       <span className="w-1.5 h-1.5 rounded-full bg-danger/50 inline-block" />
                       Hora pasada (pendiente de despacho)
                     </p>
-                    <div className="space-y-2.5">
+                    <div className="space-y-1.5">
                       {pastTrips.map((t) => (
-                        <ScheduledTripCard key={t.id} trip={t} onCancel={handleCancelTrip} drivers={drivers} onAssigned={refetch} />
+                        <ScheduledTripCard key={t.id} trip={t} drivers={drivers} onRefresh={refetch} />
                       ))}
                     </div>
                   </div>
