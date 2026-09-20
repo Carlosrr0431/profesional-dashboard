@@ -47,7 +47,7 @@ export async function GET() {
       supabase.from('drivers').select('*'),
       supabase
         .from('trips')
-        .select('id, driver_id, status, passenger_name, destination_address, notes, next_after_trip_id')
+        .select('id, driver_id, status, passenger_name, destination_address, destination_lat, destination_lng, origin_lat, origin_lng, duration_minutes, started_at, accepted_at, notes, next_after_trip_id')
         .in('status', ACTIVE_TRIP_STATUSES),
       supabase.from('settings').select('key, value').like('key', 'vehicle_type_%'),
       supabase.from('driver_locations').select('driver_id, lat, lng, speed, heading, updated_at'),

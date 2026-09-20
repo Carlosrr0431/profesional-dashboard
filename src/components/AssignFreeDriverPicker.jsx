@@ -7,6 +7,10 @@ import {
   findDashboardDriversByNumber,
 } from '../lib/assignExistingTrip';
 import { assignExistingTripToDriver } from '../lib/assignExistingTripClient';
+import {
+  estimateActiveTripRemainingMinutes,
+  formatActiveTripRemainingLabel,
+} from '../lib/activeTripEta';
 
 export default function AssignFreeDriverPicker({
   trip,
@@ -14,6 +18,7 @@ export default function AssignFreeDriverPicker({
   onAssigned,
   compact = false,
   row = false,
+  hideHint = false,
   className = '',
 }) {
   const toast = useToast();
@@ -30,6 +35,9 @@ export default function AssignFreeDriverPicker({
   );
   const availability = dashboardDriverAvailability(preferred);
   const hasQuery = Boolean(String(query || '').trim());
+  const remainingLabel = availability.nextTrip
+    ? formatActiveTripRemainingLabel(estimateActiveTripRemainingMinutes(preferred))
+    : null;
 
   if (!canManuallyAssignExistingTrip(trip)) return null;
 
@@ -68,7 +76,7 @@ export default function AssignFreeDriverPicker({
 
   return (
     <div
-      className={`${row || compact ? 'mt-2 w-full min-w-0' : 'w-full'} ${className}`}
+      className={`${row || compact ? 'w-full min-w-0' : 'w-full'} ${className}`}
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -93,9 +101,11 @@ export default function AssignFreeDriverPicker({
       />
 
       {!hasQuery ? (
-        <p className="mt-1.5 text-[11px] leading-snug text-slate-400">
-          Escribí el número. Si está en viaje, se ofrece como siguiente.
-        </p>
+        hideHint ? null : (
+          <p className="mt-1.5 text-[11px] leading-snug text-slate-400">
+            Escribí el número. Si está en viaje, se ofrece como siguiente.
+          </p>
+        )
       ) : !preferred ? (
         <p className="mt-1.5 text-[11px] font-semibold text-rose-600">
           No hay un móvil con ese número.
@@ -109,6 +119,12 @@ export default function AssignFreeDriverPicker({
                 Móvil #{preferred.driverNumber}
                 {preferred.vehiclePlate ? ` · ${preferred.vehiclePlate}` : ''}
               </p>
+              {remainingLabel ? (
+                <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+                  {remainingLabel}
+                </p>
+              ) : null}
             </div>
             <span
               className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
@@ -126,11 +142,11 @@ export default function AssignFreeDriverPicker({
             type="button"
             disabled={!canAssignPreferred}
             onClick={() => handleAssign(preferred)}
-          className={`mt-2 flex h-10 w-full items-center justify-center rounded-xl text-[13px] font-bold text-white transition-colors disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 ${
-            availability.nextTrip
-              ? 'bg-violet-700 hover:bg-violet-600'
-              : 'bg-navy-900 hover:bg-navy-800'
-          }`}
+            className={`mt-2 flex h-10 w-full items-center justify-center rounded-xl text-[13px] font-bold text-white transition-colors disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 ${
+              availability.nextTrip
+                ? 'bg-violet-700 hover:bg-violet-600'
+                : 'bg-navy-900 hover:bg-navy-800'
+            }`}
           >
             {assigningId === preferred.id
               ? 'Asignando…'

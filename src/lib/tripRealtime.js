@@ -97,6 +97,13 @@ export function toFleetActiveTrip(row) {
     status: row.status,
     passenger_name: row.passenger_name,
     destination_address: row.destination_address,
+    destination_lat: row.destination_lat ?? null,
+    destination_lng: row.destination_lng ?? null,
+    origin_lat: row.origin_lat ?? null,
+    origin_lng: row.origin_lng ?? null,
+    duration_minutes: row.duration_minutes ?? null,
+    started_at: row.started_at || null,
+    accepted_at: row.accepted_at || null,
     notes: row.notes || null,
   };
 }

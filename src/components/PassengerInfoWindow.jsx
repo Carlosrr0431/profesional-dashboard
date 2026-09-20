@@ -140,27 +140,17 @@ export default function PassengerInfoWindow({
               {nextAfterTripId ? 'Siguiente viaje' : 'Ofertado a'}
             </p>
             <p className="mt-0.5 truncate text-[13px] font-semibold text-slate-800">{offeredLabel}</p>
-            <p className={`mt-0.5 text-[11px] leading-snug ${nextAfterTripId ? 'text-violet-700' : 'text-rose-600'}`}>
-              {nextAfterTripId
-                ? 'Arranca cuando termine el viaje actual. Si no acepta, podés derivarlo a otro móvil.'
-                : 'Todavía no aceptó. Podés derivarlo a otro móvil, incluso si está en viaje.'}
-            </p>
           </div>
         ) : null}
       </div>
 
       {canAssign ? (
         <div className="border-t border-slate-100 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-violet-600">
-            Derivar ahora
-          </p>
-          <p className="mt-0.5 text-[12px] leading-snug text-slate-500">
-            Si el chofer está ocupado, el viaje queda como siguiente y se activa al terminar el actual.
-          </p>
           <AssignFreeDriverPicker
             trip={trip}
             drivers={drivers}
             compact
+            hideHint
             onAssigned={() => {
               onAssigned?.();
               onClose?.();
