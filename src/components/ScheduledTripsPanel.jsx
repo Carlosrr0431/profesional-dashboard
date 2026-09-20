@@ -9,7 +9,6 @@ import {
   tripRouteLine,
 } from '../lib/tripCardMeta';
 import { cleanTripNotesForDriverDisplay } from '../../shared/trip-contract.js';
-import AssignFreeDriverPicker from './AssignFreeDriverPicker';
 import CancelTripButton from './CancelTripButton';
 import { DriverMobileBlock, TripRouteLines } from './TripCardBits';
 import TripNotesEditor from './TripNotesEditor';
@@ -137,12 +136,6 @@ function ScheduledTripCard({ trip, drivers, onRefresh }) {
           onCancelled={onRefresh}
         />
       </div>
-      <AssignFreeDriverPicker
-        row
-        trip={{ ...trip, status }}
-        drivers={drivers}
-        onAssigned={onRefresh}
-      />
     </article>
   );
 }
