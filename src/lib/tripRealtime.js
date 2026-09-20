@@ -60,7 +60,16 @@ function isInRange(isoDate, startIso, endIso) {
 }
 
 export function isFleetActiveTrip(row) {
-  return Boolean(row?.driver_id) && FLEET_ACTIVE_TRIP_STATUSES.includes(statusOf(row));
+  return Boolean(row?.driver_id)
+    && FLEET_ACTIVE_TRIP_STATUSES.includes(statusOf(row))
+    && (row.next_after_trip_id == null || row.next_after_trip_id === '');
+}
+
+export function isReservedNextTripRow(row) {
+  if (!row?.driver_id) return false;
+  const status = statusOf(row);
+  if (status === 'pending') return true;
+  return status === 'accepted' && Boolean(row.next_after_trip_id);
 }
 
 export function isLiveActiveTrip(row) {
@@ -81,6 +90,35 @@ export function toFleetActiveTrip(row) {
     destination_address: row.destination_address,
     notes: row.notes || null,
   };
+}
+
+export function toReservedNextTrip(row) {
+  if (!isReservedNextTripRow(row)) return null;
+  return {
+    id: row.id,
+    driver_id: row.driver_id,
+    status: row.status,
+    passenger_name: row.passenger_name,
+    destination_address: row.destination_address,
+    notes: row.notes || null,
+    next_after_trip_id: row.next_after_trip_id || null,
+  };
+}
+
+export function splitDashboardDriverTrips(trips) {
+  const activeTripsMap = {};
+  const reservedNextMap = {};
+  for (const trip of trips || []) {
+    if (!trip?.driver_id) continue;
+    const reserved = toReservedNextTrip(trip);
+    if (reserved) {
+      reservedNextMap[trip.driver_id] = reserved;
+      continue;
+    }
+    const active = toFleetActiveTrip(trip);
+    if (active) activeTripsMap[trip.driver_id] = active;
+  }
+  return { activeTripsMap, reservedNextMap };
 }
 
 function driverHoldsTrip(driver, tripId, relatedDriverIds) {
@@ -116,7 +154,8 @@ export function applyTripRealtimeToDrivers(drivers, payload, now = Date.now()) {
 
   const row = mergePayloadRow(payload);
   const active = event === 'DELETE' ? null : toFleetActiveTrip(row);
-  const assignedDriverId = active?.driver_id || null;
+  const reserved = event === 'DELETE' ? null : toReservedNextTrip(row);
+  const assignedDriverId = active?.driver_id || reserved?.driver_id || null;
   const relatedDriverIds = new Set(
     [assignedDriverId, previous?.driver_id, row?.driver_id].filter(Boolean),
   );
@@ -124,20 +163,48 @@ export function applyTripRealtimeToDrivers(drivers, payload, now = Date.now()) {
   let changed = false;
   const next = list.map((driver) => {
     if (assignedDriverId && driver.id === assignedDriverId) {
-      if (
-        driver.activeTrip?.id === active.id
-        && driver.activeTrip?.status === active.status
-        && (driver.activeTrip?.notes || null) === (active.notes || null)
-      ) {
-        return driver;
+      let nextDriver = driver;
+      if (active) {
+        if (!(
+          driver.activeTrip?.id === active.id
+          && driver.activeTrip?.status === active.status
+          && (driver.activeTrip?.notes || null) === (active.notes || null)
+        )) {
+          changed = true;
+          nextDriver = { ...nextDriver, activeTrip: active, activeTripAppliedAt: now };
+        }
+        if (nextDriver.reservedNextTrip?.id === active.id) {
+          changed = true;
+          nextDriver = { ...nextDriver, reservedNextTrip: null };
+        }
+      } else if (reserved) {
+        if (!(
+          driver.reservedNextTrip?.id === reserved.id
+          && driver.reservedNextTrip?.status === reserved.status
+        )) {
+          changed = true;
+          nextDriver = { ...nextDriver, reservedNextTrip: reserved };
+        }
+      } else {
+        if (driver.activeTrip?.id === tripId || driverHoldsTrip(driver, tripId, relatedDriverIds)) {
+          changed = true;
+          nextDriver = { ...nextDriver, activeTrip: null, activeTripAppliedAt: now };
+        }
+        if (nextDriver.reservedNextTrip?.id === tripId) {
+          changed = true;
+          nextDriver = { ...nextDriver, reservedNextTrip: null };
+        }
       }
-      changed = true;
-      return { ...driver, activeTrip: active, activeTripAppliedAt: now };
+      return nextDriver;
     }
 
     if (driverHoldsTrip(driver, tripId, relatedDriverIds)) {
       changed = true;
       return { ...driver, activeTrip: null, activeTripAppliedAt: now };
+    }
+    if (driver.reservedNextTrip?.id === tripId) {
+      changed = true;
+      return { ...driver, reservedNextTrip: null };
     }
 
     return driver;

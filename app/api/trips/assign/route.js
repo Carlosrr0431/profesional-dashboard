@@ -9,6 +9,14 @@ import {
   resolveDispatchBlockReason,
 } from '../../../../shared/driver-billing.js';
 import { selectDriversCompat } from '../../../../src/lib/driversBillingSelect';
+import {
+  DRIVER_BUSY_TRIP_STATUSES,
+  classifyManualAssignBusyState,
+} from '../../../../src/lib/assignExistingTrip';
+import {
+  buildNextTripOfferAssignUpdate,
+  isNextTripUniqueViolation,
+} from '../../../../shared/next-trip.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -131,8 +139,58 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, message, code: 'DRIVER_DISPATCH_BLOCKED' }, { status: 409 });
     }
 
+    const { data: busyTrips, error: busyError } = await supabase
+      .from('trips')
+      .select('id, driver_id, status, next_after_trip_id')
+      .eq('driver_id', driverId)
+      .in('status', DRIVER_BUSY_TRIP_STATUSES);
+
+    if (busyError) throw busyError;
+
+    const busyState = classifyManualAssignBusyState(busyTrips || []);
+    if (busyState.reservedNext || busyState.hasPendingOffer) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: busyState.reservedNext
+            ? 'Ese chofer ya tiene un siguiente viaje reservado.'
+            : 'Ese chofer todavía está confirmando otro viaje.',
+        },
+        { status: 409 },
+      );
+    }
+
+    const nextAfterTripId = busyState.canAssignAsNext ? busyState.liveTrip.id : null;
+    const nextOffer = nextAfterTripId
+      ? buildNextTripOfferAssignUpdate({
+        driverId,
+        currentTripId: nextAfterTripId,
+        assignedAt: tripData.assigned_at,
+      })
+      : null;
+
+    if (nextOffer) {
+      tripData.origin_address = null;
+      tripData.origin_lat = null;
+      tripData.origin_lng = null;
+      tripData.status = nextOffer.status;
+      tripData.dispatch_status = nextOffer.dispatch_status;
+      tripData.next_after_trip_id = nextOffer.next_after_trip_id;
+      tripData.next_trip_offered_at = nextOffer.next_trip_offered_at;
+      tripData.wa_context = {
+        ...tripData.wa_context,
+        offer_kind: 'next_trip',
+      };
+    }
+
     const { data, error } = await supabase.from('trips').insert(tripData).select().single();
     if (error) {
+      if (isNextTripUniqueViolation(error)) {
+        return NextResponse.json(
+          { ok: false, message: 'Ese chofer ya tiene un siguiente viaje reservado.' },
+          { status: 409 },
+        );
+      }
       console.error('[trips/assign]', error);
       return NextResponse.json(
         { ok: false, message: error.message || 'No se pudo crear el viaje.' },
@@ -140,7 +198,7 @@ export async function POST(request) {
       );
     }
 
-    return NextResponse.json({ ok: true, trip: data });
+    return NextResponse.json({ ok: true, trip: data, nextTrip: Boolean(nextAfterTripId) });
   } catch (err) {
     console.error('[trips/assign]', err);
     return NextResponse.json(

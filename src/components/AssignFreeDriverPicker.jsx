@@ -48,9 +48,11 @@ export default function AssignFreeDriverPicker({
       });
       const name = driverDisplayName(driver);
       if (result?.notified === false) {
-        toast.warning(`Asignado a ${name}, pero no se pudo notificar`);
+        toast.warning(`${result?.nextTrip ? 'Siguiente viaje para' : 'Asignado a'} ${name}, pero no se pudo notificar`);
       } else {
-        toast.success(`Viaje asignado a ${name}`);
+        toast.success(result?.nextTrip
+          ? `Siguiente viaje reservado para ${name}`
+          : `Viaje asignado a ${name}`);
       }
       setQuery('');
       onAssigned?.();
@@ -92,7 +94,7 @@ export default function AssignFreeDriverPicker({
 
       {!hasQuery ? (
         <p className="mt-1.5 text-[11px] leading-snug text-slate-400">
-          Escribí el número para ver el chofer y asignarlo.
+          Escribí el número. Si está en viaje, se ofrece como siguiente.
         </p>
       ) : !preferred ? (
         <p className="mt-1.5 text-[11px] font-semibold text-rose-600">
@@ -110,9 +112,11 @@ export default function AssignFreeDriverPicker({
             </div>
             <span
               className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                availability.canAssign
-                  ? 'bg-emerald-50 text-emerald-700'
-                  : 'bg-rose-50 text-rose-700'
+                availability.nextTrip
+                  ? 'bg-violet-50 text-violet-700'
+                  : availability.canAssign
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : 'bg-rose-50 text-rose-700'
               }`}
             >
               {availability.label}
@@ -122,9 +126,17 @@ export default function AssignFreeDriverPicker({
             type="button"
             disabled={!canAssignPreferred}
             onClick={() => handleAssign(preferred)}
-            className="mt-2 flex h-10 w-full items-center justify-center rounded-xl bg-navy-900 text-[13px] font-bold text-white transition-colors hover:bg-navy-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+          className={`mt-2 flex h-10 w-full items-center justify-center rounded-xl text-[13px] font-bold text-white transition-colors disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 ${
+            availability.nextTrip
+              ? 'bg-violet-700 hover:bg-violet-600'
+              : 'bg-navy-900 hover:bg-navy-800'
+          }`}
           >
-            {assigningId === preferred.id ? 'Asignando…' : `Asignar a ${driverDisplayName(preferred)}`}
+            {assigningId === preferred.id
+              ? 'Asignando…'
+              : availability.nextTrip
+                ? `Siguiente a ${driverDisplayName(preferred)}`
+                : `Asignar a ${driverDisplayName(preferred)}`}
           </button>
         </div>
       )}

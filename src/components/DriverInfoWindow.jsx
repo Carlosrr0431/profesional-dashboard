@@ -2,12 +2,29 @@ import { timeAgo, formatSpeed, formatPrice, getTripStatus } from '../lib/utils';
 import DriverAvatar from './DriverAvatar';
 import { DriverRatingChip } from './DriverRatingView';
 import TripNotesEditor from './TripNotesEditor';
+import { dashboardDriverAvailability } from '../lib/assignExistingTrip';
 
 function getDriverStatusInfo(driver) {
-  if (driver.dispatchBlocked) {
+  const availability = dashboardDriverAvailability(driver);
+  if (availability.code === 'blocked') {
     return {
-      label: driver.commissionBlocked ? 'Bloqueo manual' : 'Bloqueado',
+      label: availability.label,
       className: 'bg-amber-50 text-amber-700 ring-amber-200',
+      busy: true,
+    };
+  }
+  if (availability.nextTrip) {
+    return {
+      label: availability.label,
+      className: 'bg-violet-50 text-violet-700 ring-violet-200',
+      busy: false,
+      nextTrip: true,
+    };
+  }
+  if (availability.code === 'reserved') {
+    return {
+      label: availability.label,
+      className: 'bg-rose-50 text-rose-600 ring-rose-200',
       busy: true,
     };
   }
@@ -19,7 +36,7 @@ function getDriverStatusInfo(driver) {
       busy: true,
     };
   }
-  if (driver.isOnline) {
+  if (availability.canAssign) {
     return {
       label: 'Disponible',
       className: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
@@ -27,7 +44,7 @@ function getDriverStatusInfo(driver) {
     };
   }
   return {
-    label: 'Desconectado',
+    label: availability.label || 'Desconectado',
     className: 'bg-slate-100 text-slate-500 ring-slate-200',
     busy: true,
   };
@@ -48,7 +65,7 @@ function Fact({ children, tone = 'slate' }) {
 export default function DriverInfoWindow({ driver, onAssignTrip, onSendAudio, onClose }) {
   const name = String(driver.fullName || 'Chofer').trim();
   const status = getDriverStatusInfo(driver);
-  const canAssign = !status.busy;
+  const canAssign = Boolean(dashboardDriverAvailability(driver).canAssign);
   const vehicleKind = driver.vehicleType === 'moto' ? 'Moto' : 'Auto';
   const vehicleLabel = [vehicleKind, driver.vehicleBrand, driver.vehicleModel].filter(Boolean).join(' ');
   const phone = driver.isAssignedDriver
@@ -65,10 +82,12 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onSendAudio, on
   ].filter(Boolean).join(' · ');
 
   let actionLabel = 'Asignar viaje';
-  if (!canAssign) {
+  if (status.nextTrip) actionLabel = 'Siguiente viaje';
+  else if (!canAssign) {
     if (driver.dispatchBlocked) {
       actionLabel = driver.commissionBlocked ? 'Bloqueo manual' : 'Bloqueado por comisión';
-    } else if (driver.activeTrip) actionLabel = 'En viaje';
+    } else if (driver.reservedNextTrip) actionLabel = 'Ya tiene siguiente';
+    else if (driver.activeTrip) actionLabel = 'En viaje';
     else actionLabel = 'Desconectado';
   }
 
@@ -148,6 +167,17 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onSendAudio, on
         </div>
       ) : null}
 
+      {driver.reservedNextTrip ? (
+        <div className="mx-4 mb-3 rounded-2xl bg-violet-50 px-3 py-2.5 ring-1 ring-violet-100">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-violet-600">
+            {driver.reservedNextTrip.status === 'pending' ? 'Siguiente en confirmación' : 'Siguiente viaje'}
+          </p>
+          <p className="mt-0.5 truncate text-[13px] font-semibold text-slate-800">
+            {driver.reservedNextTrip.destination_address || 'Sin destino'}
+          </p>
+        </div>
+      ) : null}
+
       <div className="flex items-center gap-2 border-t border-slate-100 px-4 py-3">
         {driver.commissionBalance > 0 ? (
           <div className={`min-w-0 flex-1 ${driver.commissionOverdue ? 'text-rose-600' : 'text-amber-700'}`}>
@@ -187,16 +217,20 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onSendAudio, on
           disabled={!canAssign}
           title={
             canAssign
-              ? 'Asignar un viaje'
+              ? (status.nextTrip ? 'Asignar como siguiente viaje' : 'Asignar un viaje')
               : driver.dispatchBlocked
                 ? (driver.commissionBlocked ? 'Bloqueo manual' : 'Comisión vencida')
-                : driver.activeTrip
-                  ? 'Chofer en viaje'
-                  : 'Chofer desconectado'
+                : driver.reservedNextTrip
+                  ? 'Ya tiene un siguiente viaje'
+                  : driver.activeTrip
+                    ? 'Chofer en viaje'
+                    : 'Chofer desconectado'
           }
           className={`flex h-10 min-w-[7.5rem] items-center justify-center rounded-xl px-3.5 text-[13px] font-bold transition ${
             canAssign
-              ? 'bg-accent text-white shadow-sm hover:bg-accent-light'
+              ? (status.nextTrip
+                ? 'bg-violet-700 text-white shadow-sm hover:bg-violet-600'
+                : 'bg-accent text-white shadow-sm hover:bg-accent-light')
               : 'cursor-not-allowed bg-slate-100 text-slate-400'
           }`}
         >

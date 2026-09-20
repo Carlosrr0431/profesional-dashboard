@@ -5,6 +5,7 @@ import {
   mergeAssignedDriverWithOwner,
 } from '../../../src/lib/fleetDriverEnrichment';
 import { resolveDisplayActiveTrip } from '../../../src/lib/fleetDispatch';
+import { splitDashboardDriverTrips } from '../../../src/lib/tripRealtime';
 import { isFleetOwner } from '../../../src/lib/driverRoles';
 import {
   resolveDriverIsOnline,
@@ -17,7 +18,7 @@ import {
 } from '../../../shared/driver-billing.js';
 import { summarizeDriverRating } from '../../../shared/driver-rating.js';
 
-const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
+const ACTIVE_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -46,7 +47,7 @@ export async function GET() {
       supabase.from('drivers').select('*'),
       supabase
         .from('trips')
-        .select('id, driver_id, status, passenger_name, destination_address, notes')
+        .select('id, driver_id, status, passenger_name, destination_address, notes, next_after_trip_id')
         .in('status', ACTIVE_TRIP_STATUSES),
       supabase.from('settings').select('key, value').like('key', 'vehicle_type_%'),
       supabase.from('driver_locations').select('driver_id, lat, lng, speed, heading, updated_at'),
@@ -55,10 +56,7 @@ export async function GET() {
     if (driversRes.error) throw driversRes.error;
 
     const activeTripsList = activeTripsRes.data || [];
-    const activeTripsMap = {};
-    activeTripsList.forEach((trip) => {
-      if (trip?.driver_id) activeTripsMap[trip.driver_id] = trip;
-    });
+    const { activeTripsMap, reservedNextMap } = splitDashboardDriverTrips(activeTripsList);
     const vehicleTypeMap = {};
     (vtRes.data || []).forEach((setting) => {
       const key = String(setting?.key || '');
@@ -80,6 +78,7 @@ export async function GET() {
       const owner = driver.owner_id ? ownersById[driver.owner_id] : null;
       const merged = mergeAssignedDriverWithOwner(driver, owner);
       const activeTrip = resolveDisplayActiveTrip(merged.id, activeTripsMap);
+      const reservedNextTrip = reservedNextMap[merged.id] || null;
       const pendingCommission = Math.max(0, toNumber(merged.pending_commission, 0));
       const assigned = Boolean(merged.is_assigned_driver && merged.owner_id);
       const gps = pickDriverGps(locByDriver[merged.id] || null, merged, nowMs);
@@ -122,6 +121,7 @@ export async function GET() {
         ratingLabel: ratingSummary.compactLabel,
         totalTrips: toNumber(merged.total_trips, 0),
         activeTrip,
+        reservedNextTrip,
         pendingCommission,
         lastCommissionPaymentAt: merged.last_commission_payment_at || null,
         commissionBalance: pendingCommission,

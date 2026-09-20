@@ -4,6 +4,7 @@ import { formatPrice, formatKm, formatDuration, formatTime, formatDateTime, getT
 import VoiceChat from './VoiceChat';
 import { useToast } from '../context/ToastContext';
 import DriverAvatar from './DriverAvatar';
+import { dashboardDriverAvailability } from '../lib/assignExistingTrip';
 
 export default function DriverPanel({
   driver,
@@ -78,6 +79,11 @@ export default function DriverPanel({
   };
 
   const driverStatus = getDriverStatus();
+  const assignAvailability = dashboardDriverAvailability({
+    ...driver,
+    activeTrip: driver.activeTrip || stats.inProgress || null,
+  });
+  const canAssignTrip = Boolean(assignAvailability.canAssign);
 
   // Filter trips by tab
   const todayStart = new Date();
@@ -166,19 +172,21 @@ export default function DriverPanel({
             <span className={`w-2 h-2 rounded-full ${driverStatus.dot}`} />
             {driverStatus.label}
           </div>
-          {driver.isOnline && !stats.inProgress ? (
+          {canAssignTrip ? (
             <button
               onClick={() => onAssignTrip(driver)}
-              className="text-xs font-medium text-accent hover:text-accent-light transition-colors flex items-center gap-1"
+              className={`text-xs font-medium transition-colors flex items-center gap-1 ${
+                assignAvailability.nextTrip ? 'text-violet-300 hover:text-violet-200' : 'text-accent hover:text-accent-light'
+              }`}
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              Asignar viaje
+              {assignAvailability.nextTrip ? 'Siguiente viaje' : 'Asignar viaje'}
             </button>
           ) : (
             <span className="text-[10px] text-gray-500">
-              {stats.inProgress ? 'En viaje activo' : 'No disponible'}
+              {assignAvailability.label || (stats.inProgress ? 'En viaje activo' : 'No disponible')}
             </span>
           )}
         </div>
@@ -209,6 +217,16 @@ export default function DriverPanel({
           </div>
         </div>
       )}
+      {driver.reservedNextTrip ? (
+        <div className="mx-4 mt-3 rounded-xl border border-violet-400/25 bg-violet-500/10 p-3">
+          <p className="text-xs font-semibold text-violet-300">
+            {driver.reservedNextTrip.status === 'pending' ? 'Siguiente en confirmación' : 'Siguiente viaje listo'}
+          </p>
+          <p className="mt-0.5 truncate text-[11px] text-violet-200/80">
+            → {driver.reservedNextTrip.destination_address || 'Sin destino'}
+          </p>
+        </div>
+      ) : null}
 
       {/* Stats grid */}
       <div className="p-4">

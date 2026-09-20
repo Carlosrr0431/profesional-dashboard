@@ -40,6 +40,8 @@ function driversSnapshotUnchanged(prev, next) {
     if (Boolean(a.commissionBlocked) !== Boolean(b.commissionBlocked)) return false;
     if ((a.activeTrip?.id || null) !== (b.activeTrip?.id || null)) return false;
     if ((a.activeTrip?.status || null) !== (b.activeTrip?.status || null)) return false;
+    if ((a.reservedNextTrip?.id || null) !== (b.reservedNextTrip?.id || null)) return false;
+    if ((a.reservedNextTrip?.status || null) !== (b.reservedNextTrip?.status || null)) return false;
     if (Boolean(a.isAssignedDriver) !== Boolean(b.isAssignedDriver)) return false;
     if ((a.ownerId || null) !== (b.ownerId || null)) return false;
     if ((a.photoUrl || '') !== (b.photoUrl || '')) return false;

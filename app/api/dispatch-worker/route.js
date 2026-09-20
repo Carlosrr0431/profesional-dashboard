@@ -57,6 +57,15 @@ import { isDriverEligibleForDispatch } from '../../../shared/driver-billing.js';
 import { selectDriversCompat } from '../../../src/lib/driversBillingSelect';
 import { resolvePreferredDriverId } from '../../../src/lib/assignExistingTrip';
 import { applyLiveGpsToDrivers, indexDriverLocationsById } from '../../../src/lib/driverMapGps';
+import {
+  pickBusyNextTripCandidate,
+  shouldFallbackToBusyDrivers,
+  buildNextTripOfferAssignUpdate,
+  partitionDriverBusyTrips,
+  isNextTripOffer,
+  isNextTripUniqueViolation,
+  mergeDriversById,
+} from '../../../shared/next-trip.js';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -635,6 +644,51 @@ async function claimDispatchBatch() {
   return claimedItems;
 }
 
+function selectBusyNextTripOffer({
+  trip,
+  pickupLat,
+  pickupLng,
+  allowedRadii,
+  withoutExcluded,
+  liveBusyTrips,
+  reservedNextDriverIds,
+  excludedDriverIdsSet,
+  preferredDriverId,
+  preferredOnly,
+  normalizedAttemptNo,
+}) {
+  if (!shouldFallbackToBusyDrivers({ idleInRadiusCount: 0 })) return null;
+
+  const currentTripByDriverId = {};
+  for (const liveTrip of liveBusyTrips || []) {
+    if (liveTrip?.driver_id) currentTripByDriverId[liveTrip.driver_id] = liveTrip;
+  }
+  const busyDrivers = (withoutExcluded || []).filter((driver) => currentTripByDriverId[driver.id]);
+  const busySelection = pickBusyNextTripCandidate({
+    pickupLat,
+    pickupLng,
+    allowedRadiiKm: allowedRadii,
+    busyDrivers,
+    currentTripByDriverId,
+    excludedDriverIds: excludedDriverIdsSet,
+    reservedNextDriverIds,
+    preferredDriverId,
+    preferredOnly,
+  });
+  if (!busySelection?.driver) return null;
+
+  logWorker('driver_selected_next_trip', {
+    tripId: trip?.id || null,
+    attemptNo: normalizedAttemptNo,
+    driverId: busySelection.driver.id,
+    currentTripId: busySelection.currentTripId,
+    distanceKm: Number(busySelection.distanceKm.toFixed(3)),
+    selectedRadiusKm: busySelection.radiusKm,
+    anchorSource: busySelection.anchorSource,
+  });
+  return busySelection;
+}
+
 async function chooseDriverForClaim(
   trip,
   {
@@ -676,7 +730,7 @@ async function chooseDriverForClaim(
     : getActiveDispatchExcludedDriverIds(trip?.wa_context);
   const excludedDriverIdsSet = new Set(excludedDriverIdList);
 
-  const [{ data: driversRaw, error }, locsRes] = await Promise.all([
+  const [{ data: driversRaw, error }, locsRes, busyTripsRes] = await Promise.all([
     selectDriversCompat(
       getSupabaseAdmin(),
       'id, full_name, phone, push_token, current_lat, current_lng, updated_at, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
@@ -685,6 +739,11 @@ async function chooseDriverForClaim(
     getSupabaseAdmin()
       .from('driver_locations')
       .select('driver_id, lat, lng, speed, heading, updated_at, recorded_at'),
+    getSupabaseAdmin()
+      .from('trips')
+      .select('id, driver_id, status, destination_lat, destination_lng, next_after_trip_id')
+      .in('status', DRIVER_BUSY_TRIP_STATUSES)
+      .not('driver_id', 'is', null),
   ]);
 
   if (error) throw error;
@@ -735,26 +794,65 @@ async function chooseDriverForClaim(
     });
   }
 
-  const candidatePoolIds = withoutSamePhone.map((driver) => driver.id).filter(Boolean);
-  let busyDriverIds = new Set();
-  if (candidatePoolIds.length > 0) {
-    const { data: activeTrips, error: activeTripsError } = await getSupabaseAdmin()
-      .from('trips')
-      .select('driver_id, status')
-      .in('driver_id', candidatePoolIds)
-      .in('status', DRIVER_BUSY_TRIP_STATUSES);
+  if (busyTripsRes.error) throw busyTripsRes.error;
+  const partitionedBusy = partitionDriverBusyTrips(busyTripsRes.data || []);
+  let liveBusyTrips = partitionedBusy.liveBusyTrips;
+  let reservedNextDriverIds = partitionedBusy.reservedNextDriverIds;
+  let busyDriverIds = new Set([
+    ...partitionedBusy.liveBusyTrips.map((item) => item.driver_id).filter(Boolean),
+    ...partitionedBusy.reservedNextDriverIds,
+    ...partitionedBusy.pendingOfferDriverIds,
+  ]);
 
-    if (activeTripsError) throw activeTripsError;
-    busyDriverIds = new Set((activeTrips || []).map((item) => item.driver_id).filter(Boolean));
+  const { data: fleetRows, error: fleetRowsError } = await getSupabaseAdmin()
+    .from('drivers')
+    .select('id, owner_id, is_assigned_driver');
+  if (fleetRowsError) throw fleetRowsError;
+  busyDriverIds = expandBusyDriverIdsToFleet(fleetRows || [], busyDriverIds);
 
-    const { data: fleetRows, error: fleetRowsError } = await getSupabaseAdmin()
-      .from('drivers')
-      .select('id, owner_id, is_assigned_driver');
-    if (fleetRowsError) throw fleetRowsError;
-    busyDriverIds = expandBusyDriverIdsToFleet(fleetRows || [], busyDriverIds);
+  const liveBusyDriverIds = liveBusyTrips.map((item) => item.driver_id).filter(Boolean);
+  const knownIds = new Set((drivers || []).map((driver) => driver.id));
+  const missingBusyIds = liveBusyDriverIds.filter((id) => !knownIds.has(id));
+  let extraBusyDrivers = [];
+  if (missingBusyIds.length) {
+    const { data: busyRows, error: busyRowsError } = await selectDriversCompat(
+      getSupabaseAdmin(),
+      'id, full_name, phone, push_token, current_lat, current_lng, updated_at, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
+      (query) => query.in('id', missingBusyIds),
+    );
+    if (busyRowsError) throw busyRowsError;
+    extraBusyDrivers = applyLiveGpsToDrivers(
+      (busyRows || []).filter((d) => isDriverEligibleForDispatch(d)),
+      locByDriver,
+    ).filter((driver) => (
+      Number.isFinite(Number(driver.current_lat))
+      && Number.isFinite(Number(driver.current_lng))
+      && (!passengerPhone || normalizePhone(driver.phone || '') !== passengerPhone)
+      && !excludedDriverIdsSet.has(driver.id)
+    ));
   }
 
+  const busyDriverPool = mergeDriversById(withoutExcluded, extraBusyDrivers);
+
+  const preferredDriverIdForBusy = resolvePreferredDriverId(trip?.wa_context);
+  const busyOfferArgs = {
+    trip,
+    pickupLat,
+    pickupLng,
+    allowedRadii,
+    withoutExcluded: busyDriverPool,
+    liveBusyTrips,
+    reservedNextDriverIds,
+    excludedDriverIdsSet,
+    preferredDriverId: preferredDriverIdForBusy,
+    preferredOnly,
+    normalizedAttemptNo,
+  };
+
   if (!withoutExcluded.length) {
+    const busyOffer = selectBusyNextTripOffer(busyOfferArgs);
+    if (busyOffer) return busyOffer;
+
     const expansionHint = buildRadiusExpansionHint({
       pickupLat,
       pickupLng,
@@ -794,6 +892,9 @@ async function chooseDriverForClaim(
   const candidateDrivers = withoutExcluded.filter((driver) => !busyDriverIds.has(driver.id));
   const busyFilteredCount = Math.max(0, withoutExcluded.length - candidateDrivers.length);
   if (!candidateDrivers.length) {
+    const busyOffer = selectBusyNextTripOffer(busyOfferArgs);
+    if (busyOffer) return busyOffer;
+
     logWorker('driver_select_no_candidate', {
       tripId: trip?.id || null,
       attemptNo: normalizedAttemptNo,
@@ -826,6 +927,8 @@ async function chooseDriverForClaim(
   });
 
   if (!reachableDrivers.length) {
+    const busyOffer = selectBusyNextTripOffer(busyOfferArgs);
+    if (busyOffer) return busyOffer;
     logWorker('driver_select_no_reachable_channel', {
       tripId: trip?.id || null,
       attemptNo: normalizedAttemptNo,
@@ -863,6 +966,12 @@ async function chooseDriverForClaim(
       };
     }
     if (preferredOnly) {
+      const busyOffer = selectBusyNextTripOffer({
+        ...busyOfferArgs,
+        preferredDriverId,
+        preferredOnly: true,
+      });
+      if (busyOffer) return busyOffer;
       logWorkerVerbose('driver_select_preferred_only_unavailable', {
         tripId: trip?.id || null,
         preferredDriverId,
@@ -933,6 +1042,15 @@ async function chooseDriverForClaim(
 
       return selected;
     }
+  }
+
+  if (shouldFallbackToBusyDrivers({ idleInRadiusCount: 0 })) {
+    const busyOffer = selectBusyNextTripOffer({
+      ...busyOfferArgs,
+      preferredDriverId,
+      preferredOnly,
+    });
+    if (busyOffer) return busyOffer;
   }
 
   const expansionHint = buildRadiusExpansionHint({
@@ -1080,7 +1198,7 @@ async function notifyDriver(driver, trip) {
 
   if (PUSH_NOTIFICATIONS_ENABLED && hasFcmPushToken && !pushBackoffActive) {
     const pushResult = await sendPushNotification(driver.push_token, {
-      title: 'Nuevo viaje asignado',
+      title: isNextTripOffer(trip) ? 'Siguiente viaje' : 'Nuevo viaje asignado',
       body: `${trip.passenger_name || 'Pasajero'} -> ${resolveDispatchPickupCoords(trip).pickupAddress || trip.destination_address || 'Retiro'}`,
       data: {
         type: 'new_trip',
@@ -1574,11 +1692,13 @@ async function processDispatchClaim(claim) {
     }
 
     const selectedDriver = driverSelection.driver;
+    const isNextTripOffer = Boolean(driverSelection.nextTrip && driverSelection.currentTripId);
 
     // Re-verificación justo antes de asignar: dos instancias Vercel pueden seleccionar el
     // mismo conductor para viajes distintos si ambas leen "is_available=true" antes de que
     // cualquiera haga commit. Este check reduce drásticamente esa ventana de race condition.
-    {
+    // El fallback de siguiente viaje SÍ permite chofer ocupado.
+    if (!isNextTripOffer) {
       const { data: driverBusy, error: driverBusyErr } = await supabase
         .from('trips')
         .select('id')
@@ -1609,15 +1729,28 @@ async function processDispatchClaim(claim) {
     const assignedAt = new Date().toISOString();
 
     const tripIsPassengerApp = isPassengerAppTrip(trip);
-    const assignUpdate = {
-      driver_id: selectedDriver.id,
-      status: 'pending',
-      assigned_at: assignedAt,
-      dispatch_status: 'waiting_acceptance',
-    };
+    const assignUpdate = isNextTripOffer
+      ? {
+        ...buildNextTripOfferAssignUpdate({
+          driverId: selectedDriver.id,
+          currentTripId: driverSelection.currentTripId,
+          assignedAt,
+        }),
+        wa_context: {
+          ...safeJsonParse(trip.wa_context, {}),
+          offer_kind: 'next_trip',
+        },
+      }
+      : {
+        driver_id: selectedDriver.id,
+        status: 'pending',
+        assigned_at: assignedAt,
+        dispatch_status: 'waiting_acceptance',
+      };
     // Legacy WhatsApp: origin_* = GPS del chofer al asignar.
     // Nuevo esquema / passenger-app: origin_* = recogida del pasajero (no pisar).
-    if (!shouldPreservePickupOriginOnAssign(trip)) {
+    // Siguiente viaje: no pisar el retiro con el GPS del chofer ocupado.
+    if (!isNextTripOffer && !shouldPreservePickupOriginOnAssign(trip)) {
       const driverLat = Number(selectedDriver.current_lat);
       const driverLng = Number(selectedDriver.current_lng);
       assignUpdate.origin_address = await resolveGpsStreetAddress(driverLat, driverLng);
@@ -1633,7 +1766,24 @@ async function processDispatchClaim(claim) {
       .select('id, passenger_name, passenger_phone, destination_address')
       .maybeSingle();
 
-    if (assignError) throw assignError;
+    if (assignError) {
+      if (isNextTripUniqueViolation(assignError)) {
+        await releaseDispatchClaim({
+          tripId,
+          lockToken,
+          result: 'retry',
+          retrySeconds: DISPATCH_RETRY_SECONDS,
+          errorCode: 'driver_already_has_next_trip',
+        });
+        logWorkerVerbose('claim_driver_already_has_next_trip_retry', {
+          tripId,
+          attemptNo,
+          driverId: selectedDriver.id,
+        });
+        return { status: 'no_driver_available' };
+      }
+      throw assignError;
+    }
 
     if (!assignedTrip) {
       await releaseDispatchClaim({
@@ -1659,6 +1809,8 @@ async function processDispatchClaim(claim) {
       distanceKm: Number(driverSelection.distanceKm.toFixed(3)),
       scoreKm: Number(driverSelection.scoreKm.toFixed(3)),
       searchRadiusKm: driverSelection.radiusKm,
+      nextTrip: Boolean(isNextTripOffer),
+      currentTripId: driverSelection.currentTripId || null,
     });
 
     const notifyResult = await notifyDriver(
@@ -1669,7 +1821,7 @@ async function processDispatchClaim(claim) {
       }
     );
 
-    if (tripIsPassengerApp) {
+    if (tripIsPassengerApp && !isNextTripOffer) {
       try {
         const pushResult = await trySendPassengerAppTripPush(
           supabase,

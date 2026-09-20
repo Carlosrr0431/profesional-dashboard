@@ -201,6 +201,11 @@ export function buildStreetHailPendingCancelUpdate(trip = {}) {
 }
 
 export function buildPendingToQueuedUpdate(trip, extras = {}) {
+  const clearNextTrip = {
+    next_after_trip_id: null,
+    next_trip_offered_at: null,
+  };
+
   if (isPassengerAppTrip(trip)) {
     const restoredPickup = resolvePassengerAppPickupFields(trip);
     return {
@@ -210,6 +215,7 @@ export function buildPendingToQueuedUpdate(trip, extras = {}) {
       status: 'queued',
       dispatch_status: 'queued',
       status_updated_at: new Date().toISOString(),
+      ...clearNextTrip,
       ...(restoredPickup || {}),
       ...extras,
     };
@@ -231,6 +237,7 @@ export function buildPendingToQueuedUpdate(trip, extras = {}) {
       destination_address: finalDest?.address || null,
       destination_lat: finalDest?.lat ?? null,
       destination_lng: finalDest?.lng ?? null,
+      ...clearNextTrip,
       ...extras,
     };
   }
@@ -250,6 +257,7 @@ export function buildPendingToQueuedUpdate(trip, extras = {}) {
     accepted_at: null,
     dispatch_status: 'queued',
     status_updated_at: new Date().toISOString(),
+    ...clearNextTrip,
     ...extras,
   };
 }

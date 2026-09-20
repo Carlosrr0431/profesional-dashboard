@@ -6,6 +6,7 @@ import { sendPushNotification, formatPrice, formatKm } from '../lib/utils';
 import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
 import AddressAutocomplete from './AddressAutocomplete';
+import { dashboardDriverAvailability } from '../lib/assignExistingTrip';
 
 /* ── Estilos globales ─────────────────────────────────────────────────────── */
 const MODAL_STYLES = `
@@ -104,6 +105,8 @@ export default function TripAssignModal({
   asPopover = false,
 }) {
   const toast = useToast();
+  const availability = dashboardDriverAvailability(driver);
+  const assignAsNext = Boolean(availability.nextTrip);
 
   /* Origen */
   const [originAddress, setOriginAddress] = useState('');
@@ -158,6 +161,10 @@ export default function TripAssignModal({
       .then((p) => setOriginAddress(p?.ok ? (p.data?.formattedAddress || `${lat.toFixed(5)}, ${lng.toFixed(5)}`) : `${lat.toFixed(5)}, ${lng.toFixed(5)}`))
       .catch(() => setOriginAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`));
   }, [driver, originMode]);
+
+  useEffect(() => {
+    if (assignAsNext && originMode === 'driver') setOriginMode('custom');
+  }, [assignAsNext, originMode]);
 
   /* ── Calcular ruta cuando hay origen + destino ────────────────────────── */
   useEffect(() => {
@@ -254,6 +261,11 @@ export default function TripAssignModal({
     e?.preventDefault();
     setError('');
 
+    if (!availability.canAssign) {
+      setError(`Este móvil no se puede asignar ahora (${availability.label}).`);
+      return;
+    }
+
     if (originMode === 'driver' && (!originLat || !originLng)) {
       setError('El chofer no tiene ubicación disponible. Cambiá a dirección manual.');
       return;
@@ -297,8 +309,8 @@ export default function TripAssignModal({
     try {
       const driverLat = parseFloat(driver?.lat);
       const driverLng = parseFloat(driver?.lng);
-      const hasDriverCoords =
-        Number.isFinite(driverLat) && Number.isFinite(driverLng) && !(driverLat === 0 && driverLng === 0);
+      const hasDriverCoords = !assignAsNext
+        && Number.isFinite(driverLat) && Number.isFinite(driverLng) && !(driverLat === 0 && driverLng === 0);
 
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
@@ -340,7 +352,7 @@ export default function TripAssignModal({
           const priceText = data.price ? ` · ${formatPrice(data.price)}` : '';
           const distText = data.distance_km ? ` · ${formatKm(data.distance_km)}` : '';
           await sendPushNotification(driverData.push_token, {
-            title: 'Nuevo viaje asignado',
+            title: assignJson?.nextTrip || assignAsNext ? 'Siguiente viaje' : 'Nuevo viaje asignado',
             body: `${data.passenger_name || 'Pasajero'} → ${finalOriginAddress}${distText}${priceText}`,
             data: { type: 'new_trip', tripId: data.id, trip: data },
             driverId: driver.id,
@@ -440,19 +452,25 @@ export default function TripAssignModal({
             </button>
             <button
               type="button"
-              disabled={submitting}
+              disabled={submitting || !availability.canAssign}
               onClick={handleSubmit}
               style={{
                 flex: 2, padding: '9px 16px',
-                background: submitting ? '#CBD5E1' : 'linear-gradient(135deg,#EF4444 0%,#B91C1C 100%)',
+                background: submitting || !availability.canAssign
+                  ? '#CBD5E1'
+                  : (assignAsNext ? 'linear-gradient(135deg,#7C3AED 0%,#5B21B6 100%)' : 'linear-gradient(135deg,#EF4444 0%,#B91C1C 100%)'),
                 border: 'none', borderRadius: 10,
                 color: '#FFFFFF', fontSize: 13, fontWeight: 700,
-                cursor: submitting ? 'not-allowed' : 'pointer',
+                cursor: submitting || !availability.canAssign ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                boxShadow: submitting ? 'none' : '0 4px 14px rgba(220,38,38,0.35)',
+                boxShadow: submitting || !availability.canAssign
+                  ? 'none'
+                  : (assignAsNext ? '0 4px 14px rgba(124,58,237,0.35)' : '0 4px 14px rgba(220,38,38,0.35)'),
               }}
             >
-              {submitting ? <><Spinner size={13} color="#fff" /> Asignando…</> : '🚖 Asignar Viaje'}
+              {submitting
+                ? <><Spinner size={13} color="#fff" /> Asignando…</>
+                : (assignAsNext ? 'Ofrecer siguiente' : '🚖 Asignar Viaje')}
             </button>
           </div>
 
@@ -501,13 +519,18 @@ export default function TripAssignModal({
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
-              width: 8, height: 8, borderRadius: '50%', background: '#E11D48', flexShrink: 0,
-              boxShadow: '0 0 0 4px rgba(225,29,72,0.12)',
+              width: 8, height: 8, borderRadius: '50%',
+              background: assignAsNext ? '#7C3AED' : '#E11D48',
+              flexShrink: 0,
+              boxShadow: assignAsNext ? '0 0 0 4px rgba(124,58,237,0.16)' : '0 0 0 4px rgba(225,29,72,0.12)',
             }} />
             <div>
-              <div style={{ fontSize: asPopover ? 14 : 15, fontWeight: 600, color: '#0F172A', letterSpacing: '-0.02em' }}>Asignar viaje</div>
+              <div style={{ fontSize: asPopover ? 14 : 15, fontWeight: 600, color: '#0F172A', letterSpacing: '-0.02em' }}>
+                {assignAsNext ? 'Siguiente viaje' : 'Asignar viaje'}
+              </div>
               <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>
                 {driver?.fullName || driver?.full_name || '—'}
+                {assignAsNext ? ' · en viaje activo' : ''}
               </div>
             </div>
           </div>
@@ -525,6 +548,23 @@ export default function TripAssignModal({
             ✕
           </button>
         </div>
+
+        {assignAsNext ? (
+          <div style={{
+            margin: asPopover ? '0 14px 10px' : '0 20px 12px',
+            padding: '10px 12px',
+            borderRadius: 12,
+            background: 'linear-gradient(135deg, rgba(124,58,237,0.12) 0%, rgba(167,139,250,0.08) 100%)',
+            border: '1px solid rgba(139,92,246,0.28)',
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#6D28D9', letterSpacing: '-0.01em' }}>
+              El móvil está en un viaje
+            </div>
+            <div style={{ fontSize: 11, color: '#7C3AED', marginTop: 3, lineHeight: 1.45 }}>
+              Se ofrece como siguiente. Arranca cuando termine el viaje actual. El origen es el del pasajero, no el GPS del chofer.
+            </div>
+          </div>
+        ) : null}
 
         <form onSubmit={handleSubmit} style={{
           display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0,
@@ -550,6 +590,7 @@ export default function TripAssignModal({
                     ORIGEN
                   </span>
                 </div>
+                {assignAsNext ? null : (
                 <button
                   type="button"
                   onClick={() => setOriginMode((m) => (m === 'driver' ? 'custom' : 'driver'))}
@@ -563,6 +604,7 @@ export default function TripAssignModal({
                 >
                   {originMode === 'driver' ? '✓ Ubicación del chofer' : 'Usar ubicación del chofer'}
                 </button>
+                )}
               </div>
               {originMode === 'driver' ? (
                 <div style={{
@@ -761,22 +803,26 @@ export default function TripAssignModal({
               </button>
               <button
                 type="submit"
-                disabled={submitting}
+                disabled={submitting || !availability.canAssign}
                 style={{
                   flex: 1, padding: '12px 16px',
-                  background: submitting ? '#CBD5E1' : '#E11D48',
+                  background: submitting || !availability.canAssign
+                    ? '#CBD5E1'
+                    : (assignAsNext ? 'linear-gradient(135deg,#7C3AED 0%,#5B21B6 100%)' : '#E11D48'),
                   border: 'none', borderRadius: 12,
                   color: '#FFFFFF', fontSize: 14, fontWeight: 700, fontFamily: 'inherit',
-                  cursor: submitting ? 'not-allowed' : 'pointer',
+                  cursor: submitting || !availability.canAssign ? 'not-allowed' : 'pointer',
                   opacity: submitting ? 0.75 : 1,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  boxShadow: submitting ? 'none' : '0 6px 16px rgba(225,29,72,0.28)',
+                  boxShadow: submitting || !availability.canAssign
+                    ? 'none'
+                    : (assignAsNext ? '0 6px 16px rgba(124,58,237,0.32)' : '0 6px 16px rgba(225,29,72,0.28)'),
                 }}
               >
                 {submitting ? (
                   <><Spinner size={14} color="#fff" /> Asignando…</>
                 ) : (
-                  'Asignar viaje'
+                  assignAsNext ? 'Ofrecer siguiente viaje' : 'Asignar viaje'
                 )}
               </button>
             </div>

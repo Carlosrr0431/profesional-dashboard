@@ -401,8 +401,8 @@ export default function NewTripModal({
         setError('Ingresá el número de móvil y seleccioná el chofer.');
         return;
       }
-      if (!isScheduled && selectedAvailability && !selectedAvailability.canAssign) {
-        setError(`Ese móvil no está libre ahora (${selectedAvailability.label}).`);
+                      if (!isScheduled && selectedAvailability && !selectedAvailability.canAssign) {
+        setError(`Ese móvil no se puede asignar ahora (${selectedAvailability.label}).`);
         return;
       }
     }
@@ -837,7 +837,7 @@ export default function NewTripModal({
               />
               {!String(driverNumberQuery || '').trim() ? (
                 <p style={{ margin: '8px 0 0', fontSize: 11, color: '#64748B', lineHeight: 1.45 }}>
-                  Escribí el número de móvil para ver quién es y encolarlo a ese chofer.
+                  Escribí el número de móvil para ver quién es. Si está en viaje, se le ofrece como siguiente.
                 </p>
               ) : driverMatches.length === 0 ? (
                 <p style={{ margin: '8px 0 0', fontSize: 11, color: '#DC2626' }}>
@@ -873,8 +873,12 @@ export default function NewTripModal({
                           <span style={{
                             fontSize: 10, fontWeight: 700, letterSpacing: '0.03em',
                             padding: '3px 7px', borderRadius: 999,
-                            background: availability.canAssign ? '#ECFDF5' : '#FEF2F2',
-                            color: availability.canAssign ? '#047857' : '#B91C1C',
+                            background: availability.nextTrip
+                              ? '#F5F3FF'
+                              : availability.canAssign ? '#ECFDF5' : '#FEF2F2',
+                            color: availability.nextTrip
+                              ? '#6D28D9'
+                              : availability.canAssign ? '#047857' : '#B91C1C',
                           }}>
                             {availability.label}
                           </span>
@@ -887,6 +891,11 @@ export default function NewTripModal({
                       </button>
                     );
                   })}
+                  {selectedAvailability?.nextTrip && !isScheduled ? (
+                    <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6D28D9', lineHeight: 1.45 }}>
+                      Está en un viaje. Se le ofrece como siguiente y arranca al terminar el actual.
+                    </p>
+                  ) : null}
                   {isScheduled ? (
                     <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748B', lineHeight: 1.45 }}>
                       A la hora de despacho se ofrece primero a este móvil. Si no está libre, se busca el más cercano.
@@ -1007,7 +1016,11 @@ export default function NewTripModal({
 /* ── Sub-componentes ──────────────────────────────────────────────────────── */
 function enqueueActionLabel(driverMode, selectedDriver) {
   if (driverMode === 'choose' && selectedDriver) {
+    const availability = dashboardDriverAvailability(selectedDriver);
     const n = Number(selectedDriver.driverNumber);
+    if (availability.nextTrip) {
+      return Number.isFinite(n) ? `Siguiente a móvil #${n}` : 'Ofrecer como siguiente';
+    }
     return Number.isFinite(n) ? `Encolar a móvil #${n}` : 'Encolar a este chofer';
   }
   return 'Encolar viaje';

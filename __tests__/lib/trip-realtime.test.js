@@ -7,6 +7,7 @@ import {
   applyTripRealtimeToQueue,
   mapLiveTripFromRow,
   mergeDriversSnapshotWithTripRealtime,
+  splitDashboardDriverTrips,
 } from '../../src/lib/tripRealtime';
 
 const STREET_HAIL_CANCEL = {
@@ -199,5 +200,42 @@ describe('tripRealtime', () => {
 
     const merged = mergeDriversSnapshotWithTripRealtime(prev, snapshot, now + 200);
     expect(merged[0].activeTrip).toBeNull();
+  });
+
+  it('no pisa el viaje activo con el siguiente reservado', () => {
+    const { activeTripsMap, reservedNextMap } = splitDashboardDriverTrips([
+      {
+        id: 'live-1',
+        driver_id: 'd1',
+        status: 'in_progress',
+        passenger_name: 'Ana',
+        destination_address: 'Mitre 100',
+      },
+      {
+        id: 'n1',
+        driver_id: 'd1',
+        status: 'accepted',
+        next_after_trip_id: 'live-1',
+        passenger_name: 'Beto',
+        destination_address: 'Belgrano 50',
+      },
+    ]);
+    expect(activeTripsMap.d1.id).toBe('live-1');
+    expect(reservedNextMap.d1.id).toBe('n1');
+
+    const next = applyTripRealtimeToDrivers([
+      { id: 'd1', activeTrip: { id: 'live-1', status: 'in_progress', destination_address: 'Mitre 100' } },
+    ], {
+      eventType: 'INSERT',
+      new: {
+        id: 'n1',
+        driver_id: 'd1',
+        status: 'pending',
+        next_after_trip_id: 'live-1',
+        destination_address: 'Belgrano 50',
+      },
+    });
+    expect(next[0].activeTrip.id).toBe('live-1');
+    expect(next[0].reservedNextTrip.id).toBe('n1');
   });
 });

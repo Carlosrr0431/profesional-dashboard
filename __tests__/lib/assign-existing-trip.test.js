@@ -11,6 +11,7 @@ const {
   appendDashboardAssignNotes,
   stampManualDashboardAssign,
   dashboardDriverAvailability,
+  classifyManualAssignBusyState,
 } = require('../../src/lib/assignExistingTrip');
 
 describe('assignExistingTrip', () => {
@@ -49,6 +50,8 @@ describe('assignExistingTrip', () => {
       status: 'pending',
       assigned_at: assignedAt,
       dispatch_status: 'waiting_acceptance',
+      next_after_trip_id: null,
+      next_trip_offered_at: null,
       wa_context: {
         preferred_driver_id: 'drv-1',
         manual_assign: true,
@@ -116,8 +119,14 @@ describe('assignExistingTrip', () => {
       code: 'offline',
       label: 'Desconectado',
       canAssign: false,
+      nextTrip: false,
     });
-    expect(dashboardDriverAvailability(drivers[2]).code).toBe('busy');
+    expect(dashboardDriverAvailability(drivers[2])).toEqual({
+      code: 'busy_next',
+      label: 'En viaje · siguiente',
+      canAssign: true,
+      nextTrip: true,
+    });
   });
 
   it('guarda y lee el chofer preferido como asignación manual', () => {
@@ -141,5 +150,60 @@ describe('assignExistingTrip', () => {
         preferred_driver_id: 'drv-9',
       },
     });
+  });
+
+  it('permite siguiente viaje a un chofer ocupado sin reserva', () => {
+    const busy = {
+      id: 'd1',
+      isOnline: true,
+      dispatchBlocked: false,
+      activeTrip: { id: 'live-1', status: 'in_progress' },
+    };
+    expect(dashboardDriverAvailability(busy)).toEqual({
+      code: 'busy_next',
+      label: 'En viaje · siguiente',
+      canAssign: true,
+      nextTrip: true,
+    });
+    expect(dashboardDriverAvailability({
+      ...busy,
+      reservedNextTrip: { id: 'n1', status: 'pending', next_after_trip_id: 'live-1' },
+    })).toMatchObject({
+      code: 'reserved',
+      canAssign: false,
+      nextTrip: false,
+    });
+  });
+
+  it('arma la oferta de siguiente sin pisar el GPS del pasajero', () => {
+    const assignedAt = '2026-09-20T15:00:00.000Z';
+    const update = buildAssignExistingTripUpdate({
+      trip: { notes: '[PASSENGER_APP]', origin_address: 'Mitre 200', origin_lat: -24.79, origin_lng: -65.41 },
+      driver: { id: 'drv-1', lat: -24.80, lng: -65.43 },
+      assignedAt,
+      nextAfterTripId: 'live-1',
+    });
+    expect(update).toMatchObject({
+      driver_id: 'drv-1',
+      status: 'pending',
+      next_after_trip_id: 'live-1',
+      dispatch_status: 'waiting_acceptance',
+    });
+    expect(update.origin_lat).toBeUndefined();
+    expect(update.origin_lng).toBeUndefined();
+    expect(update.wa_context.offer_kind).toBe('next_trip');
+  });
+
+  it('clasifica ocupado vs siguiente vs oferta pendiente', () => {
+    expect(classifyManualAssignBusyState([
+      { id: 'live-1', driver_id: 'd1', status: 'in_progress' },
+    ]).canAssignAsNext).toBe(true);
+    expect(classifyManualAssignBusyState([
+      { id: 'live-1', driver_id: 'd1', status: 'in_progress' },
+      { id: 'n1', driver_id: 'd1', status: 'pending', next_after_trip_id: 'live-1' },
+    ]).canAssignAsNext).toBe(false);
+    expect(classifyManualAssignBusyState([
+      { id: 'p1', driver_id: 'd1', status: 'pending' },
+    ])).toMatchObject({ canAssignAsNext: false, hasPendingOffer: true });
   });
 });

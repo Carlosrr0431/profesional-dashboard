@@ -71,4 +71,14 @@ describe('dispatchExclusions', () => {
     expect(getActiveDispatchExcludedDriverIds(legacy)).toEqual(['drv-legacy']);
     expect(clearTimeoutRoundExclusions(legacy)).toEqual(legacy);
   });
+
+  it('un rechazo vía RPC no se pierde si el viaje ya tenía exclusiones de ronda', () => {
+    const context = {
+      dispatch_excluded_driver_ids: ['drv-rpc'],
+      dispatch_permanent_excluded_driver_ids: [],
+      dispatch_round_excluded_driver_ids: ['drv-timeout'],
+    };
+
+    expect(getActiveDispatchExcludedDriverIds(context)).toEqual(['drv-timeout', 'drv-rpc']);
+  });
 });

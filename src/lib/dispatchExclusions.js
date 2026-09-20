@@ -88,7 +88,11 @@ export function normalizeDispatchExclusionState(waContext) {
 export function getActiveDispatchExcludedDriverIds(waContext) {
   const state = normalizeDispatchExclusionState(waContext);
   if (state.isLegacy) return state.allExcluded;
-  return normalizeDriverIdList([...state.permanentExcluded, ...state.roundExcluded]);
+  return normalizeDriverIdList([
+    ...state.permanentExcluded,
+    ...state.roundExcluded,
+    ...getTripDispatchExcludedDriverIds(state.context),
+  ]);
 }
 
 export function canResetTimeoutRoundExclusions(waContext) {

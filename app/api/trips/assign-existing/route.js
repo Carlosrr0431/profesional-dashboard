@@ -10,9 +10,14 @@ import {
   DRIVER_BUSY_TRIP_STATUSES,
   buildAssignExistingTripUpdate,
   canManuallyAssignExistingTrip,
+  classifyManualAssignBusyState,
   hasValidDriverGps,
   resolveAssignDriverGps,
 } from '../../../../src/lib/assignExistingTrip';
+import {
+  isNextTripOffer,
+  isNextTripUniqueViolation,
+} from '../../../../shared/next-trip.js';
 import { applyLiveGpsToDriver } from '../../../../src/lib/driverMapGps';
 import { selectDriversCompat } from '../../../../src/lib/driversBillingSelect';
 import {
@@ -47,6 +52,8 @@ const TRIP_SELECT = [
   'scheduled_for',
   'dispatch_status',
   'wa_context',
+  'next_after_trip_id',
+  'next_trip_offered_at',
 ].join(', ');
 
 const DRIVER_SELECT = [
@@ -86,14 +93,14 @@ async function notifyAssignedDriver(driver, trip) {
 
   try {
     const data = {
-      type: 'new_trip',
+      type: isNextTripOffer(trip) ? 'next_trip' : 'new_trip',
       tripId: trip.id,
     };
     const collapseTag = buildAndroidNotificationTag(data);
     await getFirebaseMessagingClient().send({
       token,
       notification: {
-        title: 'Nuevo viaje asignado',
+        title: isNextTripOffer(trip) ? 'Siguiente viaje' : 'Nuevo viaje asignado',
         body: `${trip.passenger_name || 'Pasajero'} → ${pickupLabel(trip)}`,
       },
       data: normalizeFcmDataPayload(data),
@@ -169,12 +176,6 @@ export async function POST(request) {
     if (!driverRow) {
       return NextResponse.json({ ok: false, message: 'Chofer no encontrado.' }, { status: 404 });
     }
-    if (!driverRow.is_available) {
-      return NextResponse.json(
-        { ok: false, message: 'Ese chofer no está libre ahora.' },
-        { status: 409 },
-      );
-    }
     if (!isDriverEligibleForDispatch(driverRow)) {
       const reason = resolveDispatchBlockReason(driverRow);
       const message = reason === 'manual'
@@ -191,26 +192,39 @@ export async function POST(request) {
     const loc = Array.isArray(locRows) ? locRows[0] : locRows;
     const driver = applyLiveGpsToDriver(driverRow, loc || null);
 
-    const { data: busyTrip, error: busyError } = await supabase
+    const { data: busyTrips, error: busyError } = await supabase
       .from('trips')
-      .select('id')
+      .select('id, driver_id, status, next_after_trip_id')
       .eq('driver_id', driverId)
       .in('status', DRIVER_BUSY_TRIP_STATUSES)
-      .neq('id', tripId)
-      .limit(1)
-      .maybeSingle();
+      .neq('id', tripId);
 
     if (busyError) throw busyError;
-    if (busyTrip) {
+
+    const busyState = classifyManualAssignBusyState(busyTrips || []);
+    if (busyState.reservedNext || busyState.hasPendingOffer) {
       return NextResponse.json(
-        { ok: false, message: 'Ese chofer ya tiene un viaje activo.' },
+        {
+          ok: false,
+          message: busyState.reservedNext
+            ? 'Ese chofer ya tiene un siguiente viaje reservado.'
+            : 'Ese chofer todavía está confirmando otro viaje.',
+        },
+        { status: 409 },
+      );
+    }
+
+    const nextAfterTripId = busyState.canAssignAsNext ? busyState.liveTrip.id : null;
+    if (!nextAfterTripId && !driverRow.is_available) {
+      return NextResponse.json(
+        { ok: false, message: 'Ese chofer no está libre ahora.' },
         { status: 409 },
       );
     }
 
     const assignedAt = new Date().toISOString();
     let originAddress;
-    if (!shouldPreservePickupOriginOnAssign(trip) && hasValidDriverGps(driver)) {
+    if (!nextAfterTripId && !shouldPreservePickupOriginOnAssign(trip) && hasValidDriverGps(driver)) {
       const gps = resolveAssignDriverGps(driver);
       originAddress = await resolveGpsStreetAddress(gps.lat, gps.lng);
     }
@@ -220,6 +234,7 @@ export async function POST(request) {
       driver,
       assignedAt,
       originAddress,
+      nextAfterTripId,
     });
 
     if (assignUpdate.origin_lat != null && !hasValidDriverGps(driver)) {
@@ -237,7 +252,15 @@ export async function POST(request) {
       .select(TRIP_SELECT)
       .maybeSingle();
 
-    if (assignError) throw assignError;
+    if (assignError) {
+      if (isNextTripUniqueViolation(assignError)) {
+        return NextResponse.json(
+          { ok: false, message: 'Ese chofer ya tiene un siguiente viaje reservado.' },
+          { status: 409 },
+        );
+      }
+      throw assignError;
+    }
     if (!assignedTrip) {
       return NextResponse.json(
         { ok: false, message: 'El viaje ya no se puede asignar (fue aceptado o cancelado).' },
@@ -246,9 +269,10 @@ export async function POST(request) {
     }
 
     const mergedTrip = { ...trip, ...assignedTrip, status: 'pending' };
+    const nextTrip = isNextTripOffer(mergedTrip);
     const notifyResult = await notifyAssignedDriver(driver, mergedTrip);
 
-    if (isPassengerAppTrip(mergedTrip)) {
+    if (!nextTrip && isPassengerAppTrip(mergedTrip)) {
       try {
         await trySendPassengerAppTripPush(supabase, mergedTrip, driver);
       } catch {
@@ -259,6 +283,7 @@ export async function POST(request) {
     return NextResponse.json({
       ok: true,
       trip: assignedTrip,
+      nextTrip,
       notified: Boolean(notifyResult?.ok),
       notifyReason: notifyResult?.reason || null,
     });

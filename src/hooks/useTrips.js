@@ -142,7 +142,8 @@ function computeStats(
   const completed = trips.filter((t) => t.status === 'completed');
   const cancelled = trips.filter((t) => t.status === 'cancelled');
   const inProgress = trips.find(
-    (t) => t.status === 'in_progress' || t.status === 'going_to_pickup' || t.status === 'accepted'
+    (t) => (t.status === 'in_progress' || t.status === 'going_to_pickup' || t.status === 'accepted')
+      && !t.next_after_trip_id
   );
 
   const totalEarnings = completed.reduce((s, t) => s + (parseFloat(t.price) || 0), 0);

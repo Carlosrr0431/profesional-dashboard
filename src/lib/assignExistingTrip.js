@@ -3,6 +3,11 @@ import {
   isPassengerAppTrip,
   shouldPreservePickupOriginOnAssign,
 } from '../../shared/trip-contract.js';
+import {
+  buildNextTripOfferAssignUpdate,
+  partitionDriverBusyTrips,
+  shouldTreatAsLiveDriverTrip,
+} from '../../shared/next-trip.js';
 
 export const ASSIGNABLE_EXISTING_TRIP_STATUSES = ['scheduled', 'queued', 'pending'];
 export const DRIVER_BUSY_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
@@ -135,31 +140,89 @@ export function stampManualDashboardAssign({ trip, driverId } = {}) {
 }
 
 export function dashboardDriverAvailability(driver) {
-  if (!driver) return { code: 'missing', label: 'Sin chofer', canAssign: false };
+  if (!driver) return { code: 'missing', label: 'Sin chofer', canAssign: false, nextTrip: false };
   if (driver.dispatchBlocked) {
     return {
       code: 'blocked',
       label: driver.commissionBlocked ? 'Bloqueo manual' : 'Bloqueado por comisión',
       canAssign: false,
+      nextTrip: false,
+    };
+  }
+  if (driver.reservedNextTrip) {
+    const reservedStatus = String(driver.reservedNextTrip.status || '').toLowerCase();
+    const isNext = Boolean(driver.reservedNextTrip.next_after_trip_id);
+    return {
+      code: 'reserved',
+      label: reservedStatus === 'pending'
+        ? (isNext ? 'Confirmando siguiente' : 'Confirmando viaje')
+        : 'Ya tiene siguiente',
+      canAssign: false,
+      nextTrip: false,
     };
   }
   if (driver.activeTrip) {
-    return { code: 'busy', label: 'En viaje', canAssign: false };
+    return {
+      code: 'busy_next',
+      label: 'En viaje · siguiente',
+      canAssign: true,
+      nextTrip: true,
+    };
   }
   if (!driver.isOnline) {
-    return { code: 'offline', label: 'Desconectado', canAssign: false };
+    return { code: 'offline', label: 'Desconectado', canAssign: false, nextTrip: false };
   }
-  return { code: 'free', label: 'Disponible', canAssign: true };
+  return { code: 'free', label: 'Disponible', canAssign: true, nextTrip: false };
 }
 
-export function buildAssignExistingTripUpdate({ trip, driver, assignedAt, originAddress } = {}) {
-  const { lat, lng } = resolveAssignDriverGps(driver);
+export function classifyManualAssignBusyState(trips, { ignoreTripId } = {}) {
+  const partitioned = partitionDriverBusyTrips(trips, { ignoreTripId });
+  const liveTrip = partitioned.liveBusyTrips.find((item) => shouldTreatAsLiveDriverTrip(item))
+    || partitioned.liveBusyTrips[0]
+    || null;
+  const reservedNext = liveTrip?.driver_id
+    ? partitioned.reservedNextByDriverId[liveTrip.driver_id] || null
+    : (Object.values(partitioned.reservedNextByDriverId)[0] || null);
+  const hasPendingOffer = partitioned.pendingOfferDriverIds.size > 0;
+  return {
+    liveTrip,
+    reservedNext,
+    hasPendingOffer,
+    canAssignAsNext: Boolean(liveTrip?.id) && !reservedNext && !hasPendingOffer,
+  };
+}
+
+export function buildAssignExistingTripUpdate({
+  trip,
+  driver,
+  assignedAt,
+  originAddress,
+  nextAfterTripId,
+} = {}) {
   const stamped = stampManualDashboardAssign({ trip, driverId: driver.id });
+  if (nextAfterTripId) {
+    return {
+      ...buildNextTripOfferAssignUpdate({
+        driverId: driver.id,
+        currentTripId: nextAfterTripId,
+        assignedAt,
+      }),
+      ...stamped,
+      wa_context: {
+        ...(stamped.wa_context || {}),
+        offer_kind: 'next_trip',
+      },
+    };
+  }
+
+  const { lat, lng } = resolveAssignDriverGps(driver);
   const update = {
     driver_id: driver.id,
     status: 'pending',
     assigned_at: assignedAt,
     dispatch_status: 'waiting_acceptance',
+    next_after_trip_id: null,
+    next_trip_offered_at: null,
     ...stamped,
   };
 
