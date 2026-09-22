@@ -1,9 +1,18 @@
 'use client';
 
-import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
-import Map, { Marker, Source, Layer, NavigationControl, useControl } from 'react-map-gl/maplibre';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  CircleMarker,
+  MapContainer,
+  Marker,
+  Polyline,
+  TileLayer,
+  ZoomControl,
+  useMap,
+  useMapEvents,
+} from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { SALTA_CENTER, DEFAULT_ZOOM } from '../lib/constants';
 import {
   buildDriverMarkerIconSpec,
@@ -11,97 +20,39 @@ import {
 } from '../lib/driverMarkerIcon';
 import DriverInfoWindow from './DriverInfoWindow';
 import PassengerInfoWindow from './PassengerInfoWindow';
-import { MAP_STYLE, mapLibreOptions } from '../lib/mapLibre';
 import { shouldShowDriverOnMap } from '../lib/driverPresence';
 import { useSmoothMapCoords } from '../hooks/useSmoothMapCoords';
-import { resizeMapInstance } from '../lib/mapFullscreen';
 import { extractMapClickLngLat } from '../lib/mapPointPick';
 
 const MAP_CSS = `
-.maplibregl-map { font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
-.maplibregl-canvas { outline: none; }
-.maplibregl-ctrl-group {
-  border-radius: 2px !important;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.2) !important;
-  border: none !important;
-  overflow: hidden !important;
-}
-.maplibregl-ctrl-group button {
-  width: 28px !important;
-  height: 28px !important;
-  background: #fff !important;
-  border: none !important;
-  cursor: pointer !important;
-}
-.maplibregl-ctrl-group button:hover { background: #F1F5F9 !important; }
-.maplibregl-ctrl-group button + button { border-top: 1px solid #E2E8F0 !important; }
-.maplibregl-ctrl-group button svg { display: block; margin: 0 auto; pointer-events: none; }
-.maplibregl-ctrl-attrib {
-  font-size: 10px !important;
-  background: rgba(255,255,255,0.72) !important;
-  border-radius: 4px 0 0 0 !important;
-  padding: 2px 6px !important;
-}
-.maplibregl-ctrl-logo { display: none !important; }
-.map-pick-arrow,
-.map-pick-arrow .maplibregl-map,
-.map-pick-arrow .maplibregl-canvas-container,
-.map-pick-arrow .maplibregl-canvas-container.maplibregl-interactive,
-.map-pick-arrow .maplibregl-canvas {
-  cursor: default !important;
-}
-.maplibregl-popup-content {
-  padding: 0 !important;
-  border-radius: 14px !important;
-  overflow: hidden !important;
-  box-shadow: 0 8px 32px rgba(15,23,42,0.20) !important;
-  border: 1px solid rgba(226,232,240,0.9) !important;
-  background: #fff !important;
-}
-.maplibregl-popup-close-button { display: none !important; }
-.maplibregl-popup-tip { display: none !important; }
+.leaflet-container { font-family: 'Inter', system-ui, -apple-system, sans-serif; outline: none; background: #e8e6e1; }
+.leaflet-control-zoom a { width: 28px; height: 28px; line-height: 28px; }
+.leaflet-control-attribution { font-size: 10px; background: rgba(255,255,255,0.72); }
+.fleet-map-pin { background: transparent; border: none; }
+.map-pick-arrow, .map-pick-arrow .leaflet-container { cursor: default !important; }
 `;
 
-const ROUTE_BORDER_LAYER = {
-  id: 'route-border',
-  type: 'line',
-  layout: { 'line-cap': 'round', 'line-join': 'round' },
-  paint: { 'line-color': '#FFFFFF', 'line-width': 10, 'line-opacity': 0.9 },
-};
-const ROUTE_LINE_LAYER = {
-  id: 'route-line',
-  type: 'line',
-  layout: { 'line-cap': 'round', 'line-join': 'round' },
-  paint: { 'line-color': '#DC2626', 'line-width': 5, 'line-opacity': 0.92 },
-};
-const ROUTE_ORIGIN_LAYER = {
-  id: 'route-origin',
-  type: 'circle',
-  paint: { 'circle-radius': 9, 'circle-color': '#DC2626', 'circle-stroke-width': 3, 'circle-stroke-color': '#fff' },
-};
-const ROUTE_DEST_LAYER = {
-  id: 'route-dest',
-  type: 'circle',
-  paint: { 'circle-radius': 9, 'circle-color': '#059669', 'circle-stroke-width': 3, 'circle-stroke-color': '#fff' },
+const GOOGLE_TILES = {
+  url: 'https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+  subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+  maxZoom: 20,
+  attribution: '&copy; Google Maps',
 };
 
-function buildRouteGeoJSON(polylineCoords) {
-  if (!polylineCoords?.length) return null;
-  return {
-    type: 'Feature',
-    geometry: {
-      type: 'LineString',
-      coordinates: polylineCoords.map((p) => [Number(p.lng), Number(p.lat)]),
-    },
-  };
+function pinIcon(spec, emphasized) {
+  const scale = emphasized ? 'transform:scale(1.08);' : '';
+  return L.divIcon({
+    className: 'fleet-map-pin',
+    html: `<img src="${spec.url}" width="${spec.width}" height="${spec.height}" alt="" draggable="false" style="display:block;${scale}transition:transform .12s ease-out" />`,
+    iconSize: [spec.width, spec.height],
+    iconAnchor: [spec.anchorX, spec.anchorY],
+  });
 }
 
-function buildPointGeoJSON(lat, lng) {
-  if (!lat || !lng) return null;
-  return {
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [Number(lng), Number(lat)] },
-  };
+function msToSeconds(duration) {
+  const value = Number(duration);
+  if (!Number.isFinite(value) || value <= 0) return 0.6;
+  return value > 20 ? value / 1000 : value;
 }
 
 const DriverMapPin = memo(function DriverMapPin({
@@ -117,32 +68,24 @@ const DriverMapPin = memo(function DriverMapPin({
 }) {
   const smooth = useSmoothMapCoords(lat, lng, speed, heading);
   const spec = buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected);
+  const icon = useMemo(
+    () => pinIcon(spec, isSelected || isMultiSelected),
+    [spec.url, spec.width, spec.height, spec.anchorX, spec.anchorY, isSelected, isMultiSelected],
+  );
   return (
     <Marker
-      longitude={smooth.lng}
-      latitude={smooth.lat}
-      anchor="bottom"
-      onClick={(e) => {
-        if (!interactive) return;
-        e.originalEvent.stopPropagation();
-        onSelect(driver);
+      position={[smooth.lat, smooth.lng]}
+      icon={icon}
+      interactive={interactive}
+      zIndexOffset={isSelected || isMultiSelected ? 500 : 0}
+      eventHandlers={{
+        click: (event) => {
+          if (!interactive) return;
+          L.DomEvent.stopPropagation(event);
+          onSelect(driver);
+        },
       }}
-    >
-      <img
-        src={spec.url}
-        width={spec.width}
-        height={spec.height}
-        alt={driver.full_name ?? driver.fullName ?? 'chofer'}
-        draggable={false}
-        style={{
-          cursor: interactive ? 'pointer' : 'default',
-          pointerEvents: interactive ? 'auto' : 'none',
-          display: 'block',
-          transform: isSelected || isMultiSelected ? 'scale(1.08)' : 'scale(1)',
-          transition: 'transform 0.12s ease-out',
-        }}
-      />
-    </Marker>
+    />
   );
 }, (prev, next) => (
   prev.lat === next.lat
@@ -161,63 +104,114 @@ const DriverMapPin = memo(function DriverMapPin({
   && prev.onSelect === next.onSelect
 ));
 
-const EXPAND_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
-const COMPRESS_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3"/></svg>';
+function MapBridge({
+  mapRef,
+  mapFullscreen,
+  previewRoute,
+  pickMode,
+  onPickLocation,
+  multiSelectMode,
+  onBackgroundClick,
+}) {
+  const map = useMap();
 
-class MapFullscreenControl {
-  constructor({ onToggle }) {
-    this._onToggle = onToggle;
-    this._isFullscreen = false;
-  }
+  useEffect(() => {
+    const api = {
+      flyTo(opts = {}) {
+        const [lng, lat] = opts.center || [];
+        if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return;
+        map.flyTo([Number(lat), Number(lng)], opts.zoom, { duration: msToSeconds(opts.duration) });
+      },
+      fitBounds(bounds, opts = {}) {
+        const [[swLng, swLat], [neLng, neLat]] = bounds;
+        const pad = Number(opts.padding) || 0;
+        map.fitBounds(
+          [[swLat, swLng], [neLat, neLng]],
+          { padding: [pad, pad], duration: msToSeconds(opts.duration) },
+        );
+      },
+      getMap: () => map,
+    };
+    if (mapRef) mapRef.current = api;
+    return () => {
+      if (mapRef && mapRef.current === api) mapRef.current = null;
+    };
+  }, [map, mapRef]);
 
-  onAdd() {
-    this._container = document.createElement('div');
-    this._container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
-    this._button = document.createElement('button');
-    this._button.type = 'button';
-    this._button.addEventListener('click', this._handleClick);
-    this._container.appendChild(this._button);
-    this._render();
-    return this._container;
-  }
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => map.invalidateSize());
+    const timeoutId = window.setTimeout(() => map.invalidateSize(), 80);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeoutId);
+    };
+  }, [map, mapFullscreen]);
 
-  onRemove() {
-    this._button?.removeEventListener('click', this._handleClick);
-    this._container?.parentNode?.removeChild(this._container);
-    this._container = null;
-    this._button = null;
-  }
+  useEffect(() => {
+    if (!previewRoute) return;
+    const coords = previewRoute.polylineCoords;
+    if (coords?.length > 1) {
+      const lngs = coords.map((point) => Number(point.lng));
+      const lats = coords.map((point) => Number(point.lat));
+      map.fitBounds(
+        [
+          [Math.min(...lats) - 0.002, Math.min(...lngs) - 0.002],
+          [Math.max(...lats) + 0.002, Math.max(...lngs) + 0.002],
+        ],
+        { padding: [72, 72], duration: 0.9 },
+      );
+      return;
+    }
+    const lat = Number(previewRoute.origin?.lat);
+    const lng = Number(previewRoute.origin?.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      map.flyTo([lat, lng], 16, { duration: 0.9 });
+      return;
+    }
+    const destLat = Number(previewRoute.destination?.lat);
+    const destLng = Number(previewRoute.destination?.lng);
+    if (Number.isFinite(destLat) && Number.isFinite(destLng)) {
+      map.flyTo([destLat, destLng], 16, { duration: 0.9 });
+    }
+  }, [map, previewRoute]);
 
-  setFullscreen(isFullscreen) {
-    this._isFullscreen = Boolean(isFullscreen);
-    this._render();
-  }
+  useMapEvents({
+    click(event) {
+      if (pickMode && onPickLocation) {
+        const target = event.originalEvent?.target;
+        if (target?.closest?.('.leaflet-control')) return;
+        const point = extractMapClickLngLat(event);
+        if (point) onPickLocation(point);
+        return;
+      }
+      if (!multiSelectMode) onBackgroundClick?.();
+    },
+  });
 
-  _handleClick = (event) => {
-    event.preventDefault();
-    this._onToggle?.();
-  };
-
-  _render() {
-    if (!this._button) return;
-    const label = this._isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa';
-    this._button.title = label;
-    this._button.setAttribute('aria-label', label);
-    this._button.innerHTML = this._isFullscreen ? COMPRESS_ICON : EXPAND_ICON;
-  }
+  return null;
 }
 
-function MapFullscreenToggle({ isFullscreen, onToggle }) {
-  const onToggleRef = useRef(onToggle);
-  onToggleRef.current = onToggle;
-  const ctrl = useControl(
-    () => new MapFullscreenControl({ onToggle: () => onToggleRef.current?.() }),
-    { position: 'top-right' },
+function FullscreenButton({ isFullscreen, onToggle }) {
+  const label = isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa';
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={onToggle}
+      className="absolute right-[10px] top-[78px] z-[500] flex h-7 w-7 items-center justify-center rounded-sm border-0 bg-white shadow-[0_1px_4px_rgba(0,0,0,0.25)]"
+    >
+      {isFullscreen ? (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#334155" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3" />
+        </svg>
+      ) : (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#334155" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+        </svg>
+      )}
+    </button>
   );
-  useEffect(() => {
-    ctrl?.setFullscreen?.(isFullscreen);
-  }, [ctrl, isFullscreen]);
-  return null;
 }
 
 const MapView = memo(function MapView({
@@ -241,12 +235,14 @@ const MapView = memo(function MapView({
   onPickLocation,
 }) {
   const [activeInfo, setActiveInfo] = useState(null);
-  const internalMapRef = useRef(null);
   const resolvedSelectedId = selectedId ?? selectedDriverId ?? null;
   const tripList = trips?.length ? trips : pendingPassengers;
   const selectedSet = multiSelectedIds instanceof Set
     ? multiSelectedIds
     : new Set(Array.isArray(multiSelectedIds) ? multiSelectedIds : []);
+  const routePositions = previewRoute?.polylineCoords?.length
+    ? previewRoute.polylineCoords.map((point) => [Number(point.lat), Number(point.lng)])
+    : null;
 
   useEffect(() => {
     if (activeInfo?.type !== 'driver' && activeInfo?.type !== 'trip') return undefined;
@@ -257,45 +253,9 @@ const MapView = memo(function MapView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeInfo?.type]);
 
-  // En modo selección múltiple no mostrar el modal de detalle
   useEffect(() => {
     if (multiSelectMode) setActiveInfo(null);
   }, [multiSelectMode]);
-
-  useEffect(() => {
-    const id = window.requestAnimationFrame(() => {
-      resizeMapInstance(internalMapRef.current);
-    });
-    const timeoutId = window.setTimeout(() => {
-      resizeMapInstance(internalMapRef.current);
-    }, 80);
-    return () => {
-      window.cancelAnimationFrame(id);
-      window.clearTimeout(timeoutId);
-    };
-  }, [mapFullscreen]);
-
-  useEffect(() => {
-    if (!mapRef) return;
-    mapRef.current = internalMapRef.current
-      ? {
-          flyTo: (opts) => internalMapRef.current.flyTo(opts),
-          fitBounds: (bounds, opts) => internalMapRef.current.fitBounds(bounds, opts),
-          getMap: () => internalMapRef.current,
-        }
-      : null;
-  });
-
-  const handleMapClick = useCallback((event) => {
-    if (pickMode && onPickLocation) {
-      const target = event?.originalEvent?.target;
-      if (target?.closest?.('.maplibregl-ctrl')) return;
-      const point = extractMapClickLngLat(event);
-      if (point) onPickLocation(point);
-      return;
-    }
-    if (!multiSelectMode) setActiveInfo(null);
-  }, [pickMode, onPickLocation, multiSelectMode]);
 
   useEffect(() => {
     if (pickMode) setActiveInfo(null);
@@ -312,96 +272,62 @@ const MapView = memo(function MapView({
     onDriverClick?.(driver);
   }, [pickMode, multiSelectMode, onToggleMultiSelect, onSelectDriver, onDriverClick]);
 
-  const routeGeoJSON = buildRouteGeoJSON(previewRoute?.polylineCoords);
-  const routeOriginJSON = buildPointGeoJSON(previewRoute?.origin?.lat, previewRoute?.origin?.lng);
-  const routeDestJSON = buildPointGeoJSON(previewRoute?.destination?.lat, previewRoute?.destination?.lng);
-
-  useEffect(() => {
-    if (!previewRoute || !internalMapRef.current) return;
-
-    if (previewRoute?.polylineCoords?.length > 1) {
-      const coords = previewRoute.polylineCoords;
-      const lngs = coords.map((p) => Number(p.lng));
-      const lats = coords.map((p) => Number(p.lat));
-      internalMapRef.current.fitBounds(
-        [
-          [Math.min(...lngs) - 0.002, Math.min(...lats) - 0.002],
-          [Math.max(...lngs) + 0.002, Math.max(...lats) + 0.002],
-        ],
-        { padding: 72, duration: 900 },
-      );
-      return;
-    }
-
-    const lat = Number(previewRoute?.origin?.lat);
-    const lng = Number(previewRoute?.origin?.lng);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      internalMapRef.current.flyTo({ center: [lng, lat], zoom: 16, duration: 900 });
-      return;
-    }
-    const destLat = Number(previewRoute?.destination?.lat);
-    const destLng = Number(previewRoute?.destination?.lng);
-    if (Number.isFinite(destLat) && Number.isFinite(destLng)) {
-      internalMapRef.current.flyTo({ center: [destLng, destLat], zoom: 16, duration: 900 });
-    }
-  }, [previewRoute]);
-
   return (
     <div
       className={pickMode ? 'map-pick-arrow' : undefined}
       style={{ width: '100%', height: '100%', position: 'relative', cursor: pickMode ? 'default' : undefined }}
     >
       <style>{MAP_CSS}</style>
-      <Map
-        ref={internalMapRef}
-        mapLib={maplibregl}
-        mapStyle={MAP_STYLE}
-        initialViewState={{
-          longitude: SALTA_CENTER.lng,
-          latitude: SALTA_CENTER.lat,
-          zoom: DEFAULT_ZOOM,
-        }}
+      <MapContainer
+        center={[SALTA_CENTER.lat, SALTA_CENTER.lng]}
+        zoom={DEFAULT_ZOOM}
+        maxZoom={GOOGLE_TILES.maxZoom}
+        zoomControl={false}
         style={{ width: '100%', height: '100%' }}
-        onClick={handleMapClick}
-        reuseMaps
-        attributionControl={mapLibreOptions.attributionControl}
-        maxZoom={mapLibreOptions.maxZoom}
-        maxPitch={mapLibreOptions.maxPitch}
-        fadeDuration={mapLibreOptions.fadeDuration}
-        maxTileCacheSize={mapLibreOptions.maxTileCacheSize}
-        collectResourceTiming={mapLibreOptions.collectResourceTiming}
-        refreshExpiredTiles={mapLibreOptions.refreshExpiredTiles}
       >
-        <NavigationControl position="top-right" showCompass={false} />
-        {onToggleMapFullscreen ? (
-          <MapFullscreenToggle
-            isFullscreen={mapFullscreen}
-            onToggle={onToggleMapFullscreen}
+        <TileLayer
+          url={GOOGLE_TILES.url}
+          subdomains={GOOGLE_TILES.subdomains}
+          maxZoom={GOOGLE_TILES.maxZoom}
+          attribution={GOOGLE_TILES.attribution}
+          crossOrigin
+        />
+        <ZoomControl position="topright" />
+        <MapBridge
+          mapRef={mapRef}
+          mapFullscreen={mapFullscreen}
+          previewRoute={previewRoute}
+          pickMode={pickMode}
+          onPickLocation={onPickLocation}
+          multiSelectMode={multiSelectMode}
+          onBackgroundClick={() => setActiveInfo(null)}
+        />
+
+        {routePositions ? (
+          <>
+            <Polyline positions={routePositions} pathOptions={{ color: '#ffffff', weight: 10, opacity: 0.9 }} />
+            <Polyline positions={routePositions} pathOptions={{ color: '#DC2626', weight: 5, opacity: 0.92 }} />
+          </>
+        ) : null}
+        {Number.isFinite(Number(previewRoute?.origin?.lat)) && Number.isFinite(Number(previewRoute?.origin?.lng)) ? (
+          <CircleMarker
+            center={[Number(previewRoute.origin.lat), Number(previewRoute.origin.lng)]}
+            radius={9}
+            pathOptions={{ color: '#ffffff', weight: 3, fillColor: '#DC2626', fillOpacity: 1 }}
           />
         ) : null}
-
-        {routeGeoJSON && (
-          <Source id="route-source" type="geojson" data={routeGeoJSON}>
-            <Layer {...ROUTE_BORDER_LAYER} />
-            <Layer {...ROUTE_LINE_LAYER} />
-          </Source>
-        )}
-        {routeOriginJSON && (
-          <Source id="route-origin-source" type="geojson" data={routeOriginJSON}>
-            <Layer {...ROUTE_ORIGIN_LAYER} />
-          </Source>
-        )}
-        {routeDestJSON && (
-          <Source id="route-dest-source" type="geojson" data={routeDestJSON}>
-            <Layer {...ROUTE_DEST_LAYER} />
-          </Source>
-        )}
+        {Number.isFinite(Number(previewRoute?.destination?.lat)) && Number.isFinite(Number(previewRoute?.destination?.lng)) ? (
+          <CircleMarker
+            center={[Number(previewRoute.destination.lat), Number(previewRoute.destination.lng)]}
+            radius={9}
+            pathOptions={{ color: '#ffffff', weight: 3, fillColor: '#059669', fillOpacity: 1 }}
+          />
+        ) : null}
 
         {drivers.map((driver) => {
           const lat = Number(driver.lat);
           const lng = Number(driver.lng);
           if (!shouldShowDriverOnMap({ ...driver, lat, lng })) return null;
-          const isMultiSelected = multiSelectMode && selectedSet.has(driver.id);
           return (
             <DriverMapPin
               key={driver.id}
@@ -411,7 +337,7 @@ const MapView = memo(function MapView({
               speed={Number(driver.speed) || 0}
               heading={Number(driver.heading) || 0}
               isSelected={!multiSelectMode && driver.id === resolvedSelectedId}
-              isMultiSelected={isMultiSelected}
+              isMultiSelected={multiSelectMode && selectedSet.has(driver.id)}
               interactive={!pickMode}
               onSelect={handleDriverSelect}
             />
@@ -419,44 +345,31 @@ const MapView = memo(function MapView({
         })}
 
         {tripList.map((trip) => {
-          const pasLat = Number(
-            trip.passenger_lat ?? trip.pickup_lat ?? trip.origin_lat ?? trip.lat,
-          );
-          const pasLng = Number(
-            trip.passenger_lng ?? trip.pickup_lng ?? trip.origin_lng ?? trip.lng,
-          );
+          const pasLat = Number(trip.passenger_lat ?? trip.pickup_lat ?? trip.origin_lat ?? trip.lat);
+          const pasLng = Number(trip.passenger_lng ?? trip.pickup_lng ?? trip.origin_lng ?? trip.lng);
           if (!Number.isFinite(pasLat) || !Number.isFinite(pasLng)) return null;
           const spec = buildPassengerMarkerIconSpec(trip.created_at ?? trip.createdAt, trip.status);
           return (
             <Marker
               key={`trip-${trip.id}`}
-              longitude={pasLng}
-              latitude={pasLat}
-              anchor="center"
-              onClick={(e) => {
-                if (pickMode) return;
-                e.originalEvent.stopPropagation();
-                if (multiSelectMode) return;
-                setActiveInfo({ type: 'trip', data: trip });
+              position={[pasLat, pasLng]}
+              icon={pinIcon(spec, false)}
+              interactive={!pickMode && !multiSelectMode}
+              eventHandlers={{
+                click: (event) => {
+                  if (pickMode || multiSelectMode) return;
+                  L.DomEvent.stopPropagation(event);
+                  setActiveInfo({ type: 'trip', data: trip });
+                },
               }}
-            >
-              <img
-                src={spec.url}
-                width={spec.width}
-                height={spec.height}
-                alt="pasajero"
-                draggable={false}
-                style={{
-                  cursor: pickMode || multiSelectMode ? 'default' : 'pointer',
-                  pointerEvents: pickMode ? 'none' : 'auto',
-                  display: 'block',
-                }}
-              />
-            </Marker>
+            />
           );
         })}
+      </MapContainer>
 
-      </Map>
+      {onToggleMapFullscreen ? (
+        <FullscreenButton isFullscreen={mapFullscreen} onToggle={onToggleMapFullscreen} />
+      ) : null}
 
       {activeInfo?.type === 'trip' && !multiSelectMode ? (
         <>
@@ -469,7 +382,7 @@ const MapView = memo(function MapView({
           <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
             <div
               className="pointer-events-auto w-full max-w-[min(440px,calc(100%-2rem))] overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
               role="dialog"
               aria-modal="true"
               aria-label={`Pasajero ${activeInfo.data.passengerName || ''}`}
@@ -496,17 +409,17 @@ const MapView = memo(function MapView({
           <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
             <div
               className="pointer-events-auto w-full max-w-[min(440px,calc(100%-2rem))] overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
               role="dialog"
               aria-modal="true"
               aria-label={`Chofer ${activeInfo.data.fullName}`}
             >
               <DriverInfoWindow
                 driver={activeInfo.data}
-                onAssignTrip={(d) => { onAssignTrip?.(d); }}
-                onSendAudio={onSendAudio ? (d) => {
+                onAssignTrip={(driver) => { onAssignTrip?.(driver); }}
+                onSendAudio={onSendAudio ? (driver) => {
                   setActiveInfo(null);
-                  onSendAudio(d);
+                  onSendAudio(driver);
                 } : undefined}
                 onClose={() => setActiveInfo(null)}
               />

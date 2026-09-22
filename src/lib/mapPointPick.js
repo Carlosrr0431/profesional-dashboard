@@ -3,7 +3,7 @@ import { isWithinSaltaCapital } from './constants';
 export const MAP_PICK_SOURCE = 'map_pick';
 
 export function extractMapClickLngLat(event) {
-  const lngLat = event?.lngLat || event?.lnglat || null;
+  const lngLat = event?.lngLat || event?.lnglat || event?.latlng || null;
   const latitude = Number(lngLat?.lat ?? event?.latitude ?? event?.lat);
   const longitude = Number(lngLat?.lng ?? event?.longitude ?? event?.lng);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;

@@ -13,6 +13,9 @@ describe('mapPointPick', () => {
     expect(extractMapClickLngLat({
       lngLat: { lat: -24.7821, lng: -65.4232 },
     })).toEqual({ latitude: -24.7821, longitude: -65.4232 });
+    expect(extractMapClickLngLat({
+      latlng: { lat: -24.7821, lng: -65.4232 },
+    })).toEqual({ latitude: -24.7821, longitude: -65.4232 });
     expect(extractMapClickLngLat({})).toBeNull();
     expect(extractMapClickLngLat(null)).toBeNull();
   });

@@ -301,7 +301,6 @@ export default function App() {
   // ── Mapa ───────────────────────────────────────────────────────────────────
   const handleCenterDriver = useCallback((driver) => {
     if (mapRef.current && driver.lat && driver.lng) {
-      // react-map-gl/maplibre: center=[lng, lat]
       mapRef.current.flyTo({ center: [Number(driver.lng), Number(driver.lat)], zoom: 16, duration: 600 });
     }
   }, []);
@@ -316,7 +315,6 @@ export default function App() {
     }
     const lngs = pts.map((d) => Number(d.lng));
     const lats = pts.map((d) => Number(d.lat));
-    // react-map-gl/maplibre: fitBounds([[swLng,swLat],[neLng,neLat]])
     mapRef.current.fitBounds(
       [[Math.min(...lngs) - 0.002, Math.min(...lats) - 0.002],
        [Math.max(...lngs) + 0.002, Math.max(...lats) + 0.002]],

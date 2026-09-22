@@ -16,6 +16,12 @@ describe('resizeMapInstance', () => {
     expect(resize).toHaveBeenCalledTimes(1);
   });
 
+  it('llama invalidateSize en el mapa de Leaflet', () => {
+    const invalidateSize = jest.fn();
+    expect(resizeMapInstance({ getMap: () => ({ invalidateSize }) })).toBe(true);
+    expect(invalidateSize).toHaveBeenCalledTimes(1);
+  });
+
   it('ignora refs vacíos', () => {
     expect(resizeMapInstance(null)).toBe(false);
     expect(resizeMapInstance({})).toBe(false);

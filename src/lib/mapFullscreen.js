@@ -9,7 +9,14 @@ export function resizeMapInstance(mapRefCurrent) {
   const map = typeof mapRefCurrent.getMap === 'function'
     ? mapRefCurrent.getMap()
     : mapRefCurrent;
-  if (!map || typeof map.resize !== 'function') return false;
-  map.resize();
-  return true;
+  if (!map) return false;
+  if (typeof map.resize === 'function') {
+    map.resize();
+    return true;
+  }
+  if (typeof map.invalidateSize === 'function') {
+    map.invalidateSize();
+    return true;
+  }
+  return false;
 }
