@@ -1,6 +1,6 @@
 import { resolveDriverIsOnline } from './driverPresence';
 
-// Pin de ubicación — borde sólido (sin sombra) para que no se vea borroso
+// Pin de chofer: aro blanco para separarlo de calles y manzanas del mapa.
 const PIN_BODY =
   'M24 2C14.06 2 6 10.06 6 20C6 32.5 24 58 24 58C24 58 42 32.5 42 20C42 10.06 33.94 2 24 2Z';
 
@@ -44,9 +44,9 @@ function badgeFontSize(text) {
 
 export function buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected) {
   const style = getMarkerStyle(isMultiSelected, driver);
-  const scale = isSelected || isMultiSelected ? 1.1 : 1;
-  const width = Math.round(38 * scale);
-  const height = Math.round(46 * scale);
+  const scale = isSelected || isMultiSelected ? 1.12 : 1;
+  const width = Math.round(50 * scale);
+  const height = Math.round(62 * scale);
 
   let badgeText = '';
   if (isMultiSelected) {
@@ -58,11 +58,12 @@ export function buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected) {
   }
 
   const fontSize = badgeFontSize(badgeText);
-  // Borde del mismo color sólido que el relleno (sin sombra ni halo)
-  const stroke = style.fill;
+  const viewW = 56;
+  const viewH = 66;
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 48 58" shape-rendering="geometricPrecision">
-    <path d="${PIN_BODY}" fill="${style.fill}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round" opacity="${style.opacity}"/>
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="-4 -4 ${viewW} ${viewH}" shape-rendering="geometricPrecision">
+    <path d="${PIN_BODY}" fill="#ffffff" stroke="#ffffff" stroke-width="7" stroke-linejoin="round"/>
+    <path d="${PIN_BODY}" fill="${style.fill}" stroke="${style.fill}" stroke-width="1.5" stroke-linejoin="round" opacity="${style.opacity}"/>
     <circle cx="24" cy="20" r="11" fill="#ffffff"/>
     ${badgeText
       ? `<text x="24" y="25" text-anchor="middle" font-family="Inter,system-ui,-apple-system,sans-serif" font-size="${fontSize}" font-weight="800" fill="${style.text}">${escapeXml(badgeText)}</text>`
@@ -73,8 +74,8 @@ export function buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected) {
     url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
     width,
     height,
-    anchorX: width / 2,
-    anchorY: height - 1,
+    anchorX: Math.round(width * 28 / viewW),
+    anchorY: Math.round(height * 62 / viewH),
   };
 }
 

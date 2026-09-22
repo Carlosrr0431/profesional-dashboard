@@ -33,7 +33,9 @@ const MAP_CSS = `
 `;
 
 const GOOGLE_TILES = {
-  url: 'https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+  // lyrs=m es el mapa de calles. apistyle apaga puntos de interés (plazas, parques,
+  // comercios) e íconos de transporte para que no compitan con los pines de choferes.
+  url: 'https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&apistyle=s.t:2|p.v:off,s.t:4|s.e:l.i|p.v:off',
   subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
   maxZoom: 20,
   attribution: '&copy; Google Maps',
@@ -77,7 +79,7 @@ const DriverMapPin = memo(function DriverMapPin({
       position={[smooth.lat, smooth.lng]}
       icon={icon}
       interactive={interactive}
-      zIndexOffset={isSelected || isMultiSelected ? 500 : 0}
+      zIndexOffset={isSelected || isMultiSelected ? 1000 : 700}
       eventHandlers={{
         click: (event) => {
           if (!interactive) return;
