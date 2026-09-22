@@ -365,6 +365,7 @@ const MapView = memo(function MapView({
         onClick={handleMapClick}
         reuseMaps
         attributionControl={mapLibreOptions.attributionControl}
+        maxZoom={mapLibreOptions.maxZoom}
         maxPitch={mapLibreOptions.maxPitch}
         fadeDuration={mapLibreOptions.fadeDuration}
         maxTileCacheSize={mapLibreOptions.maxTileCacheSize}
