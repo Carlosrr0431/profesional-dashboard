@@ -25,7 +25,17 @@ import { useSmoothMapCoords } from '../hooks/useSmoothMapCoords';
 import { extractMapClickLngLat } from '../lib/mapPointPick';
 
 const MAP_CSS = `
-.leaflet-container { font-family: 'Inter', system-ui, -apple-system, sans-serif; outline: none; background: #e8e6e1; }
+.leaflet-container {
+  position: relative;
+  z-index: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  outline: none;
+  background: #e8e6e1;
+}
+.leaflet-container img.leaflet-tile {
+  mix-blend-mode: normal !important;
+  box-sizing: content-box;
+}
 .leaflet-control-zoom a { width: 28px; height: 28px; line-height: 28px; }
 .leaflet-control-attribution { font-size: 10px; background: rgba(255,255,255,0.72); }
 .fleet-map-pin { background: transparent; border: none; }

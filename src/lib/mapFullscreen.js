@@ -1,7 +1,7 @@
 export function mapStageClassName(isFullscreen) {
   return isFullscreen
     ? 'fixed inset-0 z-[80] h-[100dvh] w-screen overflow-hidden bg-slate-100'
-    : 'relative min-h-0 flex-1 overflow-hidden';
+    : 'relative z-0 min-h-0 flex-1 overflow-hidden';
 }
 
 export function resizeMapInstance(mapRefCurrent) {
