@@ -1462,6 +1462,24 @@ async function broadcastTripWave({
   if (wave.length < 2) return null;
 
   const assignedAt = new Date().toISOString();
+  const offerRows = wave.map((driver) => ({
+    trip_id: tripId,
+    driver_id: driver.id,
+    status: 'pending',
+    offered_at: assignedAt,
+  }));
+  const { error: offerError } = await supabase
+    .from('trip_dispatch_offers')
+    .upsert(offerRows, { onConflict: 'trip_id,driver_id' });
+
+  if (offerError) {
+    if (isMissingOffersTable(offerError)) {
+      logWorker('claim_broadcast_table_missing', { tripId });
+      return null;
+    }
+    throw offerError;
+  }
+
   const { data: opened, error: openError } = await supabase
     .from('trips')
     .update({
@@ -1477,6 +1495,11 @@ async function broadcastTripWave({
 
   if (openError) throw openError;
   if (!opened) {
+    await supabase
+      .from('trip_dispatch_offers')
+      .update({ status: 'expired', resolved_at: new Date().toISOString() })
+      .eq('trip_id', tripId)
+      .eq('status', 'pending');
     await releaseDispatchClaim({
       tripId,
       lockToken,
@@ -1484,30 +1507,6 @@ async function broadcastTripWave({
       errorCode: 'trip_claim_lost',
     });
     return { status: 'trip_claim_lost' };
-  }
-
-  const offerRows = wave.map((driver) => ({
-    trip_id: tripId,
-    driver_id: driver.id,
-    status: 'pending',
-    offered_at: assignedAt,
-  }));
-  const { error: offerError } = await supabase
-    .from('trip_dispatch_offers')
-    .upsert(offerRows, { onConflict: 'trip_id,driver_id' });
-
-  if (offerError) {
-    if (isMissingOffersTable(offerError)) {
-      await supabase
-        .from('trips')
-        .update({ status: 'queued', driver_id: null, assigned_at: null, dispatch_status: 'queued' })
-        .eq('id', tripId)
-        .eq('status', 'pending')
-        .is('driver_id', null);
-      logWorker('claim_broadcast_table_missing', { tripId });
-      return null;
-    }
-    throw offerError;
   }
 
   const notified = [];
