@@ -212,12 +212,12 @@ const {
 } = require('../../src/spa/conductor/tripOffer');
 
 describe('SPA oferta de viaje', () => {
-  it('cuenta 15s si no hay assigned_at', () => {
-    expect(remainingAcceptSeconds({ id: '1' }, Date.now())).toBe(15);
+  it('cuenta 25s si no hay assigned_at', () => {
+    expect(remainingAcceptSeconds({ id: '1' }, Date.now())).toBe(25);
   });
 
   it('resta los segundos desde assigned_at y no baja de 0', () => {
-    const now = Date.parse('2026-08-27T22:00:15.000Z');
+    const now = Date.parse('2026-08-27T22:00:25.000Z');
     expect(remainingAcceptSeconds({ assigned_at: '2026-08-27T22:00:00.000Z' }, now)).toBe(0);
     expect(remainingAcceptSeconds({ assigned_at: '2026-08-27T22:00:10.000Z' }, now)).toBe(10);
   });

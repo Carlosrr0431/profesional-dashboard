@@ -116,7 +116,7 @@ export function resolvePickupCoordsForRequeue(trip = {}) {
 }
 
 /**
- * Espera al reencolar tras vencer el timeout de aceptación (15s).
+ * Espera al reencolar tras vencer el timeout de aceptación (25s).
  * No modifica ese timeout: solo el hueco hasta ofertar al próximo chofer.
  * 0s permite que el claim del mismo ciclo / el cron solapado tome el viaje;
  * el backoff exponencial anterior (45–180s) perdía el cron de 60s.

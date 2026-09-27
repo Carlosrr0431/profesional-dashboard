@@ -7,7 +7,7 @@ const {
   resolveTripWaypoints,
 } = require('../../../shared/trip-contract');
 
-export const TRIP_ACCEPT_TIMEOUT = 15;
+export const TRIP_ACCEPT_TIMEOUT = 25;
 
 export const CANCEL_REASONS = [
   'Pasajero no encontrado',

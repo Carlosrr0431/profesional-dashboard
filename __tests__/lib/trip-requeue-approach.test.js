@@ -76,7 +76,7 @@ Viaje tomado en calle. Destino a definir.
 });
 
 describe('getPendingAcceptRequeueAt', () => {
-  it('no agrega backoff extra: el timeout de 15s ya se cumplió', () => {
+  it('no agrega backoff extra: el timeout de aceptación ya se cumplió', () => {
     expect(PENDING_ACCEPT_REQUEUE_DELAY_SECONDS).toBe(0);
     const nowMs = Date.parse('2026-08-17T18:10:07.077Z');
     expect(getPendingAcceptRequeueAt(nowMs)).toBe('2026-08-17T18:10:07.077Z');

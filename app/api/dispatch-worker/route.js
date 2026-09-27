@@ -95,8 +95,8 @@ const DISPATCH_NOTIFY_FAIL_RETRY_SECONDS = Math.max(
   DISPATCH_RETRY_SECONDS,
   Math.round(Number(process.env.DISPATCH_WORKER_NOTIFY_FAIL_RETRY_SECONDS || 45) || 45)
 );
-// Alineado con Agente_IA y driver-app TRIP_ACCEPT_TIMEOUT (15s).
-const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 15 * 1000;
+// Alineado con Agente_IA y driver-app TRIP_ACCEPT_TIMEOUT (25s).
+const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 25 * 1000;
 const MIN_PENDING_ACCEPT_TIMEOUT_MS = 10 * 1000;
 const MAX_PENDING_ACCEPT_TIMEOUT_MS = 5 * 60 * 1000;
 const configuredPendingAcceptTimeoutMs = Number(
