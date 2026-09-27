@@ -68,6 +68,7 @@ import {
   isNextTripUniqueViolation,
   mergeDriversById,
 } from '../../../shared/next-trip.js';
+import { selectNearestRing } from '../../../src/lib/dispatchBroadcast.js';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -569,9 +570,30 @@ async function expireTimedOutPendingTrips() {
     const newAttempts = currentAttempts + 1;
     const nextDispatchAt = getPendingAcceptRequeueAt();
     const excludedDriverId = String(t.driver_id || '').trim() || null;
-    const updatedWaContext = excludedDriverId
+    let updatedWaContext = excludedDriverId
       ? buildWaContextWithExcludedDriver(t.wa_context, excludedDriverId, 'pending_accept_timeout')
       : safeJsonParse(t.wa_context, {});
+    if (!excludedDriverId) {
+      const { data: openOffers } = await supabase
+        .from('trip_dispatch_offers')
+        .select('driver_id')
+        .eq('trip_id', t.id)
+        .eq('status', 'pending');
+      for (const offer of openOffers || []) {
+        if (offer?.driver_id) {
+          updatedWaContext = buildWaContextWithExcludedDriver(
+            updatedWaContext,
+            offer.driver_id,
+            'pending_accept_timeout',
+          );
+        }
+      }
+      await supabase
+        .from('trip_dispatch_offers')
+        .update({ status: 'expired', resolved_at: new Date().toISOString() })
+        .eq('trip_id', t.id)
+        .eq('status', 'pending');
+    }
 
     const { error: upErr } = await getSupabaseAdmin()
       .from('trips')
@@ -745,7 +767,7 @@ async function chooseDriverForClaim(
       .select('driver_id, lat, lng, speed, heading, updated_at, recorded_at'),
     getSupabaseAdmin()
       .from('trips')
-      .select('id, driver_id, status, destination_lat, destination_lng, next_after_trip_id')
+      .select('id, driver_id, status, destination_lat, destination_lng, next_after_trip_id, notes, wa_context')
       .in('status', DRIVER_BUSY_TRIP_STATUSES)
       .not('driver_id', 'is', null),
   ]);
@@ -1043,12 +1065,17 @@ async function chooseDriverForClaim(
   if (selected?.driver) {
     if (selected.nextTrip) return selected;
 
+    const ring = selectNearestRing(scored, [selected.radiusKm]);
+    const waveDrivers = (ring?.drivers || [])
+      .map((item) => item.driver)
+      .filter((driver) => driver?.id);
     logWorker('driver_selected', {
       tripId: trip?.id || null,
       attemptNo: normalizedAttemptNo,
       claimAttemptNo: normalizedClaimAttemptNo,
       queueAgeSeconds,
       driverId: selected?.driver?.id || null,
+      waveSize: waveDrivers.length,
       distanceKm: Number(selected.distanceKm.toFixed(3)),
       scoreKm: Number(selected.scoreKm.toFixed(3)),
       selectedRadiusKm: selected.radiusKm,
@@ -1057,7 +1084,11 @@ async function chooseDriverForClaim(
       hasWhatsApp: normalizePhone(selected?.driver?.phone || '').length >= 8,
     });
 
-    return selected;
+    return {
+      ...selected,
+      wave: waveDrivers.length > 1,
+      drivers: waveDrivers.length ? waveDrivers : [selected.driver],
+    };
   }
 
   if (shouldFallbackToBusyDrivers({ idleInRadiusCount: 0, unacceptedOffers })) {
@@ -1410,6 +1441,110 @@ async function requeuePendingTripAfterNotifyFailure(tripId, notifyReason = 'noti
   return Boolean(data?.id);
 }
 
+function isMissingOffersTable(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '').toLowerCase();
+  return code === '42P01' || code === 'PGRST205' || message.includes('trip_dispatch_offers');
+}
+
+async function broadcastTripWave({
+  supabase,
+  trip,
+  tripId,
+  lockToken,
+  attemptNo,
+  effectiveAttemptNo,
+  queueAgeSeconds,
+  drivers,
+  radiusKm,
+}) {
+  const wave = (drivers || []).filter((driver) => driver?.id);
+  if (wave.length < 2) return null;
+
+  const assignedAt = new Date().toISOString();
+  const { data: opened, error: openError } = await supabase
+    .from('trips')
+    .update({
+      driver_id: null,
+      status: 'pending',
+      assigned_at: assignedAt,
+      dispatch_status: 'waiting_acceptance',
+    })
+    .eq('id', tripId)
+    .eq('status', 'queued')
+    .select('id, passenger_name, passenger_phone, destination_address')
+    .maybeSingle();
+
+  if (openError) throw openError;
+  if (!opened) {
+    await releaseDispatchClaim({
+      tripId,
+      lockToken,
+      result: 'done',
+      errorCode: 'trip_claim_lost',
+    });
+    return { status: 'trip_claim_lost' };
+  }
+
+  const offerRows = wave.map((driver) => ({
+    trip_id: tripId,
+    driver_id: driver.id,
+    status: 'pending',
+    offered_at: assignedAt,
+  }));
+  const { error: offerError } = await supabase
+    .from('trip_dispatch_offers')
+    .upsert(offerRows, { onConflict: 'trip_id,driver_id' });
+
+  if (offerError) {
+    if (isMissingOffersTable(offerError)) {
+      await supabase
+        .from('trips')
+        .update({ status: 'queued', driver_id: null, assigned_at: null, dispatch_status: 'queued' })
+        .eq('id', tripId)
+        .eq('status', 'pending')
+        .is('driver_id', null);
+      logWorker('claim_broadcast_table_missing', { tripId });
+      return null;
+    }
+    throw offerError;
+  }
+
+  const notified = [];
+  for (const driver of wave) {
+    const notifyResult = await notifyDriver(driver, { ...trip, ...opened, status: 'pending' });
+    notified.push({ driverId: driver.id, ok: Boolean(notifyResult?.ok) });
+  }
+
+  await releaseDispatchClaim({
+    tripId,
+    lockToken,
+    result: 'done',
+    selectedDriverId: wave[0].id,
+    selectedDistanceKm: null,
+    selectedScore: null,
+  });
+
+  logWorker('claim_broadcast_wave', {
+    tripId,
+    attemptNo,
+    effectiveAttemptNo,
+    queueAgeSeconds,
+    radiusKm,
+    driverIds: wave.map((driver) => driver.id),
+    notified,
+  });
+
+  return {
+    status: 'assigned',
+    broadcast: true,
+    driverIds: wave.map((driver) => driver.id),
+    searchRadiusKm: radiusKm,
+    attemptNo,
+    effectiveAttemptNo,
+  };
+}
+
 async function processDispatchClaim(claim) {
   const tripId = claim?.trip_id;
   const lockToken = claim?.lock_token;
@@ -1709,6 +1844,21 @@ async function processDispatchClaim(claim) {
 
     const selectedDriver = driverSelection.driver;
     const isNextTripOffer = Boolean(driverSelection.nextTrip && driverSelection.currentTripId);
+
+    if (driverSelection.wave && !isNextTripOffer && !preferredOnly) {
+      const waveResult = await broadcastTripWave({
+        supabase,
+        trip,
+        tripId,
+        lockToken,
+        attemptNo,
+        effectiveAttemptNo,
+        queueAgeSeconds,
+        drivers: driverSelection.drivers,
+        radiusKm: driverSelection.radiusKm,
+      });
+      if (waveResult) return waveResult;
+    }
 
     // Re-verificación justo antes de asignar: dos instancias Vercel pueden seleccionar el
     // mismo conductor para viajes distintos si ambas leen "is_available=true" antes de que

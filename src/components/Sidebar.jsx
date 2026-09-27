@@ -320,7 +320,7 @@ function DriverRow({ driver, isSelected, onClick }) {
             ) : null}
           </p>
         ) : null}
-        {driver.isOnline && driver.speed > 0.5 && (
+        {driver.isOnline && driver.speed > 0.5 && driver.updatedAt && (Date.now() - new Date(driver.updatedAt).getTime()) < 5 * 60 * 1000 && (
           <p className="text-[10px] text-accent font-medium mt-1">{formatSpeed(driver.speed)} en movimiento</p>
         )}
       </div>

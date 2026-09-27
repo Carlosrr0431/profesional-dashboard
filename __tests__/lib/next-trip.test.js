@@ -69,6 +69,39 @@ describe('next-trip dispatch', () => {
     expect(selected.driver.id).toBe('far-idle');
   });
 
+  it('no ofrece siguiente mientras el chofer va a buscar al pasajero', () => {
+    expect(canOfferNextTripToBusyDriver({
+      driverId: 'd1',
+      currentTrip: { ...makeLiveTrip('t1', 'd1'), status: 'going_to_pickup' },
+    })).toBe(false);
+    expect(canOfferNextTripToBusyDriver({
+      driverId: 'd1',
+      currentTrip: { ...makeLiveTrip('t1', 'd1'), status: 'accepted' },
+    })).toBe(false);
+    expect(canOfferNextTripToBusyDriver({
+      driverId: 'd1',
+      currentTrip: makeLiveTrip('t1', 'd1'),
+    })).toBe(true);
+    expect(canOfferNextTripToBusyDriver({
+      driverId: 'd1',
+      currentTrip: {
+        id: 'hail-1',
+        driver_id: 'd1',
+        status: 'accepted',
+        notes: '[STREET_HAIL]\nViaje tomado en calle.',
+      },
+    })).toBe(true);
+    expect(pickBusyNextTripCandidate({
+      pickupLat: PICKUP.lat,
+      pickupLng: PICKUP.lng,
+      allowedRadiiKm: [8],
+      busyDrivers: [makeBusyDriver('pickup')],
+      currentTripByDriverId: {
+        pickup: { ...makeLiveTrip('live-pickup', 'pickup'), status: 'going_to_pickup' },
+      },
+    })).toBeNull();
+  });
+
   it('no ofrece siguiente a quien ya rechazó este viaje', () => {
     expect(canOfferNextTripToBusyDriver({
       driverId: 'd1',
@@ -124,9 +157,17 @@ describe('next-trip lifecycle', () => {
     expect(shouldTreatAsLiveDriverTrip(live)).toBe(true);
   });
 
-  it('acepta en paralelo solo si ya hay un viaje vivo distinto', () => {
+  it('acepta en paralelo solo si el pasajero ya subió', () => {
     expect(shouldAcceptAsNextTrip({
       liveTrip: { id: 'live-1', status: 'going_to_pickup' },
+      offerTripId: 'n1',
+    })).toBe(false);
+    expect(shouldAcceptAsNextTrip({
+      liveTrip: { id: 'live-1', status: 'accepted' },
+      offerTripId: 'n1',
+    })).toBe(false);
+    expect(shouldAcceptAsNextTrip({
+      liveTrip: { id: 'live-1', status: 'in_progress' },
       offerTripId: 'n1',
     })).toBe(true);
     expect(shouldAcceptAsNextTrip({

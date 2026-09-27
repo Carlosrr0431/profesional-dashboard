@@ -10,6 +10,8 @@
  */
 
 const LIVE_NEXT_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
+/** Siguiente viaje solo si el pasajero ya subió. En pickup el chofer demora demasiado. */
+const PARALLEL_TRIP_STATUSES = ['in_progress'];
 const RESERVED_NEXT_STATUSES = ['pending', 'accepted'];
 
 function toFiniteNumber(value) {
@@ -51,6 +53,19 @@ function shouldTreatAsLiveDriverTrip(trip) {
   if (!trip?.id) return false;
   if (!LIVE_NEXT_STATUSES.includes(String(trip.status || '').toLowerCase())) return false;
   return !getNextAfterTripId(trip);
+}
+
+function isStreetHailTrip(trip) {
+  const notes = String(trip?.notes || '');
+  const source = String(trip?.wa_context?.source || trip?.waContext?.source || '');
+  return notes.includes('[STREET_HAIL]') || source === 'street_hail';
+}
+
+function canReceiveParallelTrip(trip) {
+  if (!shouldTreatAsLiveDriverTrip(trip)) return false;
+  if (PARALLEL_TRIP_STATUSES.includes(String(trip.status || '').toLowerCase())) return true;
+  // Viaje en calle: el pasajero ya está a bordo desde que se crea (status accepted).
+  return isStreetHailTrip(trip);
 }
 
 function countUnacceptedDispatchOffers({ dispatchAttempts, excludedDriverCount } = {}) {
@@ -110,8 +125,7 @@ function canOfferNextTripToBusyDriver({
 } = {}) {
   if (!driverId || !currentTrip?.id) return false;
   if (String(currentTrip.driver_id || '') !== String(driverId)) return false;
-  if (!LIVE_NEXT_STATUSES.includes(String(currentTrip.status || '').toLowerCase())) return false;
-  if (getNextAfterTripId(currentTrip)) return false;
+  if (!canReceiveParallelTrip(currentTrip)) return false;
   if (excludedDriverIds instanceof Set && excludedDriverIds.has(driverId)) return false;
   if (Array.isArray(excludedDriverIds) && excludedDriverIds.includes(driverId)) return false;
   if (reservedNextDriverIds instanceof Set && reservedNextDriverIds.has(driverId)) return false;
@@ -246,7 +260,7 @@ function buildActivateNextTripUpdate({ acceptedAt } = {}) {
 }
 
 function shouldAcceptAsNextTrip({ liveTrip, offerTripId } = {}) {
-  if (!shouldTreatAsLiveDriverTrip(liveTrip)) return false;
+  if (!canReceiveParallelTrip(liveTrip)) return false;
   if (!offerTripId) return false;
   return String(liveTrip.id) !== String(offerTripId);
 }
@@ -309,12 +323,14 @@ function mergeDriversById(...lists) {
 
 module.exports = {
   LIVE_NEXT_STATUSES,
+  PARALLEL_TRIP_STATUSES,
   RESERVED_NEXT_STATUSES,
   haversineKm,
   getNextAfterTripId,
   isNextTripOffer,
   isReservedNextTrip,
   shouldTreatAsLiveDriverTrip,
+  canReceiveParallelTrip,
   countUnacceptedDispatchOffers,
   shouldFallbackToBusyDrivers,
   pickIdleThenBusyByRadius,

@@ -194,7 +194,7 @@ export async function POST(request) {
 
     const { data: busyTrips, error: busyError } = await supabase
       .from('trips')
-      .select('id, driver_id, status, next_after_trip_id')
+      .select('id, driver_id, status, next_after_trip_id, notes, wa_context')
       .eq('driver_id', driverId)
       .in('status', DRIVER_BUSY_TRIP_STATUSES)
       .neq('id', tripId);
@@ -209,6 +209,16 @@ export async function POST(request) {
           message: busyState.reservedNext
             ? 'Ese chofer ya tiene un siguiente viaje reservado.'
             : 'Ese chofer todavía está confirmando otro viaje.',
+        },
+        { status: 409 },
+      );
+    }
+
+    if (busyState.liveTrip && !busyState.canAssignAsNext) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: 'Ese chofer todavía va a buscar al pasajero. El siguiente viaje se ofrece cuando el pasajero ya subió.',
         },
         { status: 409 },
       );

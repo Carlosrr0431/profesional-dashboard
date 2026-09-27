@@ -110,7 +110,7 @@ describe('assignExistingTrip', () => {
     const drivers = [
       { id: 'a', driverNumber: 12, fullName: 'Ana', isOnline: true, dispatchBlocked: false, activeTrip: null },
       { id: 'b', driverNumber: 7, fullName: 'Beto', isOnline: false, dispatchBlocked: false, activeTrip: null },
-      { id: 'c', driverNumber: 12, fullName: 'Cata', isOnline: true, dispatchBlocked: false, activeTrip: { id: 't1' } },
+      { id: 'c', driverNumber: 12, fullName: 'Cata', isOnline: true, dispatchBlocked: false, activeTrip: { id: 't1', status: 'in_progress' } },
     ];
     expect(findDashboardDriversByNumber(drivers, '12').map((d) => d.id)).toEqual(['a', 'c']);
     expect(findDashboardDriversByNumber(drivers, '99')).toEqual([]);
@@ -173,6 +173,27 @@ describe('assignExistingTrip', () => {
       canAssign: false,
       nextTrip: false,
     });
+    expect(dashboardDriverAvailability({
+      ...busy,
+      activeTrip: {
+        id: 'hail-1',
+        status: 'accepted',
+        notes: '[STREET_HAIL]\nViaje tomado en calle.',
+      },
+    })).toMatchObject({
+      code: 'busy_next',
+      canAssign: true,
+      nextTrip: true,
+    });
+    expect(dashboardDriverAvailability({
+      ...busy,
+      activeTrip: { id: 'live-1', status: 'going_to_pickup' },
+    })).toEqual({
+      code: 'busy_pickup',
+      label: 'Va a buscar al pasajero',
+      canAssign: false,
+      nextTrip: false,
+    });
   });
 
   it('arma la oferta de siguiente sin pisar el GPS del pasajero', () => {
@@ -205,5 +226,19 @@ describe('assignExistingTrip', () => {
     expect(classifyManualAssignBusyState([
       { id: 'p1', driver_id: 'd1', status: 'pending' },
     ])).toMatchObject({ canAssignAsNext: false, hasPendingOffer: true });
+    expect(classifyManualAssignBusyState([
+      { id: 'live-1', driver_id: 'd1', status: 'going_to_pickup' },
+    ]).canAssignAsNext).toBe(false);
+    expect(classifyManualAssignBusyState([
+      { id: 'live-1', driver_id: 'd1', status: 'accepted' },
+    ]).canAssignAsNext).toBe(false);
+    expect(classifyManualAssignBusyState([
+      {
+        id: 'hail-1',
+        driver_id: 'd1',
+        status: 'accepted',
+        notes: '[STREET_HAIL]\nViaje tomado en calle.',
+      },
+    ]).canAssignAsNext).toBe(true);
   });
 });

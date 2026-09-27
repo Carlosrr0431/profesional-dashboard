@@ -96,6 +96,7 @@ export async function releaseTripToQueue(supabase, {
     } catch {
       // El viaje ya está en cola; el chofer puede marcarse disponible en la app.
     }
+    await reopenLostDispatchOffers(supabase, { tripId: tripRow.id, releasedDriverId: driverId });
   }
 
   return {
@@ -112,6 +113,56 @@ export async function releaseTripToQueue(supabase, {
       }
       : null,
   };
+}
+
+/** Los que quedaron bloqueados porque otro aceptó vuelven a ver el viaje. El que canceló no. */
+export function lostOfferIdsToReopen(offers, releasedDriverId) {
+  const released = String(releasedDriverId || '');
+  return (offers || [])
+    .filter((offer) => (
+      offer?.id
+      && offer.status === 'lost'
+      && offer.driver_id
+      && String(offer.driver_id) !== released
+    ))
+    .map((offer) => offer.id);
+}
+
+async function reopenLostDispatchOffers(supabase, { tripId, releasedDriverId } = {}) {
+  const { data: offers, error } = await supabase
+    .from('trip_dispatch_offers')
+    .select('id, driver_id, status')
+    .eq('trip_id', tripId);
+  if (error || !offers?.length) return 0;
+
+  const reopenIds = lostOfferIdsToReopen(offers, releasedDriverId);
+  const now = new Date().toISOString();
+  await supabase
+    .from('trip_dispatch_offers')
+    .update({ status: 'rejected', resolved_at: now })
+    .eq('trip_id', tripId)
+    .eq('driver_id', releasedDriverId);
+
+  if (!reopenIds.length) return 0;
+
+  await supabase
+    .from('trip_dispatch_offers')
+    .update({ status: 'pending', resolved_at: null, offered_at: now })
+    .in('id', reopenIds);
+
+  await supabase
+    .from('trips')
+    .update({
+      status: 'pending',
+      driver_id: null,
+      dispatch_status: 'waiting_acceptance',
+      assigned_at: now,
+    })
+    .eq('id', tripId)
+    .eq('status', 'queued')
+    .is('driver_id', null);
+
+  return reopenIds.length;
 }
 
 const DRIVER_CANCEL_RECOVER_FIELDS =

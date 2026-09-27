@@ -5,6 +5,7 @@ import {
 } from '../../shared/trip-contract.js';
 import {
   buildNextTripOfferAssignUpdate,
+  canReceiveParallelTrip,
   partitionDriverBusyTrips,
   shouldTreatAsLiveDriverTrip,
 } from '../../shared/next-trip.js';
@@ -162,6 +163,14 @@ export function dashboardDriverAvailability(driver) {
     };
   }
   if (driver.activeTrip) {
+    if (!canReceiveParallelTrip(driver.activeTrip)) {
+      return {
+        code: 'busy_pickup',
+        label: 'Va a buscar al pasajero',
+        canAssign: false,
+        nextTrip: false,
+      };
+    }
     return {
       code: 'busy_next',
       label: 'En viaje · siguiente',
@@ -188,7 +197,7 @@ export function classifyManualAssignBusyState(trips, { ignoreTripId } = {}) {
     liveTrip,
     reservedNext,
     hasPendingOffer,
-    canAssignAsNext: Boolean(liveTrip?.id) && !reservedNext && !hasPendingOffer,
+    canAssignAsNext: canReceiveParallelTrip(liveTrip) && !reservedNext && !hasPendingOffer,
   };
 }
 
