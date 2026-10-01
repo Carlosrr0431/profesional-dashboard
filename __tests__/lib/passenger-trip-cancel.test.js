@@ -5,6 +5,7 @@ const {
   buildWhatsAppCancelledTripUpdate,
   buildOperatorCancelledTripUpdate,
   canOperatorCancelTrip,
+  PASSENGER_CANCELLABLE_STATUSES,
   WHATSAPP_CANCEL_REASON,
   OPERATOR_CANCEL_REASON,
 } = require('../../src/lib/passengerTripCancel');
@@ -49,6 +50,26 @@ describe('passengerTripCancel', () => {
     });
     expect(payload.status).toBe('cancelled');
     expect(payload.driver_id).toBeUndefined();
+  });
+
+  it('el pasajero puede cancelar también el viaje ya en curso, no uno aceptado ni terminado', () => {
+    expect(PASSENGER_CANCELLABLE_STATUSES).toEqual(
+      expect.arrayContaining(['queued', 'pending', 'going_to_pickup', 'in_progress'])
+    );
+    ['accepted', 'completed', 'cancelled'].forEach((status) => {
+      expect(PASSENGER_CANCELLABLE_STATUSES).not.toContain(status);
+    });
+  });
+
+  it('al cancelar un viaje en curso conserva driver_id para que el chofer se entere por Realtime', () => {
+    const payload = buildPassengerCancelledTripUpdate({
+      status: 'in_progress',
+      driver_id: 'driver-1',
+    });
+    expect(payload.status).toBe('cancelled');
+    expect(payload.dispatch_status).toBe('cancelled');
+    expect(payload.driver_id).toBeUndefined();
+    expect(isPassengerInitiatedCancellation(payload)).toBe(true);
   });
 
   it('buildWhatsAppCancelledTripUpdate conserva driver_id y limpia wa_context', () => {
@@ -214,6 +235,15 @@ describe('shouldReassignCancelledTrip no rompe el flujo normal', () => {
       shouldReassignCancelledTrip({
         cancel_reason: '[MANUAL_CANCEL] Cancelado por operador',
         notes: '[APPROACH_ONLY]',
+      })
+    ).toBe(false);
+  });
+
+  it('no reasigna un viaje que el chofer canceló con el pasajero a bordo', () => {
+    expect(
+      shouldReassignCancelledTrip({
+        cancel_reason: 'Cancelado por el conductor con el pasajero a bordo',
+        notes: '[PASSENGER_APP]',
       })
     ).toBe(false);
   });

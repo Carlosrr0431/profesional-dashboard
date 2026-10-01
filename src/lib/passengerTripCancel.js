@@ -40,12 +40,19 @@ export function isOperatorInitiatedCancellation(tripOrReason) {
   return OPERATOR_CANCEL_MARKERS.some((marker) => reason.includes(marker));
 }
 
-/** Estados en los que el pasajero puede cancelar desde la app. */
+/** Estados en los que el pasajero puede cancelar desde la app (incluye el viaje ya en curso). */
 export const PASSENGER_CANCELLABLE_STATUSES = [
   'queued',
   'pending',
   'going_to_pickup',
+  'in_progress',
 ];
+
+/**
+ * Estados que el pasajero solo puede cancelar con su sesión. Con el viaje en curso la persona ya
+ * va a bordo, y el tripId solo no alcanza: el link de seguimiento que se comparte lo expone.
+ */
+export const PASSENGER_SESSION_REQUIRED_STATUSES = ['in_progress'];
 
 /** Estados en los que el operador puede cancelar desde el dashboard. */
 export const OPERATOR_CANCELLABLE_STATUSES = [

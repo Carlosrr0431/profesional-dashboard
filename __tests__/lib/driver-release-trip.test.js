@@ -150,6 +150,27 @@ describe('buildDriverReleaseQueuedExtras', () => {
     expect(extras.wa_context.dispatch_excluded_driver_ids).toContain('drv-1');
   });
 
+  it('al soltar ya en el punto de retiro borra la llegada, así el próximo chofer no hereda la espera', () => {
+    const trip = {
+      status: 'going_to_pickup',
+      notes: '[PASSENGER_APP]',
+      driver_id: 'drv-1',
+      driver_arrived_at: '2026-09-06T14:55:00.000Z',
+      wa_context: {},
+    };
+
+    const { extras } = buildDriverReleaseQueuedExtras(trip, {
+      driverId: 'drv-1',
+      reason: DRIVER_RELEASE_REASON,
+      now: new Date('2026-09-06T15:00:00.000Z'),
+    });
+    const update = buildPendingToQueuedUpdate(trip, extras);
+
+    expect(update.driver_arrived_at).toBeNull();
+    expect(update.status).toBe('queued');
+    expect(update.driver_id).toBeNull();
+  });
+
   it('pending no borra wa_notified_at ni started_at', () => {
     const { extras, wasAssigned } = buildDriverReleaseQueuedExtras({
       status: 'pending',
@@ -162,6 +183,7 @@ describe('buildDriverReleaseQueuedExtras', () => {
     expect(wasAssigned).toBe(false);
     expect(extras.started_at).toBeUndefined();
     expect(extras.wa_notified_at).toBeUndefined();
+    expect(extras.driver_arrived_at).toBeUndefined();
     expect(extras.cancel_reason).toBe('Rechazado por chofer');
   });
 

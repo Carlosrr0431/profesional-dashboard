@@ -82,6 +82,8 @@ export function shouldReassignCancelledTrip(trip, { supabaseDispatchOnly = true 
     'pasajero cancelo',
     'cancelado por el pasajero',
     'cancelado por pasajero',
+    // El chofer cancela con el pasajero a bordo: no hay nadie a quien buscarle otro chofer.
+    'cancelado por el conductor',
     'passenger app',
     'pasajero no encontrado',
     'direccion incorrecta',

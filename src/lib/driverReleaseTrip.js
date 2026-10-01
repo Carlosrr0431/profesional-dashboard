@@ -50,6 +50,8 @@ export function buildDriverReleaseQueuedExtras(trip, {
     extras.started_at = null;
     extras.pickup_at = null;
     extras.wa_notified_at = null;
+    // El chofer pudo soltar el viaje ya en el punto de retiro: el próximo chofer no hereda su espera.
+    extras.driver_arrived_at = null;
   }
 
   return { extras, wasAssigned, previousStatus };
