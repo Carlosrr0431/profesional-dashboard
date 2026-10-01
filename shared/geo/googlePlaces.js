@@ -47,6 +47,32 @@ const LABEL_CACHE_TTL_MS = 30 * 60 * 1000;
 const PLACE_DETAILS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const CACHE_MAX_ITEMS = 300;
 
+/** Google devuelve como máximo 5 sugerencias por request de Autocomplete. */
+const AUTOCOMPLETE_MAX_SUGGESTIONS = 5;
+
+/**
+ * Búsqueda ampliada (`expand`): como Google corta en 5, un lugar con muchas
+ * sucursales se explora por zonas de Salta Capital (cada zona saturada se
+ * subdivide en 4). Los topes acotan costo (cada request se factura aparte si
+ * la sesión no termina en Place Details) y latencia.
+ */
+const EXPAND_MAX_REQUESTS = 40;
+const EXPAND_MAX_DEPTH = 3;
+const EXPAND_MAX_LIMIT = 60;
+const EXPAND_TIME_BUDGET_MS = 6000;
+const EXPAND_ZONE_TIMEOUT_MS = 4000;
+
+/** Palabras de la consulta que no identifican al lugar (la búsqueda ya es de Salta Capital). */
+const QUERY_NOISE_TOKENS = new Set(['salta', 'capital', 'argentina']);
+
+/** Tipos de Google que describen calles/zonas, no lugares (POI). */
+const ADDRESS_ONLY_TYPES = new Set([
+  'route', 'street_address', 'street_number', 'geocode', 'intersection',
+  'premise', 'subpremise', 'plus_code', 'political', 'postal_code', 'country',
+  'locality', 'sublocality', 'sublocality_level_1', 'neighborhood',
+  'administrative_area_level_1', 'administrative_area_level_2',
+]);
+
 /** Restricción dura: solo resultados dentro del rectángulo de Salta Capital. */
 const SALTA_CAPITAL_RESTRICTION = {
   rectangle: {
@@ -97,6 +123,8 @@ const AUTOCOMPLETE_FIELD_MASK = [
   'suggestions.placePrediction.structuredFormat',
   'suggestions.placePrediction.text',
   'suggestions.placePrediction.types',
+  // Solo viene si se manda `origin` (ordenar por cercanía en la búsqueda ampliada).
+  'suggestions.placePrediction.distanceMeters',
 ].join(',');
 
 /**
@@ -465,11 +493,18 @@ function mapAutocompletePrediction(prediction, sessionToken, query) {
     address: { city: 'Salta' },
     sessionToken,
     types,
+    distanceMeters: typeof prediction?.distanceMeters === 'number' ? prediction.distanceMeters : null,
     _score: scoreAutocompleteSuggestion(mainText, secondaryText, query),
   };
 }
 
-async function placesAutocompleteRequest(input, sessionToken) {
+async function placesAutocompleteRequest(
+  input,
+  sessionToken,
+  restriction = SALTA_CAPITAL_RESTRICTION,
+  timeoutMs = PLACES_TIMEOUT_MS,
+  origin = null,
+) {
   const text = String(input || '').trim();
   if (!text || !isGoogleConfigured()) return [];
 
@@ -478,7 +513,7 @@ async function placesAutocompleteRequest(input, sessionToken) {
   assertAllowedUrl(url);
 
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), PLACES_TIMEOUT_MS) : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
   try {
     const response = await fetch(url, {
@@ -495,7 +530,9 @@ async function placesAutocompleteRequest(input, sessionToken) {
         includedRegionCodes: ['ar'],
         languageCode: 'es',
         origin: SALTA_CAPITAL_ORIGIN,
-        locationRestriction: SALTA_CAPITAL_RESTRICTION,
+        locationRestriction: restriction,
+        // Con `origin` Google devuelve distanceMeters de cada sugerencia a ese punto.
+        ...(origin ? { origin } : {}),
       }),
       signal: controller?.signal,
     });
@@ -511,6 +548,98 @@ async function placesAutocompleteRequest(input, sessionToken) {
   }
 }
 
+/** Ubicación de quien busca, solo si cae dentro de Salta Capital (si no, se ignora). */
+function normalizeNearOrigin(near) {
+  const latitude = Number(near?.latitude);
+  const longitude = Number(near?.longitude);
+  return isWithinSaltaCapital(latitude, longitude) ? { latitude, longitude } : null;
+}
+
+/**
+ * Ordena de más cerca a más lejos y marca `byDistance` para que la capa superior
+ * conserve este orden. Si algún resultado no trae distancia, no reordena.
+ */
+function orderByDistance(items) {
+  if (!items.length || !items.every((item) => Number.isFinite(item.distanceMeters))) return items;
+  return items
+    .map((item) => ({ ...item, byDistance: true }))
+    .sort((a, b) => a.distanceMeters - b.distanceMeters);
+}
+
+/** Divide un rectángulo `{ low, high }` en sus 4 cuadrantes. */
+function splitRectangle({ low, high }) {
+  const midLat = (low.latitude + high.latitude) / 2;
+  const midLng = (low.longitude + high.longitude) / 2;
+  return [
+    { low: { latitude: low.latitude, longitude: low.longitude }, high: { latitude: midLat, longitude: midLng } },
+    { low: { latitude: low.latitude, longitude: midLng }, high: { latitude: midLat, longitude: high.longitude } },
+    { low: { latitude: midLat, longitude: low.longitude }, high: { latitude: high.latitude, longitude: midLng } },
+    { low: { latitude: midLat, longitude: midLng }, high: { latitude: high.latitude, longitude: high.longitude } },
+  ];
+}
+
+/**
+ * Solo vale la pena explorar por zonas si Google llenó su tope (puede haber más)
+ * y la búsqueda es un lugar por nombre (ej. "grido"), no una calle, una calle con
+ * altura ni un comercio que apareció solo porque su dirección contiene el texto.
+ */
+function shouldExpandAutocomplete(text, suggestions) {
+  if (text.length < 3 || suggestions.length < AUTOCOMPLETE_MAX_SUGGESTIONS) return false;
+  if (extractStreetAndNumber(text)) return false;
+
+  const tokens = foldText(text)
+    .split(' ')
+    .filter((token) => token.length >= 2 && !QUERY_NOISE_TOKENS.has(token));
+  if (tokens.length === 0) return false;
+
+  const nameMatches = suggestions.filter((item) => {
+    const prediction = item?.placePrediction;
+    const isPlace = (prediction?.types || []).some((type) => !ADDRESS_ONLY_TYPES.has(type));
+    const name = foldText(prediction?.structuredFormat?.mainText?.text);
+    return isPlace && tokens.every((token) => name.includes(token));
+  }).length;
+  return nameMatches * 2 >= suggestions.length;
+}
+
+/**
+ * Repite la búsqueda restringida a zonas de Salta Capital. Una zona que vuelve
+ * a llenar el tope se subdivide en 4. Mismo sessionToken en todos los requests:
+ * si el usuario elige un resultado, la sesión se cierra con Place Details.
+ */
+async function expandAutocompleteByZones(text, sessionToken, rootSuggestions, origin = null) {
+  const byPlaceId = new Map();
+  const collect = (suggestions) => {
+    for (const item of suggestions) {
+      const placeId = item?.placePrediction?.placeId;
+      if (placeId && !byPlaceId.has(placeId)) byPlaceId.set(placeId, item);
+    }
+  };
+  collect(rootSuggestions);
+
+  const deadline = Date.now() + EXPAND_TIME_BUDGET_MS;
+  let requests = 1; // el request raíz ya se hizo
+  let zones = splitRectangle(SALTA_CAPITAL_RESTRICTION.rectangle);
+
+  for (let depth = 1; depth <= EXPAND_MAX_DEPTH && zones.length > 0; depth += 1) {
+    if (Date.now() >= deadline) break;
+    const batch = zones.slice(0, EXPAND_MAX_REQUESTS - requests);
+    if (batch.length === 0) break;
+    requests += batch.length;
+
+    const responses = await Promise.all(batch.map((rectangle) => (
+      placesAutocompleteRequest(text, sessionToken, { rectangle }, EXPAND_ZONE_TIMEOUT_MS, origin)
+    )));
+
+    zones = [];
+    responses.forEach((suggestions, index) => {
+      collect(suggestions);
+      if (suggestions.length >= AUTOCOMPLETE_MAX_SUGGESTIONS) zones.push(...splitRectangle(batch[index]));
+    });
+  }
+
+  return [...byPlaceId.values()];
+}
+
 /**
  * SKU: Autocomplete (New) — devuelve sugerencias estilo Google Maps sin coords.
  *
@@ -524,12 +653,16 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   const text = fixCommonPoiTypos(String(query || '').trim());
   if (!text || text.length < 2 || !isGoogleConfigured()) return [];
 
-  const normalizedLimit = Math.max(1, Math.min(limit, 8));
+  const expand = options?.expand === true;
+  const normalizedLimit = Math.max(1, Math.min(limit, expand ? EXPAND_MAX_LIMIT : 8));
   const sessionToken = registerAutocompleteSession(resolveSessionToken(options));
 
   // La clave NO incluye sessionToken: misma query + límite = mismo resultado de Google,
   // independientemente de la sesión. Re-inyectamos el token actual al devolver del cache.
-  const cacheKey = `${normalizeQuery(text)}::${normalizedLimit}`;
+  // En búsqueda ampliada, `near` (ubicación de quien busca) ordena por cercanía: va en la clave.
+  const origin = expand ? normalizeNearOrigin(options?.near) : null;
+  const nearKey = origin ? `::near:${origin.latitude.toFixed(3)},${origin.longitude.toFixed(3)}` : '';
+  const cacheKey = `${normalizeQuery(text)}::${normalizedLimit}${expand ? '::expand' : ''}${nearKey}`;
   const cached = getCached(autocompleteCache, cacheKey);
   if (cached) {
     return cached.map((item) => ({ ...item, sessionToken }));
@@ -540,7 +673,18 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   }
 
   const requestPromise = (async () => {
-    const suggestions = await placesAutocompleteRequest(text, sessionToken);
+    let suggestions = await placesAutocompleteRequest(
+      text,
+      sessionToken,
+      SALTA_CAPITAL_RESTRICTION,
+      PLACES_TIMEOUT_MS,
+      origin,
+    );
+    let expanded = false;
+    if (expand && shouldExpandAutocomplete(text, suggestions)) {
+      suggestions = await expandAutocompleteByZones(text, sessionToken, suggestions, origin);
+      expanded = true;
+    }
     const mapped = suggestions
       .map((item, index) => ({
         ...mapAutocompletePrediction(item?.placePrediction, sessionToken, text),
@@ -550,7 +694,9 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       .filter((item) => !isOutsideSaltaCapitalSubtitle(item.subtitle))
       .sort((a, b) => (Number(b._score || 0) - Number(a._score || 0)) || (a._index - b._index));
 
-    const enriched = await enrichGuemesStreetNumberResults(mapped, text, sessionToken, normalizedLimit);
+    // Una lista de sucursales (búsqueda ampliada) se ordena por cercanía; una calle, no.
+    const ordered = expanded && origin ? orderByDistance(mapped) : mapped;
+    const enriched = await enrichGuemesStreetNumberResults(ordered, text, sessionToken, normalizedLimit);
     const result = enriched.map(({ _score, _index, ...rest }) => rest);
 
     setCached(autocompleteCache, cacheKey, result, AUTOCOMPLETE_TTL_MS);

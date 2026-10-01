@@ -413,6 +413,7 @@ function toAutocompleteSuggestion(item, query, bonusScore = 0, titleOverride = n
     subtitle: enrichedSubtitle,
     sessionToken: item.sessionToken || null,
     score,
+    ...(item.byDistance ? { distanceMeters: item.distanceMeters, byDistance: true } : {}),
   };
 }
 
@@ -629,7 +630,7 @@ async function reverseGeocode(lat, lng) {
   return fallback;
 }
 
-function collectAutocompleteCandidates(items, query, merged, seenPlaceIds, seenCoords, seenLabels, bonusScore = 0, titleOverride = null) {
+function collectAutocompleteCandidates(items, query, merged, seenPlaceIds, seenCoords, seenLabels, bonusScore = 0, titleOverride = null, dedupeByLabel = true) {
   for (const item of items) {
     const placeId = item?.placeId
       || (Number.isFinite(item?.lat) && Number.isFinite(item?.lng)
@@ -663,7 +664,7 @@ function collectAutocompleteCandidates(items, query, merged, seenPlaceIds, seenC
     if (suggestion.title && suggestion.title.length <= 2 && !suggestion.title.match(/^\d/)) continue;
 
     const labelKey = normalizePoiText(suggestion.address);
-    if (labelKey && seenLabels.has(labelKey)) continue;
+    if (dedupeByLabel && labelKey && seenLabels.has(labelKey)) continue;
 
     seenPlaceIds.add(placeId);
     seenCoords.add(coordKey);
@@ -705,8 +706,11 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   try {
     // Autocomplete exclusivo vía Google Places (New) + Place Details Essentials al elegir.
     if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
+      const expand = options?.expand === true;
       const googleHits = await googleSearchPoi(trimmed, Math.max(limit + 4, 12), {
         sessionToken: options?.sessionToken,
+        expand,
+        near: options?.near,
       }).catch(() => []);
 
       const merged = [];
@@ -714,6 +718,8 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       const seenCoords = new Set();
       const seenLabels = new Set();
 
+      // En búsqueda ampliada, dos sucursales con igual rótulo (misma avenida) son
+      // lugares distintos: no se descartan por rótulo repetido.
       collectAutocompleteCandidates(
         googleHits,
         trimmed,
@@ -722,10 +728,16 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
         seenCoords,
         seenLabels,
         2.1,
+        null,
+        !expand,
       );
 
-      merged.sort((a, b) => b.score - a.score);
-      return merged.slice(0, limit).map(({ score, ...item }) => item);
+      // Búsqueda ampliada con ubicación conocida: sucursales de la más cercana a la más lejana.
+      const byDistance = merged.length > 0 && merged.every((item) => item.byDistance);
+      merged.sort(byDistance
+        ? (a, b) => a.distanceMeters - b.distanceMeters
+        : (a, b) => b.score - a.score);
+      return merged.slice(0, limit).map(({ score, byDistance: _byDistance, ...item }) => item);
     }
 
     const searchQueries = buildAddressSearchQueries(trimmed).slice(0, MAX_AUTOCOMPLETE_VARIANTS);
