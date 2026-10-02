@@ -42,6 +42,16 @@ describe('saltaKnownPois', () => {
     expect(resolveSaltaKnownPoi('Mitre 200')).toBeNull();
   });
 
+  it('no confunde calle y altura con un local del mismo nombre', () => {
+    expect(resolveSaltaKnownPoi('Balcarce 1346')).toBeNull();
+    expect(looksLikeSaltaKnownPoi('Balcarce 1346')).toBe(false);
+    expect(resolveSaltaKnownPoi('av balcarce 700, salta')).toBeNull();
+    expect(resolveSaltaKnownPoi('balcarce al 1346')).toBeNull();
+    expect(resolveSaltaKnownPoi('paseo balcarce')?.id).toBe('feria_balcarce');
+    expect(resolveSaltaKnownPoi('feria balcarce')?.id).toBe('feria_balcarce');
+    expect(resolveSaltaKnownPoi('balcarce')?.id).toBe('feria_balcarce');
+  });
+
   it('fixPoiTypoTokens normaliza typos', () => {
     expect(fixPoiTypoTokens('la terminalk')).toBe('la terminal');
     expect(fixPoiTypoTokens('el shoping')).toBe('el shopping');

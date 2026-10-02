@@ -846,9 +846,27 @@ function poiMatchesEntry(poi, norm) {
   return poi.patterns.some((pattern) => pattern.test(norm));
 }
 
+const STREET_HOUSE_PLACE_WORDS = /\b(feria|paseo|mercado|hospital|shopping|terminal|plaza|museo|banco|farmacia|colegio|escuela|universidad|parque|hotel|casino|catedral|aeropuerto|sanatorio|supermercado|galeria|centro)\b/;
+const STREET_HOUSE_FILLER = new Set([
+  'calle', 'av', 'avenida', 'avda', 'pasaje', 'pje', 'bv', 'bulevar',
+  'salta', 'capital', 'argentina', 'al', 'altura', 'nro', 'numero', 'n',
+  'en', 'el', 'la', 'de', 'del', 'los', 'las',
+]);
+
+/** "Balcarce 1346" es una calle con altura, no el paseo ni la feria. */
+function isPlainStreetHouseQuery(norm) {
+  if (!norm || !/\b\d{1,5}\b/.test(norm)) return false;
+  if (STREET_HOUSE_PLACE_WORDS.test(norm)) return false;
+  const tokens = norm
+    .replace(/\b\d{1,5}\b/g, ' ')
+    .split(/\s+/)
+    .filter((token) => token && !STREET_HOUSE_FILLER.has(token));
+  return tokens.length >= 1 && tokens.length <= 6;
+}
+
 function resolveSaltaKnownPoi(value) {
   const norm = fixPoiTypoTokens(normalizePoiText(value));
-  if (!norm) return null;
+  if (!norm || isPlainStreetHouseQuery(norm)) return null;
 
   for (const poi of SALTA_KNOWN_POIS) {
     if (poiMatchesEntry(poi, norm)) {
@@ -1082,7 +1100,7 @@ function resolveKnownPoiBranch(title, subtitle) {
 
 function looksLikeSaltaKnownPoi(value) {
   const norm = fixPoiTypoTokens(normalizePoiText(value));
-  if (!norm) return false;
+  if (!norm || isPlainStreetHouseQuery(norm)) return false;
   if (resolveSaltaKnownPoi(norm)) return true;
   return POI_KEYWORD_RE.test(norm);
 }
