@@ -4,6 +4,7 @@ import {
   resolveTripFinalDestCoords,
   resolveTripPickupCoords,
 } from '../../../../shared/trip-contract.js';
+import { loadReviewingDrivers } from '../../../../src/lib/reviewingDrivers.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,6 +90,8 @@ export async function GET(_request, { params }) {
       driver = driverData || null;
     }
 
+    const reviewingDrivers = await loadReviewingDrivers(supabase, trip);
+
     const { data: lastTrack, error: trackError } = await supabase
       .from('trip_tracking')
       .select('lat, lng, heading, speed, recorded_at')
@@ -103,6 +106,7 @@ export async function GET(_request, { params }) {
       data: {
         trip,
         driver,
+        reviewingDrivers,
         lastTrack: lastTrack || null,
         pickup: toPublicPoint(resolveTripPickupCoords(trip)),
         dropoff: toPublicPoint(resolveTripFinalDestCoords(trip)),
