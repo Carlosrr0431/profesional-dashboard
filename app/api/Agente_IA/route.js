@@ -1,4 +1,5 @@
 import OpenAI, { toFile } from 'openai';
+import { after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { deepseekChatCompletion } from '../../../src/lib/deepseekClient';
 import { ADDRESS_NORMALIZE_SYSTEM_PROMPT } from '../../../src/lib/tripIntentSystemPrompt';
@@ -178,7 +179,17 @@ export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const ACCUMULATION_MS = Number(process.env.WHATSAPP_ACCUMULATION_MS || 40000);
+function resolveAccumulationMs() {
+  const raw = process.env.WHATSAPP_ACCUMULATION_MS;
+  if (raw == null || String(raw).trim() === '') return 8000;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return 8000;
+  if (parsed === 0) return 0;
+  // Tope para que la respuesta salga en menos de 15 s aunque el entorno tenga 40 s.
+  return Math.min(8000, parsed);
+}
+
+const ACCUMULATION_MS = resolveAccumulationMs();
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const PRODUCTION_APP_URL = 'https://www.profesionalviajes.com.ar';
@@ -12038,12 +12049,53 @@ async function processConversationById(conversationId) {
   });
 }
 
-function scheduleConversationProcessing(conversationId, delayMs = ACCUMULATION_MS) {
-  if (IS_SERVERLESS) {
-    logWebhook('timer_skipped', {
-      reason: 'serverless_runtime',
+async function processConversationAfterQuietWindow(conversationId, waitMs) {
+  if (waitMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+
+  const { data, error } = await getSupabase()
+    .from('whatsapp_conversations')
+    .select('is_collecting, accumulation_started_at')
+    .eq('id', conversationId)
+    .maybeSingle();
+
+  if (error) {
+    logWebhook('timer_check_error', { conversationId, error: error.message || 'unknown' });
+    return;
+  }
+
+  if (!data?.is_collecting || !data.accumulation_started_at) return;
+
+  const quietForMs = Date.now() - new Date(data.accumulation_started_at).getTime();
+  if (quietForMs < Math.max(0, ACCUMULATION_MS - 400)) {
+    logWebhook('timer_deferred', {
       conversationId,
-      delayMs,
+      reason: 'newer_message',
+      quietForMs,
+      accumulationMs: ACCUMULATION_MS,
+    });
+    return;
+  }
+
+  await processConversationById(conversationId);
+}
+
+function scheduleConversationProcessing(conversationId, delayMs = ACCUMULATION_MS) {
+  const waitMs = Math.max(0, Number(delayMs) || 0);
+
+  if (IS_SERVERLESS) {
+    after(async () => {
+      try {
+        await processConversationAfterQuietWindow(conversationId, waitMs);
+      } catch (error) {
+        console.error('Error procesando conversación programada:', error);
+      }
+    });
+    logWebhook('timer_scheduled', {
+      reason: 'after_response',
+      conversationId,
+      delayMs: waitMs,
     });
     return;
   }
@@ -12055,11 +12107,11 @@ function scheduleConversationProcessing(conversationId, delayMs = ACCUMULATION_M
   const timer = setTimeout(async () => {
     processingTimers.delete(conversationId);
     try {
-      await processConversationById(conversationId);
+      await processConversationAfterQuietWindow(conversationId, 0);
     } catch (error) {
       console.error('Error procesando conversación programada:', error);
     }
-  }, delayMs);
+  }, waitMs);
 
   processingTimers.set(conversationId, timer);
 }
