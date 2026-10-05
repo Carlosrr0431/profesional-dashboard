@@ -213,16 +213,39 @@ export function buildApproachOnlyTripInsertPayload({
   return payload;
 }
 
-/** Combina tarifa calculada en servidor con estimación enviada por la app. */
+/** Si el servidor y la app difieren menos que esto, se guarda lo que vio el pasajero. */
+const QUOTE_MATCH_RATIO = 0.02;
+
+function quotedPriceMatchesServer(serverPrice, clientPrice) {
+  const server = Number(serverPrice);
+  const client = Number(clientPrice);
+  if (!Number.isFinite(server) || server <= 0) return false;
+  if (!Number.isFinite(client) || client <= 0) return false;
+  return Math.abs(server - client) / server <= QUOTE_MATCH_RATIO;
+}
+
+/**
+ * Combina la tarifa del servidor con la cotización de la app.
+ * Una diferencia chica (Google vs OSRM, ambos se ven como 2,6 km) conserva
+ * el importe confirmado. Una diferencia grande se queda con el servidor.
+ */
 export function mergePassengerRouteFare(serverFare, clientFare) {
   if (!serverFare && !clientFare) return null;
   if (!clientFare) return serverFare;
   if (!serverFare) return clientFare;
 
+  const useQuotedPrice = quotedPriceMatchesServer(serverFare.price, clientFare.price);
+  const price = useQuotedPrice ? clientFare.price : (serverFare.price ?? clientFare.price);
+  const serverPrice = Number(serverFare.price);
+  const serverCommission = Number(serverFare.commission_amount);
+  const commission = Number.isFinite(serverCommission) && serverPrice > 0
+    ? Math.round(serverCommission * (Number(price) / serverPrice))
+    : (serverFare.commission_amount ?? clientFare.commission_amount ?? null);
+
   return {
-    price: serverFare.price ?? clientFare.price,
+    price,
     distance_km: serverFare.distance_km ?? clientFare.distance_km,
     duration_minutes: serverFare.duration_minutes ?? clientFare.duration_minutes,
-    commission_amount: serverFare.commission_amount ?? clientFare.commission_amount ?? null,
+    commission_amount: commission,
   };
 }

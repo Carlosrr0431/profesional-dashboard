@@ -175,7 +175,7 @@ describe('passengerTripQueued', () => {
     expect(payload.notes).toContain('Solicitado desde la web de pasajeros.');
   });
 
-  it('mergePassengerRouteFare prioriza el precio del servidor', () => {
+  it('mergePassengerRouteFare prioriza el precio del servidor si la cotización se aleja', () => {
     const merged = mergePassengerRouteFare(
       { price: 3600, commission_amount: 1800, distance_km: 5, duration_minutes: 12 },
       { price: 3000, commission_amount: null, distance_km: 4.8, duration_minutes: 11 },
@@ -183,5 +183,15 @@ describe('passengerTripQueued', () => {
     expect(merged.price).toBe(3600);
     expect(merged.commission_amount).toBe(1800);
     expect(merged.distance_km).toBe(5);
+  });
+
+  it('conserva los $2402 confirmados cuando el servidor midió $2390 por la misma ruta', () => {
+    const merged = mergePassengerRouteFare(
+      { price: 2390, commission_amount: 239, distance_km: 2.585, duration_minutes: 4 },
+      { price: 2402, commission_amount: null, distance_km: 2.6, duration_minutes: 4 },
+    );
+    expect(merged.price).toBe(2402);
+    expect(merged.commission_amount).toBe(240);
+    expect(merged.distance_km).toBe(2.585);
   });
 });
