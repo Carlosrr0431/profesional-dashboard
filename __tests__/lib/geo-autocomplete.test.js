@@ -337,7 +337,7 @@ describe('geo autocomplete', () => {
     const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
     const georefCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('georef'));
     expect(nominatimCalls.length).toBe(0);
-    expect(georefCalls.length).toBe(0);
+    expect(georefCalls.length).toBeGreaterThan(0);
     assertAllowedGooglePlacesSkus(global.fetch);
   });
 
@@ -364,7 +364,9 @@ describe('geo autocomplete', () => {
   it('resuelve calle con altura vía Place Details Essentials al elegir sugerencia', async () => {
     const suggestions = await autocompleteAddressSalta('entre rios 200', 3, { sessionToken: 'test-entre-rios' });
     expect(suggestions.length).toBeGreaterThan(0);
-    const pick = suggestions.find((item) => /entre r[ií]os/i.test(item.title));
+    const pick = suggestions.find((item) => (
+      String(item.placeId).startsWith('google:') && /entre r[ií]os/i.test(item.title)
+    ));
     expect(pick).toBeTruthy();
 
     const details = await getPlaceDetails(pick.placeId, {
@@ -374,8 +376,9 @@ describe('geo autocomplete', () => {
       subtitle: pick.subtitle,
     });
 
-    expect(details.lat).toBeCloseTo(-24.7797, 3);
-    expect(details.lng).toBeCloseTo(-65.4292, 3);
+    expect(details.lat).toBeCloseTo(-24.7814826, 4);
+    expect(details.lng).toBeCloseTo(-65.4049012, 4);
+    expect(details.geocodeSource).toBe('georef');
     expect(/entre r[ií]os/i.test(details.formattedAddress)).toBe(true);
 
     const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
@@ -395,6 +398,19 @@ describe('geo autocomplete', () => {
 
     const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
     expect(nominatimCalls.length).toBe(0);
+  });
+
+  it('ubica Lola Mora 886 en la altura oficial, junto a Bélgica al 1800', async () => {
+    const resolved = await geocodeAddress('Lola Mora 886');
+    expect(resolved.geocodeSource).toBe('georef');
+    expect(resolved.lat).toBeCloseTo(-24.8039138, 5);
+    expect(resolved.lng).toBeCloseTo(-65.4273036, 5);
+    expect(resolved.lat).not.toBeCloseTo(-24.789, 2);
+
+    const suggestions = await autocompleteAddressSalta('Lola Mora 886', 5, { sessionToken: 'test-lola-mora' });
+    expect(String(suggestions[0]?.placeId || '').startsWith('georef:')).toBe(true);
+    expect(suggestions[0].lat).toBeCloseTo(-24.8039138, 5);
+    expect(suggestions[0].lng).toBeCloseTo(-65.4273036, 5);
   });
 
   it('para Monoblock Salta devuelve las sedes de Maps (Sarmiento y 25 de Mayo) y geocodifica Essentials', async () => {

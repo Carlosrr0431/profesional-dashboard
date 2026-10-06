@@ -462,6 +462,17 @@ async function geocodeAddress(address, options = {}) {
   if (!query) throw new Error('Dirección vacía');
 
   if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
+    const official = await findOfficialHouseNumber(query);
+    if (official) {
+      const label = formatNominatimLabelForQuery(official, query);
+      return {
+        lat: official.lat,
+        lng: official.lng,
+        formattedAddress: label.full || official.formattedAddress,
+        placeId: official.placeId || null,
+        geocodeSource: 'georef',
+      };
+    }
     return geocodeAddressGoogleViaAutocomplete(query, options);
   }
 
@@ -673,6 +684,51 @@ function collectAutocompleteCandidates(items, query, merged, seenPlaceIds, seenC
   }
 }
 
+function foldStreetText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function roadAppearsInQuery(query, road) {
+  const q = foldStreetText(query);
+  const tokens = foldStreetText(road)
+    .replace(/\b(avenida|av|calle|pasaje|pje)\b/g, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length >= 3);
+  if (!tokens.length) return false;
+  const hits = tokens.filter((token) => q.includes(token));
+  return hits.length >= Math.min(2, tokens.length) || hits.some((token) => token.length >= 5);
+}
+
+function georefHitMatchesStreetQuery(hit, query) {
+  const wanted = pickPrimaryHouseNumber(query);
+  const got = Number(hit?.address?.house_number);
+  if (wanted == null || !Number.isFinite(got) || got !== wanted) return false;
+  if (!isWithinSaltaCapital(hit.lat, hit.lng)) return false;
+  return roadAppearsInQuery(query, hit?.address?.road);
+}
+
+async function findOfficialHouseNumber(query) {
+  const text = String(query || '').trim();
+  if (pickPrimaryHouseNumber(text) == null) return null;
+  if (looksLikeSaltaKnownPoi(text)) return null;
+  const hits = await searchGeorefAddress(text, 3).catch(() => []);
+  return hits.find((hit) => georefHitMatchesStreetQuery(hit, text)) || null;
+}
+
+function streetHouseQueryFromPlace(options = {}) {
+  const title = String(options.title || '').trim();
+  const head = String(options.formattedAddress || '').split(',')[0].trim();
+  for (const text of [title, head]) {
+    if (pickPrimaryHouseNumber(text) == null) continue;
+    if (looksLikeSaltaKnownPoi(text)) continue;
+    return text;
+  }
+  return null;
+}
+
 function collectGeorefCandidates(items, query, merged, seenPlaceIds, seenCoords) {
   for (const item of items) {
     if (!item?.placeId) continue;
@@ -732,11 +788,38 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
         !expand,
       );
 
+      const hasHouseNumber = pickPrimaryHouseNumber(trimmed) != null;
+      if (hasHouseNumber && !expand) {
+        const georefHits = await searchGeorefAddress(trimmed, 4).catch(() => []);
+        const official = georefHits.filter((hit) => georefHitMatchesStreetQuery(hit, trimmed));
+        collectGeorefCandidates(official, trimmed, merged, seenPlaceIds, seenCoords);
+        const best = official[0];
+        if (best) {
+          for (const item of merged) {
+            if (String(item.placeId || '').startsWith('georef:')) continue;
+            const blob = `${item.title || ''} ${item.address || ''}`;
+            if (pickPrimaryHouseNumber(blob) !== pickPrimaryHouseNumber(trimmed)) continue;
+            if (!roadAppearsInQuery(blob, best.address?.road)) continue;
+            item.lat = best.lat;
+            item.lng = best.lng;
+          }
+        }
+      }
+
       // Búsqueda ampliada con ubicación conocida: sucursales de la más cercana a la más lejana.
-      const byDistance = merged.length > 0 && merged.every((item) => item.byDistance);
+      const byDistance = !hasHouseNumber && merged.length > 0 && merged.every((item) => item.byDistance);
       merged.sort(byDistance
         ? (a, b) => a.distanceMeters - b.distanceMeters
         : (a, b) => b.score - a.score);
+      if (hasHouseNumber) {
+        merged.sort((a, b) => {
+          const aGeoref = String(a.placeId || '').startsWith('georef:');
+          const bGeoref = String(b.placeId || '').startsWith('georef:');
+          if (aGeoref && !bGeoref) return -1;
+          if (!aGeoref && bGeoref) return 1;
+          return 0;
+        });
+      }
       return merged.slice(0, limit).map(({ score, byDistance: _byDistance, ...item }) => item);
     }
 
@@ -924,12 +1007,36 @@ async function getPlaceDetails(placeId, options = {}) {
   if (!id) throw new Error('place_id inválido');
 
   if (isGooglePlaceId(id)) {
-    return getGooglePlaceDetails(id, {
+    const details = await getGooglePlaceDetails(id, {
       sessionToken: options?.sessionToken,
       formattedAddress: options?.formattedAddress,
       title: options?.title,
       subtitle: options?.subtitle,
     });
+    const streetQuery = streetHouseQueryFromPlace(options);
+    const official = streetQuery ? await findOfficialHouseNumber(streetQuery) : null;
+    if (!official) return details;
+    return {
+      ...details,
+      lat: official.lat,
+      lng: official.lng,
+      geocodeSource: 'georef',
+    };
+  }
+
+  if (id.startsWith('georef:')) {
+    const mapped = await resolveGeorefPlaceId(id);
+    if (!mapped) {
+      throw new Error('No se pudo obtener detalles del lugar');
+    }
+    const label = formatNominatimDisplayLabel(mapped);
+    return {
+      lat: mapped.lat,
+      lng: mapped.lng,
+      formattedAddress: label.full || mapped.formattedAddress,
+      placeId: id,
+      geocodeSource: 'georef',
+    };
   }
 
   if (id.startsWith('coord:')) {
@@ -944,19 +1051,6 @@ async function getPlaceDetails(placeId, options = {}) {
 
   if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
     throw new Error('Se requiere un placeId de Google Places (google:...)');
-  }
-
-  if (id.startsWith('georef:')) {
-    const mapped = await resolveGeorefPlaceId(id);
-    if (!mapped) {
-      throw new Error('No se pudo obtener detalles del lugar');
-    }
-    const label = formatNominatimDisplayLabel(mapped);
-    return {
-      lat: mapped.lat,
-      lng: mapped.lng,
-      formattedAddress: label.full || mapped.formattedAddress,
-    };
   }
 
   const data = await nominatimFetch('/lookup', {

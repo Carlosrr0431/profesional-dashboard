@@ -637,6 +637,22 @@ function createGeoFetchHandler(baseHandler) {
           }),
         };
       }
+      if (query.includes('lola') && query.includes('mora') && query.includes('886')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            direcciones: [{
+              nomenclatura: 'LOLA MORA 886, Salta, Capital, Salta',
+              altura: { valor: 886 },
+              calle: { nombre: 'LOLA MORA' },
+              localidad_censal: { nombre: 'Salta' },
+              provincia: { nombre: 'Salta' },
+              ubicacion: { lat: -24.8039138, lon: -65.4273036 },
+            }],
+          }),
+        };
+      }
       if (query.includes('bolivia') && query.includes('200')) {
         return {
           ok: true,
