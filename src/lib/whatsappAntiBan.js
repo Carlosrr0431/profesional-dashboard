@@ -13,6 +13,12 @@ export const WHATSAPP_DISCONNECT_PAUSE_MS = Math.max(
   Math.round(Number(process.env.WHATSAPP_DISCONNECT_PAUSE_MS || 120_000) || 120_000)
 );
 
+/** Sesión cerrada por WhatsApp: no reanudar envíos solos al rato. */
+export const WHATSAPP_LOGOUT_PAUSE_MS = Math.max(
+  60 * 60_000,
+  Math.round(Number(process.env.WHATSAPP_LOGOUT_PAUSE_MS || 24 * 60 * 60_000) || 24 * 60 * 60_000)
+);
+
 export function isWhatsappBanLikeError(error) {
   const msg = String(error || '').toLowerCase();
   if (!msg.trim()) return false;

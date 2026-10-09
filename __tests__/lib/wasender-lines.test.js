@@ -12,7 +12,6 @@ const {
   buildTripWhatsmeowLineContext,
   resolveWhatsmeowLineForPassenger,
   getPassengerWhatsmeowLine,
-  listOtpWhatsmeowCandidateLines,
   hasAnyWasenderApiKey,
 } = require('../../src/lib/wasenderLines');
 
@@ -28,7 +27,6 @@ describe('whatsmeowLines (compat wasenderLines)', () => {
     delete process.env.WHATSMEOW_PHONE;
     delete process.env.WHATSMEOW_AGENT_CODE_2;
     delete process.env.WHATSMEOW_PHONE_2;
-    delete process.env.WHATSMEOW_OTP_AGENT_CODE;
     Object.assign(process.env, originalEnv);
   });
 
@@ -170,32 +168,27 @@ describe('whatsmeowLines (compat wasenderLines)', () => {
     expect(line?.agentCode).toBe('Profesional_Pasajeros');
   });
 
-  test('OTP usa solo Profesional_Pasajeros aunque no sea la primera línea', () => {
+  test('la línea de pasajeros es Profesional_Pasajeros aunque no sea la primera', () => {
     process.env.WHATSMEOW_API_KEY = 'shared-key';
     process.env.WHATSMEOW_PHONE = '5493873088777';
     process.env.WHATSMEOW_AGENT_CODE = 'Profesional_1';
     process.env.WHATSMEOW_PHONE_2 = '5493872138777';
     process.env.WHATSMEOW_AGENT_CODE_2 = 'Profesional_Pasajeros';
     delete process.env.WHATSMEOW_LINES;
-    delete process.env.WHATSMEOW_OTP_AGENT_CODE;
 
     expect(getPassengerWhatsmeowLine()).toMatchObject({
       agentCode: 'Profesional_Pasajeros',
       phone: '5493872138777',
     });
-    expect(listOtpWhatsmeowCandidateLines().map((line) => line.agentCode)).toEqual([
-      'Profesional_Pasajeros',
-    ]);
   });
 
-  test('OTP construye Profesional_Pasajeros si esa línea no está en env', () => {
+  test('arma Profesional_Pasajeros si esa línea no está en env', () => {
     process.env.WHATSMEOW_API_KEY = 'shared-key';
     process.env.WHATSMEOW_PHONE = '5493873088777';
     process.env.WHATSMEOW_AGENT_CODE = 'Profesional_1';
     delete process.env.WHATSMEOW_PHONE_2;
     delete process.env.WHATSMEOW_AGENT_CODE_2;
     delete process.env.WHATSMEOW_LINES;
-    delete process.env.WHATSMEOW_OTP_AGENT_CODE;
 
     expect(getPassengerWhatsmeowLine()).toMatchObject({
       agentCode: 'Profesional_Pasajeros',

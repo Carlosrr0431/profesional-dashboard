@@ -1,6 +1,6 @@
 /**
  * Cola de difusión masiva (SMS + WhatsApp).
- * WhatsApp no usa la cola de viajes: ritmo propio de 30s por el WhatsApp activo.
+ * WhatsApp masivo no usa la línea de pasajeros (387 213-8777).
  */
 
 import { createHash } from 'node:crypto';
@@ -28,7 +28,7 @@ import {
 } from './smsGateway';
 import { normalizePhoneForWhatsApp } from './passengerAuthPhone';
 import { sendWhatsmeowImageDirect, sendWhatsmeowTextDirect } from './whatsmeowClient';
-import { getBulkWhatsappLine } from './whatsmeowLines';
+import { getBulkWhatsappLine, isPassengerOtpLine } from './whatsmeowLines';
 import {
   isWhatsappBanLikeError,
   WHATSAPP_BAN_PAUSE_MS,
@@ -653,6 +653,9 @@ export async function processWhatsappBulkBatch({
   const resolvedLine = line || getBulkWhatsappLine();
   if (!resolvedLine?.agentCode) {
     return { processed: 0, sent: 0, skipped: 'no_whatsapp_line', results: [] };
+  }
+  if (isPassengerOtpLine(resolvedLine)) {
+    return { processed: 0, sent: 0, skipped: 'passenger_line_protected', results: [] };
   }
 
   const supabase = supabaseClient || getSupabaseAdmin();

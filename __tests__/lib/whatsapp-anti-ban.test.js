@@ -32,6 +32,11 @@ describe('whatsappAntiBan', () => {
     expect(isWhatsappBanLikeError('websocket not connected')).toBe(false);
   });
 
+  test('el cierre de sesión pausa al menos un día', () => {
+    const { WHATSAPP_LOGOUT_PAUSE_MS } = require('../../src/lib/whatsappAntiBan');
+    expect(WHATSAPP_LOGOUT_PAUSE_MS).toBeGreaterThanOrEqual(24 * 60 * 60_000);
+  });
+
   test('timeout de cola no es ban', () => {
     const { isWhatsappQueueTimeoutError } = require('../../src/lib/whatsappAntiBan');
     expect(isWhatsappQueueTimeoutError('timeout_esperando_envio_en_cola')).toBe(true);

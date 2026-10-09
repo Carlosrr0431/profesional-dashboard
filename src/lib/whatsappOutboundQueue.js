@@ -16,6 +16,7 @@ import {
   isWhatsappTransientDisconnect,
   WHATSAPP_BAN_PAUSE_MS,
   WHATSAPP_DISCONNECT_PAUSE_MS,
+  WHATSAPP_LOGOUT_PAUSE_MS,
 } from './whatsappAntiBan';
 
 export const WHATSAPP_OUTBOUND_INTERVAL_MS = Math.max(
@@ -326,6 +327,42 @@ async function pauseWhatsappLine(supabase, agentCode, pauseMs) {
   } catch {
     // no-op si la tabla no existe o el cliente mock no implementa upsert
   }
+}
+
+export async function pauseWhatsappOutboundLine(agentCode, pauseMs = WHATSAPP_LOGOUT_PAUSE_MS, { dropPending = false } = {}) {
+  let supabase;
+  try {
+    supabase = getSupabaseAdmin();
+  } catch {
+    return;
+  }
+  await pauseWhatsappLine(supabase, agentCode, pauseMs);
+  if (!dropPending) return;
+  try {
+    const updated = supabase
+      .from('whatsapp_outbound_queue')
+      .update({
+        status: 'failed',
+        last_error: 'sesion_cerrada',
+        claimed_at: null,
+        claimed_by: null,
+      })
+      .eq('agent_code', String(agentCode || '').trim())
+      .in('status', ['pending', 'sending']);
+    if (updated && typeof updated.then === 'function') await updated;
+  } catch {
+    // tabla ausente o mock de test
+  }
+}
+
+export async function resumeWhatsappOutboundLine(agentCode) {
+  let supabase;
+  try {
+    supabase = getSupabaseAdmin();
+  } catch {
+    return;
+  }
+  await restoreLineInterval(supabase, agentCode);
 }
 
 async function restoreLineInterval(supabase, agentCode) {

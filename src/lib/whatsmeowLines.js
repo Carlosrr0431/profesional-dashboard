@@ -82,28 +82,20 @@ function parseJsonLines() {
   }
 }
 
-/** Línea fija de OTP / app pasajero. No usar Profesional_1 ni otras. */
+/** Línea de la app pasajero (viajes). El OTP ya no sale por acá. */
 export const PASSENGER_OTP_AGENT_CODE = 'Profesional_Pasajeros';
 export const PASSENGER_OTP_LINE_PHONE = '5493872138777';
 
-function isDedicatedPassengerOtpLine(line) {
+export function isPassengerOtpLine(line) {
   const code = String(line?.agentCode || '').toLowerCase();
   const phone = digitsOnly(line?.phone);
   return code === PASSENGER_OTP_AGENT_CODE.toLowerCase() || phone.endsWith('3872138777');
 }
 
-/**
- * Siempre Profesional_Pasajeros (+54 9 3872 13-8777).
- * WHATSMEOW_OTP_AGENT_CODE solo si apunta a esa misma línea.
- */
+/** Profesional_Pasajeros (+54 9 3872 13-8777), para avisos de viaje. */
 export function getPassengerWhatsmeowLine() {
   const all = listWhatsmeowLines();
-  const override = String(process.env.WHATSMEOW_OTP_AGENT_CODE || '').trim();
-  if (override) {
-    const found = all.find((l) => l.agentCode.toLowerCase() === override.toLowerCase());
-    if (found && isDedicatedPassengerOtpLine(found)) return found;
-  }
-  const listed = all.find(isDedicatedPassengerOtpLine);
+  const listed = all.find(isPassengerOtpLine);
   if (listed) return listed;
 
   const apiKey = getWhatsmeowApiKey();
@@ -115,12 +107,6 @@ export function getPassengerWhatsmeowLine() {
     label: PASSENGER_OTP_LINE_PHONE,
     index: 0,
   };
-}
-
-/** Solo la línea de pasajeros: el OTP no debe salir por otra sesión. */
-export function listOtpWhatsmeowCandidateLines() {
-  const line = getPassengerWhatsmeowLine();
-  return line ? [line] : [];
 }
 
 /** @returns {{ phone: string, agentCode: string, apiKey: string, label: string, index: number }[]} */
@@ -159,9 +145,9 @@ export function getDefaultWhatsmeowLine() {
   return listWhatsmeowLines()[0] || null;
 }
 
-/** Difusión por el WhatsApp activo: +54 9 3872 13-8777. */
+/** Difusión masiva: otra línea. 387 213-8777 queda para avisos de viaje. */
 export function getBulkWhatsappLine() {
-  return getPassengerWhatsmeowLine();
+  return listWhatsmeowLines().find((line) => !isPassengerOtpLine(line)) || null;
 }
 
 export function resolveWhatsmeowLine(telefonoParam) {

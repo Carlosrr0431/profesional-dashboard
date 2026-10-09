@@ -235,6 +235,34 @@ describe('processWhatsappBulkBatch', () => {
     expect(batch.sent).toBe(1);
   });
 
+  test('no envía difusión por la línea de pasajeros', async () => {
+    const { processWhatsappBulkBatch } = require('../../src/lib/bulkSmsQueue');
+    const sendTextImpl = jest.fn(async () => ({ success: true, messageId: 'wa_1' }));
+    const supabase = createCampaignClient({
+      whatsappClaimRows: [{
+        id: 'wa-pax',
+        campaign_id: 'camp-wa',
+        phone_local: '3875550100',
+        body: 'Promo',
+        attempts: 1,
+        max_attempts: 5,
+      }],
+    });
+
+    const batch = await processWhatsappBulkBatch({
+      supabase,
+      sendTextImpl,
+      sendImageImpl: jest.fn(),
+      line: { agentCode: 'Profesional_Pasajeros', phone: '5493872138777', apiKey: 'key' },
+      maxMessages: 1,
+    });
+
+    expect(batch.skipped).toBe('passenger_line_protected');
+    expect(batch.sent).toBe(0);
+    expect(sendTextImpl).not.toHaveBeenCalled();
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
   test('pausa 45 min si WhatsApp responde bloqueo', async () => {
     const { processWhatsappBulkBatch } = require('../../src/lib/bulkSmsQueue');
     const sendTextImpl = jest.fn(async () => ({ success: false, error: 'temporarily banned' }));

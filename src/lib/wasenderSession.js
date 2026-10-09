@@ -13,9 +13,11 @@ import {
 } from './whatsmeowClient';
 import {
   getDefaultWhatsmeowLine,
+  getPassengerWhatsmeowLine,
   getWhatsmeowLinesHealth,
   hasAnyWhatsmeowConfig,
 } from './whatsmeowLines';
+import { WHATSAPP_LOGOUT_PAUSE_MS } from './whatsappAntiBan';
 
 const SETTING_STATUS = 'wasender_session_status';
 const SETTING_QR = 'wasender_session_qr';
@@ -243,6 +245,27 @@ export async function handleWasenderSessionWebhook(event, data = {}) {
     patch.status = 'need_scan';
   }
   await persistWasenderSessionState(patch);
+
+  const agentCode = String(data?.agent_code || data?.agentCode || '').trim()
+    || getPassengerWhatsmeowLine()?.agentCode
+    || getDefaultWhatsmeowLine()?.agentCode
+    || '';
+  if (agentCode && status === 'logged_out') {
+    try {
+      const { pauseWhatsappOutboundLine } = await import('./whatsappOutboundQueue');
+      await pauseWhatsappOutboundLine(agentCode, WHATSAPP_LOGOUT_PAUSE_MS, { dropPending: true });
+    } catch {
+      // el estado de sesión ya quedó guardado
+    }
+  } else if (agentCode && status === 'connected') {
+    try {
+      const { resumeWhatsappOutboundLine } = await import('./whatsappOutboundQueue');
+      await resumeWhatsappOutboundLine(agentCode);
+    } catch {
+      // el estado de sesión ya quedó guardado
+    }
+  }
+
   return { handled: true, status: patch.status || status };
 }
 
@@ -273,6 +296,7 @@ export async function getWasenderSessionSnapshot({ refreshLive = true } = {}) {
       live?.ok
       && isReconnectStatus(live.status)
       && live.status !== 'connected'
+      && normalizeWasenderStatus(live.status) !== 'logged_out'
       && !stored.qr
     ) {
       const qrResult = await fetchWasenderQrCode();
