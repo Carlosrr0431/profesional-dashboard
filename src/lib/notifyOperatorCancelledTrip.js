@@ -8,14 +8,6 @@ import {
   normalizeFirebaseSendError,
 } from './firebaseAdmin';
 import { trySendPassengerAppTripPush } from './passengerPushNotifications';
-import { getWhatsmeowApiKey, sendWhatsmeowText } from './whatsmeowClient';
-import {
-  hasAnyWhatsmeowConfig,
-  resolveWhatsmeowLineForPassenger,
-} from './whatsmeowLines';
-
-const WHATSAPP_OPERATOR_CANCEL_TEXT =
-  'Tu viaje fue cancelado desde la central. Si necesitás un móvil, escribime 👍';
 
 async function notifyDriverOfOperatorCancel(supabase, trip) {
   const driverId = String(trip?.driver_id || '').trim();
@@ -68,30 +60,6 @@ async function notifyDriverOfOperatorCancel(supabase, trip) {
   }
 }
 
-async function notifyWhatsAppPassengerOfOperatorCancel(supabase, trip) {
-  const phone = String(trip?.passenger_phone || '').trim();
-  if (!phone || !hasAnyWhatsmeowConfig()) {
-    return { ok: false, reason: 'whatsapp_not_configured' };
-  }
-
-  const line = await resolveWhatsmeowLineForPassenger(supabase, {
-    passengerPhone: phone,
-    tripWaContext: trip?.wa_context,
-  });
-  const apiKey = getWhatsmeowApiKey();
-  if (!apiKey || !line?.agentCode) {
-    return { ok: false, reason: 'whatsapp_line_missing' };
-  }
-
-  const result = await sendWhatsmeowText(line.agentCode, phone, WHATSAPP_OPERATOR_CANCEL_TEXT, {
-    apiKey,
-    meta: { source: 'operator_cancel', tripId: trip.id },
-  });
-  return result?.success
-    ? { ok: true }
-    : { ok: false, reason: result?.error || 'whatsapp_send_failed' };
-}
-
 export async function notifyOperatorCancelledTrip(supabase, trip) {
   if (!trip?.id) return { driver: null, passenger: null };
 
@@ -109,7 +77,7 @@ export async function notifyOperatorCancelledTrip(supabase, trip) {
     if (isPassengerAppTrip(trip)) {
       passenger = await trySendPassengerAppTripPush(supabase, trip);
     } else {
-      passenger = await notifyWhatsAppPassengerOfOperatorCancel(supabase, trip);
+      passenger = { ok: true, reason: 'whatsapp_disabled' };
     }
   } catch (err) {
     console.error('[cancelTripAsOperator] passenger notify', err);

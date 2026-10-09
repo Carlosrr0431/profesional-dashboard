@@ -5127,97 +5127,9 @@ async function sendPassengerLifecycleFollowup({
   if (!normalizedPhone || !text) {
     return { sent: false, reason: 'invalid_input' };
   }
-
-  let conversation = null;
-  let conversationContext = {};
-  try {
-    conversation = await getLatestConversationByPhone(normalizedPhone);
-    conversationContext = safeJsonParse(conversation?.context, {});
-  } catch (error) {
-    logWebhook('passenger_lifecycle_followup_lookup_error', {
-      phone: maskPhone(normalizedPhone),
-      error: error?.message || 'unknown_error',
-    });
-  }
-
-  const nowMs = Date.now();
-  const persistentState = readPassengerLifecycleFollowupState(conversationContext);
-  const memoryState = passengerLifecycleFollowupMemory.get(normalizedPhone) || {};
-  const lastSentAtMs = Math.max(
-    persistentState.lastSentAtMs || 0,
-    Number(memoryState.lastSentAtMs) || 0
-  );
-
-  if (
-    lastSentAtMs > 0 &&
-    nowMs - lastSentAtMs < PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS
-  ) {
-    logWebhook('passenger_lifecycle_followup_throttled', {
-      phone: maskPhone(normalizedPhone),
-      noticeType: noticeType || null,
-      relatedTripId: relatedTripId || null,
-      lastNoticeType: persistentState.lastType || memoryState.lastType || null,
-      secondsSinceLast: Math.round((nowMs - lastSentAtMs) / 1000),
-      minIntervalSeconds: Math.round(PASSENGER_LIFECYCLE_FOLLOWUP_MIN_INTERVAL_MS / 1000),
-    });
-    return { sent: false, reason: 'throttled' };
-  }
-
-  try {
-    await runWithPassengerWasenderLine(normalizedPhone, null, () =>
-      sendWhatsAppText(normalizedPhone, text)
-    );
-  } catch (error) {
-    logWebhook('passenger_lifecycle_followup_send_error', {
-      phone: maskPhone(normalizedPhone),
-      noticeType: noticeType || null,
-      relatedTripId: relatedTripId || null,
-      error: error?.message || 'unknown_error',
-    });
-    return { sent: false, reason: 'send_error' };
-  }
-
-  const sentAtIso = new Date(nowMs).toISOString();
-  passengerLifecycleFollowupMemory.set(normalizedPhone, {
-    lastSentAtMs: nowMs,
-    lastType: noticeType || null,
-    lastTripId: relatedTripId ? String(relatedTripId) : null,
-  });
-
-  if (conversation?.id) {
-    const updatedContext = {
-      ...conversationContext,
-      passenger_lifecycle_followup: {
-        last_sent_at: sentAtIso,
-        last_type: noticeType || null,
-        last_trip_id: relatedTripId ? String(relatedTripId) : null,
-      },
-    };
-
-    const { error } = await getSupabase()
-      .from('whatsapp_conversations')
-      .update({
-        context: updatedContext,
-        updated_at: sentAtIso,
-      })
-      .eq('id', conversation.id);
-
-    if (error) {
-      logWebhook('passenger_lifecycle_followup_context_error', {
-        conversationId: conversation.id,
-        phone: maskPhone(normalizedPhone),
-        error: summarizeDbError(error),
-      });
-    }
-  }
-
-  logWebhook('passenger_lifecycle_followup_sent', {
-    phone: maskPhone(normalizedPhone),
-    noticeType: noticeType || null,
-    relatedTripId: relatedTripId || null,
-  });
-
-  return { sent: true };
+  void noticeType;
+  void relatedTripId;
+  return { sent: false, reason: 'disabled' };
 }
 
 function buildDynamicSearchRadii(searchElapsedMs = 0, excludedDriverCount = 0) {
@@ -7393,8 +7305,7 @@ async function sendPushNotification(pushToken, payload) {
 }
 
 /**
- * Notifica al chofer por push notification. Si no tiene push_token registrado,
- * cae automáticamente a enviar un WhatsApp desde la cuenta de la empresa.
+ * Notifica al chofer solo por la app. No se manda WhatsApp.
  */
 async function notifyDriver(driver, { title, body, data } = {}) {
   let pushResult = { ok: false, reason: PUSH_NOTIFICATIONS_ENABLED ? 'no_push_token' : 'push_disabled' };
@@ -7436,108 +7347,16 @@ async function notifyDriver(driver, { title, body, data } = {}) {
     }
   }
 
-  // Fallback: WhatsApp al número del chofer
-  const driverPhone = normalizePhone(driver?.phone || '');
-  if (!driverPhone) {
-    logWebhook('notify_driver_no_channel', {
-      driverId: driver?.id || null,
-      title,
-      pushReason: pushResult.reason || 'unknown',
-    });
-    return {
-      ok: false,
-      channel: null,
-      reason: 'no_driver_channel',
-      pushReason: pushResult.reason || 'unknown',
-    };
-  }
-  const notifyType = String(data?.type || '').toLowerCase();
-  const passengerPhone = normalizePhone(data?.passengerPhone || data?.trip?.passenger_phone || '');
-  if (notifyType === 'new_trip' && passengerPhone && passengerPhone === driverPhone) {
-    logWebhook('notify_driver_whatsapp_skipped_same_phone', {
-      driverId: driver?.id || null,
-      phone: maskPhone(driverPhone),
-      title,
-      pushReason: pushResult.reason || 'unknown',
-    });
-    return {
-      ok: false,
-      channel: 'whatsapp',
-      reason: 'driver_phone_matches_passenger',
-      pushReason: pushResult.reason || 'unknown',
-    };
-  }
-  let notifyThrottleKey = null;
-  if (notifyType === 'new_trip') {
-    const dedupePassengerPhone = passengerPhone || 'unknown';
-    const dedupeDestination = String(data?.trip?.destination_address || body || '')
-      .trim()
-      .toLowerCase()
-      .slice(0, 160);
-    const dedupeDriver = String(driver?.id || driverPhone || 'unknown');
-    const now = Date.now();
-    notifyThrottleKey = `${dedupeDriver}|${dedupePassengerPhone}|${dedupeDestination}`;
-    const lastSentAt = Number(driverWhatsappNotifyMemory.get(notifyThrottleKey) || 0);
-
-    if (now - lastSentAt < DRIVER_WHATSAPP_NOTIFY_MIN_INTERVAL_MS) {
-      logWebhook('notify_driver_whatsapp_rate_limited', {
-        driverId: driver?.id || null,
-        phone: maskPhone(driverPhone),
-        title,
-        pushReason: pushResult.reason || 'unknown',
-        retryInMs: DRIVER_WHATSAPP_NOTIFY_MIN_INTERVAL_MS - (now - lastSentAt),
-      });
-      return {
-        ok: false,
-        channel: 'whatsapp',
-        reason: 'whatsapp_rate_limited',
-        pushReason: pushResult.reason || 'unknown',
-      };
-    }
-
-    driverWhatsappNotifyMemory.set(notifyThrottleKey, now);
-  }
-  const trip = data?.trip;
-  const pickupAddress = getTripPickupPoint(trip)?.address;
-  const waMsg = [
-    `🚖 *${title || 'Nuevo viaje asignado'}*`,
-    trip?.passenger_name ? `Pasajero: *${trip.passenger_name}*` : null,
-    pickupAddress ? `Retiro: *${pickupAddress}*` : (body || null),
-    ``,
-    `Abrí la app para verlo.`,
-  ].filter((l) => l !== null).join('\n');
-  let whatsappOk = true;
-  let whatsappError = null;
-  await sendWhatsAppText(driverPhone, waMsg).catch((err) => {
-    whatsappOk = false;
-    whatsappError = err?.message || 'unknown';
-    if (notifyThrottleKey) {
-      driverWhatsappNotifyMemory.delete(notifyThrottleKey);
-    }
-    logWebhook('notify_driver_whatsapp_error', { driverId: driver?.id || null, error: whatsappError });
-  });
-  logWebhook('notify_driver_whatsapp_fallback', {
+  logWebhook('notify_driver_whatsapp_disabled', {
     driverId: driver?.id || null,
-    phone: maskPhone(driverPhone),
     title,
     pushReason: pushResult.reason || 'unknown',
-    whatsappOk,
   });
-
-  if (!whatsappOk) {
-    return {
-      ok: false,
-      channel: 'whatsapp',
-      reason: 'whatsapp_send_error',
-      pushReason: pushResult.reason || 'unknown',
-      error: whatsappError,
-    };
-  }
-
   return {
-    ok: true,
-    channel: 'whatsapp',
-    reason: pushResult.reason || 'push_failed_whatsapp_ok',
+    ok: false,
+    channel: null,
+    reason: 'driver_whatsapp_disabled',
+    pushReason: pushResult.reason || 'unknown',
   };
 }
 
