@@ -61,6 +61,7 @@ import {
   buildScheduledStatusQueryReply,
   buildScheduledTripConfirmationReply,
 } from '../../../src/lib/scheduledTripWhatsAppMessages';
+import { varyWhatsappPhrase } from '../../../src/lib/whatsappPhraseVariation';
 import { triggerDispatchWorker } from '../../../src/lib/triggerDispatchWorker';
 import {
   commissionFromPrice,
@@ -4699,7 +4700,8 @@ async function sendWhatsAppText(phone, text) {
     throw new Error('WhatsApp no configurado: falta WHATSMEOW_AGENT_CODE');
   }
 
-  const result = await sendWhatsmeowText(agentCode, phone, text, {
+  const outboundText = await varyWhatsappPhrase(text, { phone });
+  const result = await sendWhatsmeowText(agentCode, phone, outboundText, {
     apiKey: getWasenderApiKey(),
   });
   if (!result.success) {
@@ -4800,10 +4802,11 @@ async function sendWhatsAppPoll(phone, question, options) {
     throw new Error('WhatsApp no configurado: falta WHATSMEOW_AGENT_CODE para encuesta');
   }
 
+  const outboundQuestion = await varyWhatsappPhrase(question, { phone });
   const result = await sendWhatsmeowPoll(
     agentCode,
     phone,
-    { name: question, options, maxSelections: 1 },
+    { name: outboundQuestion, options, maxSelections: 1 },
     { apiKey: getWasenderApiKey() }
   );
 
