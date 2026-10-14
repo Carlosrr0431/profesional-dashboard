@@ -396,24 +396,32 @@ async function extractTripIntentWithDeepSeek({
 
   const model = getDeepSeekProModel();
 
+  let budgetTimer;
   try {
-    const result = await deepseekRespondWithTools({
-      instructions: systemPrompt,
-      userContent,
-      historyMessages,
-      tools: TRIP_INTENT_TOOLS,
-      jsonSchema: TRIP_INTENT_JSON_SCHEMA,
-      runTool: async (name, args) => runTripIntentTool(name, args, {
-        phone,
-        settings: await settingsPromise,
+    const result = await Promise.race([
+      deepseekRespondWithTools({
+        instructions: systemPrompt,
+        userContent,
+        historyMessages,
+        tools: TRIP_INTENT_TOOLS,
+        jsonSchema: TRIP_INTENT_JSON_SCHEMA,
+        runTool: async (name, args) => runTripIntentTool(name, args, {
+          phone,
+          settings: await settingsPromise,
+        }),
+        maxRounds: 2,
+        maxOutputTokens: reasoningEffort === 'none' ? 360 : 700,
+        reasoningEffort,
+        logFn,
+        purpose: 'trip_intent',
+        model,
       }),
-      maxRounds: 4,
-      maxOutputTokens: reasoningEffort === 'none' ? 360 : 700,
-      reasoningEffort,
-      logFn,
-      purpose: 'trip_intent',
-      model,
-    });
+      new Promise((_, reject) => {
+        budgetTimer = setTimeout(() => {
+          reject(Object.assign(new Error('intent_budget'), { status: 408 }));
+        }, 12000);
+      }),
+    ]);
 
     const parsed = await fillMissingPickupFromLookup(
       normalizeProExtraction(
@@ -496,5 +504,7 @@ async function extractTripIntentWithDeepSeek({
       missing_fields: [],
       confidence: 0.4,
     };
+  } finally {
+    clearTimeout(budgetTimer);
   }
 }

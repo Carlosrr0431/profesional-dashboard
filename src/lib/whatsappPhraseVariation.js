@@ -124,7 +124,7 @@ export function isCannedWhatsappSpam(text) {
   );
 }
 
-export async function varyWhatsappPhrase(text, { phone = '', timeoutMs = 8000 } = {}) {
+export async function varyWhatsappPhrase(text, { phone = '', timeoutMs = 4000 } = {}) {
   const source = String(text || '').trim();
   if (!source || isCannedWhatsappSpam(source)) return '';
   if (/https?:\/\//i.test(source)) return source;
@@ -147,12 +147,7 @@ export async function varyWhatsappPhrase(text, { phone = '', timeoutMs = 8000 } 
     }
   };
 
-  let variant = await attempt();
-  const same = normalizePhrase(variant) === normalizePhrase(source)
-    || avoid.some((line) => normalizePhrase(line) === normalizePhrase(variant));
-  if (!phraseKeepsFacts(source, variant) || same) {
-    variant = await attempt();
-  }
+  const variant = await attempt();
   if (!phraseKeepsFacts(source, variant)) return source;
   if (normalizePhrase(variant) === normalizePhrase(source)) return source;
   rememberPhrase(phone, variant);

@@ -2,7 +2,9 @@ import {
   buildPatternTripExtraction,
   classifyWhatsAppIncomingText,
   isAvailabilityAskWithoutRoute,
+  isGreetingOnly,
   looksLikeFreshTripRequest,
+  tripAskNeedsStreetFirst,
   looksLikePriceInquiry,
   looksLikeTripRequest,
   parseOriginDestinationPair,
@@ -247,6 +249,14 @@ describe('whatsappTripIntentPatterns', () => {
       heuristics: { pickup: 'Mitre 360', destination: null, looksLikeTripRequest: true },
     });
     expect(extraction.intent).toBe('trip_request');
+  });
+
+  it('un saludo o un barrio sin altura no despachan el móvil', () => {
+    expect(isGreetingOnly('Buen día')).toBe(true);
+    expect(tripAskNeedsStreetFirst('Buen día')).toBe(false);
+    expect(tripAskNeedsStreetFirst('Me podes enviar un auto a la merced?')).toBe(true);
+    expect(tripAskNeedsStreetFirst('Padre mujica 9')).toBe(false);
+    expect(tripAskNeedsStreetFirst('mandame un movil a mitre 200')).toBe(false);
   });
 
   it('no clasifica pedido de móvil como cancelación', () => {

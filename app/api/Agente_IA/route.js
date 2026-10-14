@@ -162,6 +162,7 @@ import {
   lastBotAskedForTripPrice,
   looksLikeExplicitVehicleDispatch,
   looksLikeFreshTripRequest,
+  tripAskNeedsStreetFirst,
   pickIntentClassificationText,
   looksLikeTripRequest as messageLooksLikeTripRequest,
   parseOriginDestinationPair,
@@ -182,12 +183,12 @@ export const runtime = 'nodejs';
 
 function resolveAccumulationMs() {
   const raw = process.env.WHATSAPP_ACCUMULATION_MS;
-  if (raw == null || String(raw).trim() === '') return 8000;
+  if (raw == null || String(raw).trim() === '') return 3000;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return 8000;
+  if (!Number.isFinite(parsed) || parsed < 0) return 3000;
   if (parsed === 0) return 0;
-  // Tope para que la respuesta salga en menos de 15 s aunque el entorno tenga 40 s.
-  return Math.min(8000, parsed);
+  // Tope: juntar burbujas, pero dejar margen para responder en menos de 25 s.
+  return Math.min(3000, parsed);
 }
 
 const ACCUMULATION_MS = resolveAccumulationMs();
@@ -2658,7 +2659,7 @@ function looksLikePoiOrEstablishment(value) {
 function looksLikeBarrioOrZone(value) {
   const normalized = normalizeForMatch(value || '');
   if (!normalized) return false;
-  return /\b(tres\s+cerritos|grand\s+bourg|castanares|limache|portezuelo|barrio|microcentro|centro|zona)\b/.test(normalized);
+  return /\b(tres\s+cerritos|grand\s+bourg|castanares|limache|portezuelo|la\s+merced|merced|barrio|microcentro|centro|zona)\b/.test(normalized);
 }
 
 function shouldAskPickupStreetNumber(value, { missingFields = [] } = {}) {
@@ -5006,6 +5007,28 @@ function getTripAgeMinutes(trip) {
   const createdAtMs = new Date(trip?.created_at || 0).getTime();
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
   return Math.max(0, Math.round((Date.now() - createdAtMs) / 60000));
+}
+
+function tripHasDispatchPickup(trip) {
+  const pairs = [
+    [trip?.origin_lat, trip?.origin_lng],
+    [trip?.destination_lat, trip?.destination_lng],
+  ];
+  return pairs.some(([lat, lng]) => Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)));
+}
+
+function gatePickupStreetReply(text, openTrip) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  const status = String(openTrip?.status || '').toLowerCase();
+  const live = ['accepted', 'going_to_pickup', 'in_progress'].includes(status);
+  if (isGreetingOnly(raw)) {
+    if (live && tripHasDispatchPickup(openTrip)) return 'tracking';
+    if (tripHasDispatchPickup(openTrip)) return null;
+    return 'ask';
+  }
+  if (tripAskNeedsStreetFirst(raw)) return 'ask';
+  return null;
 }
 
 function shouldBlockForOpenTrip(trip) {
@@ -9897,6 +9920,34 @@ async function processClaimedConversation(batch) {
       };
     }
 
+    const streetGate = gatePickupStreetReply(fastText, openTripByPhone);
+    if (streetGate === 'tracking') {
+      const trackingMsg = buildAcceptedTripTrackingMessage(openTripByPhone, TRACKING_BASE_URL);
+      if (trackingMsg) {
+        await sendWhatsAppText(batch.phone, trackingMsg);
+        logWebhook('conversation_fast_path_tracking', {
+          conversationId: batch?.id || null,
+          tripId: openTripByPhone.id,
+        });
+        return {
+          handled: true,
+          updates: { status: 'open', context: {}, last_trip_id: openTripByPhone.id, processing_started_at: null, last_processed_at: new Date().toISOString() },
+        };
+      }
+    }
+    if (streetGate === 'ask') {
+      await sendWhatsAppText(batch.phone, ASK_PICKUP_STREET_OR_GPS);
+      logWebhook('conversation_pickup_street_required', {
+        conversationId: batch?.id || null,
+        tripId: openTripByPhone?.id || null,
+        reason: isGreetingOnly(fastText) ? 'greeting' : 'trip_without_street',
+      });
+      return {
+        handled: true,
+        updates: { status: 'open', context: {}, last_trip_id: openTripByPhone?.id || null, processing_started_at: null, last_processed_at: new Date().toISOString() },
+      };
+    }
+
     // ─ Pedido fresco de móvil: no dump de "ya estás en cola", seguir al flujo completo ─
     if (
       looksLikeFreshTripRequest(fastText)
@@ -9940,6 +9991,25 @@ async function processClaimedConversation(batch) {
     .map((item) => item?.contenido)
     .filter(Boolean)
     .join('\n');
+
+  if (gatePickupStreetReply(combinedText, openTripByPhone) === 'ask') {
+    await sendWhatsAppText(batch.phone, ASK_PICKUP_STREET_OR_GPS);
+    logWebhook('conversation_pickup_street_required', {
+      conversationId: batch?.id || null,
+      tripId: openTripByPhone?.id || null,
+      reason: isGreetingOnly(combinedText) ? 'greeting' : 'trip_without_street',
+    });
+    return {
+      handled: true,
+      updates: {
+        status: 'open',
+        context: {},
+        last_trip_id: openTripByPhone?.id || null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
 
   // La fuente de verdad de un viaje abierto es trips.wa_context.
   // La cotización de precio (origen/destino pendientes) vive en la conversación

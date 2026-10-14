@@ -78,6 +78,22 @@ export function looksLikePriceInquiry(text) {
   return false;
 }
 
+export function messageHasPickupStreet(text) {
+  const value = String(text || '');
+  const hasStreetAndNumber = /[a-zA-ZÀ-ÿ]{2,}[\w\s.'’-]*\s\d{1,5}(?:\s*[a-zA-Z]\d?)?/i.test(value);
+  const hasIntersection = /\b[a-zA-ZÀ-ÿ]{2,}[\w\s.'’-]*\s+y\s+[a-zA-ZÀ-ÿ]{2,}[\w\s.'’-]*/i.test(value);
+  return hasStreetAndNumber || hasIntersection;
+}
+
+/** Pedido de móvil sin calle y altura: no se despacha ni se encola. */
+export function tripAskNeedsStreetFirst(text) {
+  const raw = String(text || '').trim();
+  if (!raw || isGreetingOnly(raw) || isShortAck(raw)) return false;
+  if (messageHasPickupStreet(raw)) return false;
+  if (looksLikePriceInquiry(raw) || looksLikeStatusQuery(raw) || messageRequestsTripCancel(raw)) return false;
+  return looksLikeExplicitVehicleDispatch(raw) || looksLikeTripRequest(raw);
+}
+
 export function looksLikeExplicitVehicleDispatch(text) {
   if (looksLikePriceInquiry(text)) return false;
   const n = normalizeForMatch(text);
@@ -316,7 +332,7 @@ export function isShortAck(text) {
 
 export function isGreetingOnly(text) {
   const n = normalizeForMatch(text);
-  return /^(?:hola|buen[oa]s?(?:\s+dias?|\s+tardes?|\s+noches?)?|buenas|we[nñ]o|weno|bueno|como\s+estas|que\s+tal|todo\s+bien)$/.test(n);
+  return /^(?:hola|buen dia|buen[oa]s?(?:\s+dias?|\s+tardes?|\s+noches?)?|buenas|we[nñ]o|weno|bueno|como\s+estas|que\s+tal|todo\s+bien)$/.test(n);
 }
 
 export function classifyWhatsAppIncomingText(text, { messageType = 'text' } = {}) {
