@@ -100,9 +100,35 @@ async function askDeepSeek(source, avoid) {
   return cleanModelText(content);
 }
 
+export function isCannedWhatsappSpam(text) {
+  const n = String(text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  if (!n.trim()) return false;
+  if (n.includes('http://') || n.includes('https://')) return false;
+  const bare = n.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/^(buen dia|buenos dias|buenas tardes|buenas noches|hola|hola pasajero)$/.test(bare)) {
+    return true;
+  }
+  return (
+    n.includes('ya te mando el movil')
+    || n.includes('tu pedido ya esta tomado')
+    || n.includes('ya estas en la cola')
+    || n.includes('soy betto')
+    || n.includes('gracias por viajar')
+    || n.includes('resumen de tu viaje')
+    || n.includes('te mando un movil')
+    || n.includes('excelente dia')
+    || n.includes('ya tenes un movil asignado')
+  );
+}
+
 export async function varyWhatsappPhrase(text, { phone = '', timeoutMs = 8000 } = {}) {
   const source = String(text || '').trim();
-  if (!source || source.length < 8 || !isDeepSeekConfigured()) return source;
+  if (!source || isCannedWhatsappSpam(source)) return '';
+  if (/https?:\/\//i.test(source)) return source;
+  if (source.length < 8 || !isDeepSeekConfigured()) return source;
 
   const avoid = [source, ...recentPhrases(phone)];
   const attempt = async () => {

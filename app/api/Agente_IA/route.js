@@ -56,12 +56,13 @@ import {
   buildOpenTripCancelConfirmMessage,
   buildOpenTripCancelDeniedMessage,
   buildOpenTripCancelSuccessMessage,
+  buildAcceptedTripTrackingMessage,
   buildOpenTripFastStatusMessage,
   buildQueuedStatusQueryReply,
   buildScheduledStatusQueryReply,
   buildScheduledTripConfirmationReply,
 } from '../../../src/lib/scheduledTripWhatsAppMessages';
-import { varyWhatsappPhrase } from '../../../src/lib/whatsappPhraseVariation';
+import { isCannedWhatsappSpam, varyWhatsappPhrase } from '../../../src/lib/whatsappPhraseVariation';
 import { triggerDispatchWorker } from '../../../src/lib/triggerDispatchWorker';
 import {
   commissionFromPrice,
@@ -142,7 +143,6 @@ import {
 import { isNoiseWhatsAppWebhookEvent, normalizeWhatsmeowWebhookBody } from '../../../src/lib/whatsmeowWebhook';
 import {
   ASK_PICKUP_STREET_OR_GPS,
-  buildBettoWelcomeMessage,
   buildTripTakenReply,
   isBettoGreetedContext,
   mergeWhatsappSessionContext,
@@ -4700,7 +4700,12 @@ async function sendWhatsAppText(phone, text) {
     throw new Error('WhatsApp no configurado: falta WHATSMEOW_AGENT_CODE');
   }
 
+  if (!String(text || '').trim() || isCannedWhatsappSpam(text)) {
+    return { skipped: true };
+  }
+
   const outboundText = await varyWhatsappPhrase(text, { phone });
+  if (!outboundText) return { skipped: true };
   const result = await sendWhatsmeowText(agentCode, phone, outboundText, {
     apiKey: getWasenderApiKey(),
   });
@@ -5479,37 +5484,8 @@ function isSystemFailureCancellation(trip) {
   );
 }
 
-async function buildPassengerDriverConfirmationMessage(trip, driver) {
-  const pickup = getTripPickupPoint(trip);
-  let etaMinutes = null;
-  let distanceToPickupKm = null;
-
-  const driverLat = Number(driver?.current_lat);
-  const driverLng = Number(driver?.current_lng);
-  if (
-    Number.isFinite(driverLat) &&
-    Number.isFinite(driverLng) &&
-    Number.isFinite(pickup.lat) &&
-    Number.isFinite(pickup.lng)
-  ) {
-    distanceToPickupKm = Math.round(haversineKm(driverLat, driverLng, pickup.lat, pickup.lng) * 10) / 10;
-    const routeToPickup = await getRouteMetrics({ lat: driverLat, lng: driverLng }, { lat: pickup.lat, lng: pickup.lng });
-    etaMinutes = routeToPickup.durationMinutes;
-  }
-
-  const driverLabel = [driver?.vehicle_brand, driver?.vehicle_model].filter(Boolean).join(' ');
-  const driverMeta = [driver?.full_name, driverLabel, driver?.vehicle_plate].filter(Boolean).join(' · ');
-  const etaText = etaMinutes != null ? `\nLlegada estimada: *~${etaMinutes} min*` : '';
-  const distText = distanceToPickupKm != null ? ` (a ${distanceToPickupKm} km)` : '';
-  const trackingToken = String(trip?.tracking_token || '').trim() || String(trip?.id || '').trim() || null;
-  const trackingLink = trackingToken
-    ? `${TRACKING_BASE_URL}/seguimiento/${trackingToken}`
-    : null;
-  const trackingText = trackingLink
-    ? `\nSeguimiento en vivo: ${trackingLink}`
-    : '';
-
-  return `Listo, tu viaje quedó confirmado.\n\nChofer: *${driver?.full_name || 'Sin nombre'}*${distText}${driverMeta ? `\n${driverMeta}` : ''}${etaText}\nRetiro: *${pickup.address || 'Sin dirección'}*${trackingText}`;
+async function buildPassengerDriverConfirmationMessage(trip) {
+  return buildAcceptedTripTrackingMessage(trip, TRACKING_BASE_URL);
 }
 
 /**
@@ -5535,11 +5511,13 @@ async function claimAndNotifyPassengerTripAcceptedWhatsApp(trip) {
       throw new Error('driver_not_found');
     }
     const reply = await buildPassengerDriverConfirmationMessage(trip, driver);
-    await runWithPassengerWasenderLine(
+    if (!reply) throw new Error('tracking_link_missing');
+    const sent = await runWithPassengerWasenderLine(
       trip.passenger_phone,
       trip.wa_context,
       () => sendWhatsAppText(trip.passenger_phone, reply)
     );
+    if (sent?.skipped) throw new Error('tracking_message_skipped');
     logWebhook('trip_transition_passenger_notified', {
       tripId: trip.id,
       status: trip.status || null,
@@ -9931,7 +9909,21 @@ async function processClaimedConversation(batch) {
         tripStatus: openTripByPhone.status,
       });
     } else {
-      const fastStatusMsg = buildOpenTripFastStatusMessage(openTripByPhone);
+      const openStatus = String(openTripByPhone.status || '').toLowerCase();
+      const fastStatusMsg = ['accepted', 'going_to_pickup', 'in_progress'].includes(openStatus)
+        ? buildAcceptedTripTrackingMessage(openTripByPhone, TRACKING_BASE_URL)
+        : buildOpenTripFastStatusMessage(openTripByPhone);
+      if (!fastStatusMsg) {
+        logWebhook('conversation_fast_path_status_skipped', {
+          conversationId: batch?.id || null,
+          tripId: openTripByPhone.id,
+          tripStatus: openTripByPhone.status,
+        });
+        return {
+          handled: true,
+          updates: { status: 'open', context: {}, last_trip_id: openTripByPhone.id, processing_started_at: null, last_processed_at: new Date().toISOString() },
+        };
+      }
       await sendWhatsAppText(batch.phone, fastStatusMsg);
       logWebhook('conversation_fast_path_status_sent', { conversationId: batch?.id || null, tripId: openTripByPhone.id, tripStatus: openTripByPhone.status });
       return {
@@ -10365,6 +10357,7 @@ async function processClaimedConversation(batch) {
     !passengerWantsToCancel &&
     !pickupLocation &&
     !nextContext.pickup_location &&
+    greetingOrAvailability &&
     shouldSendBettoWelcome({
       text: combinedText,
       intent: extracted.intent,
@@ -10372,7 +10365,11 @@ async function processClaimedConversation(batch) {
       looksLikeTripRequest: heuristics.looksLikeTripRequest,
     })
   ) {
-    await sendWhatsAppText(batch.phone, buildBettoWelcomeMessage(greetingOpts));
+    await sendWhatsAppText(batch.phone, ASK_PICKUP_STREET_OR_GPS);
+    logWebhook('conversation_betto_welcome_skipped', {
+      conversationId: batch?.id || null,
+      intent: extracted.intent || null,
+    });
     logWebhook('conversation_betto_welcome', {
       conversationId: batch?.id || null,
       intent: extracted.intent || null,
@@ -10830,10 +10827,7 @@ async function processClaimedConversation(batch) {
       greetingOrAvailability,
     });
     if (greetingOrAvailability) {
-      const fallbackReply = alreadyBettoGreeted
-        ? ASK_PICKUP_STREET_OR_GPS
-        : buildBettoWelcomeMessage(greetingOpts);
-      await sendWhatsAppText(batch.phone, fallbackReply);
+      await sendWhatsAppText(batch.phone, ASK_PICKUP_STREET_OR_GPS);
       return {
         handled: true,
         updates: {
@@ -12816,18 +12810,13 @@ async function processWebhookBody(body, requestMeta = {}) {
         // Si ya tiene un viaje activo real, mantener idempotencia y no duplicar.
         if (latestOpenTrip && shouldBlockForOpenTrip(latestOpenTrip) && !isGpsPlaceholderTrip) {
           const activeStatus = String(latestOpenTrip.status || '').toLowerCase();
-          const openTripPickupAddress = getTripPickupPoint(latestOpenTrip)?.address;
-          const openTripRetiroSuffix = openTripPickupAddress
-            ? `\nRetiro: *${openTripPickupAddress}*`
+          const activeStatusReply = ['accepted', 'going_to_pickup', 'in_progress'].includes(activeStatus)
+            ? buildAcceptedTripTrackingMessage(latestOpenTrip, TRACKING_BASE_URL)
             : '';
-          const activeStatusReply =
-            activeStatus === 'queued'
-              ? 'Ya estás en la cola de espera. Te avisamos en cuanto haya un chofer disponible 🕐'
-              : activeStatus === 'pending'
-                ? `Tu pedido ya está tomado, esperando confirmación del chofer.${openTripRetiroSuffix}`
-                : `Ya tenés un móvil asignado. Tu viaje sigue en curso.${openTripRetiroSuffix}`;
 
-          await sendWhatsAppText(phone, activeStatusReply).catch(() => {});
+          if (activeStatusReply) {
+            await sendWhatsAppText(phone, activeStatusReply).catch(() => {});
+          }
           logWebhook('location_open_trip_blocked', {
             phone: maskPhone(phone),
             tripId: latestOpenTrip.id,

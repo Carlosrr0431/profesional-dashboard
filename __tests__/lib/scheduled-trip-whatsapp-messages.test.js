@@ -1,6 +1,7 @@
 const {
   buildScheduledTripConfirmationReply,
   buildOpenTripCancelConfirmMessage,
+  buildAcceptedTripTrackingMessage,
   buildOpenTripFastStatusMessage,
   buildOpenTripCancelDeniedMessage,
   buildOpenTripCancelSuccessMessage,
@@ -25,6 +26,25 @@ describe('scheduledTripWhatsAppMessages', () => {
     expect(msg).toContain('lunes 25/05 a las 11:42');
     expect(msg).toContain('*cancelar*');
     expect(msg).toContain('*sí*');
+  });
+
+  it('no avisa cola ni pedido tomado antes de que acepten', () => {
+    expect(buildOpenTripFastStatusMessage({ status: 'queued' })).toBe('');
+    expect(buildOpenTripFastStatusMessage({ status: 'pending', destination_address: 'Mitre 200' })).toBe('');
+  });
+
+  it('al aceptar manda el link de seguimiento del viaje', () => {
+    const msg = buildAcceptedTripTrackingMessage({
+      id: '11111111-1111-4111-8111-111111111111',
+      tracking_token: '22222222-2222-4222-8222-222222222222',
+      status: 'accepted',
+      destination_address: 'Mitre 200',
+      destination_lat: -24.78,
+      destination_lng: -65.42,
+    }, 'https://www.profesionalviajes.com.ar');
+    expect(msg).toContain('https://www.profesionalviajes.com.ar/seguimiento/22222222-2222-4222-8222-222222222222');
+    expect(msg).toContain('Mitre 200');
+    expect(msg).not.toMatch(/ya te mando el móvil/i);
   });
 
   it('fast path scheduled no dice móvil asignado', () => {

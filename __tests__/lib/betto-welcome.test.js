@@ -34,18 +34,9 @@ describe('bettoWelcome', () => {
     expect(conversationalGreeting({ now: morning })).toBe('Buen día');
   });
 
-  it('al tomar un pedido responde como el teléfono de Profesional, sin repetir el retiro', () => {
-    expect(buildTripTakenReply({ includeGreeting: true, now: afternoon })).toBe(
-      'Buenas tardes, ya te mando el móvil',
-    );
-    expect(buildTripTakenReply({ includeGreeting: true, now: morning })).toBe(
-      'Buen día, ya te mando el móvil',
-    );
-    expect(buildTripTakenReply({ includeGreeting: true, now: night })).toBe(
-      'Buenas noches, ya te mando el móvil',
-    );
-    expect(buildTripTakenReply({ includeGreeting: false })).toBe('Ya te mando el móvil');
-    expect(buildTripTakenReply({ includeGreeting: true, now: afternoon })).not.toMatch(/retiro/i);
+  it('al tomar un pedido no manda el aviso de que ya sale el móvil', () => {
+    expect(buildTripTakenReply({ includeGreeting: true, now: afternoon })).toBe('');
+    expect(buildTripTakenReply({ includeGreeting: false })).toBe('');
   });
 
   it('antepone el saludo una sola vez', () => {

@@ -132,11 +132,10 @@ export function buildTripTakenReply({
   now,
   followup = null,
 } = {}) {
-  const line = includeGreeting
-    ? `${conversationalGreeting({ now })}, ya te mando el móvil`
-    : 'Ya te mando el móvil';
-  const extra = String(followup || '').trim();
-  return extra ? `${line}\n${extra}` : line;
+  void includeGreeting;
+  void now;
+  void followup;
+  return '';
 }
 
 export function shouldSendBettoWelcome({

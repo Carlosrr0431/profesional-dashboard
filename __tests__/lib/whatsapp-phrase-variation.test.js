@@ -10,6 +10,7 @@ jest.mock('../../src/lib/deepseekClient', () => ({
 
 const {
   lockedFragments,
+  isCannedWhatsappSpam,
   phraseKeepsFacts,
   varyWhatsappPhrase,
   resetWhatsappPhraseMemory,
@@ -23,6 +24,23 @@ describe('whatsappPhraseVariation', () => {
     resetWhatsappPhraseMemory();
     isDeepSeekConfigured.mockReturnValue(true);
     deepseekChatCompletion.mockReset();
+  });
+
+  test('frena las frases repetidas de las capturas', () => {
+    expect(isCannedWhatsappSpam('Ya te mando el móvil')).toBe(true);
+    expect(isCannedWhatsappSpam('Tu pedido ya está tomado, esperando confirmación del chofer.')).toBe(true);
+    expect(isCannedWhatsappSpam('Ya estás en la cola de espera. Te avisamos en cuanto haya un chofer disponible')).toBe(true);
+    expect(isCannedWhatsappSpam('¡Hola Pasajero! Gracias por viajar con nosotros')).toBe(true);
+    expect(isCannedWhatsappSpam('Tu viaje está confirmado. Seguí el móvil acá:\nhttps://www.profesionalviajes.com.ar/seguimiento/abc')).toBe(false);
+    expect(isCannedWhatsappSpam('Buenas tardes')).toBe(true);
+    expect(isCannedWhatsappSpam('¡Buenísimo! ¿Te mando un móvil? Pasame la calle y altura.')).toBe(true);
+  });
+
+  test('el link de seguimiento sale tal cual', async () => {
+    const tracking = 'Tu viaje está confirmado. Seguí el móvil acá:\nhttps://www.profesionalviajes.com.ar/seguimiento/abc';
+    const out = await varyWhatsappPhrase(tracking, { phone: '5493870000099' });
+    expect(out).toBe(tracking);
+    expect(deepseekChatCompletion).not.toHaveBeenCalled();
   });
 
   test('guarda precios, nombres y direcciones', () => {

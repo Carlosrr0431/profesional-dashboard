@@ -34,16 +34,31 @@ export function buildOpenTripCancelConfirmMessage(trip) {
   return '¿Confirmás que querés cancelar el viaje? Respondé *sí* para cancelar o *no* para mantener.';
 }
 
+const TRACKING_TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function buildPassengerTrackingLink(trip, baseUrl = 'https://www.profesionalviajes.com.ar') {
+  const token = String(trip?.tracking_token || '').trim();
+  const id = String(trip?.id || '').trim();
+  const key = token || (TRACKING_TOKEN_RE.test(id) ? id : '');
+  if (!key) return '';
+  const base = String(baseUrl || 'https://www.profesionalviajes.com.ar').replace(/\/+$/, '');
+  return `${base}/seguimiento/${encodeURIComponent(key)}`;
+}
+
+export function buildAcceptedTripTrackingMessage(trip, baseUrl) {
+  const url = buildPassengerTrackingLink(trip, baseUrl);
+  if (!url) return '';
+  const pickup = resolveTripPickupCoords(trip)?.address;
+  const lines = ['Tu viaje está confirmado. Seguí el móvil acá:', url];
+  if (pickup) lines.push(`Retiro: ${pickup}`);
+  return lines.join('\n');
+}
+
 export function buildOpenTripFastStatusMessage(trip) {
   const fastStatus = String(trip?.status || '').toLowerCase();
-  const pickupAddress = resolveTripPickupCoords(trip)?.address;
-  const retiroSuffix = pickupAddress ? `\nRetiro: *${pickupAddress}*` : '';
 
-  if (fastStatus === 'queued') {
-    return 'Ya estás en la cola de espera. Te avisamos en cuanto haya un chofer disponible 🕐';
-  }
-  if (fastStatus === 'pending') {
-    return `Tu pedido ya está tomado, esperando confirmación del chofer.${retiroSuffix}`;
+  if (fastStatus === 'queued' || fastStatus === 'pending') {
+    return '';
   }
   if (fastStatus === 'scheduled') {
     const label = scheduledDisplayLabelFromTrip(trip);
@@ -53,7 +68,7 @@ export function buildOpenTripFastStatusMessage(trip) {
       'Para cancelar, escribí *cancelar*.'
     );
   }
-  return `Ya tenés un móvil asignado. Tu viaje sigue en curso.${retiroSuffix}`;
+  return '';
 }
 
 export function buildOpenTripCancelDeniedMessage(trip) {
