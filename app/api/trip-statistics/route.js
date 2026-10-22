@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { isWithinSaltaCapital } from '../../../src/lib/constants';
 import { buildLocationViews } from '../../../src/lib/tripLocationStats';
 import { detectTripSource, emptySourceCounts } from '../../../src/lib/detectTripSource';
+import { fetchAllPages } from '../../../src/lib/pagedQuery';
 
 const TRIP_SELECT = [
   'id',
@@ -366,34 +367,32 @@ export async function GET(request) {
     const range = resolveRange({ period, date, month });
 
     const supabase = getSupabaseAdmin();
-    let query = supabase
-      .from('trips')
-      .select(TRIP_SELECT)
-      .order('created_at', { ascending: false })
-      .limit(8000);
+    const trips = await fetchAllPages(async (from, to) => {
+      let query = supabase
+        .from('trips')
+        .select(TRIP_SELECT)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(from, to);
 
-    if (range.start) {
-      query = query.gte('created_at', range.start.toISOString());
-    }
-    if (range.end) {
-      query = query.lte('created_at', range.end.toISOString());
-    }
+      if (range.start) query = query.gte('created_at', range.start.toISOString());
+      if (range.end) query = query.lte('created_at', range.end.toISOString());
 
-    const { data, error } = await query;
-    if (error) throw error;
+      const { data, error } = await query;
+      if (error) throw error;
+      return data || [];
+    });
 
-    const trips = data || [];
     const driverIds = [...new Set(trips.map((trip) => trip.driver_id).filter(Boolean))];
-    let driversMap = {};
-
-    if (driverIds.length > 0) {
+    const driversMap = {};
+    for (let i = 0; i < driverIds.length; i += 80) {
+      const chunk = driverIds.slice(i, i + 80);
       const { data: drivers, error: driversError } = await supabase
         .from('drivers')
         .select('id, full_name, vehicle_plate')
-        .in('id', driverIds);
-
+        .in('id', chunk);
       if (driversError) throw driversError;
-      driversMap = Object.fromEntries((drivers || []).map((driver) => [driver.id, driver]));
+      for (const driver of drivers || []) driversMap[driver.id] = driver;
     }
 
     const stats = buildStatistics(trips, range, driversMap);
