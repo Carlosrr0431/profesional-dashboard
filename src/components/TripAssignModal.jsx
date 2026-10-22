@@ -344,11 +344,14 @@ export default function TripAssignModal({
         throw new Error(assignJson?.message || 'Error al crear el viaje');
       }
       const data = assignJson.trip;
+      onSuccess?.(data);
+      onClose();
 
-      try {
-        const { data: driverData } = await supabase
-          .from('drivers').select('push_token, full_name').eq('id', driver.id).single();
-        if (driverData?.push_token) {
+      void (async () => {
+        try {
+          const { data: driverData } = await supabase
+            .from('drivers').select('push_token, full_name').eq('id', driver.id).single();
+          if (!driverData?.push_token) return;
           const priceText = data.price ? ` · ${formatPrice(data.price)}` : '';
           const distText = data.distance_km ? ` · ${formatKm(data.distance_km)}` : '';
           await sendPushNotification(driverData.push_token, {
@@ -357,13 +360,10 @@ export default function TripAssignModal({
             data: { type: 'new_trip', tripId: data.id, trip: data },
             driverId: driver.id,
           });
+        } catch {
+          toast.warning('Viaje creado, pero no se pudo notificar al chofer');
         }
-      } catch {
-        toast.warning('Viaje creado, pero no se pudo notificar al chofer');
-      }
-
-      onSuccess?.(data);
-      onClose();
+      })();
     } catch (err) {
       const msg = err.message || 'Error al crear el viaje';
       setError(msg);

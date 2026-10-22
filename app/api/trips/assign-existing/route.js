@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import {
   isDriverEligibleForDispatch,
   resolveDispatchBlockReason,
 } from '../../../../shared/driver-billing.js';
-import { isPassengerAppTrip, shouldPreservePickupOriginOnAssign } from '../../../../shared/trip-contract.js';
+import { isCoordLikeAddress, isPassengerAppTrip, shouldPreservePickupOriginOnAssign } from '../../../../shared/trip-contract.js';
 import { requireAdminUser } from '../../../../src/lib/adminAuthServer';
 import {
   ASSIGNABLE_EXISTING_TRIP_STATUSES,
@@ -32,6 +32,11 @@ import { trySendPassengerAppTripPush } from '../../../../src/lib/passengerPushNo
 import { getSupabaseAdmin } from '../../../../src/lib/supabaseAdmin';
 import { resolveDispatchPickupCoords } from '../../../../src/lib/tripRequeue';
 import { resolveGpsStreetAddress } from '../../../../src/lib/resolveGpsStreetAddress';
+import {
+  ASSIGN_STREET_WAIT_MS,
+  saveOriginStreetLater,
+  waitForStreetAddress,
+} from '../../../../src/lib/assignStreetWait';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -191,6 +196,12 @@ export async function POST(request) {
       .limit(1);
     const loc = Array.isArray(locRows) ? locRows[0] : locRows;
     const driver = applyLiveGpsToDriver(driverRow, loc || null);
+    const earlyStreetPromise = !shouldPreservePickupOriginOnAssign(trip) && hasValidDriverGps(driver)
+      ? resolveGpsStreetAddress(resolveAssignDriverGps(driver).lat, resolveAssignDriverGps(driver).lng)
+      : null;
+    const earlyStreetWait = earlyStreetPromise
+      ? waitForStreetAddress(earlyStreetPromise, ASSIGN_STREET_WAIT_MS)
+      : null;
 
     const { data: busyTrips, error: busyError } = await supabase
       .from('trips')
@@ -233,11 +244,8 @@ export async function POST(request) {
     }
 
     const assignedAt = new Date().toISOString();
-    let originAddress;
-    if (!nextAfterTripId && !shouldPreservePickupOriginOnAssign(trip) && hasValidDriverGps(driver)) {
-      const gps = resolveAssignDriverGps(driver);
-      originAddress = await resolveGpsStreetAddress(gps.lat, gps.lng);
-    }
+    const streetPromise = nextAfterTripId ? null : earlyStreetPromise;
+    const originAddress = streetPromise ? await earlyStreetWait : undefined;
 
     const assignUpdate = buildAssignExistingTripUpdate({
       trip,
@@ -280,22 +288,26 @@ export async function POST(request) {
 
     const mergedTrip = { ...trip, ...assignedTrip, status: 'pending' };
     const nextTrip = isNextTripOffer(mergedTrip);
-    const notifyResult = await notifyAssignedDriver(driver, mergedTrip);
+    const storedOrigin = assignedTrip?.origin_address;
 
-    if (!nextTrip && isPassengerAppTrip(mergedTrip)) {
+    after(async () => {
       try {
-        await trySendPassengerAppTripPush(supabase, mergedTrip, driver);
-      } catch {
-        // El viaje ya quedó asignado; el push al pasajero no bloquea.
+        if (streetPromise && originAddress == null && isCoordLikeAddress(storedOrigin)) {
+          await saveOriginStreetLater(supabase, tripId, streetPromise, storedOrigin);
+        }
+        await notifyAssignedDriver(driver, mergedTrip);
+        if (!nextTrip && isPassengerAppTrip(mergedTrip)) {
+          await trySendPassengerAppTripPush(supabase, mergedTrip, driver);
+        }
+      } catch (err) {
+        console.error('[trips/assign-existing] after', err);
       }
-    }
+    });
 
     return NextResponse.json({
       ok: true,
       trip: assignedTrip,
       nextTrip,
-      notified: Boolean(notifyResult?.ok),
-      notifyReason: notifyResult?.reason || null,
     });
   } catch (err) {
     console.error('[trips/assign-existing]', err);

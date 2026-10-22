@@ -1,9 +1,14 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { requireAdminUser } from '../../../../src/lib/adminAuthServer';
 import { getSupabaseAdmin } from '../../../../src/lib/supabaseAdmin';
 import { buildDashboardAssignNotes } from '../../../../src/lib/tripRequeue';
 import { isCoordLikeAddress } from '../../../../shared/trip-contract.js';
-import { resolveGpsStreetAddress } from '../../../../src/lib/resolveGpsStreetAddress';
+import { formatCoordAddress, resolveGpsStreetAddress } from '../../../../src/lib/resolveGpsStreetAddress';
+import {
+  ASSIGN_STREET_WAIT_MS,
+  saveOriginStreetLater,
+  waitForStreetAddress,
+} from '../../../../src/lib/assignStreetWait';
 import {
   isDriverEligibleForDispatch,
   resolveDispatchBlockReason,
@@ -89,12 +94,10 @@ export async function POST(request) {
   });
 
   const requestedOrigin = sanitizeText(body?.origin_address);
-  let originAddress = null;
-  if (hasDriverCoords) {
-    originAddress = requestedOrigin && !isCoordLikeAddress(requestedOrigin)
-      ? requestedOrigin
-      : await resolveGpsStreetAddress(driverLat, driverLng);
-  }
+  const knownStreet = requestedOrigin && !isCoordLikeAddress(requestedOrigin) ? requestedOrigin : '';
+  const streetPromise = hasDriverCoords && !knownStreet
+    ? resolveGpsStreetAddress(driverLat, driverLng)
+    : null;
 
   const tripData = {
     driver_id: driverId,
@@ -103,7 +106,7 @@ export async function POST(request) {
     destination_address: destinationAddress,
     destination_lat: destinationLat,
     destination_lng: destinationLng,
-    origin_address: originAddress,
+    origin_address: knownStreet || (hasDriverCoords ? formatCoordAddress(driverLat, driverLng) : null),
     origin_lat: hasDriverCoords ? driverLat : null,
     origin_lng: hasDriverCoords ? driverLng : null,
     status: 'pending',
@@ -120,12 +123,23 @@ export async function POST(request) {
   try {
     const supabase = getSupabaseAdmin();
 
-    const { data: driverRow, error: driverError } = await selectDriversCompat(
-      supabase,
-      'id, billing_mode, commission_blocked, pending_commission, commission_debt_since_at',
-      (query) => query.eq('id', driverId).maybeSingle(),
-    );
+    const [driverResult, busyResult, street] = await Promise.all([
+      selectDriversCompat(
+        supabase,
+        'id, billing_mode, commission_blocked, pending_commission, commission_debt_since_at',
+        (query) => query.eq('id', driverId).maybeSingle(),
+      ),
+      supabase
+        .from('trips')
+        .select('id, driver_id, status, next_after_trip_id, notes, wa_context')
+        .eq('driver_id', driverId)
+        .in('status', DRIVER_BUSY_TRIP_STATUSES),
+      streetPromise
+        ? waitForStreetAddress(streetPromise, ASSIGN_STREET_WAIT_MS)
+        : Promise.resolve(null),
+    ]);
 
+    const { data: driverRow, error: driverError } = driverResult;
     if (driverError) throw driverError;
     if (!driverRow) {
       return NextResponse.json({ ok: false, message: 'Chofer no encontrado.' }, { status: 404 });
@@ -139,13 +153,12 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, message, code: 'DRIVER_DISPATCH_BLOCKED' }, { status: 409 });
     }
 
-    const { data: busyTrips, error: busyError } = await supabase
-      .from('trips')
-      .select('id, driver_id, status, next_after_trip_id, notes, wa_context')
-      .eq('driver_id', driverId)
-      .in('status', DRIVER_BUSY_TRIP_STATUSES);
-
+    const { data: busyTrips, error: busyError } = busyResult;
     if (busyError) throw busyError;
+
+    if (street && !isCoordLikeAddress(street)) {
+      tripData.origin_address = street;
+    }
 
     const busyState = classifyManualAssignBusyState(busyTrips || []);
     if (busyState.reservedNext || busyState.hasPendingOffer) {
@@ -206,6 +219,11 @@ export async function POST(request) {
         { ok: false, message: error.message || 'No se pudo crear el viaje.' },
         { status: 500 },
       );
+    }
+
+    if (!nextOffer && streetPromise && street == null && isCoordLikeAddress(tripData.origin_address)) {
+      after(() => saveOriginStreetLater(supabase, data.id, streetPromise, tripData.origin_address)
+        .catch((err) => console.error('[trips/assign] street', err)));
     }
 
     return NextResponse.json({ ok: true, trip: data, nextTrip: Boolean(nextAfterTripId) });
