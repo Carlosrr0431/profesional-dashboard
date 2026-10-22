@@ -158,6 +158,7 @@ export function useDrivers() {
             const nextLat = gps.lat;
             const nextLng = gps.lng;
             const nextUpdatedAt = gps.updatedAt;
+            const nextGpsRaw = gps.gpsRaw || null;
             const nextSpeed = Number.isFinite(Number(gps.speed)) ? gps.speed : prevDriver.speed;
             const nextHeading = Number.isFinite(Number(gps.heading)) ? gps.heading : prevDriver.heading;
             const flaggedAvailable = Boolean(row.is_available);
@@ -175,6 +176,7 @@ export function useDrivers() {
               ...prevDriver,
               lat: nextLat,
               lng: nextLng,
+              gpsRaw: nextGpsRaw,
               speed: nextSpeed,
               heading: nextHeading,
               isOnline,

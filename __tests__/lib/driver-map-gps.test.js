@@ -13,6 +13,7 @@ import {
   nextGpsFromDriverRow,
   reverseWindowMeters,
   shouldAcceptForwardGpsStep,
+  acceptDriverGpsFix,
   MAX_GPS_EXTRAPOLATE_MS,
 } from '../../src/lib/driverMapGps';
 
@@ -414,6 +415,57 @@ describe('shouldAcceptForwardGpsStep', () => {
       headingDeg: 90,
       speedMps: 12,
     })).toBe(true);
+  });
+});
+
+describe('acceptDriverGpsFix', () => {
+  const now = Date.parse('2026-10-22T21:16:40.000Z');
+  const here = {
+    lat: -24.7827372,
+    lng: -65.4072474,
+    updatedAt: new Date(now - 2000).toISOString(),
+    gpsRaw: null,
+  };
+  const away = { lat: -24.7826156, lng: -65.4090962 };
+
+  it('frena el salto de ~190 m en 2 s medido en el móvil 31', () => {
+    const fix = acceptDriverGpsFix(here, away, now);
+    expect(haversineMeters(here.lat, here.lng, away.lat, away.lng)).toBeGreaterThan(150);
+    expect(fix.rejected).toBe(true);
+    expect(fix.lat).toBe(here.lat);
+    expect(fix.lng).toBe(here.lng);
+    expect(fix.gpsRaw.lat).toBe(away.lat);
+  });
+
+  it('frena el ida y vuelta: el pin se queda en el primer punto', () => {
+    const back = { lat: -24.7827374, lng: -65.4070608 };
+    const first = acceptDriverGpsFix(here, away, now);
+    const second = acceptDriverGpsFix(
+      { ...here, updatedAt: new Date(now).toISOString(), gpsRaw: first.gpsRaw },
+      back,
+      now + 2000,
+    );
+    expect(second.rejected).toBe(false);
+    expect(second.lat).toBe(back.lat);
+    expect(second.gpsRaw).toBeNull();
+  });
+
+  it('acepta la posición nueva si el salto se repite', () => {
+    const first = acceptDriverGpsFix(here, away, now);
+    const nearAway = { lat: -24.78262, lng: -65.40905 };
+    const second = acceptDriverGpsFix(
+      { ...here, gpsRaw: first.gpsRaw },
+      nearAway,
+      now + 1500,
+    );
+    expect(second.rejected).toBe(false);
+    expect(second.lat).toBe(nearAway.lat);
+  });
+
+  it('deja pasar un avance corto de ciudad', () => {
+    const fix = acceptDriverGpsFix(here, { lat: -24.78274, lng: -65.40705 }, now);
+    expect(fix.rejected).toBe(false);
+    expect(fix.lng).toBe(-65.40705);
   });
 });
 

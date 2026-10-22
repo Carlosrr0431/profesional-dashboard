@@ -187,10 +187,17 @@ export function applyDriverLocationRealtime(drivers, loc) {
     headingDeg: prev.heading,
     speedMps: prev.speed,
   });
-  const nextLat = acceptForward ? rawLat : prev.lat;
-  const nextLng = acceptForward ? rawLng : prev.lng;
-  const nextSpeed = toSpeedMps(loc.speed ?? loc.speed_kmh, prev.speed || 0);
-  const nextHeading = toCoordNumber(loc.heading, prev.heading || 0);
+  const forwardLat = acceptForward ? rawLat : prev.lat;
+  const forwardLng = acceptForward ? rawLng : prev.lng;
+  const fix = acceptDriverGpsFix(prev, {
+    lat: forwardLat,
+    lng: forwardLng,
+    simulating,
+  });
+  const nextLat = fix.lat;
+  const nextLng = fix.lng;
+  const nextSpeed = fix.rejected ? (prev.speed || 0) : toSpeedMps(loc.speed ?? loc.speed_kmh, prev.speed || 0);
+  const nextHeading = fix.rejected ? (prev.heading || 0) : toCoordNumber(loc.heading, prev.heading || 0);
 
   // Filtrar micro-ruido de GPS estacionario (< 0.8m)
   const distM = haversineMeters(prev.lat, prev.lng, nextLat, nextLng);
@@ -200,10 +207,13 @@ export function applyDriverLocationRealtime(drivers, loc) {
   const effectiveLng = isStationaryJitter ? prev.lng : nextLng;
   const coordsChanged = effectiveLat !== prev.lat || effectiveLng !== prev.lng;
 
+  const rawSame = (prev.gpsRaw?.lat ?? null) === (fix.gpsRaw?.lat ?? null)
+    && (prev.gpsRaw?.lng ?? null) === (fix.gpsRaw?.lng ?? null);
   if (
     !coordsChanged
     && nextSpeed === prev.speed
     && nextHeading === prev.heading
+    && rawSame
   ) {
     return drivers;
   }
@@ -222,6 +232,7 @@ export function applyDriverLocationRealtime(drivers, loc) {
   next[idx] = {
     ...prev,
     ...gps,
+    gpsRaw: fix.gpsRaw,
     isOnline: resolveDriverIsOnline({ ...prev, ...gps }),
   };
   return next;
@@ -246,6 +257,7 @@ export function mergeSnapshotKeepingFresherGps(prev, next) {
       speed: local.speed,
       heading: local.heading,
       updatedAt: local.updatedAt,
+      gpsRaw: local.gpsRaw || null,
     };
     return {
       ...incoming,
@@ -280,6 +292,51 @@ export function headingDeltaDegrees(fromDeg, toDeg) {
 export const GPS_REVERSE_MAX_M = 28;
 export const GPS_TELEPORT_M = 80;
 export const GPS_REVERSE_HEADING_DEG = 110;
+/** Por encima de esto, en poco tiempo, el punto no es un auto: son dos GPS peleando. */
+export const GPS_JUMP_MIN_M = 45;
+export const GPS_MAX_PLAUSIBLE_MPS = 28;
+export const GPS_JUMP_CONFIRM_M = 40;
+export const GPS_JUMP_CONFIRM_MS = 6000;
+export const GPS_JUMP_RELOCATE_MS = 20000;
+
+/**
+ * Descarta un salto imposible (dos fuentes de GPS sobre el mismo móvil).
+ * Si el punto nuevo se repite, se acepta: el celular realmente se movió.
+ */
+export function acceptDriverGpsFix(prev, next, now = Date.now()) {
+  const fromLat = Number(prev?.lat);
+  const fromLng = Number(prev?.lng);
+  const toLat = Number(next?.lat);
+  const toLng = Number(next?.lng);
+  if (!hasValidDriverCoords(toLat, toLng)) {
+    return { lat: fromLat, lng: fromLng, gpsRaw: prev?.gpsRaw || null, rejected: false };
+  }
+  if (!hasValidDriverCoords(fromLat, fromLng) || prev?.gpsSimulationActive || next?.simulating) {
+    return { lat: toLat, lng: toLng, gpsRaw: null, rejected: false };
+  }
+
+  const dist = haversineMeters(fromLat, fromLng, toLat, toLng);
+  const elapsed = Math.max(0, now - toTs(prev?.updatedAt));
+  const raw = prev?.gpsRaw;
+  const rawAt = Number(raw?.at) || 0;
+  const agrees = Boolean(raw)
+    && (now - rawAt) < GPS_JUMP_CONFIRM_MS
+    && haversineMeters(raw.lat, raw.lng, toLat, toLng) < GPS_JUMP_CONFIRM_M
+    && haversineMeters(fromLat, fromLng, raw.lat, raw.lng) >= GPS_JUMP_MIN_M;
+  const plausible = dist < GPS_JUMP_MIN_M
+    || elapsed >= GPS_JUMP_RELOCATE_MS
+    || (elapsed >= 400 && dist / (elapsed / 1000) <= GPS_MAX_PLAUSIBLE_MPS);
+
+  if (plausible || agrees) {
+    return { lat: toLat, lng: toLng, gpsRaw: null, rejected: false };
+  }
+  return {
+    lat: fromLat,
+    lng: fromLng,
+    gpsRaw: { lat: toLat, lng: toLng, at: now },
+    rejected: true,
+  };
+}
 
 export function reverseWindowMeters(speedMps = 0) {
   const speed = toSpeedMps(speedMps, 0);
@@ -383,7 +440,15 @@ export function nextGpsFromDriverRow(prev, row, coordsChangedInRow = true) {
     headingDeg: prev.heading,
     speedMps: prev.speed,
   })) {
-    return { lat: prev.lat, lng: prev.lng, updatedAt: prev.updatedAt };
+    return { lat: prev.lat, lng: prev.lng, updatedAt: prev.updatedAt, gpsRaw: prev.gpsRaw || null };
+  }
+
+  const fix = acceptDriverGpsFix(
+    { ...prev, gpsSimulationActive: simulating },
+    { lat: nextLat, lng: nextLng, simulating },
+  );
+  if (fix.rejected) {
+    return { lat: prev.lat, lng: prev.lng, updatedAt: prev.updatedAt, gpsRaw: fix.gpsRaw };
   }
 
   const intervalMs = Math.max(80, (Date.now() - toTs(prev.updatedAt)) || 800);
@@ -398,11 +463,12 @@ export function nextGpsFromDriverRow(prev, row, coordsChangedInRow = true) {
   });
 
   return {
-    lat: nextLat,
-    lng: nextLng,
+    lat: fix.lat,
+    lng: fix.lng,
     updatedAt: gpsTimestampForCoordChange(prev.updatedAt, row.updated_at),
     speed: motion.speed,
     heading: motion.heading,
+    gpsRaw: null,
   };
 }
 
