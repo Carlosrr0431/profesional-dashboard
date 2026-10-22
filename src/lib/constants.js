@@ -19,6 +19,25 @@ export const SALTA_CAPITAL_BOUNDS = {
   west: -65.55,
 };
 
+export const SALTA_SERVICE_BOUNDS = {
+  north: -24.55,
+  south: -25.15,
+  east: -65.25,
+  west: -65.72,
+};
+
+export function isWithinServiceArea(lat, lng) {
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return false;
+  return (
+    parsedLat <= SALTA_SERVICE_BOUNDS.north
+    && parsedLat >= SALTA_SERVICE_BOUNDS.south
+    && parsedLng <= SALTA_SERVICE_BOUNDS.east
+    && parsedLng >= SALTA_SERVICE_BOUNDS.west
+  );
+}
+
 /** Bounds para geocode REST: suroeste|noroeste (lat,lng|lat,lng). */
 export const SALTA_CAPITAL_GEOCODE_BOUNDS = `${SALTA_CAPITAL_BOUNDS.south},${SALTA_CAPITAL_BOUNDS.west}|${SALTA_CAPITAL_BOUNDS.north},${SALTA_CAPITAL_BOUNDS.east}`;
 

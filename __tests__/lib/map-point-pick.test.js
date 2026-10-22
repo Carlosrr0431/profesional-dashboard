@@ -25,10 +25,12 @@ describe('mapPointPick', () => {
     expect(formatPickedCoordsLabel('x', -65)).toBe('');
   });
 
-  it('acepta un punto de Salta Capital y rechaza uno fuera', () => {
+  it('acepta Capital, Vaqueros y Campo Quijano, y rechaza Jujuy', () => {
     expect(validateMapPickInSalta(-24.7821, -65.4232).ok).toBe(true);
-    expect(validateMapPickInSalta(-24.50, -65.42).ok).toBe(false);
-    expect(validateMapPickInSalta(-24.50, -65.42).message).toMatch(/Salta Capital/);
+    expect(validateMapPickInSalta(-24.695, -65.41).ok).toBe(true);
+    expect(validateMapPickInSalta(-24.91, -65.64).ok).toBe(true);
+    expect(validateMapPickInSalta(-24.19, -65.30).ok).toBe(false);
+    expect(validateMapPickInSalta(-24.19, -65.30).message).toMatch(/cobertura/);
   });
 
   it('arma el place del mapa con reverse geocode o con las coordenadas', () => {

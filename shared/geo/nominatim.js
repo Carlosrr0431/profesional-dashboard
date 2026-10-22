@@ -5,7 +5,8 @@ const {
   GOOGLE_POI_AUTOCOMPLETE_ENABLED,
   SALTA_VIEWBOX,
   SALTA_COUNTRY,
-  isWithinSaltaCapital,
+  queryNamesCoveredLocality,
+  coordsAllowedForQuery,
 } = require('./mapConfig');
 
 const {
@@ -661,7 +662,7 @@ function collectAutocompleteCandidates(items, query, merged, seenPlaceIds, seenC
       continue;
     }
     const hasCoords = Number.isFinite(item?.lat) && Number.isFinite(item?.lng);
-    if (hasCoords && !isWithinSaltaCapital(item.lat, item.lng)) continue;
+    if (hasCoords && !coordsAllowedForQuery(item.lat, item.lng, query)) continue;
 
     const coordKey = hasCoords
       ? `${item.lat.toFixed(3)},${item.lng.toFixed(3)}`
@@ -706,7 +707,7 @@ function georefHitMatchesStreetQuery(hit, query) {
   const wanted = pickPrimaryHouseNumber(query);
   const got = Number(hit?.address?.house_number);
   if (wanted == null || !Number.isFinite(got) || got !== wanted) return false;
-  if (!isWithinSaltaCapital(hit.lat, hit.lng)) return false;
+  if (!coordsAllowedForQuery(hit.lat, hit.lng, query)) return false;
   return roadAppearsInQuery(query, hit?.address?.road);
 }
 
@@ -732,7 +733,7 @@ function streetHouseQueryFromPlace(options = {}) {
 function collectGeorefCandidates(items, query, merged, seenPlaceIds, seenCoords) {
   for (const item of items) {
     if (!item?.placeId) continue;
-    if (!isWithinSaltaCapital(item.lat, item.lng)) continue;
+    if (!coordsAllowedForQuery(item.lat, item.lng, query)) continue;
 
     const coordKey = `${item.lat.toFixed(4)},${item.lng.toFixed(4)}`;
     if (seenPlaceIds.has(item.placeId) || seenCoords.has(coordKey)) continue;

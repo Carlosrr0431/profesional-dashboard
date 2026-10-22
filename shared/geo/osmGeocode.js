@@ -10,6 +10,8 @@ const {
   SALTA_VIEWBOX,
   SALTA_COUNTRY,
   isWithinSaltaCapital,
+  isWithinServiceArea,
+  coordsAllowedForQuery,
 } = require('./mapConfig');
 const { searchGeorefAddress } = require('./georef');
 const { pickPrimaryHouseNumber, getCatalogAddressVariants, buildAddressSearchQueries, parseStreetIntersection } = require('../salta-address');
@@ -422,7 +424,7 @@ async function fetchSearchHitsRaw(query, limit = 8) {
 
   return (Array.isArray(nationwide) ? nationwide : [])
     .map(mapSearchHit)
-    .filter((item) => item.lat != null && item.lng != null && isWithinSaltaCapital(item.lat, item.lng));
+    .filter((item) => item.lat != null && item.lng != null && coordsAllowedForQuery(item.lat, item.lng, q));
 }
 
 async function fetchHitsForQueries(queries, limit = 8) {
@@ -444,7 +446,8 @@ function pickBestHit(hits, context = {}, options = {}) {
   const { minScore = 0.5, allowRelaxed = true } = options;
   const streetHint = extractStreetHint(context.subtitle, context.label);
   const enforceStreet = shouldEnforceStreetHint(context.title, context.subtitle, context.label);
-  const pool = hits.filter((hit) => isWithinSaltaCapital(hit.lat, hit.lng));
+  const contextText = `${context.title || ''} ${context.subtitle || ''} ${context.label || ''}`;
+  const pool = hits.filter((hit) => coordsAllowedForQuery(hit.lat, hit.lng, contextText));
   let candidates = pool.length ? pool : hits;
   if (!candidates.length) return null;
 
@@ -487,8 +490,8 @@ async function geocodeViaGeoref(query) {
   if (!text || pickPrimaryHouseNumber(text) == null) return null;
 
   const hits = await searchGeorefAddress(text, 3);
-  const best = hits.find((hit) => isWithinSaltaCapital(hit.lat, hit.lng)) || hits[0];
-  if (!best || !isWithinSaltaCapital(best.lat, best.lng)) return null;
+  const best = hits.find((hit) => coordsAllowedForQuery(hit.lat, hit.lng, text)) || hits[0];
+  if (!best || !coordsAllowedForQuery(best.lat, best.lng, text)) return null;
 
   return {
     lat: best.lat,
@@ -753,8 +756,8 @@ async function geocodeCoordsFromAddress(address, options = {}) {
     throw new Error('No se encontró la dirección en OSM/Nominatim');
   }
 
-  if (!isWithinSaltaCapital(best.lat, best.lng)) {
-    throw new Error('La dirección debe estar en Salta Capital');
+  if (!isWithinServiceArea(best.lat, best.lng)) {
+    throw new Error('La dirección queda fuera de la zona de cobertura');
   }
 
   return {

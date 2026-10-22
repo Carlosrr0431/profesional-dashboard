@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { formatError } from '../lib/errorFormat';
-import { isWithinSaltaCapital } from '../lib/constants';
+import { isWithinServiceArea } from '../lib/constants';
 import { useToast } from '../context/ToastContext';
 import AddressAutocomplete from './AddressAutocomplete';
 import MapPickButton from './MapPickButton';
@@ -204,8 +204,8 @@ export default function NewTripModal({
       setPickupTitle(''); setPickupSubtitle(''); setPickupGeocodeSource(null);
       return;
     }
-    if (!isWithinSaltaCapital(lat, lng)) {
-      setError('La dirección debe estar dentro de Salta Capital.');
+    if (!isWithinServiceArea(lat, lng)) {
+      setError('La dirección debe estar en la zona de cobertura: Salta, Vaqueros, Campo Quijano y alrededores.');
       setPickupLat(null); setPickupLng(null); setPlaceId(''); setPickupLabel('');
       setPickupTitle(''); setPickupSubtitle(''); setPickupGeocodeSource(null);
       return;
@@ -227,8 +227,8 @@ export default function NewTripModal({
       setDestLabel(''); setDestLat(null); setDestLng(null); setDestGeocodeSource(null);
       return;
     }
-    if (!isWithinSaltaCapital(lat, lng)) {
-      setError('La dirección debe estar dentro de Salta Capital.');
+    if (!isWithinServiceArea(lat, lng)) {
+      setError('La dirección debe estar en la zona de cobertura: Salta, Vaqueros, Campo Quijano y alrededores.');
       setDestLabel(''); setDestLat(null); setDestLng(null); setDestGeocodeSource(null);
       return;
     }

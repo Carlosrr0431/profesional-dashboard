@@ -408,6 +408,14 @@ function googleAutocompleteResponse(query) {
     };
   }
 
+  if (lower.includes('unsa') || lower.includes('universidad nacional de salta')) {
+    return {
+      suggestions: [
+        makePred('google-unsa', 'Universidad Nacional de Salta', 'Av. Bolivia, Salta', ['university']),
+      ],
+    };
+  }
+
   return { suggestions: [] };
 }
 

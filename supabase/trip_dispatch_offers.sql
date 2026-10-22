@@ -63,6 +63,12 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'trip_not_found');
   END IF;
 
+  -- Reintento del mismo chofer: la primera escritura ya ganó y se perdió la respuesta.
+  IF v_trip.driver_id = v_driver_id
+     AND v_trip.status IN ('going_to_pickup', 'accepted', 'in_progress') THEN
+    RETURN jsonb_build_object('success', true, 'idempotent', true, 'trip', to_jsonb(v_trip));
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM public.trip_dispatch_offers
     WHERE trip_id = p_trip_id
@@ -87,7 +93,23 @@ BEGIN
     status = 'going_to_pickup',
     accepted_at = NOW(),
     dispatch_status = 'accepted'
-  WHERE id = p_trip_id;
+  WHERE id = p_trip_id
+    AND status = 'pending'
+    AND driver_id IS NULL;
+
+  IF NOT FOUND THEN
+    SELECT * INTO v_trip FROM public.trips WHERE id = p_trip_id;
+    IF v_trip.driver_id = v_driver_id
+       AND v_trip.status IN ('going_to_pickup', 'accepted', 'in_progress') THEN
+      RETURN jsonb_build_object('success', true, 'idempotent', true, 'trip', to_jsonb(v_trip));
+    END IF;
+    UPDATE public.trip_dispatch_offers
+    SET status = 'lost', resolved_at = NOW()
+    WHERE trip_id = p_trip_id
+      AND driver_id = v_driver_id
+      AND status = 'pending';
+    RETURN jsonb_build_object('success', false, 'error', 'trip_taken', 'taken', true);
+  END IF;
 
   UPDATE public.trip_dispatch_offers
   SET status = 'accepted', resolved_at = NOW()

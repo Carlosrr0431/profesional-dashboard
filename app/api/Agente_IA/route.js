@@ -240,15 +240,16 @@ const ACTIVE_TRIP_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 const OPEN_TRIP_STATUSES = ['scheduled', 'queued', 'pending', ...ACTIVE_TRIP_STATUSES];
 const DRIVER_BUSY_TRIP_STATUSES = ['pending', ...ACTIVE_TRIP_STATUSES];
 const PENDING_GUARD_MAX_AGE_MINUTES = Number(process.env.WHATSAPP_PENDING_GUARD_MAX_AGE_MINUTES || 5);
+const QUEUED_WITHOUT_DRIVER_MAX_MINUTES = Number(process.env.WHATSAPP_QUEUED_MAX_AGE_MINUTES || 120);
+const QUEUED_PLACEHOLDER_MAX_MINUTES = 30;
 const DRIVER_PENDING_BUSY_MAX_AGE_MINUTES = Number(process.env.WHATSAPP_DRIVER_PENDING_BUSY_MAX_AGE_MINUTES || 5);
 const processingTimers = new Map();
 const pendingTimeoutTimers = new Map();
 const passengerLifecycleFollowupMemory = new Map();
 const driverWhatsappNotifyMemory = new Map();
 const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !== 'false';
-// Perfil de expansión progresiva inspirado en marketplaces de movilidad.
-// Mantiene 1km/2km al inicio y luego abre anillos cada 15s.
-const SEARCH_RADII_KM = [1, 2, 3, 4.5, 6, 8, 10, 12, 15, 20];
+// Tope fijo: no se busca chofer a más de 2 km.
+const SEARCH_RADII_KM = [1, 2];
 const SALTA_CAPITAL_CENTER = { lat: -24.7829, lng: -65.4122 };
 const SALTA_CAPITAL_POSTAL_CODE = 'A4400';
 const SALTA_CAPITAL_PRIORITY_RADIUS_KM = Math.max(
@@ -2382,18 +2383,18 @@ function extractPostalCodeFromAddress(formattedAddress) {
 }
 
 const NEIGHBORING_MUNICIPALITY_RE =
-  /\b(jujuy|vaqueros|cerrillos|san lorenzo|rosario de lerma|campo quijano|la caldera|la silleta|el carril|chicoana|lesser)\b/i;
+  /\b(jujuy|metan|cafayate|tartagal|oran|campo santo|colonia santa rosa|las lajitas|rosario de la frontera)\b/i;
 
 function mentionsNeighboringMunicipality(value) {
   return NEIGHBORING_MUNICIPALITY_RE.test(normalizeForMatch(value || ''));
 }
 
-/** San Lorenzo queda dentro del bbox amplio (west -65.55); el casco urbano no llega a -65.49. */
+/** Fuera del valle (Vaqueros, Campo Quijano, San Lorenzo, Cerrillos y alrededores). */
 function coordsLookLikeNeighboringMunicipality(lat, lng) {
   const parsedLat = Number(lat);
   const parsedLng = Number(lng);
   if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return false;
-  return parsedLng < -65.488;
+  return parsedLat > -24.55 || parsedLat < -25.15 || parsedLng > -65.25 || parsedLng < -65.72;
 }
 
 function localityBlobFromGeoCandidate(candidate = {}, formattedAddress = '') {
@@ -2407,6 +2408,9 @@ function biasAddressQueryToSaltaCapital(query) {
   const raw = String(query || '').trim();
   if (!raw) return '';
   const withoutPollHint = raw.includes('·') ? raw.split('·')[0].trim() : raw;
+  if (/\b(vaqueros|san lorenzo|rosario de lerma|campo quijano|la caldera|lesser|cerrillos|la silleta|chicoana|el carril)\b/i.test(withoutPollHint)) {
+    return /\bargentina\b/i.test(withoutPollHint) ? withoutPollHint : `${withoutPollHint}, Salta, Argentina`;
+  }
   if (/salta\s*capital/i.test(withoutPollHint)) return withoutPollHint;
   if (/,\s*salta\s*,\s*argentina\s*$/i.test(withoutPollHint)) {
     return withoutPollHint.replace(/,\s*salta\s*,\s*argentina\s*$/i, ', Salta Capital, Argentina');
@@ -2660,6 +2664,14 @@ function looksLikeBarrioOrZone(value) {
   const normalized = normalizeForMatch(value || '');
   if (!normalized) return false;
   return /\b(tres\s+cerritos|grand\s+bourg|castanares|limache|portezuelo|la\s+merced|merced|barrio|microcentro|centro|zona)\b/.test(normalized);
+}
+
+function pickupNeedsExactStreet(value) {
+  const cleaned = sanitizeAddressInput(value || '');
+  if (!cleaned) return true;
+  if (isSpecificStreetAddress(cleaned) || isIntersectionAddress(cleaned)) return false;
+  if (resolveSaltaKnownPoi(cleaned) || looksLikeSaltaKnownPoi(cleaned)) return false;
+  return true;
 }
 
 function shouldAskPickupStreetNumber(value, { missingFields = [] } = {}) {
@@ -5031,6 +5043,14 @@ function gatePickupStreetReply(text, openTrip) {
   return null;
 }
 
+function isStaleQueuedTrip(trip) {
+  if (String(trip?.status || '').toLowerCase() !== 'queued') return false;
+  if (trip?.driver_id) return false;
+  if (!tripHasDispatchPickup(trip)) return true;
+  const ageMinutes = getTripAgeMinutes(trip);
+  return ageMinutes != null && ageMinutes > QUEUED_WITHOUT_DRIVER_MAX_MINUTES;
+}
+
 function shouldBlockForOpenTrip(trip) {
   if (!trip) return false;
   // Placeholders huérfanos (hold sin coordenadas) no deben bloquear nuevos pedidos.
@@ -5042,6 +5062,7 @@ function shouldBlockForOpenTrip(trip) {
     return false;
   }
   const status = String(trip.status || '').toLowerCase();
+  if (status === 'queued' && isStaleQueuedTrip(trip)) return false;
   if (status !== 'pending') return true;
   const ageMinutes = getTripAgeMinutes(trip);
   if (ageMinutes == null) return true;
@@ -5104,7 +5125,7 @@ async function getLatestOpenTripByPhone(phone) {
   if (!normalized) return null;
   const { data, error } = await getSupabase()
     .from('trips')
-    .select('id, status, passenger_phone, destination_address, destination_lat, created_at, wa_context, dispatch_status, notes, scheduled_for')
+    .select('id, status, passenger_phone, destination_address, destination_lat, destination_lng, origin_lat, origin_lng, driver_id, created_at, wa_context, dispatch_status, notes, scheduled_for')
     .eq('passenger_phone', normalized)
     .in('status', OPEN_TRIP_STATUSES)
     .order('created_at', { ascending: false })
@@ -7101,7 +7122,8 @@ async function chooseDriver(
   const nearestBeyond = withDistance.find(
     (driver) => driver.distanceToOriginKm > searchPlan.maxRadiusKm,
   );
-  if (nearestBeyond && excludedDriverIdSet.size > 0 && searchPlan.expansionStep < SEARCH_RADII_KM.length) {
+  const hasWiderRing = SEARCH_RADII_KM.some((km) => km > searchPlan.maxRadiusKm);
+  if (nearestBeyond && excludedDriverIdSet.size > 0 && hasWiderRing) {
     logWebhook('driver_select_ring_exhausted_expand', {
       maxRadiusKm: searchPlan.maxRadiusKm,
       nearestBeyondKm: Math.round(nearestBeyond.distanceToOriginKm * 10) / 10,
@@ -7928,6 +7950,24 @@ async function createTripFromConversation({ conversation, extracted, includeBett
   }
 
   const normalizedPickupQuery = normalizeAddressPhrase(pickupQuery);
+
+  if (pickupNeedsExactStreet(normalizedPickupQuery || pickupQuery)) {
+    logWebhook('trip_create_pickup_needs_street', {
+      conversationId: conversation?.id || null,
+      pickupQuery,
+    });
+    return {
+      ok: false,
+      reason: 'pickup_needs_street_number',
+      reply: wrapTripReply(buildPrecisePickupOrGpsReply(normalizedPickupQuery || pickupQuery)),
+      context: {
+        passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
+        pickup_location: null,
+        notes: extracted.notes || null,
+        awaiting_gps: true,
+      },
+    };
+  }
 
   let pickupLocation;
   if (extracted._preGeocodedPickup?.lat && extracted._preGeocodedPickup?.lng) {
@@ -8888,6 +8928,48 @@ async function expireTimedOutPendingTrips() {
   }
 
   logWebhook('expire_pending_done', { expired });
+  return { expired };
+}
+
+/** Cierra colas sin chofer que quedaron abiertas, y pedidos sin dirección de retiro. */
+async function expireStaleQueuedTrips() {
+  const now = new Date().toISOString();
+  const agedCutoff = new Date(Date.now() - QUEUED_WITHOUT_DRIVER_MAX_MINUTES * 60000).toISOString();
+  const placeholderCutoff = new Date(Date.now() - QUEUED_PLACEHOLDER_MAX_MINUTES * 60000).toISOString();
+  const close = (reason) => ({
+    status: 'cancelled',
+    dispatch_status: 'cancelled',
+    cancel_reason: reason,
+    status_updated_at: now,
+  });
+
+  const aged = await getSupabase()
+    .from('trips')
+    .update(close('Cola vencida sin chofer'))
+    .eq('status', 'queued')
+    .is('driver_id', null)
+    .lt('created_at', agedCutoff)
+    .select('id');
+
+  const placeholders = await getSupabase()
+    .from('trips')
+    .update(close('Pedido sin dirección de retiro'))
+    .eq('status', 'queued')
+    .is('driver_id', null)
+    .is('origin_lat', null)
+    .is('destination_lat', null)
+    .lt('created_at', placeholderCutoff)
+    .select('id');
+
+  const expired = (aged.data || []).length + (placeholders.data || []).length;
+  if (aged.error || placeholders.error) {
+    logWebhook('expire_queued_db_error', {
+      aged: summarizeDbError(aged.error),
+      placeholders: summarizeDbError(placeholders.error),
+    });
+  } else if (expired > 0) {
+    logWebhook('expire_queued_done', { expired });
+  }
   return { expired };
 }
 
@@ -9948,8 +10030,14 @@ async function processClaimedConversation(batch) {
       };
     }
 
-    // ─ Pedido fresco de móvil: no dump de "ya estás en cola", seguir al flujo completo ─
-    if (
+    // Un saludo no abre ni confirma una cola. Si el viaje no tiene retiro, se sigue el chat normal.
+    if (isGreetingOnly(fastText) && !tripHasDispatchPickup(openTripByPhone)) {
+      skipOpenTripFastPath = true;
+      logWebhook('conversation_fast_path_skipped_greeting', {
+        conversationId: batch?.id || null,
+        tripId: openTripByPhone.id,
+      });
+    } else if (
       looksLikeFreshTripRequest(fastText)
       && isReplaceableOpenTrip(openTripByPhone)
     ) {
@@ -11027,6 +11115,7 @@ async function processClaimedConversation(batch) {
               passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
               passenger_phone: normalizePhone(batch.phone),
               ...partialScheduleTripFields,
+              ...(pendingScheduleInfo ? {} : { status: 'queued', dispatch_status: 'hold' }),
               notes: pendingScheduleInfo
                 ? partialScheduleTripFields.notes
                 : '[APPROACH_ONLY] Esperando GPS del pasajero. Destino final: se define al subir el pasajero.',
@@ -11081,6 +11170,7 @@ async function processClaimedConversation(batch) {
         passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
         passenger_phone: normalizePhone(batch.phone),
         status: 'queued',
+        dispatch_status: 'hold',
         notes: '[APPROACH_ONLY] Esperando calle completa del pasajero.',
         wa_context: bareNumCtx,
       });
@@ -11167,6 +11257,7 @@ async function processClaimedConversation(batch) {
             passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
             passenger_phone: normalizePhone(batch.phone),
             status: 'queued',
+            dispatch_status: 'hold',
             notes: `[APPROACH_ONLY] Esperando GPS - ${gpsCheck.reason}`,
             wa_context: gpsWaContext,
           });
@@ -11222,6 +11313,7 @@ async function processClaimedConversation(batch) {
           passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
           passenger_phone: normalizePhone(batch.phone),
           status: 'queued',
+          dispatch_status: 'hold',
           notes: '[APPROACH_ONLY] Esperando calle y número exactos o GPS del pasajero.',
           wa_context: precisePickupCtx,
         });
@@ -11281,6 +11373,7 @@ async function processClaimedConversation(batch) {
           passenger_name: nextContext.passenger_name || batch.push_name || 'Pasajero WhatsApp',
           passenger_phone: normalizePhone(batch.phone),
           status: 'queued',
+          dispatch_status: 'hold',
           notes: '[APPROACH_ONLY] Esperando altura de calle o GPS del pasajero.',
           wa_context: pickupNumberCtx,
         });
@@ -13147,6 +13240,7 @@ async function processPendingConversationsRequest({
     const expireResult = SUPABASE_DISPATCH_ONLY
       ? await requeueTimedOutPendingTripsSupabaseDispatchOnly()
       : await expireTimedOutPendingTrips();
+    const staleQueued = await expireStaleQueuedTrips();
     const pendingResult = await processPendingConversations({ onlyBypassPhones });
     const transitionResult = await processTripLifecycleTransitions();
     return {
@@ -13155,6 +13249,7 @@ async function processPendingConversationsRequest({
         success: true,
         ...pendingResult,
         expiredPending: expireResult.expired,
+        expiredQueued: staleQueued.expired,
         tripTransitions: transitionResult,
         onlyBypassPhones,
       },

@@ -1,4 +1,4 @@
-import { isWithinSaltaCapital } from './constants';
+import { isWithinServiceArea } from './constants';
 
 export const MAP_PICK_SOURCE = 'map_pick';
 
@@ -23,8 +23,8 @@ export function validateMapPickInSalta(lat, lng) {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     return { ok: false, message: 'No se pudo leer el punto del mapa.' };
   }
-  if (!isWithinSaltaCapital(latitude, longitude)) {
-    return { ok: false, message: 'El punto debe estar dentro de Salta Capital.' };
+  if (!isWithinServiceArea(latitude, longitude)) {
+    return { ok: false, message: 'El punto queda fuera de la zona de cobertura.' };
   }
   return { ok: true, latitude, longitude };
 }

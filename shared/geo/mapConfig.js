@@ -58,8 +58,8 @@ const GOOGLE_POI_AUTOCOMPLETE_ENABLED = readEnv(
   'GOOGLE_POI_AUTOCOMPLETE_ENABLED',
 ) !== 'false';
 
-/** Salta Capital — viewbox y bounds operativos (alineados) */
-const SALTA_VIEWBOX = '-65.55,-24.90,-65.30,-24.70';
+/** Capital estricta, para no mezclar “Güemes 700” con otra localidad. */
+const SALTA_VIEWBOX = '-65.72,-25.15,-65.25,-24.55';
 const SALTA_COUNTRY = 'ar';
 
 const SALTA_CAPITAL_BOUNDS = {
@@ -69,16 +69,43 @@ const SALTA_CAPITAL_BOUNDS = {
   west: -65.55,
 };
 
-function isWithinSaltaCapital(lat, lng) {
+/** Valle de Salta: Vaqueros, La Caldera, San Lorenzo, Cerrillos, Campo Quijano, Rosario de Lerma. */
+const SALTA_SERVICE_BOUNDS = {
+  north: -24.55,
+  south: -25.15,
+  east: -65.25,
+  west: -65.72,
+};
+
+const COVERED_LOCALITY_RE = /\b(vaqueros|san lorenzo|rosario de lerma|campo quijano|la caldera|lesser|cerrillos|la silleta|chicoana|el carril)\b/i;
+
+function isInsideBounds(lat, lng, bounds) {
   const parsedLat = Number(lat);
   const parsedLng = Number(lng);
   if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return false;
   return (
-    parsedLat <= SALTA_CAPITAL_BOUNDS.north
-    && parsedLat >= SALTA_CAPITAL_BOUNDS.south
-    && parsedLng <= SALTA_CAPITAL_BOUNDS.east
-    && parsedLng >= SALTA_CAPITAL_BOUNDS.west
+    parsedLat <= bounds.north
+    && parsedLat >= bounds.south
+    && parsedLng <= bounds.east
+    && parsedLng >= bounds.west
   );
+}
+
+function isWithinSaltaCapital(lat, lng) {
+  return isInsideBounds(lat, lng, SALTA_CAPITAL_BOUNDS);
+}
+
+function isWithinServiceArea(lat, lng) {
+  return isInsideBounds(lat, lng, SALTA_SERVICE_BOUNDS);
+}
+
+function queryNamesCoveredLocality(value) {
+  return COVERED_LOCALITY_RE.test(String(value || ''));
+}
+
+function coordsAllowedForQuery(lat, lng, query = '') {
+  if (isWithinSaltaCapital(lat, lng)) return true;
+  return queryNamesCoveredLocality(query) && isWithinServiceArea(lat, lng);
 }
 
 const GEOREF_BASE_URL = readEnv(
@@ -108,7 +135,11 @@ module.exports = {
   SALTA_VIEWBOX,
   SALTA_COUNTRY,
   SALTA_CAPITAL_BOUNDS,
+  SALTA_SERVICE_BOUNDS,
   isWithinSaltaCapital,
+  isWithinServiceArea,
+  queryNamesCoveredLocality,
+  coordsAllowedForQuery,
   GEOREF_BASE_URL,
   readGeorefBaseUrl,
 };

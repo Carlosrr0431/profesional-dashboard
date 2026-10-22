@@ -1,6 +1,6 @@
 import {
   SALTA_CAPITAL_GEOCODE_BOUNDS,
-  isWithinSaltaCapital,
+  isWithinServiceArea,
 } from './constants';
 import {
   buildFinalDestJsonMarker,
@@ -66,7 +66,7 @@ export function resolveFinalDestinationFromClient(payload) {
   }
   const lat = Number(rawLat);
   const lng = Number(rawLng);
-  if (!isWithinSaltaCapital(lat, lng)) {
+  if (!isWithinServiceArea(lat, lng)) {
     return null;
   }
   return {
@@ -85,7 +85,7 @@ export async function resolveTripLocation({ address, lat, lng, placeId }) {
     Number.isFinite(parsedLat)
     && Number.isFinite(parsedLng)
     && cleanAddress
-    && isWithinSaltaCapital(parsedLat, parsedLng)
+    && isWithinServiceArea(parsedLat, parsedLng)
   ) {
     return {
       formattedAddress: cleanAddress,
@@ -97,7 +97,7 @@ export async function resolveTripLocation({ address, lat, lng, placeId }) {
   try {
     if (sanitizeText(placeId)) {
       const details = await getPlaceDetails(sanitizeText(placeId, 200));
-      if (isWithinSaltaCapital(details.lat, details.lng)) {
+      if (isWithinServiceArea(details.lat, details.lng)) {
         return {
           formattedAddress: details.formattedAddress || cleanAddress,
           lat: details.lat,
@@ -110,7 +110,7 @@ export async function resolveTripLocation({ address, lat, lng, placeId }) {
       const resolved = await geocodeAddress(
         /salta/i.test(cleanAddress) ? cleanAddress : `${cleanAddress}, Salta, Argentina`,
       );
-      if (isWithinSaltaCapital(resolved.lat, resolved.lng)) {
+      if (isWithinServiceArea(resolved.lat, resolved.lng)) {
         return {
           formattedAddress: resolved.formattedAddress || cleanAddress,
           lat: resolved.lat,
@@ -225,7 +225,7 @@ export async function resolveFinalDestination(pickupLocation, payload) {
       /salta/i.test(address) ? address : `${address}, Salta, Argentina`,
       3,
     );
-    const match = candidates.find((c) => isWithinSaltaCapital(c.lat, c.lng));
+    const match = candidates.find((c) => isWithinServiceArea(c.lat, c.lng));
     if (match) {
       return {
         formattedAddress: match.formattedAddress || address,

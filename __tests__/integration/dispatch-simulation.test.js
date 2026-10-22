@@ -1618,32 +1618,20 @@ describe('Grupo 11 — Flujo E2E completo con fake timers', () => {
     expect(haversineKm(D5.current_lat, D5.current_lng, pickup.lat, pickup.lng)).toBeLessThan(initialRadiusKm);
   });
 
-  it('radio se expande con el tiempo: después de 30s llega a 3km (paso 2 = index 3)', () => {
-    // Con SEARCH_RADII_KM = [1, 2, 3, 4.5, ...] y EXPANSION_INTERVAL = 15s
-    // searchElapsedMs=30000 → expansionStep=2 → allowedRadiiKm=[1,2,3]
-    const RADII = [1, 2, 3, 4.5, 6, 8, 10, 12, 15, 20];
+  it('el radio no pasa de 2 km: un chofer a 3 km no entra aunque pase el tiempo', () => {
+    const RADII = [1, 2];
     const EXPANSION_INTERVAL_MS = 15_000;
-    const baseIndex = Math.min(1, RADII.length - 1); // = 1
+    const baseIndex = Math.min(1, RADII.length - 1);
 
-    const afterMs = [0, 15000, 30000, 45000];
-    const expectedRadii = [
-      [1, 2],           // 0s → step 0 → [0..1]
-      [1, 2, 3],        // 15s → step 1 → [0..2]
-      [1, 2, 3, 4.5],   // 30s → step 2 → [0..3]
-      [1, 2, 3, 4.5, 6], // 45s → step 3 → [0..4]
-    ];
-
-    afterMs.forEach((elapsedMs, i) => {
+    [0, 15000, 30000, 45000].forEach((elapsedMs) => {
       const step = Math.floor(elapsedMs / EXPANSION_INTERVAL_MS);
       const maxIdx = Math.min(RADII.length - 1, baseIndex + step);
       const radii = RADII.slice(0, maxIdx + 1);
-      expect(radii).toEqual(expectedRadii[i]);
+      expect(radii[radii.length - 1]).toBeLessThanOrEqual(2);
     });
 
-    // Verificar que D2 (~3.2km) sería alcanzado con el radio de 30s
     const D2 = SALTA.DRIVERS.D2_TRES_CERRITOS;
     const distD2 = haversineKm(D2.current_lat, D2.current_lng, pickup.lat, pickup.lng);
-    const maxRadius30s = expectedRadii[2][expectedRadii[2].length - 1]; // = 4.5
-    expect(distD2).toBeLessThan(maxRadius30s); // D2 alcanzado a los 30s
+    expect(distD2).toBeGreaterThan(2);
   });
 });

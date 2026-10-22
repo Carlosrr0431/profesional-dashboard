@@ -34,7 +34,10 @@
 
 const {
   isWithinSaltaCapital,
+  isWithinServiceArea,
   SALTA_CAPITAL_BOUNDS,
+  SALTA_SERVICE_BOUNDS,
+  queryNamesCoveredLocality,
   SALTA_CENTER_LAT,
   SALTA_CENTER_LNG,
 } = require('./mapConfig');
@@ -73,7 +76,26 @@ const ADDRESS_ONLY_TYPES = new Set([
   'administrative_area_level_1', 'administrative_area_level_2',
 ]);
 
-/** Restricción dura: solo resultados dentro del rectángulo de Salta Capital. */
+function serviceAreaRestriction() {
+  return {
+    rectangle: {
+      low: {
+        latitude: SALTA_SERVICE_BOUNDS.south,
+        longitude: SALTA_SERVICE_BOUNDS.west,
+      },
+      high: {
+        latitude: SALTA_SERVICE_BOUNDS.north,
+        longitude: SALTA_SERVICE_BOUNDS.east,
+      },
+    },
+  };
+}
+
+function restrictionForQuery(text) {
+  return queryNamesCoveredLocality(text) ? serviceAreaRestriction() : SALTA_CAPITAL_RESTRICTION;
+}
+
+/** Restricción dura para calles ambiguas: solo Salta Capital. */
 const SALTA_CAPITAL_RESTRICTION = {
   rectangle: {
     low: {
@@ -294,9 +316,10 @@ function cleanAutocompleteSubtitle(text) {
     .trim();
 }
 
-function isOutsideSaltaCapitalSubtitle(subtitle) {
+function isOutsideSaltaCapitalSubtitle(subtitle, query = '') {
   const folded = foldText(cleanAutocompleteSubtitle(subtitle));
   if (!folded) return false;
+  if (queryNamesCoveredLocality(query) && queryNamesCoveredLocality(subtitle)) return false;
   return OUTSIDE_SALTA_CAPITAL_SUBTITLE.some((pattern) => pattern.test(folded));
 }
 
@@ -363,6 +386,9 @@ function scoreAutocompleteSuggestion(mainText, secondaryText, query) {
 function biasAutocompleteInputToSaltaCapital(input) {
   const text = String(input || '').trim();
   if (!text) return text;
+  if (queryNamesCoveredLocality(text)) {
+    return /\bargentina\b/i.test(text) ? text : `${text}, Salta, Argentina`;
+  }
   if (/salta\s*capital/i.test(text)) return text;
   if (/,\s*salta\s*,\s*argentina\s*$/i.test(text)) {
     return text.replace(/,\s*salta\s*,\s*argentina\s*$/i, ', Salta Capital, Argentina');
@@ -455,7 +481,7 @@ async function enrichGuemesStreetNumberResults(items, query, sessionToken, limit
         _index: index,
       }))
       .filter(Boolean)
-      .filter((item) => !isOutsideSaltaCapitalSubtitle(item.subtitle));
+      .filter((item) => !isOutsideSaltaCapitalSubtitle(item.subtitle, query));
     const doctorA = pickDoctorAGuemesHit(doctorHits, parsed.number);
     const key = doctorA?.placeId;
     if (doctorA && key && !seen.has(key)) {
@@ -530,7 +556,7 @@ async function placesAutocompleteRequest(
         includedRegionCodes: ['ar'],
         languageCode: 'es',
         origin: SALTA_CAPITAL_ORIGIN,
-        locationRestriction: restriction,
+        locationRestriction: restrictionForQuery(text),
         // Con `origin` Google devuelve distanceMeters de cada sugerencia a ese punto.
         ...(origin ? { origin } : {}),
       }),
@@ -552,7 +578,7 @@ async function placesAutocompleteRequest(
 function normalizeNearOrigin(near) {
   const latitude = Number(near?.latitude);
   const longitude = Number(near?.longitude);
-  return isWithinSaltaCapital(latitude, longitude) ? { latitude, longitude } : null;
+  return isWithinServiceArea(latitude, longitude) ? { latitude, longitude } : null;
 }
 
 /**
@@ -676,7 +702,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     let suggestions = await placesAutocompleteRequest(
       text,
       sessionToken,
-      SALTA_CAPITAL_RESTRICTION,
+      restrictionForQuery(text),
       PLACES_TIMEOUT_MS,
       origin,
     );
@@ -691,7 +717,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
         _index: index,
       }))
       .filter(Boolean)
-      .filter((item) => !isOutsideSaltaCapitalSubtitle(item.subtitle))
+      .filter((item) => !isOutsideSaltaCapitalSubtitle(item.subtitle, text))
       .sort((a, b) => (Number(b._score || 0) - Number(a._score || 0)) || (a._index - b._index));
 
     // Una lista de sucursales (búsqueda ampliada) se ordena por cercanía; una calle, no.
@@ -899,8 +925,8 @@ function setGooglePlacePersistentCache(provider) {
 }
 
 function buildGooglePlaceDetailsResult(details, options = {}, geocodeSource = null) {
-  if (!isWithinSaltaCapital(details.lat, details.lng)) {
-    throw new Error('La dirección debe estar en Salta Capital');
+  if (!isWithinServiceArea(details.lat, details.lng)) {
+    throw new Error('La dirección queda fuera de la zona de cobertura');
   }
 
   const rawId = String(details?.placeId || '').replace(/^google:/, '').trim();

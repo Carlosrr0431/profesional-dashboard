@@ -58,6 +58,10 @@ import { selectDriversCompat } from '../../../src/lib/driversBillingSelect';
 import { resolvePreferredDriverId } from '../../../src/lib/assignExistingTrip';
 import { applyLiveGpsToDrivers, indexDriverLocationsById } from '../../../src/lib/driverMapGps';
 import {
+  MAX_DRIVER_SEARCH_KM,
+  queuedTripIdsNearFreeDrivers,
+} from '../../../src/lib/dispatchSearchRadius';
+import {
   pickBusyNextTripCandidate,
   pickIdleThenBusyByRadius,
   countUnacceptedDispatchOffers,
@@ -111,7 +115,7 @@ const PENDING_ACCEPT_TIMEOUT_MS = Number.isFinite(configuredPendingAcceptTimeout
 
 const DRIVER_BUSY_TRIP_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
 const MAX_DISPATCH_ATTEMPTS = Number(process.env.DISPATCH_MAX_ATTEMPTS || 30);
-const SEARCH_RADII_KM = [1, 2, 3, 4.5, 6, 8, 10];
+const SEARCH_RADII_KM = [1, 2];
 const DEFAULT_SEARCH_EXPANSION_INTERVAL_MS = 30 * 1000;
 const configuredSearchExpansionIntervalMs = Number(
   process.env.DISPATCH_WORKER_SEARCH_EXPANSION_INTERVAL_MS
@@ -983,19 +987,27 @@ async function chooseDriverForClaim(
         pickupLat,
         pickupLng,
       );
-      logWorker('driver_selected_preferred', {
+      if (preferredOnly || distanceKm <= MAX_DRIVER_SEARCH_KM) {
+        logWorker('driver_selected_preferred', {
+          tripId: trip?.id || null,
+          driverId: preferred.id,
+          distanceKm: Number(distanceKm.toFixed(3)),
+        });
+        return {
+          driver: preferred,
+          distanceKm,
+          scoreKm: distanceKm,
+          radiusKm: allowedRadii[allowedRadii.length - 1] ?? MAX_DRIVER_SEARCH_KM,
+          allowedRadiiKm: allowedRadii,
+          preferred: true,
+        };
+      }
+      logWorker('driver_preferred_outside_radius', {
         tripId: trip?.id || null,
         driverId: preferred.id,
         distanceKm: Number(distanceKm.toFixed(3)),
+        maxKm: MAX_DRIVER_SEARCH_KM,
       });
-      return {
-        driver: preferred,
-        distanceKm,
-        scoreKm: distanceKm,
-        radiusKm: allowedRadii[allowedRadii.length - 1] ?? null,
-        allowedRadiiKm: allowedRadii,
-        preferred: true,
-      };
     }
     if (preferredOnly) {
       const busyOffer = selectBusyNextTripOffer({
@@ -2124,6 +2136,107 @@ async function recoverDriverCancelledPickupTrips() {
   return { recovered: result.recovered || 0 };
 }
 
+async function wakeQueuedTripsNearFreeDrivers() {
+  const supabase = getSupabaseAdmin();
+  const { data: queuedTrips, error: tripError } = await supabase
+    .from('trips')
+    .select('id, passenger_phone, origin_lat, origin_lng, destination_lat, destination_lng, notes, wa_context')
+    .eq('status', 'queued')
+    .limit(40);
+
+  if (tripError) {
+    logWorker('wake_queued_trips_error', { error: summarizeDbError(tripError) });
+    return 0;
+  }
+  if (!queuedTrips?.length) return 0;
+
+  const [{ data: driversRaw, error: driversError }, locsRes, busyRes] = await Promise.all([
+    selectDriversCompat(
+      supabase,
+      'id, phone, push_token, current_lat, current_lng, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
+      (query) => query.eq('is_available', true),
+    ),
+    supabase
+      .from('driver_locations')
+      .select('driver_id, lat, lng, updated_at, recorded_at'),
+    supabase
+      .from('trips')
+      .select('id, driver_id, status, next_after_trip_id, notes, wa_context')
+      .in('status', DRIVER_BUSY_TRIP_STATUSES)
+      .not('driver_id', 'is', null),
+  ]);
+
+  if (driversError || busyRes.error) {
+    logWorker('wake_queued_trips_error', {
+      drivers: summarizeDbError(driversError),
+      busy: summarizeDbError(busyRes.error),
+    });
+    return 0;
+  }
+
+  const partitioned = partitionDriverBusyTrips(busyRes.data || []);
+  const busyIds = new Set([
+    ...partitioned.liveBusyTrips.map((item) => item.driver_id).filter(Boolean),
+    ...partitioned.reservedNextDriverIds,
+    ...partitioned.pendingOfferDriverIds,
+  ]);
+  const locByDriver = indexDriverLocationsById(locsRes.error ? [] : locsRes.data);
+  const freeDrivers = applyLiveGpsToDrivers(
+    (driversRaw || []).filter((driver) => isDriverEligibleForDispatch(driver) && !busyIds.has(driver.id)),
+    locByDriver,
+  ).filter((driver) => (
+    Number.isFinite(Number(driver.current_lat))
+    && Number.isFinite(Number(driver.current_lng))
+    && hasDriverNotificationChannel(driver)
+  ));
+  if (!freeDrivers.length) return 0;
+
+  const wakeIds = queuedTripIdsNearFreeDrivers({
+    trips: queuedTrips,
+    freeDrivers,
+    pickupOf: (trip) => {
+      const pickup = resolveDispatchPickupCoords(trip);
+      return { lat: pickup.pickupLat, lng: pickup.pickupLng };
+    },
+    excludedIdsOf: (trip) => new Set(getActiveDispatchExcludedDriverIds(trip?.wa_context)),
+    samePhone: (trip, driver) => {
+      const passengerPhone = normalizePhone(trip.passenger_phone || '');
+      return Boolean(passengerPhone) && normalizePhone(driver.phone || '') === passengerPhone;
+    },
+    distanceKm: (driver, pickupLat, pickupLng) => haversineKm(
+      Number(driver.current_lat),
+      Number(driver.current_lng),
+      pickupLat,
+      pickupLng,
+    ),
+  });
+  if (!wakeIds.length) return 0;
+
+  const nowIso = new Date().toISOString();
+  const { error: queueError } = await supabase
+    .from('dispatch_queue')
+    .update({ next_attempt_at: nowIso, updated_at: nowIso })
+    .in('trip_id', wakeIds)
+    .eq('queue_status', 'queued');
+  if (queueError) {
+    logWorker('wake_queued_trips_error', { error: summarizeDbError(queueError) });
+    return 0;
+  }
+
+  await supabase
+    .from('trips')
+    .update({ next_dispatch_at: nowIso })
+    .in('id', wakeIds)
+    .eq('status', 'queued');
+
+  logWorker('queued_trips_woken_for_free_driver', {
+    count: wakeIds.length,
+    maxKm: MAX_DRIVER_SEARCH_KM,
+    tripIds: wakeIds,
+  });
+  return wakeIds.length;
+}
+
 async function runDispatchWorkerCycle() {
   const nowMs = Date.now();
   const pushBackoffActive = pushProviderBackoffUntil > nowMs;
@@ -2147,6 +2260,7 @@ async function runDispatchWorkerCycle() {
   const scheduledResult = await promoteScheduledTripsBeforeDispatch();
   const expireResult = await expireTimedOutPendingTrips();
   const recoverResult = await recoverDriverCancelledPickupTrips();
+  const wokenQueued = await wakeQueuedTripsNearFreeDrivers();
   const claimedItems = await claimDispatchBatch();
 
   const summary = {
@@ -2154,6 +2268,7 @@ async function runDispatchWorkerCycle() {
     scheduledPromoted: scheduledResult.promoted || 0,
     scheduledScanned: scheduledResult.scanned || 0,
     claimed: claimedItems.length,
+    wokenQueued,
     assigned: 0,
     noDriver: 0,
     notifyFailed: 0,
