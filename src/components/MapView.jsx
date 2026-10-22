@@ -23,6 +23,7 @@ import PassengerInfoWindow from './PassengerInfoWindow';
 import { shouldShowDriverOnMap } from '../lib/driverPresence';
 import { useSmoothMapCoords } from '../hooks/useSmoothMapCoords';
 import { extractMapClickLngLat } from '../lib/mapPointPick';
+import MapLandmarks from './MapLandmarks';
 
 const MAP_CSS = `
 .leaflet-container {
@@ -305,6 +306,7 @@ const MapView = memo(function MapView({
           crossOrigin
         />
         <ZoomControl position="topright" />
+        <MapLandmarks />
         <MapBridge
           mapRef={mapRef}
           mapFullscreen={mapFullscreen}
