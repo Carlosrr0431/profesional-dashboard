@@ -49,6 +49,13 @@ describe('lookup_address (remis)', () => {
     expect(result.canonical).not.toMatch(/paseo/i);
   });
 
+  it('la merced sin altura no es un retiro listo', () => {
+    const result = lookupAddress('la merced');
+    expect(result.found).toBe(true);
+    expect(result.kind).toBe('barrio');
+    expect(result.needs_number).toBe(true);
+  });
+
   it('toma barrio tres cerritos y no el hospital', () => {
     const result = lookupAddress('barrio tres cerritos');
     expect(result.found).toBe(true);

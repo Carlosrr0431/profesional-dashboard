@@ -18,8 +18,11 @@ export async function GET(request) {
       );
     }
 
-    // 1) POI cacheado en Supabase (misma prioridad que /api/geo/geocode con placeId).
-    const cached = await getCachedGooglePlaceDetailsNearCoords(lat, lng).catch(() => null);
+    // exact=1: pin del pasajero. Un lugar cacheado a hasta 120 m devolvería otra calle.
+    const exact = searchParams.get('exact') === '1';
+    const cached = exact
+      ? null
+      : await getCachedGooglePlaceDetailsNearCoords(lat, lng).catch(() => null);
     if (cached?.formattedAddress) {
       return NextResponse.json({
         ok: true,

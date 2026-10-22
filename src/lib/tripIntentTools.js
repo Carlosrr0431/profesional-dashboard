@@ -41,6 +41,7 @@ const BARRIO_ALIASES = [
   { re: /\bcasta[nñ]ares\b/, label: 'Barrio Castañares, Salta' },
   { re: /\blimache\b/, label: 'Barrio Limache, Salta' },
   { re: /\bportezuelo\b/, label: 'Barrio Portezuelo, Salta' },
+  { re: /\bla\s+merced\b/, label: 'La Merced, Salta' },
 ];
 
 const EVENT_NOT_ADDRESS_RE = /\b(?:show|concierto|recital|obra(?:\s+de\s+teatro)?|partido)\s+de\b/;
@@ -183,8 +184,8 @@ export function lookupAddress(rawQuery) {
       found: true,
       kind: 'barrio',
       canonical: barrio,
-      needs_number: false,
-      needs_gps: false,
+      needs_number: true,
+      needs_gps: true,
       ambiguous: false,
       homonym: null,
     };
@@ -212,8 +213,8 @@ export function lookupAddress(rawQuery) {
       found: true,
       kind: 'barrio',
       canonical: barrio,
-      needs_number: false,
-      needs_gps: false,
+      needs_number: true,
+      needs_gps: true,
       ambiguous: false,
       homonym: null,
     };
