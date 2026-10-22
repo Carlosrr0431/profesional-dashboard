@@ -22,8 +22,8 @@ function getMarkerStyle(isMultiSelected, driver) {
   // Misma regla que el sidebar: no confiar solo en isOnline cacheado.
   if (resolveDriverIsOnline(driver)) {
     return {
-      fill: '#16A34A',
-      text: '#15803D',
+      fill: '#2563EB',
+      text: '#1D4ED8',
       opacity: 1,
     };
   }
