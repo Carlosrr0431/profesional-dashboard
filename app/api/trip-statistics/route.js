@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { isWithinSaltaCapital } from '../../../src/lib/constants';
 import { buildLocationViews } from '../../../src/lib/tripLocationStats';
 import { detectTripSource, emptySourceCounts } from '../../../src/lib/detectTripSource';
-import { fetchAllPages } from '../../../src/lib/pagedQuery';
+import { fetchAllPages, SUPABASE_PAGE_SIZE } from '../../../src/lib/pagedQuery';
 
 const TRIP_SELECT = [
   'id',
@@ -19,7 +19,6 @@ const TRIP_SELECT = [
   'destination_lng',
   'destination_address',
   'created_at',
-  'completed_at',
   'cancel_reason',
   'notes',
   'driver_id',
@@ -358,46 +357,130 @@ function buildStatistics(trips, range, driversMap = {}) {
   };
 }
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 30;
+
+const STATS_CACHE_MS = 20_000;
+const STATS_PAGE_CONCURRENCY = 6;
+const statsCache = new Map();
+const statsInflight = new Map();
+
+function statsCacheKey(range) {
+  const start = range.start ? Math.floor(range.start.getTime() / 60000) : '';
+  const end = range.end ? Math.floor(range.end.getTime() / 60000) : '';
+  return `${range.period}|${range.date || ''}|${range.month || ''}|${start}|${end}`;
+}
+
+function compactHeatmap(points) {
+  const buckets = new Map();
+  for (const point of points || []) {
+    const lat = Math.round(Number(point.lat) * 1000) / 1000;
+    const lng = Math.round(Number(point.lng) * 1000) / 1000;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const key = `${lat},${lng}`;
+    const weight = Number(point.weight) > 0 ? Number(point.weight) : 1;
+    const prev = buckets.get(key);
+    if (prev) prev.weight += weight;
+    else buckets.set(key, { lat, lng, weight });
+  }
+  return [...buckets.values()];
+}
+
+function statsForClient(stats) {
+  const { pickup, destination, combined } = stats.locationViews;
+  const payload = {
+    ...stats,
+    locationViews: {
+      pickup: { ...pickup, heatmapPoints: compactHeatmap(pickup.heatmapPoints) },
+      destination: { ...destination, heatmapPoints: compactHeatmap(destination.heatmapPoints) },
+      combined: {
+        label: combined.label,
+        topZones: combined.topZones,
+        pointCount: combined.pointCount,
+        tripsWithPoint: combined.tripsWithPoint,
+      },
+    },
+  };
+  delete payload.heatmapPoints;
+  return payload;
+}
+
+async function loadDriverNames(supabase, driverIds) {
+  const driversMap = {};
+  const chunks = [];
+  for (let i = 0; i < driverIds.length; i += 80) chunks.push(driverIds.slice(i, i + 80));
+  if (!chunks.length) return driversMap;
+
+  const pages = await Promise.all(chunks.map(async (chunk) => {
+    const { data, error } = await supabase
+      .from('drivers')
+      .select('id, full_name, vehicle_plate')
+      .in('id', chunk);
+    if (error) throw error;
+    return data || [];
+  }));
+
+  for (const drivers of pages) {
+    for (const driver of drivers) driversMap[driver.id] = driver;
+  }
+  return driversMap;
+}
+
+async function loadTripStatistics(supabase, range) {
+  const trips = await fetchAllPages(async (from, to) => {
+    let query = supabase
+      .from('trips')
+      .select(TRIP_SELECT)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, to);
+
+    if (range.start) query = query.gte('created_at', range.start.toISOString());
+    if (range.end) query = query.lte('created_at', range.end.toISOString());
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
+  }, SUPABASE_PAGE_SIZE, STATS_PAGE_CONCURRENCY);
+
+  const driverIds = [...new Set(trips.map((trip) => trip.driver_id).filter(Boolean))];
+  const driversMap = await loadDriverNames(supabase, driverIds);
+  return statsForClient(buildStatistics(trips, range, driversMap));
+}
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const period = searchParams.get('period') || '30d';
     const date = searchParams.get('date') || null;
     const month = searchParams.get('month') || null;
+    const fresh = searchParams.get('fresh') === '1';
     const range = resolveRange({ period, date, month });
+    const key = statsCacheKey(range);
 
-    const supabase = getSupabaseAdmin();
-    const trips = await fetchAllPages(async (from, to) => {
-      let query = supabase
-        .from('trips')
-        .select(TRIP_SELECT)
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .range(from, to);
-
-      if (range.start) query = query.gte('created_at', range.start.toISOString());
-      if (range.end) query = query.lte('created_at', range.end.toISOString());
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return data || [];
-    });
-
-    const driverIds = [...new Set(trips.map((trip) => trip.driver_id).filter(Boolean))];
-    const driversMap = {};
-    for (let i = 0; i < driverIds.length; i += 80) {
-      const chunk = driverIds.slice(i, i + 80);
-      const { data: drivers, error: driversError } = await supabase
-        .from('drivers')
-        .select('id, full_name, vehicle_plate')
-        .in('id', chunk);
-      if (driversError) throw driversError;
-      for (const driver of drivers || []) driversMap[driver.id] = driver;
+    if (!fresh) {
+      const hit = statsCache.get(key);
+      if (hit && hit.expires > Date.now()) {
+        return NextResponse.json({ ok: true, data: hit.data });
+      }
+      const pending = statsInflight.get(key);
+      if (pending) {
+        return NextResponse.json({ ok: true, data: await pending });
+      }
     }
 
-    const stats = buildStatistics(trips, range, driversMap);
+    const job = loadTripStatistics(getSupabaseAdmin(), range).then((data) => {
+      statsCache.set(key, { data, expires: Date.now() + STATS_CACHE_MS });
+      return data;
+    });
+    statsInflight.set(key, job);
 
-    return NextResponse.json({ ok: true, data: stats });
+    try {
+      return NextResponse.json({ ok: true, data: await job });
+    } finally {
+      if (statsInflight.get(key) === job) statsInflight.delete(key);
+    }
   } catch (err) {
     return NextResponse.json(
       {

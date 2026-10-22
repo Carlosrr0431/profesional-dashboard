@@ -25,4 +25,20 @@ describe('fetchAllPages', () => {
     const rows = await fetchAllPages(() => [{ id: 'only' }]);
     expect(rows).toEqual([{ id: 'only' }]);
   });
+
+  it('pide varias páginas juntas y no suma lo que viene después de una página corta', async () => {
+    const calls = [];
+    const rows = await fetchAllPages((from) => {
+      calls.push(from);
+      if (from === 0 || from === 1000) {
+        return Array.from({ length: 1000 }, (_, i) => ({ id: `${from}-${i}` }));
+      }
+      if (from === 2000) return [{ id: 'last' }];
+      return [{ id: `extra-${from}` }];
+    }, 1000, 4);
+
+    expect(calls).toEqual([0, 1000, 2000, 3000]);
+    expect(rows).toHaveLength(2001);
+    expect(rows[2000].id).toBe('last');
+  });
 });

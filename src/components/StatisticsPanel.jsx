@@ -389,7 +389,24 @@ export default function StatisticsPanel({
   const locationViews = stats?.locationViews || null;
 
   const activeLocationView = useMemo(() => {
-    if (locationViews?.[locationView]) return locationViews[locationView];
+    const view = locationViews?.[locationView];
+    if (locationView === 'combined' && locationViews?.pickup && locationViews?.destination) {
+      const ownPoints = view?.heatmapPoints;
+      const heatmapPoints = ownPoints?.length
+        ? ownPoints
+        : [
+          ...(locationViews.pickup.heatmapPoints || []),
+          ...(locationViews.destination.heatmapPoints || []),
+        ];
+      return {
+        label: view?.label || 'Combinado',
+        topZones: view?.topZones || stats?.topZones || [],
+        pointCount: view?.pointCount || heatmapPoints.length,
+        tripsWithPoint: view?.tripsWithPoint || 0,
+        heatmapPoints,
+      };
+    }
+    if (view) return view;
     return {
       heatmapPoints: stats?.heatmapPoints || [],
       topZones: stats?.topZones || [],
