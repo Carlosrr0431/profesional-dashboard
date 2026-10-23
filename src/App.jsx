@@ -140,6 +140,7 @@ export default function App() {
   const [isDesktopLayout,   setIsDesktopLayout] = useState(false);
   const [mapPopover,        setMapPopover]       = useState(null);
   const [mapFullscreen,     setMapFullscreen]    = useState(false);
+  const [pickupMode,        setPickupMode]       = useState(false);
   const dispatchNotifiedIdsRef = useRef(new Set());
   const dispatchNotifyReadyRef = useRef(false);
 
@@ -158,6 +159,10 @@ export default function App() {
   const handleMapPickLocation = useCallback((point) => {
     mapPickSessionRef.current?.onPick?.(point);
   }, []);
+
+  useEffect(() => {
+    if (mapPickMode) setPickupMode(false);
+  }, [mapPickMode]);
 
   const openIncomingDriverVoice = useCallback((item) => {
     if (!item) return;
@@ -942,6 +947,7 @@ export default function App() {
                 onPickLocation={mapPickMode ? handleMapPickLocation : undefined}
                 mapFullscreen={mapFullscreen}
                 onToggleMapFullscreen={toggleMapFullscreen}
+                pickupMode={pickupMode}
                 onSendAudio={(driver) => {
                   setShowBroadcast(false);
                   setVoiceChatDriver(driver);
@@ -1040,7 +1046,7 @@ export default function App() {
                   aria-label="Cerrar panel"
                 />
               ) : null}
-              <div className="pointer-events-none absolute inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-50 flex max-w-full flex-col items-stretch gap-2 md:inset-x-auto md:right-4 md:left-auto md:items-end">
+              <div className="pointer-events-none absolute inset-x-3 bottom-[max(2.25rem,env(safe-area-inset-bottom))] z-50 flex max-w-full flex-col items-stretch gap-2 md:inset-x-auto md:right-4 md:left-auto md:items-end">
                 <MapDockPopovers
                   kind={mapPopover}
                   queueData={queueData}
@@ -1106,6 +1112,32 @@ export default function App() {
                         {unreadDriverVoiceCount > 9 ? '9+' : unreadDriverVoiceCount}
                       </span>
                     ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    title={pickupMode ? 'Volver a los choferes' : 'Puntos de retiro'}
+                    aria-label={pickupMode ? 'Volver a los choferes' : 'Puntos de retiro'}
+                    aria-pressed={pickupMode}
+                    onPointerEnter={() => { loadFrequentPickups().catch(() => {}); }}
+                    onClick={() => {
+                      setMapPopover(null);
+                      setPickupMode((on) => !on);
+                    }}
+                    className={`flex shrink-0 items-center rounded-full font-bold shadow-xl active:scale-[0.97] transition-all ${
+                      mapFullscreen
+                        ? 'h-12 gap-2 px-4 text-[14px] sm:h-14 sm:px-5 sm:text-[15px]'
+                        : 'h-10 gap-1.5 px-3 text-[12px] sm:h-11 sm:px-3.5 sm:text-[12.5px]'
+                    } ${
+                      pickupMode
+                        ? 'bg-emerald-600 text-white shadow-emerald-600/40'
+                        : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
+                    }`}
+                  >
+                    <svg className={mapFullscreen ? 'h-5 w-5' : 'h-4 w-4'} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 21s-6-5.33-6-11a6 6 0 1112 0c0 5.67-6 11-6 11z" />
+                      <circle cx="12" cy="10" r="2.1" strokeWidth={2} />
+                    </svg>
+                    {pickupMode ? 'Flota' : 'Puntos'}
                   </button>
                   {incomingDriverVoice[0] ? (
                     <button

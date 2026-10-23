@@ -216,6 +216,74 @@ export function selectMapPickups(list = [], minCount = MAP_PICKUP_MIN_COUNT) {
   ));
 }
 
+const PLACE_WORD = /^(?:hospital|sanatorio|clinica|escuela|colegio|universidad|hotel|hostal|terminal|plaza|shopping|supermercado|farmacia|iglesia|catedral|parroquia|casino|residencial|barrio|parque|club|instituto|ministerio|municipalidad|banco|estacion|aeropuerto|cementerio)\b/;
+const PLACE_CUT = /\s+(?:\||-|–|—)\s+|\s+affiliated\b/i;
+
+function isStreetPart(part) {
+  const folded = foldText(part);
+  if (PLACE_WORD.test(folded)) return false;
+  if (/\s(?:&|y)\s/.test(folded)) return true;
+  return /\b\d{1,5}[a-z]?\b/.test(folded);
+}
+
+function clipCaption(text, max = 32) {
+  const clean = String(text || '').split(PLACE_CUT)[0].replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  const slice = clean.slice(0, max - 1);
+  const word = slice.lastIndexOf(' ');
+  return `${(word > 14 ? slice.slice(0, word) : slice).trim()}…`;
+}
+
+/** Calle y altura si la dirección es eso; si es un lugar (hospital, escuela, comercio), el nombre del lugar. */
+export function mapPickupCaption(address) {
+  const { title, detail } = formatPickupLabel(address);
+  const parts = [title, ...String(detail || '').split(', ')].map((part) => part.trim()).filter(Boolean);
+  const place = parts.find((part) => !isStreetPart(part));
+  const street = parts.find((part) => isStreetPart(part));
+  return clipCaption(place || street || title || '');
+}
+
+/** Lado estable para que dos puntos vecinos no estiren el texto hacia el mismo lado. */
+export function mapPickupLabelSide(lat, lng) {
+  const col = Math.round(Number(lng) * 5000);
+  const row = Math.round(Number(lat) * 5000);
+  return ((col + row) & 1) === 0 ? 'right' : 'left';
+}
+
+export function pickupLabelBox(x, y, caption, side) {
+  const textW = Math.min(168, Math.max(56, Math.ceil(String(caption || '').length * 6.4) + 14));
+  const width = 23 + textW;
+  const height = 24;
+  const left = side === 'right' ? x - 9 : x - (width - 9);
+  return { x: left, y: y - height / 2, w: width, h: height };
+}
+
+function boxesOverlap(a, b, gap = 8) {
+  return a.x < b.x + b.w + gap
+    && a.x + a.w + gap > b.x
+    && a.y < b.y + b.h + gap
+    && a.y + a.h + gap > b.y;
+}
+
+/** Qué puntos muestran texto: primero los más pedidos, y nunca uno encima de otro. */
+export function layoutPickupLabels(points = [], { selectedId = null } = {}) {
+  const ordered = [...points].sort((a, b) => (
+    (Number(b.pickup?.count) || 0) - (Number(a.pickup?.count) || 0)
+    || String(a.pickup?.id).localeCompare(String(b.pickup?.id))
+  ));
+  const boxes = [];
+  const labeled = new Set();
+  for (const point of ordered) {
+    const box = pickupLabelBox(point.x, point.y, point.caption, point.side);
+    const forced = point.pickup?.id != null && point.pickup.id === selectedId;
+    if (forced || !boxes.some((other) => boxesOverlap(other, box))) {
+      labeled.add(point.pickup.id);
+      boxes.push(box);
+    }
+  }
+  return labeled;
+}
+
 /** "AV GRL BELGRANO 1668, Salta" → { title: "Av Grl Belgrano 1668", detail: "" } */
 export function formatPickupLabel(address) {
   const parts = [];

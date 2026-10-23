@@ -5,6 +5,8 @@ import {
   filterPickups,
   formatArtMinute,
   formatPickupLabel,
+  layoutPickupLabels,
+  mapPickupCaption,
   pickupKey,
   rankPickupsForTime,
   selectMapPickups,
@@ -140,6 +142,54 @@ describe('selectMapPickups', () => {
       { id: 'd', count: 54, lat: -24.79, lng: -65.41 },
     ]);
     expect(shown.map((item) => item.id)).toEqual(['a', 'd']);
+  });
+});
+
+describe('mapPickupCaption', () => {
+  it('muestra calle y altura, y el lugar cuando la dirección es un hospital o un comercio', () => {
+    expect(mapPickupCaption('SANTIAGO DEL ESTERO 1432, Salta')).toBe('Santiago del Estero 1432');
+    expect(mapPickupCaption('Caseros 1088, A4400 Salta, Argentina')).toBe('Caseros 1088');
+    expect(mapPickupCaption('Hospital Militar Salta, Av. Gral. Arenales 1500')).toBe('Hospital Militar Salta');
+    expect(mapPickupCaption('Escuela Bernardino Rivadavia, Zuviría 890, Salta')).toBe('Escuela Bernardino Rivadavia');
+    expect(mapPickupCaption('FADUA S.A. | Concesionario Oficial Fiat (Venta Directa, Taller y Postventa Salta), Av. Alfredo Palacios 2650'))
+      .toBe('FADUA S.A.');
+  });
+
+  it('acorta un nombre largo sin cortar a la mitad de una palabra', () => {
+    expect(mapPickupCaption('Catedral Basílica de Salta - Santuario del Señor y la Virgen del Milagro, España 558'))
+      .toBe('Catedral Basílica de Salta');
+    const caption = mapPickupCaption('Centro de Rehabilitación y Medicina Física del Norte Argentino, Leguizamón 400');
+    expect(caption.endsWith('…')).toBe(true);
+    expect(caption.length).toBeLessThanOrEqual(32);
+    expect(caption.startsWith('Centro de Rehabilitación')).toBe(true);
+  });
+});
+
+describe('layoutPickupLabels', () => {
+  const point = (id, count, x, y) => ({
+    pickup: { id, count },
+    x,
+    y,
+    caption: 'Caseros 1088',
+    side: 'right',
+  });
+
+  it('deja el texto del más pedido y esconde el que se le monta encima', () => {
+    const labeled = layoutPickupLabels([
+      point('cerca', 4, 100, 100),
+      point('lejos', 3, 320, 100),
+      point('encima', 20, 110, 104),
+    ]);
+    expect([...labeled].sort()).toEqual(['encima', 'lejos']);
+  });
+
+  it('el punto elegido se lee aunque se superponga', () => {
+    const labeled = layoutPickupLabels([
+      point('grande', 30, 100, 100),
+      point('elegido', 3, 108, 100),
+    ], { selectedId: 'elegido' });
+    expect(labeled.has('grande')).toBe(true);
+    expect(labeled.has('elegido')).toBe(true);
   });
 });
 
