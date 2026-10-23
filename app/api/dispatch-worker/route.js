@@ -805,15 +805,10 @@ async function chooseDriverForClaim(
     ? withCoords.filter((driver) => normalizePhone(driver.phone || '') !== passengerPhone)
     : withCoords;
 
+  // La lista solo frena un nuevo viaje paralelo mientras el chofer sigue ocupado.
+  // Libre y a ≤2 km del retiro, entra igual aunque haya rechazado o no haya podido tomar.
   const withoutExcluded = withoutSamePhone.filter((driver) => !excludedDriverIdsSet.has(driver.id));
   const excludedFilteredCount = Math.max(0, withoutSamePhone.length - withoutExcluded.length);
-  if (excludedFilteredCount > 0) {
-    logWorkerVerbose('driver_excluded_filtered', {
-      tripId: trip?.id || null,
-      filtered: excludedFilteredCount,
-      excludedDriverIds: [...excludedDriverIdsSet],
-    });
-  }
 
   const samePhoneFilteredCount = Math.max(0, withCoords.length - withoutSamePhone.length);
   if (samePhoneFilteredCount > 0) {
@@ -884,48 +879,8 @@ async function chooseDriverForClaim(
     unacceptedOffers,
   };
 
-  if (!withoutExcluded.length) {
-    const busyOffer = selectBusyNextTripOffer(busyOfferArgs);
-    if (busyOffer) return busyOffer;
-
-    const expansionHint = buildRadiusExpansionHint({
-      pickupLat,
-      pickupLng,
-      allowedRadii,
-      drivers: withoutSamePhone,
-      excludedDriverIds: excludedDriverIdsSet,
-      busyDriverIds,
-    });
-    if (expansionHint) {
-      logWorker('driver_select_ring_exhausted_expand', {
-        tripId: trip?.id || null,
-        attemptNo: normalizedAttemptNo,
-        excludedFiltered: excludedFilteredCount,
-        maxAllowedRadius: expansionHint.maxAllowedRadius,
-        nearestBeyondKm: Number(expansionHint.nearestBeyondKm.toFixed(3)),
-      });
-      return expansionHint;
-    }
-
-    logWorker('driver_select_no_candidate', {
-      tripId: trip?.id || null,
-      attemptNo: normalizedAttemptNo,
-      claimAttemptNo: normalizedClaimAttemptNo,
-      queueAgeSeconds,
-      availableDrivers: (drivers || []).length,
-      withCoords: withCoords.length,
-      samePhoneFiltered: samePhoneFilteredCount,
-      excludedFiltered: excludedFilteredCount,
-      busyFiltered: [...withoutSamePhone].filter((driver) => busyDriverIds.has(driver.id)).length,
-      allowedRadiiKm: allowedRadii,
-    });
-    return null;
-  }
-
-  const driverIds = withoutExcluded.map((driver) => driver.id).filter(Boolean);
-  if (!driverIds.length) return null;
-  const candidateDrivers = withoutExcluded.filter((driver) => !busyDriverIds.has(driver.id));
-  const busyFilteredCount = Math.max(0, withoutExcluded.length - candidateDrivers.length);
+  const candidateDrivers = withoutSamePhone.filter((driver) => !busyDriverIds.has(driver.id));
+  const busyFilteredCount = Math.max(0, withoutSamePhone.length - candidateDrivers.length);
   if (!candidateDrivers.length) {
     const busyOffer = selectBusyNextTripOffer(busyOfferArgs);
     if (busyOffer) return busyOffer;
@@ -2198,7 +2153,7 @@ async function wakeQueuedTripsNearFreeDrivers() {
       const pickup = resolveDispatchPickupCoords(trip);
       return { lat: pickup.pickupLat, lng: pickup.pickupLng };
     },
-    excludedIdsOf: (trip) => new Set(getActiveDispatchExcludedDriverIds(trip?.wa_context)),
+    excludedIdsOf: () => new Set(),
     samePhone: (trip, driver) => {
       const passengerPhone = normalizePhone(trip.passenger_phone || '');
       return Boolean(passengerPhone) && normalizePhone(driver.phone || '') === passengerPhone;

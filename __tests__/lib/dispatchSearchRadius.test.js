@@ -24,6 +24,18 @@ describe('radio de búsqueda de choferes', () => {
     expect(ids).toEqual(['cerca']);
   });
 
+  test('un chofer que ya estaba excluido igual despierta el viaje si está a menos de 2 km', () => {
+    const ids = queuedTripIdsNearFreeDrivers({
+      trips: [{ id: 'antes-excluido' }],
+      freeDrivers: [{ id: 'libre' }],
+      pickupOf: () => ({ lat: 1.4, lng: 0 }),
+      excludedIdsOf: () => new Set(),
+      samePhone: () => false,
+      distanceKm: (_driver, pickupLat) => pickupLat,
+    });
+    expect(ids).toEqual(['antes-excluido']);
+  });
+
   test('no despierta el viaje si el chofer libre está a más de 2 km', () => {
     const ids = queuedTripIdsNearFreeDrivers({
       trips: [{ id: 'lejos' }],
