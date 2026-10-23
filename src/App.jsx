@@ -1052,7 +1052,7 @@ export default function App() {
                   aria-label="Cerrar panel"
                 />
               ) : null}
-              <div className="pointer-events-none absolute inset-x-3 bottom-[max(2.25rem,env(safe-area-inset-bottom))] z-50 flex max-w-full flex-col items-stretch gap-2 md:inset-x-auto md:right-4 md:left-auto md:items-end">
+              <div className="pointer-events-none absolute inset-x-3 bottom-[max(2.25rem,env(safe-area-inset-bottom))] z-[600] flex max-w-full flex-col items-stretch gap-2 md:inset-x-auto md:right-4 md:left-auto md:items-end">
                 <MapDockPopovers
                   kind={mapPopover}
                   queueData={queueData}
@@ -1121,8 +1121,8 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    title={pickupMode ? 'Volver a los choferes' : 'Puntos de retiro'}
-                    aria-label={pickupMode ? 'Volver a los choferes' : 'Puntos de retiro'}
+                    title={pickupMode ? 'Volver a los choferes' : 'Viajes rápidos en el mapa'}
+                    aria-label={pickupMode ? 'Volver a los choferes' : 'Viajes rápidos en el mapa'}
                     aria-pressed={pickupMode}
                     onPointerEnter={() => { loadFrequentPickups().catch(() => {}); }}
                     onClick={() => {
@@ -1143,7 +1143,7 @@ export default function App() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 21s-6-5.33-6-11a6 6 0 1112 0c0 5.67-6 11-6 11z" />
                       <circle cx="12" cy="10" r="2.1" strokeWidth={2} />
                     </svg>
-                    {pickupMode ? 'Flota' : 'Puntos'}
+                    {pickupMode ? 'Flota' : 'Al toque'}
                   </button>
                   {incomingDriverVoice[0] ? (
                     <button
