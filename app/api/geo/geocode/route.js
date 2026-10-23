@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { geocodeAddress, getPlaceDetails } from '../../../../src/lib/geo/index.js';
-import { isWithinSaltaCapital } from '../../../../src/lib/constants';
+import { isWithinServiceArea } from '../../../../src/lib/constants';
 import { logGeocodeErrorAsync } from '../../../../src/lib/geocodeErrorLog';
 import { isGoogleConfigured } from '../../../../shared/geo/googlePlaces.js';
+import { coordsAllowedForQuery } from '../../../../shared/geo/mapConfig.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,8 +55,12 @@ export async function GET(request) {
       );
     }
 
-    if (!isWithinSaltaCapital(result.lat, result.lng)) {
-      const boundsError = 'La dirección debe estar en Salta Capital';
+    // Texto libre fuera de Capital solo si nombra la localidad (evita "Güemes 700" en Cerrillos).
+    const allowed = placeId
+      ? isWithinServiceArea(result.lat, result.lng)
+      : coordsAllowedForQuery(result.lat, result.lng, address);
+    if (!allowed) {
+      const boundsError = 'La dirección debe estar en la zona de cobertura: Salta, Vaqueros, Campo Quijano y alrededores.';
       logGeocodeErrorAsync({
         ...context,
         errorMessage: boundsError,

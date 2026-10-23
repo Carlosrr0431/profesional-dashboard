@@ -196,8 +196,8 @@ export default function NewTripModal({
   }, [canShowOnMap]);
 
   const onPickupSelect = (place) => {
-    const lat = Number(place?.lat);
-    const lng = Number(place?.lng);
+    const lat = place?.lat == null ? NaN : Number(place.lat);
+    const lng = place?.lng == null ? NaN : Number(place.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       setError('No se pudo ubicar la dirección de origen. Elegila de nuevo de la lista.');
       setPickupLat(null); setPickupLng(null); setPlaceId(''); setPickupLabel('');
@@ -220,8 +220,8 @@ export default function NewTripModal({
   };
 
   const onDestSelect = (place) => {
-    const lat = Number(place?.lat);
-    const lng = Number(place?.lng);
+    const lat = place?.lat == null ? NaN : Number(place.lat);
+    const lng = place?.lng == null ? NaN : Number(place.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       setError('No se pudo ubicar el destino. Elegilo de nuevo de la lista.');
       setDestLabel(''); setDestLat(null); setDestLng(null); setDestGeocodeSource(null);
