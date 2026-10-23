@@ -428,6 +428,11 @@ export default function App() {
     scheduledData.refetch?.();
   }, [queueData, liveTripsData, scheduledData]);
 
+  const handlePickupDispatched = useCallback(() => {
+    setPickupMode(false);
+    refetchTripSurfaces();
+  }, [refetchTripSurfaces]);
+
   const activeTripCount = listActiveDockTrips(liveTripsData.allTrips).length;
 
   const handleNewTripSuccess = useCallback((trip, meta) => {
@@ -954,6 +959,7 @@ export default function App() {
                 mapFullscreen={mapFullscreen}
                 onToggleMapFullscreen={toggleMapFullscreen}
                 pickupMode={pickupMode}
+                onPickupDispatched={handlePickupDispatched}
                 onSendAudio={(driver) => {
                   setShowBroadcast(false);
                   setVoiceChatDriver(driver);

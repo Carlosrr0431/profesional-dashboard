@@ -364,6 +364,7 @@ const MapView = memo(function MapView({
   pickMode = null,
   onPickLocation,
   pickupMode = false,
+  onPickupDispatched,
 }) {
   const [activeInfo, setActiveInfo] = useState(null);
   const [pickupPoints, setPickupPoints] = useState(null);
@@ -606,6 +607,7 @@ const MapView = memo(function MapView({
               <PickupDispatchModal
                 pickup={activeInfo.data}
                 onClose={() => setActiveInfo(null)}
+                onDispatched={onPickupDispatched}
               />
             </div>
           </div>
