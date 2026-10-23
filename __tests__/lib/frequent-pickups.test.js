@@ -1,12 +1,17 @@
 import {
-  artMinuteOfDay,
+  artWeekMinute,
   buildFrequentPickups,
   filterPickups,
   formatArtMinute,
   formatPickupLabel,
   pickupKey,
-  rankPickupsForMinute,
+  rankPickupsForTime,
 } from '../../src/lib/frequentPickups';
+
+const TUE = 2 * 1440;
+const FRI = 5 * 1440;
+const SAT = 6 * 1440;
+const hm = (h, m = 0) => h * 60 + m;
 
 function wa(address, lat, lng, createdAt = '2026-10-01T12:00:00Z') {
   return {
@@ -66,33 +71,35 @@ describe('buildFrequentPickups', () => {
 describe('franja horaria', () => {
   const at = (hhmm) => `2026-10-20T${hhmm}:00-03:00`;
 
-  it('usa la hora argentina y, en programados, la hora del viaje', () => {
-    expect(artMinuteOfDay('2026-10-23T22:15:00Z')).toBe(19 * 60 + 15);
+  it('usa día y hora argentinos y, en programados, la hora del viaje', () => {
+    expect(artWeekMinute('2026-10-23T22:15:00Z')).toBe(FRI + hm(19, 15));
     const [item] = buildFrequentPickups([
       wa('Caseros 1088, Salta', -24.7901, -65.4102, at('19:10')),
       { ...wa('Caseros 1088, Salta', -24.7901, -65.4102, at('08:00')), scheduled_for: at('21:30') },
     ]);
-    expect(item.times).toEqual([19 * 60 + 10, 21 * 60 + 30]);
+    expect(item.times).toEqual([TUE + hm(19, 10), TUE + hm(21, 30)]);
   });
 
-  it('pone primero lo pedido cerca de esta hora y después el resto por total', () => {
+  it('pone primero lo pedido cerca de esta hora, suma más el mismo día de semana y deja el resto por total', () => {
     const list = [
-      { id: 'a', count: 10, times: Array(10).fill(3 * 60) },
-      { id: 'b', count: 2, times: [19 * 60 + 10, 19 * 60 + 50] },
-      { id: 'c', count: 3, times: [18 * 60 + 20, 9 * 60, 9 * 60] },
-      { id: 'd', count: 1, times: [19 * 60 + 15] },
+      { id: 'a', count: 10, times: Array(10).fill(TUE + hm(3)) },
+      { id: 'b', count: 2, times: [TUE + hm(19, 10), TUE + hm(19, 50)] },
+      { id: 'c', count: 3, times: [FRI + hm(18, 20), TUE + hm(9), TUE + hm(9)] },
+      { id: 'd', count: 1, times: [TUE + hm(19, 15)] },
+      { id: 'e', count: 1, times: [FRI + hm(19, 5)] },
     ];
-    const ranked = rankPickupsForMinute(list, 19 * 60 + 15);
-    expect(ranked.map((item) => item.id)).toEqual(['b', 'd', 'c', 'a']);
-    expect(ranked.map((item) => item.hourCount)).toEqual([2, 1, 1, 0]);
+    const ranked = rankPickupsForTime(list, FRI + hm(19, 15));
+    expect(ranked.map((item) => item.id)).toEqual(['b', 'e', 'd', 'c', 'a']);
+    expect(ranked.map((item) => item.hourCount)).toEqual([2, 1, 1, 1, 0]);
+    expect(ranked.map((item) => item.dayCount)).toEqual([0, 1, 0, 1, 0]);
   });
 
   it('cruza la medianoche', () => {
-    const ranked = rankPickupsForMinute([
-      { id: 'tarde', count: 5, times: [12 * 60] },
-      { id: 'noche', count: 1, times: [23 * 60 + 50] },
-    ], 20);
-    expect(ranked[0]).toMatchObject({ id: 'noche', hourCount: 1 });
+    const ranked = rankPickupsForTime([
+      { id: 'tarde', count: 5, times: [SAT + hm(12)] },
+      { id: 'noche', count: 1, times: [FRI + hm(23, 50)] },
+    ], SAT + 20);
+    expect(ranked[0]).toMatchObject({ id: 'noche', hourCount: 1, dayCount: 0 });
     expect(formatArtMinute(20 - 60)).toBe('23:20');
     expect(formatArtMinute(23 * 60 + 30 + 60)).toBe('00:30');
   });

@@ -5,11 +5,13 @@ import { DockCard } from './MapDockPopovers';
 import { useToast } from '../context/ToastContext';
 import {
   PICKUP_WINDOW_MINUTES,
-  artMinuteOfDay,
+  WEEKDAY_NAMES,
+  WEEKDAY_PLURALS,
+  artWeekMinute,
   filterPickups,
   formatArtMinute,
   formatPickupLabel,
-  rankPickupsForMinute,
+  rankPickupsForTime,
 } from '../lib/frequentPickups';
 
 const FRESH_MS = 5 * 60_000;
@@ -53,11 +55,15 @@ function Spinner() {
   );
 }
 
-function PickupRow({ item, rank, maxHour, sending, disabled, onPick }) {
+function PickupRow({ item, rank, maxHour, dayLabel, sending, disabled, onPick }) {
   const { title, detail } = formatPickupLabel(item.address);
   const hot = item.hourCount > 0;
   const share = hot ? Math.max(6, Math.round((item.hourCount / maxHour) * 100)) : 0;
-  const meta = [detail, hot ? `${item.count} en total` : null].filter(Boolean).join(' · ');
+  const meta = [
+    detail,
+    hot ? `${item.count} en total` : null,
+    item.dayCount > 0 ? `${item.dayCount} los ${dayLabel}` : null,
+  ].filter(Boolean).join(' · ');
   const podium = rank != null && rank <= 3;
 
   return (
@@ -136,8 +142,10 @@ export default function ExpressDispatchPopover({ onDispatched }) {
     if (window.matchMedia('(min-width: 768px)').matches) inputRef.current?.focus();
   }, [reload]);
 
-  const [minute] = useState(() => artMinuteOfDay());
-  const ranked = useMemo(() => rankPickupsForMinute(items || [], minute), [items, minute]);
+  const [weekMinute] = useState(() => artWeekMinute());
+  const minute = weekMinute % 1440;
+  const weekday = Math.floor(weekMinute / 1440);
+  const ranked = useMemo(() => rankPickupsForTime(items || [], weekMinute), [items, weekMinute]);
   const maxHour = useMemo(() => ranked.reduce((max, item) => Math.max(max, item.hourCount), 0), [ranked]);
   const searching = Boolean(query.trim());
   const results = useMemo(
@@ -211,6 +219,7 @@ export default function ExpressDispatchPopover({ onDispatched }) {
               item={item}
               rank={searching ? null : index + 1}
               maxHour={maxHour}
+              dayLabel={WEEKDAY_PLURALS[weekday]}
               sending={sendingId === item.id}
               disabled={Boolean(sendingId)}
               onPick={dispatch}
@@ -227,7 +236,7 @@ export default function ExpressDispatchPopover({ onDispatched }) {
   if (searching) {
     resultLabel = `${results.length >= SEARCH_LIMIT ? `${SEARCH_LIMIT}+` : results.length} ${results.length === 1 ? 'resultado' : 'resultados'}`;
   } else if (maxHour > 0) {
-    resultLabel = `Más pedidos a esta hora · ${windowLabel}`;
+    resultLabel = `Más pedidos a esta hora · ${WEEKDAY_NAMES[weekday]} ${windowLabel}`;
   }
 
   return (

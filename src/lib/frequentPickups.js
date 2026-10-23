@@ -6,19 +6,23 @@ const SAME_PLACE_METERS = 150;
 const NOISE_WORDS = /\b(?:av|avda|avenida|gral|grl|general|pje|psje|pasaje|dr|doctor|cnel|coronel|calle|salta|capital|argentina|provincia|n|nro|numero)\b/g;
 const CITY_PART = /^(?:[a-z]\d{4}[a-z]{0,3}\s+)?(?:salta(?: capital)?|capital|argentina|provincia de salta)$/;
 const SMALL_WORDS = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'e']);
-const ART_CLOCK = new Intl.DateTimeFormat('en-GB', {
+const ART_CLOCK = new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/Argentina/Buenos_Aires',
+  weekday: 'short',
   hour: '2-digit',
   minute: '2-digit',
   hourCycle: 'h23',
 });
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+export const WEEKDAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+export const WEEKDAY_PLURALS = ['domingos', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados'];
 
-/** Minuto del día en hora argentina (0–1439). */
-export function artMinuteOfDay(value = new Date()) {
+/** Minuto de la semana en hora argentina: domingo 00:00 = 0, sábado 23:59 = 10079. */
+export function artWeekMinute(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  const [hour, minute] = ART_CLOCK.format(date).split(':').map(Number);
-  return (hour % 24) * 60 + minute;
+  const parts = Object.fromEntries(ART_CLOCK.formatToParts(date).map((part) => [part.type, part.value]));
+  return WEEKDAYS.indexOf(parts.weekday) * 1440 + (Number(parts.hour) % 24) * 60 + Number(parts.minute);
 }
 
 export function foldText(value) {
@@ -107,8 +111,8 @@ export function buildFrequentPickups(trips = [], { isAllowed = () => true } = {}
     bucket.points.set(pointKey, (bucket.points.get(pointKey) || 0) + 1);
     const at = trip.created_at || null;
     if (at && (!bucket.lastAt || at > bucket.lastAt)) bucket.lastAt = at;
-    const minute = artMinuteOfDay(trip.scheduled_for || trip.created_at);
-    if (minute != null) bucket.times.push(minute);
+    const weekMinute = artWeekMinute(trip.scheduled_for || trip.created_at);
+    if (weekMinute != null) bucket.times.push(weekMinute);
   }
 
   const list = [];
@@ -137,32 +141,38 @@ export function buildFrequentPickups(trips = [], { isAllowed = () => true } = {}
 
 /** Franja alrededor de la hora actual; cada viaje pesa más cuanto más cerca de esta hora. */
 export const PICKUP_WINDOW_MINUTES = 60;
+/** Con pocas semanas de historia, solo el mismo día de semana acierta la mitad: se suma, no se filtra. */
+export const SAME_WEEKDAY_WEIGHT = 1.5;
 
 function minutesApart(a, b) {
   const diff = Math.abs(a - b) % 1440;
   return Math.min(diff, 1440 - diff);
 }
 
-/** Primero los retiros pedidos cerca de esta hora (hora argentina), después el resto por total. */
-export function rankPickupsForMinute(list = [], minute, windowMinutes = PICKUP_WINDOW_MINUTES) {
+/** Primero los retiros pedidos cerca de esta hora (más si fue el mismo día de semana), después el resto por total. */
+export function rankPickupsForTime(list = [], weekMinute, windowMinutes = PICKUP_WINDOW_MINUTES) {
+  const weekday = Math.floor(weekMinute / 1440);
   return list
     .map((item) => {
       let hourCount = 0;
+      let dayCount = 0;
       let score = 0;
       for (const time of item.times || []) {
-        const gap = minutesApart(time, minute);
+        const gap = minutesApart(time, weekMinute);
         if (gap > windowMinutes) continue;
+        const sameDay = Math.floor(time / 1440) === weekday;
         hourCount += 1;
-        score += 1 - gap / windowMinutes;
+        if (sameDay) dayCount += 1;
+        score += (1 - gap / windowMinutes) * (sameDay ? SAME_WEEKDAY_WEIGHT : 1);
       }
-      return { item, hourCount, score };
+      return { item, hourCount, dayCount, score };
     })
     .sort((a, b) => (
       b.score - a.score
       || b.item.count - a.item.count
       || String(b.item.lastAt).localeCompare(String(a.item.lastAt))
     ))
-    .map(({ item, hourCount }) => ({ ...item, hourCount }));
+    .map(({ item, hourCount, dayCount }) => ({ ...item, hourCount, dayCount }));
 }
 
 export function formatArtMinute(minute) {
