@@ -15,7 +15,7 @@ import {
 } from '../lib/tripCardMeta';
 import { cleanTripNotesForDriverDisplay } from '../../shared/trip-contract.js';
 
-const LIST_KINDS = new Set(['queue', 'trips', 'scheduled-due']);
+const LIST_KINDS = new Set(['queue', 'trips', 'scheduled-due', 'express']);
 
 export function isMapListPopover(kind) {
   return LIST_KINDS.has(kind);
@@ -47,11 +47,12 @@ function tripStatusMeta(status) {
   return { label: 'En cola', cls: 'bg-amber-50 text-amber-700' };
 }
 
-function DockCard({ tone = 'navy', title, meta, children, footer }) {
+export function DockCard({ tone = 'navy', title, meta, children, footer }) {
   const tones = {
     amber: { bar: 'bg-amber-500', chip: 'bg-amber-50 text-amber-800' },
     navy: { bar: 'bg-navy-900', chip: 'bg-slate-100 text-slate-600' },
     violet: { bar: 'bg-violet-600', chip: 'bg-violet-50 text-violet-700' },
+    emerald: { bar: 'bg-emerald-500', chip: 'bg-emerald-50 text-emerald-700' },
   };
   const t = tones[tone] || tones.navy;
 
