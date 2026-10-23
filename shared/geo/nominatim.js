@@ -711,12 +711,38 @@ function georefHitMatchesStreetQuery(hit, query) {
   return roadAppearsInQuery(query, hit?.address?.road);
 }
 
-async function findOfficialHouseNumber(query) {
+/** Georef tiene calles homónimas con la misma altura (calle Alvarado y Pje. Ministro Alvarado, a 1 km). */
+const HOMONYM_STREET_METERS = 250;
+
+function metersBetween(a, b) {
+  const toRad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * toRad;
+  const dLng = (b.lng - a.lng) * toRad;
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(a.lat * toRad) * Math.cos(b.lat * toRad) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(h));
+}
+
+/** Con homónimas solo vale la que está junto a `near`; sin referencia no se adivina. */
+function pickOfficialHouseNumber(matches, near = null) {
+  const first = matches[0];
+  if (!first) return null;
+  if (!matches.some((hit) => metersBetween(hit, first) > HOMONYM_STREET_METERS)) return first;
+
+  const point = { lat: Number(near?.lat), lng: Number(near?.lng) };
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null;
+  const nearest = matches.reduce((best, hit) => (
+    metersBetween(hit, point) < metersBetween(best, point) ? hit : best
+  ));
+  return metersBetween(nearest, point) <= HOMONYM_STREET_METERS ? nearest : null;
+}
+
+async function findOfficialHouseNumber(query, near = null) {
   const text = String(query || '').trim();
   if (pickPrimaryHouseNumber(text) == null) return null;
   if (looksLikeSaltaKnownPoi(text)) return null;
   const hits = await searchGeorefAddress(text, 3).catch(() => []);
-  return hits.find((hit) => georefHitMatchesStreetQuery(hit, text)) || null;
+  return pickOfficialHouseNumber(hits.filter((hit) => georefHitMatchesStreetQuery(hit, text)), near);
 }
 
 function streetHouseQueryFromPlace(options = {}) {
@@ -793,8 +819,12 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       if (hasHouseNumber && !expand) {
         const georefHits = await searchGeorefAddress(trimmed, 4).catch(() => []);
         const official = georefHits.filter((hit) => georefHitMatchesStreetQuery(hit, trimmed));
-        collectGeorefCandidates(official, trimmed, merged, seenPlaceIds, seenCoords);
-        const best = official[0];
+        const best = pickOfficialHouseNumber(official);
+        // Homónimas: Google ya nombra cada una ("Pje. Ministro Alvarado 69") y al elegirla
+        // getPlaceDetails toma la oficial más cercana. Filas Georef iguales solo confunden.
+        if (best || merged.length === 0) {
+          collectGeorefCandidates(official, trimmed, merged, seenPlaceIds, seenCoords);
+        }
         if (best) {
           for (const item of merged) {
             if (String(item.placeId || '').startsWith('georef:')) continue;
@@ -1015,7 +1045,7 @@ async function getPlaceDetails(placeId, options = {}) {
       subtitle: options?.subtitle,
     });
     const streetQuery = streetHouseQueryFromPlace(options);
-    const official = streetQuery ? await findOfficialHouseNumber(streetQuery) : null;
+    const official = streetQuery ? await findOfficialHouseNumber(streetQuery, details) : null;
     if (!official) return details;
     return {
       ...details,

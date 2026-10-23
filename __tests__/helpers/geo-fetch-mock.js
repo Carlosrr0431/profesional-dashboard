@@ -382,6 +382,17 @@ function googleAutocompleteResponse(query) {
     return { suggestions };
   }
 
+  if (lower.includes('alvarado') && /\b69\b/.test(lower)) {
+    const pasaje = makePred('google-pje-ministro-alvarado-69', 'Pje. Ministro Alvarado 69', 'Salta, Argentina', ['street_address']);
+    if (lower.includes('ministro')) return { suggestions: [pasaje] };
+    return {
+      suggestions: [
+        makePred('google-alvarado-69', 'Alvarado 69', 'Salta, Argentina', ['street_address']),
+        pasaje,
+      ],
+    };
+  }
+
   if (lower.includes('entre rios') && /\b200\b/.test(lower)) {
     return {
       suggestions: [
@@ -502,6 +513,16 @@ function googlePlaceDetailsEssentialsResponse(placeId) {
     'google-guemes-adolfo-200': {
       formattedAddress: 'Adolfo Güemes 200, Barrio Don Bosco, Salta, Argentina',
       location: { latitude: -24.7923, longitude: -65.4089 },
+      types: ['street_address'],
+    },
+    'google-pje-ministro-alvarado-69': {
+      formattedAddress: 'Pje. Ministro Alvarado 69, A4400 Salta, Argentina',
+      location: { latitude: -24.7820998, longitude: -65.4024517 },
+      types: ['street_address'],
+    },
+    'google-alvarado-69': {
+      formattedAddress: 'Alvarado 69, A4400 Salta, Argentina',
+      location: { latitude: -24.7917, longitude: -65.4026 },
       types: ['street_address'],
     },
     'google-entre-rios-200': {
@@ -642,6 +663,26 @@ function createGeoFetchHandler(baseHandler) {
               provincia: { nombre: 'Salta' },
               ubicacion: { lat: -24.781482624, lon: -65.404901193 },
             }],
+          }),
+        };
+      }
+      if (query.includes('alvarado') && /\b69\b/.test(query)) {
+        const alvarado = (id, lat, lon) => ({
+          nomenclatura: 'ALVARADO 69, Salta, Capital, Salta',
+          altura: { valor: 69 },
+          calle: { categoria: 'CALLE', id, nombre: 'ALVARADO' },
+          localidad_censal: { nombre: 'Salta' },
+          provincia: { nombre: 'Salta' },
+          ubicacion: { lat, lon },
+        });
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            direcciones: [
+              alvarado('660280500000306', -24.79162781222839, -65.40251304176184),
+              alvarado('660280500000305', -24.78224510158333, -65.40240781677083),
+            ],
           }),
         };
       }

@@ -413,6 +413,29 @@ describe('geo autocomplete', () => {
     expect(suggestions[0].lng).toBeCloseTo(-65.4273036, 5);
   });
 
+  it('no confunde Pje. Ministro Alvarado 69 con la calle Alvarado 69 (homónimas en Georef)', async () => {
+    const suggestions = await autocompleteAddressSalta('pje ministro alvarado 69', 5, { sessionToken: 'test-alvarado' });
+    expect(suggestions.map((item) => item.title)).toEqual(['Pje. Ministro Alvarado 69']);
+    expect(suggestions[0].lat).toBeUndefined();
+
+    const pasaje = await getPlaceDetails(suggestions[0].placeId, {
+      sessionToken: 'test-alvarado',
+      formattedAddress: suggestions[0].address,
+      title: suggestions[0].title,
+      subtitle: suggestions[0].subtitle,
+    });
+    expect(pasaje.lat).toBeCloseTo(-24.78225, 4);
+    expect(pasaje.lng).toBeCloseTo(-65.40241, 4);
+
+    const both = await autocompleteAddressSalta('alvarado 69', 5, { sessionToken: 'test-alvarado-2' });
+    expect(both.map((item) => item.title)).toEqual(['Alvarado 69', 'Pje. Ministro Alvarado 69']);
+    const calle = await getPlaceDetails(both[0].placeId, { title: both[0].title, formattedAddress: both[0].address });
+    expect(calle.lat).toBeCloseTo(-24.79163, 4);
+
+    const geocoded = await geocodeAddress('Pje. Ministro Alvarado 69');
+    expect(geocoded.lat).toBeCloseTo(-24.7821, 3);
+  });
+
   it('para Monoblock Salta devuelve las sedes de Maps (Sarmiento y 25 de Mayo) y geocodifica Essentials', async () => {
     const results = await autocompleteAddressSalta('Monoblock salta', 6, { sessionToken: 'test-monoblock-1' });
     const blob = results.map((item) => `${item.title} ${item.subtitle}`).join(' | ');
