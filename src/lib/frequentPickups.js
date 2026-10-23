@@ -6,6 +6,20 @@ const SAME_PLACE_METERS = 150;
 const NOISE_WORDS = /\b(?:av|avda|avenida|gral|grl|general|pje|psje|pasaje|dr|doctor|cnel|coronel|calle|salta|capital|argentina|provincia|n|nro|numero)\b/g;
 const CITY_PART = /^(?:[a-z]\d{4}[a-z]{0,3}\s+)?(?:salta(?: capital)?|capital|argentina|provincia de salta)$/;
 const SMALL_WORDS = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'e']);
+const ART_CLOCK = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'America/Argentina/Buenos_Aires',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** Minuto del día en hora argentina (0–1439). */
+export function artMinuteOfDay(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const [hour, minute] = ART_CLOCK.format(date).split(':').map(Number);
+  return (hour % 24) * 60 + minute;
+}
 
 export function foldText(value) {
   return String(value || '')
@@ -82,7 +96,7 @@ export function buildFrequentPickups(trips = [], { isAllowed = () => true } = {}
     const buckets = groups.get(key) || [];
     let bucket = buckets.find((item) => metersBetween(item, { lat, lng }) <= SAME_PLACE_METERS);
     if (!bucket) {
-      bucket = { key, lat, lng, count: 0, lastAt: null, labels: new Map(), points: new Map() };
+      bucket = { key, lat, lng, count: 0, lastAt: null, labels: new Map(), points: new Map(), times: [] };
       buckets.push(bucket);
       groups.set(key, buckets);
     }
@@ -93,6 +107,8 @@ export function buildFrequentPickups(trips = [], { isAllowed = () => true } = {}
     bucket.points.set(pointKey, (bucket.points.get(pointKey) || 0) + 1);
     const at = trip.created_at || null;
     if (at && (!bucket.lastAt || at > bucket.lastAt)) bucket.lastAt = at;
+    const minute = artMinuteOfDay(trip.scheduled_for || trip.created_at);
+    if (minute != null) bucket.times.push(minute);
   }
 
   const list = [];
@@ -110,6 +126,7 @@ export function buildFrequentPickups(trips = [], { isAllowed = () => true } = {}
         lng,
         count: bucket.count,
         lastAt: bucket.lastAt,
+        times: bucket.times.sort((a, b) => a - b),
         terms,
       });
     });
@@ -118,7 +135,42 @@ export function buildFrequentPickups(trips = [], { isAllowed = () => true } = {}
   return list.sort((a, b) => b.count - a.count || String(b.lastAt).localeCompare(String(a.lastAt)));
 }
 
-/** Todas las palabras tienen que aparecer (sin acentos, en cualquier orden). Mantiene el orden por frecuencia. */
+/** Franja alrededor de la hora actual; cada viaje pesa más cuanto más cerca de esta hora. */
+export const PICKUP_WINDOW_MINUTES = 60;
+
+function minutesApart(a, b) {
+  const diff = Math.abs(a - b) % 1440;
+  return Math.min(diff, 1440 - diff);
+}
+
+/** Primero los retiros pedidos cerca de esta hora (hora argentina), después el resto por total. */
+export function rankPickupsForMinute(list = [], minute, windowMinutes = PICKUP_WINDOW_MINUTES) {
+  return list
+    .map((item) => {
+      let hourCount = 0;
+      let score = 0;
+      for (const time of item.times || []) {
+        const gap = minutesApart(time, minute);
+        if (gap > windowMinutes) continue;
+        hourCount += 1;
+        score += 1 - gap / windowMinutes;
+      }
+      return { item, hourCount, score };
+    })
+    .sort((a, b) => (
+      b.score - a.score
+      || b.item.count - a.item.count
+      || String(b.item.lastAt).localeCompare(String(a.item.lastAt))
+    ))
+    .map(({ item, hourCount }) => ({ ...item, hourCount }));
+}
+
+export function formatArtMinute(minute) {
+  const value = ((Math.round(minute) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+}
+
+/** Todas las palabras tienen que aparecer (sin acentos, en cualquier orden). Mantiene el orden recibido. */
 export function filterPickups(list = [], query = '', limit = 80) {
   const tokens = foldText(query).split(/[^a-z0-9]+/).filter(Boolean);
   if (!tokens.length) return list.slice(0, limit);

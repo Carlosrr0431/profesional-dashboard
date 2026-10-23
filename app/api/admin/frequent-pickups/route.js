@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 const CACHE_MS = 5 * 60_000;
-const TRIP_SELECT = 'id, status, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, notes, created_at';
+const TRIP_SELECT = 'id, status, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, notes, created_at, scheduled_for';
 
 let cached = null;
 let inflight = null;

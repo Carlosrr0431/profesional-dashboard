@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DockCard } from './MapDockPopovers';
 import { useToast } from '../context/ToastContext';
-import { filterPickups, formatPickupLabel } from '../lib/frequentPickups';
+import {
+  PICKUP_WINDOW_MINUTES,
+  artMinuteOfDay,
+  filterPickups,
+  formatArtMinute,
+  formatPickupLabel,
+  rankPickupsForMinute,
+} from '../lib/frequentPickups';
 
 const FRESH_MS = 5 * 60_000;
 const TOP_LIMIT = 50;
@@ -46,9 +53,11 @@ function Spinner() {
   );
 }
 
-function PickupRow({ item, rank, maxCount, sending, disabled, onPick }) {
+function PickupRow({ item, rank, maxHour, sending, disabled, onPick }) {
   const { title, detail } = formatPickupLabel(item.address);
-  const share = Math.max(6, Math.round((item.count / maxCount) * 100));
+  const hot = item.hourCount > 0;
+  const share = hot ? Math.max(6, Math.round((item.hourCount / maxHour) * 100)) : 0;
+  const meta = [detail, hot ? `${item.count} en total` : null].filter(Boolean).join(' · ');
   const podium = rank != null && rank <= 3;
 
   return (
@@ -78,17 +87,21 @@ function PickupRow({ item, rank, maxCount, sending, disabled, onPick }) {
 
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-bold leading-tight text-slate-900">{title}</span>
-        {detail ? (
-          <span className="mt-0.5 block truncate text-[11px] font-medium text-slate-500">{detail}</span>
+        {meta ? (
+          <span className="mt-0.5 block truncate text-[11px] font-medium text-slate-500">{meta}</span>
         ) : null}
         <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-slate-200/70">
           <span className="block h-full rounded-full bg-emerald-400" style={{ width: `${share}%` }} />
         </span>
       </span>
 
-      <span className="flex w-9 shrink-0 flex-col items-end">
-        <span className="text-[15px] font-black leading-none tabular-nums text-slate-900">{item.count}</span>
-        <span className="mt-0.5 text-[10px] font-semibold text-slate-400">{item.count === 1 ? 'viaje' : 'viajes'}</span>
+      <span className="flex w-[3.75rem] shrink-0 flex-col items-end whitespace-nowrap">
+        <span className={`text-[15px] font-black leading-none tabular-nums ${hot ? 'text-emerald-600' : 'text-slate-500'}`}>
+          {hot ? item.hourCount : item.count}
+        </span>
+        <span className="mt-0.5 text-[10px] font-semibold text-slate-400">
+          {hot ? 'a esta hora' : (item.count === 1 ? 'viaje' : 'viajes')}
+        </span>
       </span>
 
       <span
@@ -123,12 +136,14 @@ export default function ExpressDispatchPopover({ onDispatched }) {
     if (window.matchMedia('(min-width: 768px)').matches) inputRef.current?.focus();
   }, [reload]);
 
+  const [minute] = useState(() => artMinuteOfDay());
+  const ranked = useMemo(() => rankPickupsForMinute(items || [], minute), [items, minute]);
+  const maxHour = useMemo(() => ranked.reduce((max, item) => Math.max(max, item.hourCount), 0), [ranked]);
   const searching = Boolean(query.trim());
   const results = useMemo(
-    () => filterPickups(items || [], query, searching ? SEARCH_LIMIT : TOP_LIMIT),
-    [items, query, searching],
+    () => filterPickups(ranked, query, searching ? SEARCH_LIMIT : TOP_LIMIT),
+    [ranked, query, searching],
   );
-  const maxCount = items?.[0]?.count || 1;
 
   const dispatch = async (item) => {
     if (sendingId) return;
@@ -195,7 +210,7 @@ export default function ExpressDispatchPopover({ onDispatched }) {
             <PickupRow
               item={item}
               rank={searching ? null : index + 1}
-              maxCount={maxCount}
+              maxHour={maxHour}
               sending={sendingId === item.id}
               disabled={Boolean(sendingId)}
               onPick={dispatch}
@@ -206,9 +221,14 @@ export default function ExpressDispatchPopover({ onDispatched }) {
     );
   }
 
-  const resultLabel = searching
-    ? `${results.length >= SEARCH_LIMIT ? `${SEARCH_LIMIT}+` : results.length} ${results.length === 1 ? 'resultado' : 'resultados'}`
-    : 'Retiros más pedidos';
+  const roundedMinute = Math.round(minute / 5) * 5;
+  const windowLabel = `${formatArtMinute(roundedMinute - PICKUP_WINDOW_MINUTES)} a ${formatArtMinute(roundedMinute + PICKUP_WINDOW_MINUTES)}`;
+  let resultLabel = 'Retiros más pedidos';
+  if (searching) {
+    resultLabel = `${results.length >= SEARCH_LIMIT ? `${SEARCH_LIMIT}+` : results.length} ${results.length === 1 ? 'resultado' : 'resultados'}`;
+  } else if (maxHour > 0) {
+    resultLabel = `Más pedidos a esta hora · ${windowLabel}`;
+  }
 
   return (
     <DockCard

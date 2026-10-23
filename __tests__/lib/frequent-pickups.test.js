@@ -1,8 +1,11 @@
 import {
+  artMinuteOfDay,
   buildFrequentPickups,
   filterPickups,
+  formatArtMinute,
   formatPickupLabel,
   pickupKey,
+  rankPickupsForMinute,
 } from '../../src/lib/frequentPickups';
 
 function wa(address, lat, lng, createdAt = '2026-10-01T12:00:00Z') {
@@ -57,6 +60,41 @@ describe('buildFrequentPickups', () => {
     ], { isAllowed: (lat) => lat > -25 });
 
     expect(list.map((item) => item.address).sort()).toEqual(['12 de Octubre 2512', 'Pje. 12 de Octubre 2512']);
+  });
+});
+
+describe('franja horaria', () => {
+  const at = (hhmm) => `2026-10-20T${hhmm}:00-03:00`;
+
+  it('usa la hora argentina y, en programados, la hora del viaje', () => {
+    expect(artMinuteOfDay('2026-10-23T22:15:00Z')).toBe(19 * 60 + 15);
+    const [item] = buildFrequentPickups([
+      wa('Caseros 1088, Salta', -24.7901, -65.4102, at('19:10')),
+      { ...wa('Caseros 1088, Salta', -24.7901, -65.4102, at('08:00')), scheduled_for: at('21:30') },
+    ]);
+    expect(item.times).toEqual([19 * 60 + 10, 21 * 60 + 30]);
+  });
+
+  it('pone primero lo pedido cerca de esta hora y después el resto por total', () => {
+    const list = [
+      { id: 'a', count: 10, times: Array(10).fill(3 * 60) },
+      { id: 'b', count: 2, times: [19 * 60 + 10, 19 * 60 + 50] },
+      { id: 'c', count: 3, times: [18 * 60 + 20, 9 * 60, 9 * 60] },
+      { id: 'd', count: 1, times: [19 * 60 + 15] },
+    ];
+    const ranked = rankPickupsForMinute(list, 19 * 60 + 15);
+    expect(ranked.map((item) => item.id)).toEqual(['b', 'd', 'c', 'a']);
+    expect(ranked.map((item) => item.hourCount)).toEqual([2, 1, 1, 0]);
+  });
+
+  it('cruza la medianoche', () => {
+    const ranked = rankPickupsForMinute([
+      { id: 'tarde', count: 5, times: [12 * 60] },
+      { id: 'noche', count: 1, times: [23 * 60 + 50] },
+    ], 20);
+    expect(ranked[0]).toMatchObject({ id: 'noche', hourCount: 1 });
+    expect(formatArtMinute(20 - 60)).toBe('23:20');
+    expect(formatArtMinute(23 * 60 + 30 + 60)).toBe('00:30');
   });
 });
 
