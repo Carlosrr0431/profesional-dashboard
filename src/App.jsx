@@ -1127,8 +1127,8 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    title={pickupMode ? 'Volver a los choferes' : 'Viajes rápidos en el mapa'}
-                    aria-label={pickupMode ? 'Volver a los choferes' : 'Viajes rápidos en el mapa'}
+                    title={pickupMode ? 'Volver a los choferes' : 'Mapa Pro'}
+                    aria-label={pickupMode ? 'Volver a los choferes' : 'Mapa Pro'}
                     aria-pressed={pickupMode}
                     onPointerEnter={() => { loadFrequentPickups().catch(() => {}); }}
                     onClick={() => {
@@ -1149,7 +1149,7 @@ export default function App() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 21s-6-5.33-6-11a6 6 0 1112 0c0 5.67-6 11-6 11z" />
                       <circle cx="12" cy="10" r="2.1" strokeWidth={2} />
                     </svg>
-                    {pickupMode ? 'Flota' : 'Al toque'}
+                    {pickupMode ? 'Flota' : 'Mapa Pro'}
                   </button>
                   {incomingDriverVoice[0] ? (
                     <button
