@@ -1,4 +1,5 @@
 import {
+  MAP_PICKUP_MIN_COUNT,
   artWeekMinute,
   buildFrequentPickups,
   filterPickups,
@@ -6,6 +7,7 @@ import {
   formatPickupLabel,
   pickupKey,
   rankPickupsForTime,
+  selectMapPickups,
 } from '../../src/lib/frequentPickups';
 
 const TUE = 2 * 1440;
@@ -125,6 +127,19 @@ describe('filterPickups', () => {
     expect(filterPickups(list, 'rennius')[0].address).toBe('AV GRL BELGRANO 1668, Salta');
     expect(filterPickups(list, 'caseros 1088')).toHaveLength(1);
     expect(filterPickups(list, 'xyz')).toEqual([]);
+  });
+});
+
+describe('selectMapPickups', () => {
+  it('deja solo lugares con 3 o más viajes y coordenadas', () => {
+    expect(MAP_PICKUP_MIN_COUNT).toBe(3);
+    const shown = selectMapPickups([
+      { id: 'a', count: 3, lat: -24.78, lng: -65.42 },
+      { id: 'b', count: 2, lat: -24.78, lng: -65.42 },
+      { id: 'c', count: 8, lat: NaN, lng: -65.42 },
+      { id: 'd', count: 54, lat: -24.79, lng: -65.41 },
+    ]);
+    expect(shown.map((item) => item.id)).toEqual(['a', 'd']);
   });
 });
 

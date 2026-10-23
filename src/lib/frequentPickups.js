@@ -202,6 +202,20 @@ function softenCaps(text) {
   ));
 }
 
+/**
+ * Media real ≈ 2.45 viajes/lugar. Con 2 el mapa se llena de casualidades (737 pines).
+ * Con 3 quedan ~437 lugares que concentran el 62% de los retiros: un patrón, no un caso.
+ */
+export const MAP_PICKUP_MIN_COUNT = 3;
+
+export function selectMapPickups(list = [], minCount = MAP_PICKUP_MIN_COUNT) {
+  return list.filter((item) => (
+    Number(item.count) >= minCount
+    && Number.isFinite(Number(item.lat))
+    && Number.isFinite(Number(item.lng))
+  ));
+}
+
 /** "AV GRL BELGRANO 1668, Salta" → { title: "Av Grl Belgrano 1668", detail: "" } */
 export function formatPickupLabel(address) {
   const parts = [];

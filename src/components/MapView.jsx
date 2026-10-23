@@ -24,6 +24,14 @@ import { shouldShowDriverOnMap } from '../lib/driverPresence';
 import { useSmoothMapCoords } from '../hooks/useSmoothMapCoords';
 import { extractMapClickLngLat } from '../lib/mapPointPick';
 import MapLandmarks from './MapLandmarks';
+import PickupDispatchModal from './PickupDispatchModal';
+import { loadFrequentPickups } from './ExpressDispatchPopover';
+import {
+  MAP_PICKUP_MIN_COUNT,
+  artWeekMinute,
+  rankPickupsForTime,
+  selectMapPickups,
+} from '../lib/frequentPickups';
 
 const MAP_CSS = `
 .leaflet-container {
@@ -41,6 +49,7 @@ const MAP_CSS = `
 .leaflet-control-attribution { font-size: 10px; background: rgba(255,255,255,0.72); }
 .fleet-map-pin { background: transparent; border: none; }
 .map-pick-arrow, .map-pick-arrow .leaflet-container { cursor: default !important; }
+.pickup-map-pin { background: transparent; border: none; }
 `;
 
 const GOOGLE_TILES = {
@@ -51,6 +60,28 @@ const GOOGLE_TILES = {
   maxZoom: 20,
   attribution: '&copy; Google Maps',
 };
+
+const pickupIconCache = new Map();
+
+function pickupPinIcon(count, selected, hot) {
+  const key = `${count}|${selected ? 1 : 0}|${hot ? 1 : 0}`;
+  const cached = pickupIconCache.get(key);
+  if (cached) return cached;
+  const size = count >= 20 ? 36 : count >= 10 ? 30 : count >= 5 ? 26 : 22;
+  const font = size >= 30 ? 12 : 11;
+  const bg = selected ? '#065F46' : hot ? '#059669' : '#0F766E';
+  const ring = selected
+    ? '0 0 0 4px rgba(16,185,129,.4), 0 8px 18px rgba(6,95,70,.35)'
+    : '0 1px 4px rgba(15,23,42,.35)';
+  const icon = L.divIcon({
+    className: 'fleet-map-pin pickup-map-pin',
+    html: `<div style="width:${size}px;height:${size}px;border-radius:999px;background:${bg};color:#fff;border:2px solid #fff;box-shadow:${ring};display:flex;align-items:center;justify-content:center;font:800 ${font}px/1 Inter,system-ui,sans-serif">${count}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+  pickupIconCache.set(key, icon);
+  return icon;
+}
 
 function pinIcon(spec, emphasized) {
   const scale = emphasized ? 'transform:scale(1.08);' : '';
@@ -204,6 +235,65 @@ function MapBridge({
   return null;
 }
 
+const PickupMapPin = memo(function PickupMapPin({ pickup, selected, onSelect }) {
+  const count = Number(pickup.count) || 0;
+  const hot = (Number(pickup.hourCount) || 0) > 0;
+  const icon = pickupPinIcon(count, selected, hot);
+  return (
+    <Marker
+      position={[Number(pickup.lat), Number(pickup.lng)]}
+      icon={icon}
+      zIndexOffset={selected ? 1400 : 200 + Math.min(count, 80) * 8}
+      eventHandlers={{
+        click: (event) => {
+          L.DomEvent.stopPropagation(event);
+          onSelect(pickup);
+        },
+      }}
+    />
+  );
+}, (prev, next) => (
+  prev.pickup?.id === next.pickup?.id
+  && prev.pickup?.count === next.pickup?.count
+  && prev.pickup?.hourCount === next.pickup?.hourCount
+  && prev.pickup?.lat === next.pickup?.lat
+  && prev.pickup?.lng === next.pickup?.lng
+  && prev.selected === next.selected
+  && prev.onSelect === next.onSelect
+));
+
+function PickupModeButton({ active, loading, onToggle, onPrefetch }) {
+  const label = active ? 'Volver a la flota' : 'Ver puntos de retiro';
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      onPointerEnter={() => { onPrefetch?.(); }}
+      onClick={onToggle}
+      className={`absolute right-[10px] top-[114px] z-[500] flex h-10 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-bold shadow-[0_2px_8px_rgba(0,0,0,0.22)] transition-all active:scale-[0.97] ${
+        active
+          ? 'bg-emerald-600 text-white shadow-emerald-600/40'
+          : 'bg-white text-slate-700 hover:bg-slate-50'
+      }`}
+    >
+      {loading ? (
+        <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+      ) : (
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 21s-6-5.33-6-11a6 6 0 1112 0c0 5.67-6 11-6 11z" />
+          <circle cx="12" cy="10" r="2.1" strokeWidth={2} />
+        </svg>
+      )}
+      {active ? 'Flota' : 'Puntos'}
+    </button>
+  );
+}
+
 function FullscreenButton({ isFullscreen, onToggle }) {
   const label = isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa';
   return (
@@ -248,6 +338,9 @@ const MapView = memo(function MapView({
   onPickLocation,
 }) {
   const [activeInfo, setActiveInfo] = useState(null);
+  const [pickupMode, setPickupMode] = useState(false);
+  const [pickupPoints, setPickupPoints] = useState(null);
+  const [pickupError, setPickupError] = useState('');
   const resolvedSelectedId = selectedId ?? selectedDriverId ?? null;
   const tripList = trips?.length ? trips : pendingPassengers;
   const selectedSet = multiSelectedIds instanceof Set
@@ -258,7 +351,7 @@ const MapView = memo(function MapView({
     : null;
 
   useEffect(() => {
-    if (activeInfo?.type !== 'driver' && activeInfo?.type !== 'trip') return undefined;
+    if (activeInfo?.type !== 'driver' && activeInfo?.type !== 'trip' && activeInfo?.type !== 'pickup') return undefined;
     const onKeyDown = (event) => {
       if (event.key === 'Escape') setActiveInfo(null);
     };
@@ -271,8 +364,47 @@ const MapView = memo(function MapView({
   }, [multiSelectMode]);
 
   useEffect(() => {
-    if (pickMode) setActiveInfo(null);
+    if (pickMode) {
+      setActiveInfo(null);
+      setPickupMode(false);
+    }
   }, [pickMode]);
+
+  const loadPickupPoints = useCallback(() => {
+    setPickupError('');
+    return loadFrequentPickups()
+      .then((items) => {
+        const now = artWeekMinute();
+        setPickupPoints(rankPickupsForTime(selectMapPickups(items), now));
+      })
+      .catch((err) => {
+        setPickupError(err?.message || 'No se pudieron cargar los puntos.');
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!pickupMode) {
+      setActiveInfo((prev) => (prev?.type === 'pickup' ? null : prev));
+      return undefined;
+    }
+    loadPickupPoints();
+    return undefined;
+  }, [pickupMode, loadPickupPoints]);
+
+  useEffect(() => {
+    if (pickupMode) setActiveInfo((prev) => (
+      prev?.type === 'driver' || prev?.type === 'trip' ? null : prev
+    ));
+  }, [pickupMode]);
+
+  const handlePickupSelect = useCallback((pickup) => {
+    if (pickMode) return;
+    setActiveInfo({ type: 'pickup', data: pickup });
+  }, [pickMode]);
+
+  const togglePickupMode = useCallback(() => {
+    setPickupMode((on) => !on);
+  }, []);
 
   const handleDriverSelect = useCallback((driver) => {
     if (pickMode) return;
@@ -306,7 +438,7 @@ const MapView = memo(function MapView({
           crossOrigin
         />
         <ZoomControl position="topright" />
-        <MapLandmarks />
+        {pickupMode ? null : <MapLandmarks />}
         <MapBridge
           mapRef={mapRef}
           mapFullscreen={mapFullscreen}
@@ -338,7 +470,14 @@ const MapView = memo(function MapView({
           />
         ) : null}
 
-        {drivers.map((driver) => {
+        {pickupMode ? (pickupPoints || []).map((pickup) => (
+          <PickupMapPin
+            key={pickup.id}
+            pickup={pickup}
+            selected={activeInfo?.type === 'pickup' && activeInfo.data?.id === pickup.id}
+            onSelect={handlePickupSelect}
+          />
+        )) : drivers.map((driver) => {
           const lat = Number(driver.lat);
           const lng = Number(driver.lng);
           if (!shouldShowDriverOnMap({ ...driver, lat, lng })) return null;
@@ -358,7 +497,7 @@ const MapView = memo(function MapView({
           );
         })}
 
-        {tripList.map((trip) => {
+        {pickupMode ? null : tripList.map((trip) => {
           const pasLat = Number(trip.passenger_lat ?? trip.pickup_lat ?? trip.origin_lat ?? trip.lat);
           const pasLng = Number(trip.passenger_lng ?? trip.pickup_lng ?? trip.origin_lng ?? trip.lng);
           if (!Number.isFinite(pasLat) || !Number.isFinite(pasLng)) return null;
@@ -385,7 +524,63 @@ const MapView = memo(function MapView({
         <FullscreenButton isFullscreen={mapFullscreen} onToggle={onToggleMapFullscreen} />
       ) : null}
 
-      {activeInfo?.type === 'trip' && !multiSelectMode ? (
+      {pickMode ? null : (
+        <PickupModeButton
+          active={pickupMode}
+          loading={pickupMode && !pickupPoints && !pickupError}
+          onToggle={togglePickupMode}
+          onPrefetch={() => { loadFrequentPickups().catch(() => {}); }}
+        />
+      )}
+
+      {pickupMode && !pickMode ? (
+        <div className="pointer-events-none absolute left-3 right-16 top-3 z-[500] flex justify-center sm:right-auto sm:left-1/2 sm:-translate-x-1/2">
+          <div className="pointer-events-auto max-w-[min(420px,calc(100vw-5rem))] rounded-2xl bg-white/96 px-3.5 py-2 shadow-xl shadow-emerald-900/10 ring-1 ring-emerald-100 backdrop-blur-md">
+            {pickupError ? (
+              <div className="flex items-center gap-2">
+                <p className="min-w-0 flex-1 text-[12px] font-semibold text-rose-700">{pickupError}</p>
+                <button
+                  type="button"
+                  onClick={loadPickupPoints}
+                  className="shrink-0 rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100"
+                >
+                  Reintentar
+                </button>
+              </div>
+            ) : (
+              <p className="text-[12px] font-semibold text-slate-700">
+                {pickupPoints
+                  ? `${pickupPoints.length} puntos con ${MAP_PICKUP_MIN_COUNT}+ viajes. Tocá uno para derivar.`
+                  : 'Cargando puntos de retiro…'}
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {activeInfo?.type === 'pickup' && pickupMode ? (
+        <>
+          <button
+            type="button"
+            aria-label="Cerrar punto de retiro"
+            className="absolute inset-0 z-[15] border-0 bg-slate-900/25 p-0"
+            onClick={() => setActiveInfo(null)}
+          />
+          <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
+            <div
+              className="pointer-events-auto w-full max-w-[min(400px,calc(100%-2rem))]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <PickupDispatchModal
+                pickup={activeInfo.data}
+                onClose={() => setActiveInfo(null)}
+              />
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {activeInfo?.type === 'trip' && !multiSelectMode && !pickupMode ? (
         <>
           <button
             type="button"
@@ -412,7 +607,7 @@ const MapView = memo(function MapView({
         </>
       ) : null}
 
-      {activeInfo?.type === 'driver' && !multiSelectMode ? (
+      {activeInfo?.type === 'driver' && !multiSelectMode && !pickupMode ? (
         <>
           <button
             type="button"
