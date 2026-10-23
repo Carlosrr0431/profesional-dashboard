@@ -15,14 +15,57 @@ import {
 } from '../lib/frequentPickups';
 
 const FRESH_MS = 5 * 60_000;
+const STALE_MS = 30 * 60_000;
+const STORAGE_KEY = 'pv-frequent-pickups-v1';
 const TOP_LIMIT = 50;
 const SEARCH_LIMIT = 80;
 
 let cache = { items: null, at: 0 };
 let pending = null;
 
+function readStoredPickups() {
+  if (typeof sessionStorage === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
+    if (!Array.isArray(parsed?.items) || !Number.isFinite(parsed.at)) return null;
+    if (Date.now() - parsed.at > STALE_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPickups(items) {
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ items, at: Date.now() }));
+  } catch {
+    /* La sesión llena no debe frenar el mapa. */
+  }
+}
+
+function rememberPickups(items) {
+  cache = { items, at: Date.now() };
+  writeStoredPickups(items);
+  return items;
+}
+
+/** Lo último que ya tenemos, para pintar el mapa sin esperar la red. */
+export function peekFrequentPickups() {
+  if (cache.items && Date.now() - cache.at < STALE_MS) return cache.items;
+  const stored = readStoredPickups();
+  if (!stored) return null;
+  cache = stored;
+  return stored.items;
+}
+
 export function loadFrequentPickups() {
-  if (cache.items && Date.now() - cache.at < FRESH_MS) return Promise.resolve(cache.items);
+  const now = Date.now();
+  if (!cache.items) {
+    const stored = readStoredPickups();
+    if (stored) cache = stored;
+  }
+  if (cache.items && now - cache.at < FRESH_MS) return Promise.resolve(cache.items);
   if (!pending) {
     pending = fetch('/api/admin/frequent-pickups', { cache: 'no-store' })
       .then(async (response) => {
@@ -30,11 +73,11 @@ export function loadFrequentPickups() {
         if (!response.ok || !body?.ok) {
           throw new Error(body?.message || 'No se pudieron cargar los retiros frecuentes.');
         }
-        cache = { items: body.items || [], at: Date.now() };
-        return cache.items;
+        return rememberPickups(body.items || []);
       })
       .finally(() => { pending = null; });
   }
+  if (cache.items && now - cache.at < STALE_MS) return Promise.resolve(cache.items);
   return pending;
 }
 

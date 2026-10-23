@@ -164,6 +164,12 @@ export default function App() {
     if (mapPickMode) setPickupMode(false);
   }, [mapPickMode]);
 
+  useEffect(() => {
+    if (currentView !== VIEWS.map) return undefined;
+    loadFrequentPickups().catch(() => {});
+    return undefined;
+  }, [currentView]);
+
   const openIncomingDriverVoice = useCallback((item) => {
     if (!item) return;
     const driver = item.driver || {

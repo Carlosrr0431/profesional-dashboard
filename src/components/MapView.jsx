@@ -25,7 +25,7 @@ import { useSmoothMapCoords } from '../hooks/useSmoothMapCoords';
 import { extractMapClickLngLat } from '../lib/mapPointPick';
 import MapLandmarks from './MapLandmarks';
 import PickupDispatchModal from './PickupDispatchModal';
-import { loadFrequentPickups } from './ExpressDispatchPopover';
+import { loadFrequentPickups, peekFrequentPickups } from './ExpressDispatchPopover';
 import {
   artWeekMinute,
   layoutPickupLabels,
@@ -394,17 +394,29 @@ const MapView = memo(function MapView({
     if (pickMode) setActiveInfo(null);
   }, [pickMode]);
 
+  const applyPickupItems = useCallback((items) => {
+    setPickupPoints(rankPickupsForTime(selectMapPickups(items), artWeekMinute()));
+  }, []);
+
+  if (pickupMode && !pickupPoints && !pickupError) {
+    const ready = peekFrequentPickups();
+    if (ready) applyPickupItems(ready);
+  }
+
   const loadPickupPoints = useCallback(() => {
     setPickupError('');
+    const ready = peekFrequentPickups();
+    if (ready) applyPickupItems(ready);
     return loadFrequentPickups()
       .then((items) => {
-        const now = artWeekMinute();
-        setPickupPoints(rankPickupsForTime(selectMapPickups(items), now));
+        applyPickupItems(items);
       })
       .catch((err) => {
-        setPickupError(err?.message || 'No se pudieron cargar los puntos.');
+        if (!peekFrequentPickups()) {
+          setPickupError(err?.message || 'No se pudieron cargar los puntos.');
+        }
       });
-  }, []);
+  }, [applyPickupItems]);
 
   useEffect(() => {
     if (!pickupMode) {
@@ -543,7 +555,19 @@ const MapView = memo(function MapView({
         <FullscreenButton isFullscreen={mapFullscreen} onToggle={onToggleMapFullscreen} />
       ) : null}
 
-      {pickupMode && !pickMode ? (
+      {pickupMode && !pickMode && !pickupPoints && !pickupError ? (
+        <div className="pointer-events-none absolute inset-0 z-[500] flex items-center justify-center">
+          <div className="flex items-center gap-2 rounded-full bg-white/95 px-3 py-1.5 shadow-lg ring-1 ring-slate-200/80">
+            <svg className="h-3.5 w-3.5 animate-spin text-emerald-600" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+            <span className="text-[12px] font-semibold text-slate-600">Cargando puntos</span>
+          </div>
+        </div>
+      ) : null}
+
+      {pickupMode && !pickMode && (pickupError || pickupPoints) ? (
         <div className="pointer-events-none absolute left-3 right-16 top-3 z-[500] flex justify-center sm:right-auto sm:left-1/2 sm:-translate-x-1/2">
           <div className="pointer-events-auto max-w-[min(420px,calc(100vw-5rem))] rounded-2xl bg-white/96 px-3.5 py-2 shadow-xl shadow-emerald-900/10 ring-1 ring-emerald-100 backdrop-blur-md">
             {pickupError ? (
@@ -557,13 +581,11 @@ const MapView = memo(function MapView({
                   Reintentar
                 </button>
               </div>
-            ) : (
+            ) : pickupPoints ? (
               <p className="text-[12px] font-semibold text-slate-700">
-                {pickupPoints
-                  ? 'Cada etiqueta es un retiro. Acercá el mapa para ver las que no entran. Tocá una para derivar.'
-                  : 'Cargando direcciones…'}
+                Cada etiqueta es un retiro. Acercá el mapa para ver las que no entran. Tocá una para derivar.
               </p>
-            )}
+            ) : null}
           </div>
         </div>
       ) : null}
