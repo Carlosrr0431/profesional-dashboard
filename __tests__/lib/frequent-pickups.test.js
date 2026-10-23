@@ -7,6 +7,7 @@ import {
   formatPickupLabel,
   layoutPickupLabels,
   mapPickupCaption,
+  pickupChipSize,
   pickupKey,
   rankPickupsForTime,
   selectMapPickups,
@@ -162,6 +163,16 @@ describe('mapPickupCaption', () => {
     expect(caption.endsWith('…')).toBe(true);
     expect(caption.length).toBeLessThanOrEqual(32);
     expect(caption.startsWith('Centro de Rehabilitación')).toBe(true);
+  });
+});
+
+describe('pickupChipSize', () => {
+  it('reserva lugar para el número dentro de la misma etiqueta', () => {
+    const one = pickupChipSize(7, 'Caseros 1088');
+    const two = pickupChipSize(38, 'Caseros 1088');
+    expect(two.width).toBeGreaterThan(one.width);
+    expect(two.height).toBe(28);
+    expect(pickupChipSize(12, 'Pasaje Tomas Guido 1724').text).toBeGreaterThan(one.text);
   });
 });
 

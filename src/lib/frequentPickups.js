@@ -250,11 +250,19 @@ export function mapPickupLabelSide(lat, lng) {
   return ((col + row) & 1) === 0 ? 'right' : 'left';
 }
 
-export function pickupLabelBox(x, y, caption, side) {
-  const textW = Math.min(168, Math.max(56, Math.ceil(String(caption || '').length * 6.4) + 14));
-  const width = 23 + textW;
-  const height = 24;
-  const left = side === 'right' ? x - 9 : x - (width - 9);
+/** Una sola pastilla: el número va adentro, junto a la dirección. */
+export function pickupChipSize(count, caption) {
+  const digits = String(Math.max(0, Math.round(Number(count) || 0))).length;
+  const badge = digits >= 3 ? 30 : digits === 2 ? 24 : 20;
+  const text = Math.min(200, Math.max(40, Math.ceil(String(caption || '').length * 6.7)));
+  const pad = 8;
+  const gap = 6;
+  return { badge, text, pad, gap, width: pad + badge + gap + text + pad, height: 28 };
+}
+
+export function pickupLabelBox(x, y, caption, side, count = 1) {
+  const { width, height } = pickupChipSize(count, caption);
+  const left = side === 'right' ? x : x - width;
   return { x: left, y: y - height / 2, w: width, h: height };
 }
 
@@ -274,7 +282,7 @@ export function layoutPickupLabels(points = [], { selectedId = null } = {}) {
   const boxes = [];
   const labeled = new Set();
   for (const point of ordered) {
-    const box = pickupLabelBox(point.x, point.y, point.caption, point.side);
+    const box = pickupLabelBox(point.x, point.y, point.caption, point.side, point.pickup?.count);
     const forced = point.pickup?.id != null && point.pickup.id === selectedId;
     if (forced || !boxes.some((other) => boxesOverlap(other, box))) {
       labeled.add(point.pickup.id);

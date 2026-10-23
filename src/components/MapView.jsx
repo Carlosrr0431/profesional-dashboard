@@ -31,6 +31,7 @@ import {
   layoutPickupLabels,
   mapPickupCaption,
   mapPickupLabelSide,
+  pickupChipSize,
   rankPickupsForTime,
   selectMapPickups,
 } from '../lib/frequentPickups';
@@ -75,38 +76,25 @@ function escapeHtml(value) {
   }[char]));
 }
 
-function pickupPinIcon({ count, caption, side, showLabel, selected }) {
-  const key = `${count}|${caption}|${side}|${showLabel ? 1 : 0}|${selected ? 1 : 0}`;
+function pickupPinIcon({ count, caption, side, selected }) {
+  const key = `${count}|${caption}|${side}|${selected ? 1 : 0}`;
   const cached = pickupIconCache.get(key);
   if (cached) return cached;
 
-  const dot = 18;
-  const bg = selected ? '#065F46' : '#0F766E';
-  const ring = selected ? '0 0 0 3px rgba(16,185,129,.45)' : '0 1px 3px rgba(15,23,42,.35)';
-  const dotHtml = `<span style="display:flex;align-items:center;justify-content:center;width:${dot}px;height:${dot}px;border-radius:999px;background:${bg};color:#fff;border:2px solid #fff;box-shadow:${ring};font:800 9px/1 Inter,system-ui,sans-serif;flex:0 0 ${dot}px">${count}</span>`;
-
-  if (!showLabel) {
-    const icon = L.divIcon({
-      className: 'fleet-map-pin pickup-map-pin',
-      html: dotHtml,
-      iconSize: [dot, dot],
-      iconAnchor: [dot / 2, dot / 2],
-    });
-    pickupIconCache.set(key, icon);
-    return icon;
-  }
-
-  const text = Math.min(168, Math.max(56, Math.ceil(String(caption || '').length * 6.4) + 14));
-  const width = dot + 5 + text;
-  const height = 24;
-  const anchorX = side === 'right' ? dot / 2 : width - dot / 2;
-  const labelBg = selected ? '#065F46' : '#ffffff';
-  const labelColor = selected ? '#ffffff' : '#0F172A';
+  const { badge, text, pad, gap, width, height } = pickupChipSize(count, caption);
+  const anchorX = side === 'right' ? 0 : width;
+  const bg = selected ? '#047857' : '#ffffff';
+  const color = selected ? '#ffffff' : '#0f172a';
+  const badgeBg = selected ? 'rgba(255,255,255,.22)' : '#0f766e';
+  const border = selected ? '#047857' : 'rgba(15,23,42,.10)';
+  const shadow = selected
+    ? '0 0 0 3px rgba(16,185,129,.35), 0 8px 18px rgba(4,120,87,.28)'
+    : '0 1px 2px rgba(15,23,42,.08), 0 6px 16px rgba(15,23,42,.16)';
   const icon = L.divIcon({
     className: 'fleet-map-pin pickup-map-pin',
-    html: `<div style="display:flex;align-items:center;gap:5px;width:${width}px;height:${height}px;flex-direction:${side === 'left' ? 'row-reverse' : 'row'}">
-      ${dotHtml}
-      <span style="display:block;max-width:${text}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 8px;border-radius:999px;background:${labelBg};color:${labelColor};border:1px solid ${selected ? '#065F46' : 'rgba(15,23,42,.12)'};box-shadow:0 1px 4px rgba(15,23,42,.28);font:700 11px/16px Inter,system-ui,sans-serif">${escapeHtml(caption)}</span>
+    html: `<div style="box-sizing:border-box;display:flex;align-items:center;gap:${gap}px;width:${width}px;height:${height}px;padding:0 ${pad}px;flex-direction:${side === 'left' ? 'row-reverse' : 'row'};background:${bg};color:${color};border:1px solid ${border};border-radius:999px;box-shadow:${shadow};font-family:Inter,system-ui,sans-serif">
+      <span style="box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:0 0 ${badge}px;width:${badge}px;height:20px;border-radius:999px;background:${badgeBg};color:#fff;font:800 11px/1 Inter,system-ui,sans-serif">${count}</span>
+      <span style="display:block;width:${text}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:700 12px/16px Inter,system-ui,sans-serif;letter-spacing:-.01em">${escapeHtml(caption)}</span>
     </div>`,
     iconSize: [width, height],
     iconAnchor: [anchorX, height / 2],
@@ -269,7 +257,7 @@ function MapBridge({
 
 const PickupMapPin = memo(function PickupMapPin({ pickup, caption, side, showLabel, selected, onSelect }) {
   const count = Number(pickup.count) || 0;
-  const icon = pickupPinIcon({ count, caption, side, showLabel, selected });
+  const icon = pickupPinIcon({ count, caption, side, selected });
   return (
     <Marker
       position={[Number(pickup.lat), Number(pickup.lng)]}
