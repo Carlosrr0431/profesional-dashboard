@@ -54,12 +54,13 @@ export const PASSENGER_CANCELLABLE_STATUSES = [
  */
 export const PASSENGER_SESSION_REQUIRED_STATUSES = ['in_progress'];
 
-/** Estados en los que el operador puede cancelar desde el dashboard. */
+/** Estados en los que el operador puede cancelar desde el panel. Incluye el viaje ya en curso. */
 export const OPERATOR_CANCELLABLE_STATUSES = [
   'scheduled',
   'queued',
   'pending',
   'going_to_pickup',
+  'in_progress',
 ];
 
 /**

@@ -288,13 +288,14 @@ describe('operator cancel', () => {
     expect(payload.driver_id).toBeNull();
   });
 
-  it('canOperatorCancelTrip permite cola, pending y going_to_pickup, no un viaje en curso', () => {
+  it('canOperatorCancelTrip permite cola, pending, en camino y en curso', () => {
     expect(canOperatorCancelTrip({ status: 'queued' })).toBe(true);
     expect(canOperatorCancelTrip({ status: 'pending' })).toBe(true);
     expect(canOperatorCancelTrip({ status: 'scheduled' })).toBe(true);
     expect(canOperatorCancelTrip({ status: 'going_to_pickup' })).toBe(true);
+    expect(canOperatorCancelTrip({ status: 'in_progress' })).toBe(true);
     expect(canOperatorCancelTrip({ status: 'accepted' })).toBe(false);
-    expect(canOperatorCancelTrip({ status: 'in_progress' })).toBe(false);
+    expect(canOperatorCancelTrip({ status: 'completed' })).toBe(false);
   });
 
   it('canOperatorCancelTrip permite cancelar un viaje en calle en curso', () => {
@@ -316,7 +317,7 @@ describe('operator cancel', () => {
     expect(canOperatorCancelTrip({
       status: 'in_progress',
       notes: '[APPROACH_ONLY] Pedido por WhatsApp',
-    })).toBe(false);
+    })).toBe(true);
   });
 
   it('cancelTripAsOperator actualiza el viaje y lo saca de la cola', async () => {
@@ -363,6 +364,36 @@ describe('operator cancel', () => {
     expect(result.trip.status).toBe('cancelled');
     expect(calls.some((item) => item.type === 'delete')).toBe(true);
     expect(calls.find((item) => item.type === 'update')?.payload.dispatch_status).toBe('cancelled');
+  });
+
+  it('cancelTripAsOperator cierra un viaje en curso y conserva el chofer', async () => {
+    const existing = { id: 't3', status: 'in_progress', driver_id: 'driver-9' };
+    const calls = [];
+    const makeQuery = (result) => {
+      const query = {
+        select: () => query,
+        eq: () => query,
+        in: () => query,
+        update: (payload) => {
+          calls.push(payload);
+          return query;
+        },
+        delete: () => query,
+        maybeSingle: () => Promise.resolve(result),
+      };
+      return query;
+    };
+    let reads = 0;
+    const supabase = {
+      from: () => makeQuery(reads++ === 0
+        ? { data: existing, error: null }
+        : { data: { ...existing, status: 'cancelled', dispatch_status: 'cancelled' }, error: null }),
+    };
+
+    const result = await cancelTripAsOperator(supabase, 't3');
+    expect(result.trip.status).toBe('cancelled');
+    expect(calls[0].status).toBe('cancelled');
+    expect(calls[0].driver_id).toBeUndefined();
   });
 
   it('cancelTripAsOperator rechaza viajes ya aceptados', async () => {
