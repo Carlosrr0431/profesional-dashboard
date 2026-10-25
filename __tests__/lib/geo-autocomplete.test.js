@@ -82,7 +82,7 @@ describe('geo autocomplete', () => {
     const labels = results.map((item) => item.address);
     expect(labels.length).toBeGreaterThan(1);
     expect(new Set(labels).size).toBe(labels.length);
-    expect(labels.some((item) => /shopping salta/i.test(item))).toBe(true);
+    expect(labels.some((item) => /portal salta/i.test(item))).toBe(true);
     expect(labels.some((item) => /alto noa/i.test(item))).toBe(true);
     expect(results.every((item) => !String(item.placeId).startsWith('google:'))).toBe(true);
   });
@@ -427,6 +427,40 @@ describe('geo autocomplete', () => {
     const autocompleteCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
     expect(autocompleteCalls.length).toBe(0);
   });
+
+  it('shoping lista los shoppings aunque el mapa no conteste', async () => {
+    global.fetch = jest.fn(() => new Promise(() => {}));
+    const results = await autocompleteAddressSalta('shoping', 6);
+    const blob = results.map((item) => `${item.title} ${item.subtitle}`).join(' | ');
+    expect(blob).toMatch(/portal salta/i);
+    expect(blob).toMatch(/alto noa/i);
+    expect(blob).toMatch(/cabildo/i);
+    expect(global.fetch).not.toHaveBeenCalled();
+  }, 3000);
+
+  it('alvarado 241 sale del padron aunque el mapa no conteste', async () => {
+    global.fetch = jest.fn(async (url) => {
+      if (!String(url).includes('georef')) return new Promise(() => {});
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          direcciones: [{
+            nomenclatura: 'ALVARADO 241, Salta, Capital, Salta',
+            altura: { valor: 241 },
+            calle: { nombre: 'ALVARADO' },
+            localidad_censal: { nombre: 'Salta' },
+            provincia: { nombre: 'Salta' },
+            ubicacion: { lat: -24.7914448, lon: -65.4049254 },
+          }],
+        }),
+      };
+    });
+
+    const results = await autocompleteAddressSalta('alvarado 241', 5);
+    expect(`${results[0].title} ${results[0].address}`).toMatch(/alvarado 241/i);
+    expect(results[0].lat).toBeCloseTo(-24.7914, 3);
+  }, 3000);
 
   it('si el mapa propio no responde, hospital igual lista lugares', async () => {
     global.fetch = jest.fn(async (url) => {

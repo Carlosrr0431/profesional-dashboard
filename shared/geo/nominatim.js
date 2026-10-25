@@ -25,6 +25,7 @@ const {
 const {
   resolveSaltaKnownPoi,
   getKnownPoiSearchQueries,
+  getKnownPoiPollSeeds,
   looksLikeSaltaKnownPoi,
   buildPoiAutocompleteQueries,
   normalizePoiText,
@@ -88,6 +89,37 @@ let publicNominatimUntil = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => { setTimeout(resolve, ms); });
+}
+
+function withTimeout(promise, ms, fallback) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(fallback);
+      },
+    );
+  });
+}
+
+function suggestionsFromKnownPoiSeeds(knownPoi, query) {
+  return getKnownPoiPollSeeds(knownPoi, query)
+    .filter((seed) => Number.isFinite(Number(seed.lat)) && Number.isFinite(Number(seed.lng)))
+    .map((seed) => ({
+      lat: Number(seed.lat),
+      lng: Number(seed.lng),
+      placeId: `poi:${knownPoi.id}:${normalizePoiText(seed.title)}:${normalizePoiText(seed.subtitle)}`,
+      poiName: seed.title,
+      osmClass: 'amenity',
+      osmType: 'poi',
+      formattedAddress: [seed.title, seed.subtitle, 'Salta'].filter(Boolean).join(', '),
+      address: { city: 'Salta', road: seed.subtitle || '' },
+    }));
 }
 
 function shouldSearchOsmPoi(query) {
@@ -923,17 +955,25 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
 
     // Fast-path: calle + altura (caso más común en despacho) con mínimo costo/latencia.
     if (hasHouseNumber) {
-      const [georefHits, structuredHits, geocodeHits] = await Promise.all([
-        searchGeorefAddress(trimmed, 4).catch(() => []),
-        searchStructuredAddress(trimmed).catch(() => []),
-        searchNominatimVariant(buildSearchQuery(trimmed), Math.max(limit, 6)).catch(() => []),
-      ]);
-
+      const georefHits = await searchGeorefAddress(trimmed, 4).catch(() => []);
       const matchingGeoref = preferSpecificRoad(
         trimmed,
         georefHits.filter((hit) => georefHitMatchesStreetQuery(hit, trimmed)),
       );
       collectGeorefCandidates(matchingGeoref, trimmed, merged, seenPlaceIds, seenCoords);
+      if (merged.length > 0) {
+        return merged.slice(0, limit).map(({ score, ...item }) => item);
+      }
+
+      const [structuredHits, geocodeHits] = await Promise.all([
+        withTimeout(searchStructuredAddress(trimmed).catch(() => []), 2000, []),
+        withTimeout(
+          searchNominatimVariant(buildSearchQuery(trimmed), Math.max(limit, 6)).catch(() => []),
+          2000,
+          [],
+        ),
+      ]);
+
       collectAutocompleteCandidates(
         structuredHits,
         trimmed,
@@ -962,6 +1002,22 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       });
 
       return merged.slice(0, limit).map(({ score, ...item }) => item);
+    }
+
+    if (knownPoi?.pollSeeds?.length) {
+      collectAutocompleteCandidates(
+        suggestionsFromKnownPoiSeeds(knownPoi, trimmed),
+        trimmed,
+        merged,
+        seenPlaceIds,
+        seenCoords,
+        seenLabels,
+        2.4,
+      );
+      if (merged.length > 0) {
+        merged.sort((a, b) => b.score - a.score);
+        return merged.slice(0, limit).map(({ score, ...item }) => item);
+      }
     }
 
     // Legacy sin Google: POIs y calles vía Nominatim/Georef.

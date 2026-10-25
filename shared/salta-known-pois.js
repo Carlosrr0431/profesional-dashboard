@@ -98,6 +98,8 @@ const SALTA_KNOWN_POIS = [
         subtitle: 'Avenida José Tobias 69',
         geocodeQuery: 'Hospital San Bernardo, Avenida José Tobias 69, Salta, Argentina',
         matchTokens: ['bernardo'],
+        lat: -24.7921050,
+        lng: -65.3994998,
       },
       {
         title: 'Hospital San Bernardo',
@@ -114,9 +116,11 @@ const SALTA_KNOWN_POIS = [
       },
       {
         title: 'Hospital Señor del Milagro',
-        subtitle: 'Salta',
+        subtitle: 'Avenida Sarmiento 577',
         geocodeQuery: 'Hospital Señor del Milagro, Salta, Argentina',
         categoryOnly: true,
+        lat: -24.7820634,
+        lng: -65.4165537,
       },
       {
         title: 'Hospital Público Materno Infantil',
@@ -129,12 +133,16 @@ const SALTA_KNOWN_POIS = [
         subtitle: 'Salta',
         geocodeQuery: 'Hospital Papa Francisco, Salta, Argentina',
         categoryOnly: true,
+        lat: -24.8403680,
+        lng: -65.3914422,
       },
       {
         title: 'Hospital Militar',
-        subtitle: 'Salta',
+        subtitle: 'Arenales 1500',
         geocodeQuery: 'Hospital Militar, Salta, Argentina',
         categoryOnly: true,
+        lat: -24.7689900,
+        lng: -65.4223240,
       },
     ],
     patterns: [
@@ -564,16 +572,22 @@ const SALTA_KNOWN_POIS = [
         title: 'Portal Salta',
         subtitle: '20 de Febrero 1437',
         geocodeQuery: 'Portal Salta Shopping, 20 de Febrero 1437, Salta, Argentina',
+        lat: -24.7719213,
+        lng: -65.4120004,
       },
       {
         title: 'Alto NOA Shopping',
         subtitle: 'Avenida del Bicentenario 702',
         geocodeQuery: 'Alto NOA Shopping, Av. del Bicentenario 702, Salta, Argentina',
+        lat: -24.7812496,
+        lng: -65.4023547,
       },
       {
         title: 'Paseo del Cabildo',
         subtitle: 'Caseros 521',
         geocodeQuery: 'Paseo del Cabildo, Caseros 521, Salta, Argentina',
+        lat: -24.7897470,
+        lng: -65.4099506,
       },
       {
         title: 'Nuevo Centro Shopping',
