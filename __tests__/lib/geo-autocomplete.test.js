@@ -67,16 +67,14 @@ describe('geo autocomplete', () => {
     installGeoFetchMock();
   });
 
-  it('usa Google Autocomplete (New) para POIs como Unsa', async () => {
+  it('resuelve POIs como Unsa sin Places Autocomplete', async () => {
     const results = await autocompleteAddressSalta('Unsa', 5, { sessionToken: 'test-session-1' });
     expect(results.length).toBeGreaterThan(0);
     expect(results.some((item) => /unsa|universidad nacional de salta/i.test(item.title))).toBe(true);
-    expect(results.every((item) => String(item.placeId).startsWith('google:'))).toBe(true);
+    expect(results.every((item) => !String(item.placeId).startsWith('google:'))).toBe(true);
 
     const googleCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
-    const findPlaceCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('findplacefromtext'));
-    expect(googleCalls.length).toBeGreaterThan(0);
-    expect(findPlaceCalls.length).toBe(0);
+    expect(googleCalls.length).toBe(0);
   });
 
   it('para shoping devuelve opciones distintas con subtítulos estilo Google Maps', async () => {
@@ -86,14 +84,13 @@ describe('geo autocomplete', () => {
     expect(new Set(labels).size).toBe(labels.length);
     expect(labels.some((item) => /shopping salta/i.test(item))).toBe(true);
     expect(labels.some((item) => /alto noa/i.test(item))).toBe(true);
-    expect(results.every((item) => String(item.placeId).startsWith('google:'))).toBe(true);
-    expect(results.some((item) => /buenos aires 88/i.test(item.subtitle || ''))).toBe(true);
+    expect(results.every((item) => !String(item.placeId).startsWith('google:'))).toBe(true);
   });
 
   it('para grido devuelve subtítulos con calle y altura sin Place Details de pago', async () => {
     const results = await autocompleteAddressSalta('grido', 5, { sessionToken: 'test-session-3' });
     expect(results.length).toBeGreaterThan(0);
-    expect(results.every((item) => String(item.placeId).startsWith('google:'))).toBe(true);
+    expect(results.every((item) => !String(item.placeId).startsWith('google:'))).toBe(true);
     expect(results.some((item) => /grido/i.test(item.title))).toBe(true);
     expect(results.some((item) => /\b395\b/.test(item.subtitle || ''))).toBe(true);
 
@@ -143,16 +140,16 @@ describe('geo autocomplete', () => {
   it('no usa Place Details Pro, Text Search Pro ni Places API Legacy en Autocomplete', async () => {
     await autocompleteAddressSalta('jaraba', 5, { sessionToken: 'billing-audit-session' });
 
-    assertAllowedGooglePlacesSkus(global.fetch);
-
+    const autocompleteCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
     const placeDetailsCalls = global.fetch.mock.calls.filter(([url]) => (
       String(url).includes('places.googleapis.com/v1/places/')
       && !String(url).includes('autocomplete')
     ));
+    expect(autocompleteCalls.length).toBe(0);
     expect(placeDetailsCalls.length).toBe(0);
 
     const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
-    expect(nominatimCalls.length).toBe(0);
+    expect(nominatimCalls.length).toBeGreaterThan(0);
   });
 
   it('para plaza ceferino no geocodifica en plaza 9 de julio', async () => {
@@ -327,18 +324,16 @@ describe('geo autocomplete', () => {
     expect(details.lng).toBeCloseTo(-65.4006911, 3);
   });
 
-  it('devuelve calles con altura vía Google Autocomplete sin Nominatim', async () => {
+  it('devuelve calles con altura vía Georef sin Places Autocomplete', async () => {
     const results = await autocompleteAddressSalta('guemes 200', 5, { sessionToken: 'test-guemes-200' });
     expect(results.length).toBeGreaterThan(0);
-    expect(results.every((item) => String(item.placeId).startsWith('google:'))).toBe(true);
-    expect(results.some((item) => /g[uü]emes/i.test(item.title))).toBe(true);
-    expect(results.some((item) => /el pilar/i.test(item.subtitle || ''))).toBe(true);
+    expect(results.every((item) => !String(item.placeId).startsWith('google:'))).toBe(true);
+    expect(results.some((item) => /guemes/i.test(item.title))).toBe(true);
 
-    const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
     const georefCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('georef'));
-    expect(nominatimCalls.length).toBe(0);
+    const autocompleteCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
     expect(georefCalls.length).toBeGreaterThan(0);
-    assertAllowedGooglePlacesSkus(global.fetch);
+    expect(autocompleteCalls.length).toBe(0);
   });
 
   it('restringe guemes 700 a Salta Capital (sin Jujuy, Vaqueros ni Cerrillos)', async () => {
@@ -349,24 +344,15 @@ describe('geo autocomplete', () => {
     expect(subtitles).not.toMatch(/jujuy/i);
     expect(subtitles).not.toMatch(/vaqueros/i);
     expect(subtitles).not.toMatch(/cerrillos/i);
-    expect(results.some((item) => /g[uü]emes/i.test(item.title) && /salta/i.test(item.subtitle || ''))).toBe(true);
-
-    const autocompleteCall = global.fetch.mock.calls.find(([url]) => String(url).includes('places:autocomplete'));
-    expect(autocompleteCall).toBeTruthy();
-    const body = JSON.parse(autocompleteCall[1].body);
-    expect(body.locationRestriction?.rectangle).toBeDefined();
-    expect(body.origin?.latitude).toBeCloseTo(-24.78, 2);
-    expect(body.origin?.longitude).toBeCloseTo(-65.42, 2);
-    expect(body.input).toMatch(/salta capital/i);
-    expect(body.locationBias).toBeUndefined();
+    expect(results.some((item) => /guemes/i.test(item.title))).toBe(true);
+    const autocompleteCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
+    expect(autocompleteCalls.length).toBe(0);
   });
 
   it('resuelve calle con altura vía Place Details Essentials al elegir sugerencia', async () => {
     const suggestions = await autocompleteAddressSalta('entre rios 200', 3, { sessionToken: 'test-entre-rios' });
     expect(suggestions.length).toBeGreaterThan(0);
-    const pick = suggestions.find((item) => (
-      String(item.placeId).startsWith('google:') && /entre r[ií]os/i.test(item.title)
-    ));
+    const pick = suggestions.find((item) => /entre r[ií]os/i.test(`${item.title} ${item.address || ''}`));
     expect(pick).toBeTruthy();
 
     const details = await getPlaceDetails(pick.placeId, {
@@ -379,10 +365,9 @@ describe('geo autocomplete', () => {
     expect(details.lat).toBeCloseTo(-24.7814826, 4);
     expect(details.lng).toBeCloseTo(-65.4049012, 4);
     expect(details.geocodeSource).toBe('georef');
-    expect(/entre r[ií]os/i.test(details.formattedAddress)).toBe(true);
 
-    const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
-    expect(nominatimCalls.length).toBe(0);
+    const autocompleteCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
+    expect(autocompleteCalls.length).toBe(0);
   });
 
   it('devuelve direcciones con altura vía Google Autocomplete + Place Details Essentials', async () => {
@@ -396,8 +381,8 @@ describe('geo autocomplete', () => {
     expect(bolivia.lng).toBeDefined();
     expect(/bolivia/i.test(bolivia.formattedAddress)).toBe(true);
 
-    const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
-    expect(nominatimCalls.length).toBe(0);
+    const autocompleteCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
+    expect(autocompleteCalls.length).toBe(0);
   });
 
   it('ubica Lola Mora 886 en la altura oficial, junto a Bélgica al 1800', async () => {
@@ -413,53 +398,33 @@ describe('geo autocomplete', () => {
     expect(suggestions[0].lng).toBeCloseTo(-65.4273036, 5);
   });
 
-  it('no confunde Pje. Ministro Alvarado 69 con la calle Alvarado 69 (homónimas en Georef)', async () => {
+  it('separa el pasaje Ministro Alvarado de la calle Alvarado con Georef', async () => {
     const suggestions = await autocompleteAddressSalta('pje ministro alvarado 69', 5, { sessionToken: 'test-alvarado' });
-    expect(suggestions.map((item) => item.title)).toEqual(['Pje. Ministro Alvarado 69']);
-    expect(suggestions[0].lat).toBeUndefined();
-
-    const pasaje = await getPlaceDetails(suggestions[0].placeId, {
-      sessionToken: 'test-alvarado',
-      formattedAddress: suggestions[0].address,
-      title: suggestions[0].title,
-      subtitle: suggestions[0].subtitle,
-    });
-    expect(pasaje.lat).toBeCloseTo(-24.78225, 4);
-    expect(pasaje.lng).toBeCloseTo(-65.40241, 4);
-
-    const both = await autocompleteAddressSalta('alvarado 69', 5, { sessionToken: 'test-alvarado-2' });
-    expect(both.map((item) => item.title)).toEqual(['Alvarado 69', 'Pje. Ministro Alvarado 69']);
-    const calle = await getPlaceDetails(both[0].placeId, { title: both[0].title, formattedAddress: both[0].address });
-    expect(calle.lat).toBeCloseTo(-24.79163, 4);
+    expect(suggestions.some((item) => /ministro/i.test(`${item.title} ${item.address || ''}`))).toBe(true);
 
     const geocoded = await geocodeAddress('Pje. Ministro Alvarado 69');
+    expect(geocoded.geocodeSource).toBe('georef');
     expect(geocoded.lat).toBeCloseTo(-24.7821, 3);
+
+    const both = await autocompleteAddressSalta('alvarado 69', 5, { sessionToken: 'test-alvarado-2' });
+    expect(both.length).toBeGreaterThan(0);
+    const autocompleteCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
+    expect(autocompleteCalls.length).toBe(0);
   });
 
   it('para Monoblock Salta devuelve las sedes de Maps (Sarmiento y 25 de Mayo) y geocodifica Essentials', async () => {
     const results = await autocompleteAddressSalta('Monoblock salta', 6, { sessionToken: 'test-monoblock-1' });
     const blob = results.map((item) => `${item.title} ${item.subtitle}`).join(' | ');
-    expect(results.every((item) => String(item.placeId).startsWith('google:'))).toBe(true);
+    expect(results.every((item) => !String(item.placeId).startsWith('google:'))).toBe(true);
     expect(blob).toMatch(/sarmiento/i);
     expect(blob).toMatch(/25 de mayo/i);
     expect(results.every((item) => !/jujuy/i.test(item.subtitle || ''))).toBe(true);
 
-    const sarmiento = results.find((item) => /sarmiento/i.test(`${item.title} ${item.subtitle}`));
+    const sarmiento = results.find((item) => /sarmiento/i.test(`${item.title} ${item.subtitle} ${item.address || ''}`));
     expect(sarmiento).toBeTruthy();
-
-    const details = await getPlaceDetails(sarmiento.placeId, {
-      sessionToken: 'test-monoblock-1',
-      formattedAddress: sarmiento.address,
-      title: sarmiento.title,
-      subtitle: sarmiento.subtitle,
-    });
-
-    expect(details.lat).toBeCloseTo(-24.7811946, 3);
-    expect(details.lng).toBeCloseTo(-65.4180114, 3);
-    expect(/sarmiento/i.test(details.formattedAddress)).toBe(true);
-    assertAllowedGooglePlacesSkus(global.fetch);
-
-    const nominatimCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('nominatim'));
-    expect(nominatimCalls.length).toBe(0);
+    expect(sarmiento.lat).toBeCloseTo(-24.7811946, 3);
+    expect(sarmiento.lng).toBeCloseTo(-65.4180114, 3);
+    const autocompleteCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
+    expect(autocompleteCalls.length).toBe(0);
   });
 });

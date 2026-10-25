@@ -479,14 +479,17 @@ async function geocodeAddress(address, options = {}) {
 
   const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
   if (hasHouseNumber) {
-    const georefHits = await searchGeorefAddress(query, 1).catch(() => []);
-    if (georefHits.length > 0) {
-      const best = georefHits[0];
+    const georefHits = await searchGeorefAddress(query, 4).catch(() => []);
+    const ranked = preferSpecificRoad(query, georefHits.filter((hit) => georefHitMatchesStreetQuery(hit, query)));
+    if (ranked.length > 0) {
+      const best = pickOfficialHouseNumber(ranked) || ranked[0];
       const label = formatNominatimLabelForQuery(best, query);
       return {
         lat: best.lat,
         lng: best.lng,
         formattedAddress: label.full || best.formattedAddress,
+        placeId: best.placeId || null,
+        geocodeSource: 'georef',
       };
     }
   }
@@ -692,6 +695,24 @@ function foldStreetText(value) {
     .toLowerCase();
 }
 
+function roadTokenOverlap(query, road) {
+  const q = foldStreetText(query);
+  const tokens = foldStreetText(road).split(/\s+/).filter((token) => token.length >= 3);
+  return tokens.filter((token) => q.includes(token)).length;
+}
+
+/** Si hay homónimas, se queda la calle cuyo nombre comparte más palabras con la consulta. */
+function preferSpecificRoad(query, matches) {
+  if (!matches || matches.length < 2) return matches || [];
+  const scored = matches.map((hit) => ({
+    hit,
+    score: roadTokenOverlap(query, hit?.address?.road),
+  }));
+  const best = Math.max(...scored.map((item) => item.score));
+  if (best <= 0) return matches;
+  return scored.filter((item) => item.score === best).map((item) => item.hit);
+}
+
 function roadAppearsInQuery(query, road) {
   const q = foldStreetText(query);
   const tokens = foldStreetText(road)
@@ -741,8 +762,9 @@ async function findOfficialHouseNumber(query, near = null) {
   const text = String(query || '').trim();
   if (pickPrimaryHouseNumber(text) == null) return null;
   if (looksLikeSaltaKnownPoi(text)) return null;
-  const hits = await searchGeorefAddress(text, 3).catch(() => []);
-  return pickOfficialHouseNumber(hits.filter((hit) => georefHitMatchesStreetQuery(hit, text)), near);
+  const hits = await searchGeorefAddress(text, 4).catch(() => []);
+  const matches = preferSpecificRoad(text, hits.filter((hit) => georefHitMatchesStreetQuery(hit, text)));
+  return pickOfficialHouseNumber(matches, near);
 }
 
 function streetHouseQueryFromPlace(options = {}) {
@@ -883,7 +905,11 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
         searchNominatimVariant(buildSearchQuery(trimmed), Math.max(limit, 6)).catch(() => []),
       ]);
 
-      collectGeorefCandidates(georefHits, trimmed, merged, seenPlaceIds, seenCoords);
+      const matchingGeoref = preferSpecificRoad(
+        trimmed,
+        georefHits.filter((hit) => georefHitMatchesStreetQuery(hit, trimmed)),
+      );
+      collectGeorefCandidates(matchingGeoref, trimmed, merged, seenPlaceIds, seenCoords);
       collectAutocompleteCandidates(
         structuredHits,
         trimmed,

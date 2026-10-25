@@ -4,9 +4,7 @@
  * ╔══════════════════════════════════════════════════════════════╗
  * ║  SKUs permitidos                                             ║
  * ╠══════════════════════════════════════════════════════════════╣
- * ║  Autocomplete Requests   POST /v1/places:autocomplete        ║
- * ║    · Con sessionToken: keystrokes = $0 (bundled al Details)  ║
- * ║    · Sin sessionToken: $0.00283 / request                    ║
+ * ║  Autocomplete Requests   PROHIBIDO (se factura por request)  ║
  * ║  Place Details Essentials (IDs Only)  mask = "id"            ║
  * ║    · Verificación barata de placeId sin coordenadas          ║
  * ║  Place Details Essentials  mask = id,formattedAddress,       ║
@@ -139,15 +137,6 @@ const OUTSIDE_SALTA_CAPITAL_SUBTITLE = [
   /\blas lajitas\b/,
   /\bgeneral g[uü]emes,\s*salta\b/,
 ];
-
-const AUTOCOMPLETE_FIELD_MASK = [
-  'suggestions.placePrediction.placeId',
-  'suggestions.placePrediction.structuredFormat',
-  'suggestions.placePrediction.text',
-  'suggestions.placePrediction.types',
-  // Solo viene si se manda `origin` (ordenar por cercanía en la búsqueda ampliada).
-  'suggestions.placePrediction.distanceMeters',
-].join(',');
 
 /**
  * SKU: Place Details Essentials — mínimo para coords + dirección + tipo de POI.
@@ -383,25 +372,6 @@ function scoreAutocompleteSuggestion(mainText, secondaryText, query) {
   return score;
 }
 
-function biasAutocompleteInputToSaltaCapital(input) {
-  const text = String(input || '').trim();
-  if (!text) return text;
-  if (queryNamesCoveredLocality(text)) {
-    return /\bargentina\b/i.test(text) ? text : `${text}, Salta, Argentina`;
-  }
-  if (/salta\s*capital/i.test(text)) return text;
-  if (/,\s*salta\s*,\s*argentina\s*$/i.test(text)) {
-    return text.replace(/,\s*salta\s*,\s*argentina\s*$/i, ', Salta Capital, Argentina');
-  }
-  if (/,\s*salta\s*$/i.test(text)) {
-    return text.replace(/,\s*salta\s*$/i, ', Salta Capital');
-  }
-  if (!/\b(salta|argentina|jujuy)\b/i.test(text)) {
-    return `${text}, Salta Capital`;
-  }
-  return text;
-}
-
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -524,54 +494,9 @@ function mapAutocompletePrediction(prediction, sessionToken, query) {
   };
 }
 
-async function placesAutocompleteRequest(
-  input,
-  sessionToken,
-  restriction = SALTA_CAPITAL_RESTRICTION,
-  timeoutMs = PLACES_TIMEOUT_MS,
-  origin = null,
-) {
-  const text = String(input || '').trim();
-  if (!text || !isGoogleConfigured()) return [];
-
-  const key = readGoogleApiKey();
-  const url = `${PLACES_NEW_BASE}/places:autocomplete`;
-  assertAllowedUrl(url);
-
-  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': key,
-        'X-Goog-FieldMask': AUTOCOMPLETE_FIELD_MASK,
-      },
-      body: JSON.stringify({
-        input: biasAutocompleteInputToSaltaCapital(text),
-        sessionToken,
-        includedRegionCodes: ['ar'],
-        languageCode: 'es',
-        origin: SALTA_CAPITAL_ORIGIN,
-        locationRestriction: restrictionForQuery(text),
-        // Con `origin` Google devuelve distanceMeters de cada sugerencia a ese punto.
-        ...(origin ? { origin } : {}),
-      }),
-      signal: controller?.signal,
-    });
-
-    if (!response.ok) return [];
-
-    const data = await response.json();
-    return Array.isArray(data?.suggestions) ? data.suggestions : [];
-  } catch {
-    return [];
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+async function placesAutocompleteRequest() {
+  // Places Autocomplete (New) se factura por request. La búsqueda vive en Georef y Nominatim.
+  return [];
 }
 
 /** Ubicación de quien busca, solo si cae dentro de Salta Capital (si no, se ignora). */

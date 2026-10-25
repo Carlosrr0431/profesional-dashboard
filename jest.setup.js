@@ -10,7 +10,7 @@
 // ── Variables de entorno requeridas por route.js ────────────────────────────
 process.env.GOOGLE_MAPS_API_KEY              = 'test-google-maps-key';
 process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY  = 'test-google-maps-key';
-process.env.GOOGLE_POI_AUTOCOMPLETE_ENABLED  = 'true';
+process.env.GOOGLE_POI_AUTOCOMPLETE_ENABLED  = 'false';
 process.env.OPENAI_API_KEY                   = 'sk-test-openai-key';
 process.env.DEEPSEEK_API_KEY                 = 'sk-test-deepseek-key';
 process.env.DEEPSEEK_BASE_URL                = 'https://api.deepseek.com';

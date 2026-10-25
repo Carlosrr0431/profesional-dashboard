@@ -16,10 +16,10 @@ import {
 } from '../../shared/salta-address.js';
 import { getRouteMetricsByAddress } from '../../shared/geo/osrm.js';
 import {
-  autocompleteAddressSalta,
   isGoogleConfigured,
   fixCommonPoiTypos,
 } from '../../shared/geo/googlePlaces.js';
+import { autocompleteAddressSalta } from '../../shared/geo/nominatim.js';
 import { stripScheduleTimePhrases } from './whatsappTripAddressParse.js';
 import {
   fetchTariffWindows,

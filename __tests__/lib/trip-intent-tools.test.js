@@ -142,10 +142,8 @@ describe('lookup_address + Google Places New', () => {
     expect(result.kind).toBe('google_place');
     expect(result.canonical).toMatch(/sarmiento/i);
 
-    const googleCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('googleapis.com'));
-    expect(googleCalls.some(([url]) => String(url).includes('places:autocomplete'))).toBe(true);
-    expect(googleCalls.every(([url]) => !/textsearch|findplacefromtext|searchText|searchNearby/i.test(String(url)))).toBe(true);
-    expect(googleCalls.every(([url]) => !String(url).includes('maps.googleapis.com/maps/api/geocode'))).toBe(true);
+    const googleCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
+    expect(googleCalls).toHaveLength(0);
   });
 });
 

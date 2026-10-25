@@ -670,7 +670,11 @@ function createGeoFetchHandler(baseHandler) {
         const alvarado = (id, lat, lon) => ({
           nomenclatura: 'ALVARADO 69, Salta, Capital, Salta',
           altura: { valor: 69 },
-          calle: { categoria: 'CALLE', id, nombre: 'ALVARADO' },
+          calle: {
+            categoria: id.endsWith('305') ? 'PASAJE' : 'CALLE',
+            id,
+            nombre: id.endsWith('305') ? 'PJE MINISTRO ALVARADO' : 'ALVARADO',
+          },
           localidad_censal: { nombre: 'Salta' },
           provincia: { nombre: 'Salta' },
           ubicacion: { lat, lon },
@@ -698,6 +702,38 @@ function createGeoFetchHandler(baseHandler) {
               localidad_censal: { nombre: 'Salta' },
               provincia: { nombre: 'Salta' },
               ubicacion: { lat: -24.8039138, lon: -65.4273036 },
+            }],
+          }),
+        };
+      }
+      if ((query.includes('guemes') || query.includes('güemes')) && query.includes('700')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            direcciones: [{
+              nomenclatura: 'AV GRAL GUEMES 700, Salta, Capital, Salta',
+              altura: { valor: 700 },
+              calle: { nombre: 'AV GRAL GUEMES' },
+              localidad_censal: { nombre: 'Salta' },
+              provincia: { nombre: 'Salta' },
+              ubicacion: { lat: -24.785, lon: -65.412 },
+            }],
+          }),
+        };
+      }
+      if ((query.includes('guemes') || query.includes('güemes')) && query.includes('200')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            direcciones: [{
+              nomenclatura: 'AV GRAL GUEMES 200, Bº El Pilar, Salta, Capital, Salta',
+              altura: { valor: 200 },
+              calle: { nombre: 'AV GRAL GUEMES' },
+              localidad_censal: { nombre: 'Salta' },
+              provincia: { nombre: 'Salta' },
+              ubicacion: { lat: -24.79, lon: -65.41 },
             }],
           }),
         };
@@ -846,6 +882,55 @@ function createGeoFetchHandler(baseHandler) {
             name: 'Escuela Hogar N° 4660 Carmen Puch de Güemes',
             address: { road: 'Avenida Hipólito Yrigoyen', city: 'Salta' },
           }]),
+        };
+      }
+
+      if (query.includes('grido')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ([{
+            lat: '-24.782',
+            lon: '-65.41',
+            display_name: 'Grido, 395, Salta, Argentina',
+            place_id: 'osm-grido',
+            importance: 0.8,
+            class: 'amenity',
+            type: 'ice_cream',
+            name: 'Grido',
+            address: { road: 'Avenida San Martín', house_number: '395', city: 'Salta' },
+          }]),
+        };
+      }
+
+      if (query.includes('monoblock') || query.includes('monoblok')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ([
+            {
+              lat: '-24.7811946',
+              lon: '-65.4180114',
+              display_name: 'Monoblock, Avenida Sarmiento, Salta, Argentina',
+              place_id: 'osm-monoblock-sarmiento',
+              importance: 0.9,
+              class: 'amenity',
+              type: 'hospital',
+              name: 'Monoblock',
+              address: { road: 'Avenida Sarmiento', city: 'Salta' },
+            },
+            {
+              lat: '-24.7852',
+              lon: '-65.411',
+              display_name: 'Monoblock, 25 de Mayo, Salta, Argentina',
+              place_id: 'osm-monoblock-25-mayo',
+              importance: 0.86,
+              class: 'amenity',
+              type: 'hospital',
+              name: 'Monoblock',
+              address: { road: '25 de Mayo', city: 'Salta' },
+            },
+          ]),
         };
       }
 

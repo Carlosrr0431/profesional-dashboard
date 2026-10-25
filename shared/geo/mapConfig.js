@@ -50,13 +50,11 @@ const NOMINATIM_SELF_HOSTED = readEnv(
 ) !== 'false';
 
 /**
- * Google Places Autocomplete para POIs y direcciones (calle + altura).
- * Se puede desactivar explícitamente en env si querés operar solo con OSM/Nominatim.
+ * Places Autocomplete (New) se cobra por request (SKU Autocomplete Requests).
+ * Queda apagado a propósito: calles y lugares salen de Georef y Nominatim.
+ * No leer el env: un `true` en Vercel volvería a generar el gasto.
  */
-const GOOGLE_POI_AUTOCOMPLETE_ENABLED = readEnv(
-  'EXPO_PUBLIC_GOOGLE_POI_AUTOCOMPLETE_ENABLED',
-  'GOOGLE_POI_AUTOCOMPLETE_ENABLED',
-) !== 'false';
+const GOOGLE_POI_AUTOCOMPLETE_ENABLED = false;
 
 /** Capital estricta, para no mezclar “Güemes 700” con otra localidad. */
 const SALTA_VIEWBOX = '-65.72,-25.15,-65.25,-24.55';
