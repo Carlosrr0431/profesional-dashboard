@@ -20,6 +20,7 @@ const {
   parseStreetHouseFromQuery,
   pickPrimaryHouseNumber,
   ensureStreetCatalog,
+  searchStreetCatalog,
 } = require('../salta-address');
 
 const {
@@ -30,7 +31,7 @@ const {
   buildPoiAutocompleteQueries,
   normalizePoiText,
 } = require('../salta-known-pois');
-const { searchGeorefAddress, resolveGeorefPlaceId } = require('./georef');
+const { searchGeorefAddress, resolveGeorefPlaceId, fetchGeorefCalles } = require('./georef');
 const { fuzzySearch: tomtomFuzzySearch, reverseGeocodeCoords: tomtomReverseGeocode } = require('./tomtomClient');
 
 const PUBLIC_NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
@@ -860,6 +861,69 @@ function collectGeorefCandidates(items, query, merged, seenPlaceIds, seenCoords)
   }
 }
 
+const streetPointCache = new Map();
+
+function bareGeorefStreetName(nombre) {
+  return foldStreetText(nombre)
+    .replace(/^(pje|psje|pasaje|av|avda|avenida|calle|diag|diagonal)\s+/, '')
+    .trim();
+}
+
+function streetCacheKey(street) {
+  return `${street.type}|${street.nameKey}`;
+}
+
+async function locateCatalogStreet(street) {
+  const key = streetCacheKey(street);
+  if (streetPointCache.has(key)) return streetPointCache.get(key);
+
+  const calles = await fetchGeorefCalles(street.name, { max: 8 });
+  const wanted = foldStreetText(street.name);
+  const calle = calles.find((item) => {
+    const name = bareGeorefStreetName(item?.nombre);
+    const category = foldStreetText(item?.categoria);
+    const typeOk = !category
+      || category.includes(street.type === 'pasaje' ? 'pasaje' : street.type === 'avenida' ? 'avenida' : 'calle');
+    return typeOk && name === wanted;
+  });
+  if (!calle) return null;
+
+  const height = Number(calle?.altura?.inicio?.izquierda || calle?.altura?.inicio?.derecha || 0);
+  const hits = await searchGeorefAddress(`${calle.nombre} ${height > 0 ? height : 1}`, 2);
+  const point = hits[0] || null;
+  if (point) streetPointCache.set(key, point);
+  return point;
+}
+
+async function locateStreetTitle(title) {
+  const [street] = searchStreetCatalog(title, 1);
+  if (!street) return null;
+  return locateCatalogStreet(street);
+}
+
+function streetSuggestion(street, point) {
+  const title = street.fullLabel;
+  const suggestion = {
+    address: `${title}, Salta`,
+    title,
+    subtitle: 'Salta',
+    placeId: `street:${encodeURIComponent(title)}`,
+  };
+  if (Number.isFinite(point?.lat) && Number.isFinite(point?.lng)) {
+    suggestion.lat = point.lat;
+    suggestion.lng = point.lng;
+    if (point.placeId) suggestion.placeId = point.placeId;
+  }
+  return suggestion;
+}
+
+/** Calles y pasajes del padrón. El punto se resuelve al elegir, sin esperar al mapa. */
+function suggestionsForStreetCatalog(query, limit) {
+  return searchStreetCatalog(query, limit).map((street) => (
+    streetSuggestion(street, streetPointCache.get(streetCacheKey(street)) || null)
+  ));
+}
+
 async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   const trimmed = String(query || '').trim();
   if (trimmed.length < 2) return [];
@@ -1020,6 +1084,11 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       }
     }
 
+    if (!hasHouseNumber) {
+      const streetHits = await suggestionsForStreetCatalog(trimmed, limit);
+      if (streetHits.length > 0) return streetHits;
+    }
+
     // Legacy sin Google: POIs y calles vía Nominatim/Georef.
     const [primaryHits, structuredHits, georefHits, poiHits, geocodeHits] = await Promise.all([
       searchNominatimVariant(primaryQuery, limit).catch(() => []),
@@ -1170,6 +1239,22 @@ async function getPlaceDetails(placeId, options = {}) {
       formattedAddress: label.full || mapped.formattedAddress,
       placeId: id,
       geocodeSource: 'georef',
+    };
+  }
+
+  if (id.startsWith('street:')) {
+    const title = decodeURIComponent(id.slice('street:'.length));
+    const point = await locateStreetTitle(title);
+    if (!point) throw new Error('No se pudo obtener detalles del lugar');
+    const label = formatNominatimLabelForQuery(point, title);
+    return {
+      lat: point.lat,
+      lng: point.lng,
+      formattedAddress: label.full || point.formattedAddress,
+      placeId: point.placeId || id,
+      geocodeSource: 'georef',
+      title,
+      subtitle: 'Salta',
     };
   }
 

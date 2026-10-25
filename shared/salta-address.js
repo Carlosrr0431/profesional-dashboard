@@ -455,6 +455,67 @@ function getCatalogAddressVariants(address, maxResults = 4) {
   return variants;
 }
 
+const STREET_QUERY_TYPES = {
+  pasaje: 'pasaje',
+  pje: 'pasaje',
+  psje: 'pasaje',
+  calle: 'calle',
+  avenida: 'avenida',
+  av: 'avenida',
+  avda: 'avenida',
+  diagonal: 'diagonal',
+};
+
+const STREET_QUERY_SKIP = new Set([
+  ...GENERIC_ADDRESS_TOKENS,
+  'de', 'del', 'la', 'las', 'los', 'el', 'y',
+]);
+
+/**
+ * Calles y pasajes del padrón de Salta que coinciden con lo escrito.
+ * "pasaje iruya" no devuelve una calle homónima.
+ */
+function searchStreetCatalog(query, limit = 8) {
+  const catalog = ensureStreetCatalog();
+  const tokens = normalizeForMatch(query).split(' ').filter(Boolean);
+  if (!tokens.length) return [];
+
+  let wantsType = null;
+  const content = [];
+  for (const token of tokens) {
+    if (STREET_QUERY_TYPES[token]) {
+      wantsType = STREET_QUERY_TYPES[token];
+      continue;
+    }
+    if (STREET_QUERY_SKIP.has(token) || /^\d+$/.test(token)) continue;
+    content.push(token);
+  }
+  if (!content.some((token) => token.length >= 3)) return [];
+
+  const hits = [];
+  for (const street of catalog.streets) {
+    if (wantsType && street.type !== wantsType) continue;
+    let exact = 0;
+    const matches = content.every((token) => street.tokens.some((word) => {
+      if (word === token) {
+        exact += 1;
+        return true;
+      }
+      return token.length >= 4 && word.startsWith(token);
+    }));
+    if (!matches) continue;
+    hits.push({ street, exact });
+  }
+
+  hits.sort((a, b) => (
+    b.exact - a.exact
+    || a.street.tokens.length - b.street.tokens.length
+    || a.street.fullLabel.localeCompare(b.street.fullLabel, 'es')
+  ));
+
+  return hits.slice(0, limit).map((item) => item.street);
+}
+
 function normalizeAddressPhrase(value) {
   const input = sanitizeAddressInput(value || '');
   if (!input) return '';
@@ -795,6 +856,7 @@ module.exports = {
   normalizeAddressPhrase,
   buildAddressSearchQueries,
   getCatalogAddressVariants,
+  searchStreetCatalog,
   scoreCandidateAgainstQuery,
   formatAutocompleteInput,
   formatAddressSuggestion,

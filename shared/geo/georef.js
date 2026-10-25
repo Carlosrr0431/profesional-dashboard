@@ -65,6 +65,39 @@ function mapGeorefDireccion(item, query = '') {
   };
 }
 
+async function fetchGeorefCalles(nombre, { max = 8 } = {}) {
+  const text = String(nombre || '').trim();
+  if (text.length < 3) return [];
+
+  const baseUrl = readGeorefBaseUrl();
+  const params = new URLSearchParams({
+    nombre: text,
+    provincia: 'Salta',
+    departamento: 'Capital',
+    max: String(Math.max(1, Math.min(max, 10))),
+    campos: 'estandar',
+  });
+
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller
+    ? setTimeout(() => controller.abort(), GEOREF_TIMEOUT_MS)
+    : null;
+
+  try {
+    const response = await fetch(`${baseUrl}/calles?${params.toString()}`, {
+      headers: { Accept: 'application/json' },
+      signal: controller?.signal,
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return Array.isArray(data?.calles) ? data.calles : [];
+  } catch {
+    return [];
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 async function fetchGeorefDirecciones(query, { max = 3 } = {}) {
   const direccion = String(query || '').trim();
   if (!direccion || direccion.length < 3) return [];
@@ -147,6 +180,7 @@ async function resolveGeorefPlaceId(placeId) {
 
 module.exports = {
   mapGeorefDireccion,
+  fetchGeorefCalles,
   fetchGeorefDirecciones,
   searchGeorefAddress,
   resolveGeorefPlaceId,

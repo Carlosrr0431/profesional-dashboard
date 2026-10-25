@@ -428,6 +428,58 @@ describe('geo autocomplete', () => {
     expect(autocompleteCalls.length).toBe(0);
   });
 
+  it('pasaje iruya y pasaje anta salen del padron sin esperar al mapa', async () => {
+    global.fetch = jest.fn(() => new Promise(() => {}));
+    const iruya = await autocompleteAddressSalta('pasaje iruya', 6);
+    expect(iruya.map((item) => item.title)).toContain('Pasaje Iruya');
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    const anta = await autocompleteAddressSalta('pasaje anta', 6);
+    expect(anta[0].title).toBe('Pasaje Anta');
+    expect(anta.some((item) => /antartida/i.test(item.title))).toBe(true);
+    expect(anta.every((item) => /pasaje/i.test(item.title))).toBe(true);
+  });
+
+  it('al elegir Pasaje Iruya toma el inicio de esa cuadra', async () => {
+    global.fetch = jest.fn(async (url) => {
+      const target = String(url);
+      if (target.includes('/calles')) {
+        return {
+          ok: true,
+          json: async () => ({
+            calles: [{
+              nombre: 'PJE IRUYA',
+              categoria: 'PASAJE',
+              altura: { inicio: { izquierda: 2101, derecha: 2102 } },
+            }],
+          }),
+        };
+      }
+      if (target.includes('/direcciones')) {
+        return {
+          ok: true,
+          json: async () => ({
+            direcciones: [{
+              nomenclatura: 'PJE IRUYA 2101, Salta, Capital, Salta',
+              altura: { valor: 2101 },
+              calle: { nombre: 'PJE IRUYA', categoria: 'PASAJE' },
+              localidad_censal: { nombre: 'Salta' },
+              provincia: { nombre: 'Salta' },
+              ubicacion: { lat: -24.795274651, lon: -65.432305697 },
+            }],
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+
+    const [hit] = await autocompleteAddressSalta('pasaje iruya', 4);
+    const details = await getPlaceDetails(hit.placeId, { title: hit.title });
+    expect(details.lat).toBeCloseTo(-24.7952747, 4);
+    expect(details.lng).toBeCloseTo(-65.4323057, 4);
+    expect(details.geocodeSource).toBe('georef');
+  });
+
   it('shoping lista los shoppings aunque el mapa no conteste', async () => {
     global.fetch = jest.fn(() => new Promise(() => {}));
     const results = await autocompleteAddressSalta('shoping', 6);
