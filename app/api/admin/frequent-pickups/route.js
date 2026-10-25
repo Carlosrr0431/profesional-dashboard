@@ -1,35 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseAdmin } from '../../../../src/lib/supabaseAdmin';
-import { fetchAllPages, SUPABASE_PAGE_SIZE } from '../../../../src/lib/pagedQuery';
-import { isWithinServiceArea } from '../../../../src/lib/constants';
-import { buildFrequentPickups } from '../../../../src/lib/frequentPickups';
+import { loadFrequentPickups } from '../../../../src/lib/frequentTripCatalog';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 const CACHE_MS = 5 * 60_000;
-const TRIP_SELECT = 'id, status, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, notes, created_at, scheduled_for';
-
 let cached = null;
 let inflight = null;
-
-async function loadFrequentPickups() {
-  const supabase = getSupabaseAdmin();
-  // Cancelados afuera: pueden tener el retiro mal ubicado y acá se deriva sin revisar.
-  const trips = await fetchAllPages(async (from, to) => {
-    const { data, error } = await supabase
-      .from('trips')
-      .select(TRIP_SELECT)
-      .neq('status', 'cancelled')
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: false })
-      .range(from, to);
-    if (error) throw error;
-    return data || [];
-  }, SUPABASE_PAGE_SIZE, 6);
-  return buildFrequentPickups(trips, { isAllowed: isWithinServiceArea });
-}
 
 export async function GET() {
   try {

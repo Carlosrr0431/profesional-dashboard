@@ -2,7 +2,10 @@ import {
   MAP_PICKUP_MIN_COUNT,
   artWeekMinute,
   buildFrequentPickups,
+  buildFrequentPlaces,
   filterPickups,
+  mergePlaceSuggestions,
+  searchFrequentPlaces,
   formatArtMinute,
   formatPickupLabel,
   layoutPickupLabels,
@@ -107,6 +110,87 @@ describe('franja horaria', () => {
     expect(ranked[0]).toMatchObject({ id: 'noche', hourCount: 1, dayCount: 0 });
     expect(formatArtMinute(20 - 60)).toBe('23:20');
     expect(formatArtMinute(23 * 60 + 30 + 60)).toBe('00:30');
+  });
+});
+
+describe('lugares para el autocompletado', () => {
+  const trips = [
+    wa('Alvarado 241, Salta', -24.7914, -65.4049),
+    wa('Alvarado 241, Salta', -24.7914, -65.4049),
+    wa('Pje. Ministro Alvarado 241', -24.7822, -65.411),
+    wa('Portal Salta Shopping, 20 de Febrero 1437', -24.7719, -65.412),
+    {
+      status: 'completed',
+      notes: '[PASSENGER_APP]',
+      origin_address: 'Caseros 1088, Salta',
+      origin_lat: -24.7901,
+      origin_lng: -65.4102,
+      destination_address: 'Zuviría 1483, Salta',
+      destination_lat: -24.785,
+      destination_lng: -65.418,
+      created_at: '2026-10-02T12:00:00Z',
+    },
+    {
+      status: 'completed',
+      notes: '[APPROACH_ONLY]\n[FINAL_DEST_JSON:{"address":"Pasaje Soria 1961","lat":-24.81,"lng":-65.43}]',
+      origin_address: 'Belgrano 1668, Salta',
+      origin_lat: -24.7855,
+      origin_lng: -65.4201,
+      created_at: '2026-10-03T12:00:00Z',
+    },
+  ];
+  const places = buildFrequentPlaces(trips);
+
+  it('guarda el retiro y también el destino cuando es otro lugar', () => {
+    const titles = places.map((item) => item.address);
+    expect(titles).toEqual(expect.arrayContaining([
+      'Caseros 1088, Salta',
+      'Zuviría 1483, Salta',
+      'Belgrano 1668, Salta',
+      'Pasaje Soria 1961',
+    ]));
+  });
+
+  it('no duplica el mismo punto si retiro y destino coinciden', () => {
+    const list = buildFrequentPlaces([
+      {
+        destination_address: 'Caseros 1088',
+        destination_lat: -24.79,
+        destination_lng: -65.41,
+        origin_address: 'Caseros 1088',
+        origin_lat: -24.79,
+        origin_lng: -65.41,
+        created_at: '2026-10-01T12:00:00Z',
+      },
+    ]);
+    expect(list).toHaveLength(1);
+    expect(list[0].address).toBe('Caseros 1088');
+    expect(list[0].count).toBe(1);
+  });
+
+  it('exige la altura, separa el pasaje y acepta el nombre a medias', () => {
+    const byTitle = (query) => searchFrequentPlaces(places, query).map((item) => item.title);
+    expect(byTitle('alvarado 241')[0]).toBe('Alvarado 241');
+    expect(byTitle('alvarado 241')).toContain('Pje. Ministro Alvarado 241');
+    expect(byTitle('pasaje alvarado 241')).toEqual(['Pje. Ministro Alvarado 241']);
+    expect(byTitle('ministro alvarado 241')).toEqual(['Pje. Ministro Alvarado 241']);
+    expect(byTitle('alvarado 240')).toEqual([]);
+    expect(byTitle('alva 241')[0]).toBe('Alvarado 241');
+    expect(byTitle('zuviria 1483')[0]).toBe('Zuviría 1483');
+    expect(byTitle('soria 1961')[0]).toBe('Pasaje Soria 1961');
+    expect(byTitle('shoping')[0]).toBe('Portal Salta Shopping');
+  });
+
+  it('pone el viaje ya hecho adelante y no pisa un pasaje lejano', () => {
+    const [street, passage] = searchFrequentPlaces(places, 'alvarado 241', 2);
+    const merged = mergePlaceSuggestions(
+      [street, passage],
+      [{ address: 'ALVARADO 241, Capital', title: 'ALVARADO 241', lat: -24.79144, lng: -65.40492, placeId: 'georef:1' }],
+      4,
+    );
+    expect(merged[0].placeId.startsWith('freq:')).toBe(true);
+    expect(merged.map((item) => item.title)).toContain('Pje. Ministro Alvarado 241');
+    expect(merged.some((item) => item.placeId === 'georef:1')).toBe(false);
   });
 });
 

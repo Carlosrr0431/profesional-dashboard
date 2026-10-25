@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { autocompleteAddressSalta } from '../../../../src/lib/geo/index.js';
+import { loadFrequentPlaces } from '../../../../src/lib/frequentTripCatalog';
+import { mergePlaceSuggestions, searchFrequentPlaces } from '../../../../src/lib/frequentPickups';
 
 export const dynamic = 'force-dynamic';
 /** La búsqueda ampliada (expand) explora por zonas y puede tardar varios segundos. */
@@ -68,8 +70,16 @@ export async function GET(request) {
       return NextResponse.json({ ok: true, data });
     }
 
-    const results = await autocompleteAddressSalta(query, limit, { sessionToken, expand, near });
-    setCached(cacheKey, results);
+    const frequentPromise = loadFrequentPlaces()
+      .then((list) => ({ ok: true, items: searchFrequentPlaces(list, query, limit) }))
+      .catch(() => ({ ok: false, items: [] }));
+    const geo = await autocompleteAddressSalta(query, limit, { sessionToken, expand, near });
+    const frequent = await Promise.race([
+      frequentPromise,
+      new Promise((resolve) => setTimeout(() => resolve(null), 800)),
+    ]);
+    const results = mergePlaceSuggestions(frequent?.items || [], geo, limit);
+    if (frequent?.ok) setCached(cacheKey, results);
     return NextResponse.json({ ok: true, data: results });
   } catch (err) {
     return NextResponse.json(

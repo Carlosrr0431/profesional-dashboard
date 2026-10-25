@@ -1,4 +1,9 @@
-import { isCoordLikeAddress, resolveTripPickupCoords } from '../../shared/trip-contract.js';
+import {
+  isCoordLikeAddress,
+  locationsMatch,
+  resolveTripFinalDestCoords,
+  resolveTripPickupCoords,
+} from '../../shared/trip-contract.js';
 
 /** Misma calle y altura a más de esta distancia es otro lugar (p. ej. calle y pasaje homónimos). */
 const SAME_PLACE_METERS = 150;
@@ -83,38 +88,35 @@ function topEntry(map, tieBreak = () => 0) {
   return best?.value;
 }
 
-/** Retiros de viajes agrupados por lugar, del más pedido al menos pedido. */
-export function buildFrequentPickups(trips = [], { isAllowed = () => true } = {}) {
-  const groups = new Map();
-
-  for (const trip of trips) {
-    const pickup = resolveTripPickupCoords(trip);
-    const address = String(pickup?.address || '').trim();
-    const lat = Number(pickup?.lat);
-    const lng = Number(pickup?.lng);
-    if (!address || isCoordLikeAddress(address)) continue;
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) || !isAllowed(lat, lng)) continue;
-
-    const key = pickupKey(address);
-    if (!key) continue;
-    const buckets = groups.get(key) || [];
-    let bucket = buckets.find((item) => metersBetween(item, { lat, lng }) <= SAME_PLACE_METERS);
-    if (!bucket) {
-      bucket = { key, lat, lng, count: 0, lastAt: null, labels: new Map(), points: new Map(), times: [] };
-      buckets.push(bucket);
-      groups.set(key, buckets);
-    }
-
-    bucket.count += 1;
-    bucket.labels.set(address, (bucket.labels.get(address) || 0) + 1);
-    const pointKey = `${lat.toFixed(6)},${lng.toFixed(6)}`;
-    bucket.points.set(pointKey, (bucket.points.get(pointKey) || 0) + 1);
-    const at = trip.created_at || null;
-    if (at && (!bucket.lastAt || at > bucket.lastAt)) bucket.lastAt = at;
-    const weekMinute = artWeekMinute(trip.scheduled_for || trip.created_at);
-    if (weekMinute != null) bucket.times.push(weekMinute);
+function ingestPlace(groups, address, lat, lng, at, weekMinute) {
+  const key = pickupKey(address);
+  if (!key) return;
+  const buckets = groups.get(key) || [];
+  let bucket = buckets.find((item) => metersBetween(item, { lat, lng }) <= SAME_PLACE_METERS);
+  if (!bucket) {
+    bucket = { key, lat, lng, count: 0, lastAt: null, labels: new Map(), points: new Map(), times: [] };
+    buckets.push(bucket);
+    groups.set(key, buckets);
   }
 
+  bucket.count += 1;
+  bucket.labels.set(address, (bucket.labels.get(address) || 0) + 1);
+  const pointKey = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+  bucket.points.set(pointKey, (bucket.points.get(pointKey) || 0) + 1);
+  if (at && (!bucket.lastAt || at > bucket.lastAt)) bucket.lastAt = at;
+  if (weekMinute != null) bucket.times.push(weekMinute);
+}
+
+function rememberPlace(groups, point, at, weekMinute, isAllowed) {
+  const address = String(point?.address || '').trim();
+  const lat = Number(point?.lat);
+  const lng = Number(point?.lng);
+  if (!address || isCoordLikeAddress(address)) return;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || !isAllowed(lat, lng)) return;
+  ingestPlace(groups, address, lat, lng, at, weekMinute);
+}
+
+function listFromGroups(groups) {
   const list = [];
   for (const buckets of groups.values()) {
     buckets.forEach((bucket, index) => {
@@ -135,8 +137,127 @@ export function buildFrequentPickups(trips = [], { isAllowed = () => true } = {}
       });
     });
   }
-
   return list.sort((a, b) => b.count - a.count || String(b.lastAt).localeCompare(String(a.lastAt)));
+}
+
+/** Retiros de viajes agrupados por lugar, del más pedido al menos pedido. */
+export function buildFrequentPickups(trips = [], { isAllowed = () => true } = {}) {
+  const groups = new Map();
+  for (const trip of trips) {
+    const at = trip.created_at || null;
+    const weekMinute = artWeekMinute(trip.scheduled_for || trip.created_at);
+    rememberPlace(groups, resolveTripPickupCoords(trip), at, weekMinute, isAllowed);
+  }
+  return listFromGroups(groups);
+}
+
+/** Retiro y destino de cada viaje: calles, pasajes y lugares que de verdad se pidieron. */
+export function buildFrequentPlaces(trips = [], { isAllowed = () => true } = {}) {
+  const groups = new Map();
+  for (const trip of trips) {
+    const at = trip.created_at || null;
+    const weekMinute = artWeekMinute(trip.scheduled_for || trip.created_at);
+    const pickup = resolveTripPickupCoords(trip);
+    rememberPlace(groups, pickup, at, weekMinute, isAllowed);
+    const dest = resolveTripFinalDestCoords(trip);
+    if (dest && !locationsMatch(pickup, dest)) {
+      rememberPlace(groups, dest, at, weekMinute, isAllowed);
+    }
+  }
+  return listFromGroups(groups);
+}
+
+const SEARCH_STOP = new Set([
+  'salta', 'capital', 'argentina', 'av', 'avda', 'avenida', 'calle',
+  'de', 'del', 'la', 'las', 'los', 'el', 'y',
+]);
+const PASAJE_WORDS = new Set(['pje', 'psje', 'pasaje']);
+const TYPO_WORDS = {
+  shoping: 'shopping',
+  shopingk: 'shopping',
+  hospitak: 'hospital',
+  bernado: 'bernardo',
+};
+
+function searchWords(value) {
+  return foldText(value).split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+function tokenMatches(token, words) {
+  if (/^\d+$/.test(token) || token.length < 4) return words.includes(token);
+  return words.some((word) => word === token || word.startsWith(token));
+}
+
+function isPasajeText(value) {
+  return searchWords(value).some((word) => PASAJE_WORDS.has(word));
+}
+
+function placeSuggestion(place) {
+  const parts = String(place.address || '').split(',').map((part) => part.trim()).filter(Boolean);
+  const title = parts[0] || place.address;
+  const subtitle = parts.slice(1).join(', ');
+  return {
+    address: subtitle ? `${title}, ${subtitle}` : title,
+    placeId: `freq:${place.id}`,
+    lat: place.lat,
+    lng: place.lng,
+    title,
+    subtitle,
+  };
+}
+
+/**
+ * Lugares pedidos que coinciden con lo escrito.
+ * La altura tiene que ser la misma. "pasaje" no devuelve la calle homónima.
+ */
+export function searchFrequentPlaces(list = [], query = '', limit = 6) {
+  const tokens = searchWords(query).map((token) => TYPO_WORDS[token] || token);
+  if (!tokens.length) return [];
+  const height = /^\d{1,5}$/.test(tokens[tokens.length - 1]) ? tokens[tokens.length - 1] : null;
+  const wantsPasaje = tokens.some((token) => PASAJE_WORDS.has(token));
+  const content = tokens.filter((token) => token !== height && !SEARCH_STOP.has(token) && !PASAJE_WORDS.has(token));
+  if (!content.length && !height) return [];
+
+  const hits = [];
+  for (const place of list) {
+    const blob = `${place.address || ''} ${place.terms || ''}`;
+    const words = searchWords(blob);
+    const pasaje = isPasajeText(blob);
+    if (wantsPasaje && !pasaje) continue;
+    if (height && !words.includes(height)) continue;
+    if (content.some((token) => !tokenMatches(token, words))) continue;
+    hits.push({ place, pasaje });
+  }
+
+  hits.sort((a, b) => {
+    if (height && !wantsPasaje && a.pasaje !== b.pasaje) return a.pasaje ? 1 : -1;
+    return b.place.count - a.place.count;
+  });
+
+  return hits.slice(0, limit).map(({ place }) => placeSuggestion(place));
+}
+
+/** Primero los lugares de viajes ya hechos; el resto entra si no es el mismo punto. */
+export function mergePlaceSuggestions(primary = [], extra = [], limit = 6) {
+  const out = [];
+  const seen = [];
+  const take = (item) => {
+    if (!item || out.length >= limit) return;
+    const lat = Number(item.lat);
+    const lng = Number(item.lng);
+    const text = foldText(item.address || item.title || '');
+    const dup = seen.some((prev) => {
+      if (text && text === prev.text) return true;
+      if (!Number.isFinite(lat) || !Number.isFinite(prev.lat)) return false;
+      return Math.abs(lat - prev.lat) < 0.0004 && Math.abs(lng - prev.lng) < 0.0004;
+    });
+    if (dup) return;
+    seen.push({ text, lat, lng });
+    out.push(item);
+  };
+  primary.forEach(take);
+  extra.forEach(take);
+  return out;
 }
 
 /** Franja alrededor de la hora actual; cada viaje pesa más cuanto más cerca de esta hora. */
