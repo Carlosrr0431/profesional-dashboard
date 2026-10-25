@@ -84,6 +84,7 @@ const OSM_POI_CLASSES = new Set([
 
 let lastRequestAt = 0;
 let requestChain = Promise.resolve();
+let publicNominatimUntil = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => { setTimeout(resolve, ms); });
@@ -119,7 +120,7 @@ function mapNominatimResult(item) {
   const lng = parseCoordinate(item?.lon);
   if (lat === null || lng === null) return null;
 
-  const osmClass = String(item.class || '');
+  const osmClass = String(item.class || item.category || '');
   const poiName = OSM_POI_CLASSES.has(osmClass)
     ? String(item.name || '').trim()
     : '';
@@ -173,18 +174,34 @@ function sortNominatimResults(results, query) {
     .map(({ item }) => item);
 }
 
+function nominatimHeaders() {
+  return {
+    Accept: 'application/json',
+    'User-Agent': NOMINATIM_USER_AGENT,
+  };
+}
+
+async function fetchNominatim(base, path, qs, signal) {
+  return fetch(`${base}${path}?${qs}`, {
+    headers: nominatimHeaders(),
+    signal,
+  });
+}
+
 async function nominatimFetch(path, params = {}) {
   requestChain = requestChain.then(async () => {
+    const usePublic = path === '/search' && Date.now() < publicNominatimUntil;
+    const minGap = usePublic ? 1100 : REQUEST_MIN_INTERVAL_MS;
     const elapsed = Date.now() - lastRequestAt;
-    if (elapsed < REQUEST_MIN_INTERVAL_MS) {
-      await sleep(REQUEST_MIN_INTERVAL_MS - elapsed);
+    if (elapsed < minGap) {
+      await sleep(minGap - elapsed);
     }
 
     const qs = new URLSearchParams({
       format: 'jsonv2',
       'accept-language': 'es',
       ...params,
-    });
+    }).toString();
 
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = controller
@@ -192,15 +209,21 @@ async function nominatimFetch(path, params = {}) {
       : null;
 
     try {
-      const response = await fetch(`${NOMINATIM_BASE_URL}${path}?${qs.toString()}`, {
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': NOMINATIM_USER_AGENT,
-        },
-        signal: controller?.signal,
-      });
-
+      let response = await fetchNominatim(
+        usePublic ? PUBLIC_NOMINATIM_BASE_URL : NOMINATIM_BASE_URL,
+        path,
+        qs,
+        controller?.signal,
+      );
       lastRequestAt = Date.now();
+
+      if (!response.ok && !usePublic && path === '/search') {
+        publicNominatimUntil = Date.now() + 2 * 60 * 1000;
+        const since = Date.now() - lastRequestAt;
+        if (since < 1100) await sleep(1100 - since);
+        response = await fetchNominatim(PUBLIC_NOMINATIM_BASE_URL, path, qs, controller?.signal);
+        lastRequestAt = Date.now();
+      }
 
       if (!response.ok) {
         throw new Error(`Nominatim HTTP ${response.status}`);
@@ -279,6 +302,7 @@ async function searchNominatimPoi(query, limit = 8) {
           osmType: OSM_POI_CLASSES.has(hit.osmClass) ? 'poi' : hit.osmType,
         });
       }
+      if (merged.length >= limit) return merged;
     } catch {
       // ignorar query fallida
     }
@@ -1002,11 +1026,8 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       const poiQueries = getKnownPoiSearchQueries(knownPoi).slice(0, 3);
       const poiBatches = await Promise.all(
         poiQueries.map(async (q) => {
-          const [poiHits, variantHits] = await Promise.all([
-            searchNominatimPoi(q, 4).catch(() => []),
-            searchNominatimVariant(q, 4).catch(() => []),
-          ]);
-          return [...poiHits, ...variantHits];
+          const variantHits = await searchNominatimVariant(q, 4).catch(() => []);
+          return variantHits;
         }),
       );
       collectAutocompleteCandidates(
@@ -1023,7 +1044,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
 
     // Fallback TomTom: último recurso, solo si Nominatim Y Google Places
     // no encontraron suficientes resultados para una búsqueda de lugar.
-    if (useOsmPoi && !knownPoi && !hasHouseNumber && merged.length < 2) {
+    if (useOsmPoi && !hasHouseNumber && merged.length < 2) {
       const tomtomHits = await searchTomTomPoiFallback(trimmed, Math.max(limit, 6)).catch(() => []);
       collectAutocompleteCandidates(
         tomtomHits,

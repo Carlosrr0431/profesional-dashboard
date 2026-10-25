@@ -427,4 +427,42 @@ describe('geo autocomplete', () => {
     const autocompleteCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
     expect(autocompleteCalls.length).toBe(0);
   });
+
+  it('si el mapa propio no responde, hospital igual lista lugares', async () => {
+    global.fetch = jest.fn(async (url) => {
+      const target = String(url);
+      if (target.includes('openstreetmap.org')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ([{
+            lat: '-24.7921050',
+            lon: '-65.3994998',
+            category: 'amenity',
+            type: 'hospital',
+            name: 'Hospital San Bernardo',
+            display_name: 'Hospital San Bernardo, Salta, Argentina',
+            place_id: 4764748,
+            address: { city: 'Salta', state: 'Salta' },
+          }, {
+            lat: '-24.7820634',
+            lon: '-65.4165537',
+            category: 'amenity',
+            type: 'hospital',
+            name: 'Hospital Señor del Milagro',
+            display_name: 'Hospital Señor del Milagro, Salta, Argentina',
+            place_id: 4781506,
+            address: { city: 'Salta', state: 'Salta' },
+          }]),
+        };
+      }
+      return { ok: false, status: 502, json: async () => ({}) };
+    });
+
+    const results = await autocompleteAddressSalta('hospital', 6);
+    const titles = results.map((item) => item.title).join(' | ');
+    expect(titles).toMatch(/san bernardo/i);
+    expect(titles).toMatch(/milagro/i);
+    expect(global.fetch.mock.calls.some(([url]) => String(url).includes('places:autocomplete'))).toBe(false);
+  }, 20000);
 });
