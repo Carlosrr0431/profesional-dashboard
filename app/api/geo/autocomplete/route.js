@@ -33,6 +33,16 @@ function getCached(key) {
   return hit.data;
 }
 
+function within(promise, ms, fallback) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      () => { clearTimeout(timer); resolve(fallback); },
+    );
+  });
+}
+
 function setCached(key, data) {
   autocompleteCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
   if (autocompleteCache.size > CACHE_MAX_ITEMS) {
@@ -81,9 +91,9 @@ export async function GET(request) {
       .then((list) => ({ ok: true, items: searchFrequentPlaces(list, query, limit) }))
       .catch(() => ({ ok: false, items: [] }));
     const [frequent, cachedPlaces, geo] = await Promise.all([
-      frequentPromise,
-      searchCachedPlaces(query, limit).catch(() => []),
-      autocompleteAddressSalta(query, limit, { sessionToken, expand, near }),
+      within(frequentPromise, 350, { ok: false, items: [] }),
+      within(searchCachedPlaces(query, limit), 350, []),
+      within(autocompleteAddressSalta(query, limit, { sessionToken, expand, near }), 1200, []),
     ]);
     const intersection = parseStreetIntersection(query);
     let results;

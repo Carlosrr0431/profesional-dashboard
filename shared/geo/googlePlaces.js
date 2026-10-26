@@ -769,55 +769,45 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
 
 const searchPoiSalta = autocompleteAddressSalta;
 
-/** Autocomplete no trae coordenadas. Cada lugar de la búsqueda se guarda con latitud y longitud. */
-async function hydrateAutocompletePlaces(items, sessionToken) {
-  let sessionUsed = false;
-  const hydrated = [];
-  for (const item of items) {
-    if (Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng))) {
-      hydrated.push(item);
-      continue;
-    }
-    const rawId = String(item?.placeId || '').replace(/^google:/, '').trim();
-    if (!rawId) {
-      hydrated.push(item);
-      continue;
-    }
+async function hydrateOnePlace(item, sessionToken) {
+  if (Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng))) return item;
+  const rawId = String(item?.placeId || '').replace(/^google:/, '').trim();
+  if (!rawId) return item;
 
-    let details = null;
-    if (placesBudget?.lookupPlace) {
-      details = await placesBudget.lookupPlace(item.placeId).catch(() => null);
-    }
-    if (!details) {
-      try {
-        details = await fetchPlaceDetailsEssentials(rawId, {
-          sessionToken: sessionUsed ? undefined : sessionToken,
-          title: item.title,
-          subtitle: item.subtitle,
-          formattedAddress: item.formattedAddress || item.address,
-        });
-        sessionUsed = true;
-      } catch {
-        details = null;
-      }
-    }
-
-    if (details && Number.isFinite(Number(details.lat)) && Number.isFinite(Number(details.lng))) {
-      hydrated.push({
-        ...item,
-        lat: details.lat,
-        lng: details.lng,
-        formattedAddress: details.formattedAddress || item.formattedAddress,
-        address: details.formattedAddress || item.address,
-        title: details.title || item.title,
-        subtitle: details.subtitle || item.subtitle,
-        types: details.types?.length ? details.types : item.types,
+  let details = null;
+  if (placesBudget?.lookupPlace) {
+    details = await placesBudget.lookupPlace(item.placeId).catch(() => null);
+  }
+  if (!details) {
+    try {
+      details = await fetchPlaceDetailsEssentials(rawId, {
+        sessionToken,
+        title: item.title,
+        subtitle: item.subtitle,
+        formattedAddress: item.formattedAddress || item.address,
       });
-    } else {
-      hydrated.push(item);
+    } catch {
+      details = null;
     }
   }
-  return hydrated;
+  if (!details || !Number.isFinite(Number(details.lat)) || !Number.isFinite(Number(details.lng))) return item;
+  return {
+    ...item,
+    lat: details.lat,
+    lng: details.lng,
+    formattedAddress: details.formattedAddress || item.formattedAddress,
+    address: details.formattedAddress || item.address,
+    title: details.title || item.title,
+    subtitle: details.subtitle || item.subtitle,
+    types: details.types?.length ? details.types : item.types,
+  };
+}
+
+/** Autocomplete no trae coordenadas. Cada lugar se completa en paralelo y se guarda. */
+async function hydrateAutocompletePlaces(items, sessionToken) {
+  return Promise.all(items.map((item, index) => (
+    hydrateOnePlace(item, index === 0 ? sessionToken : undefined)
+  )));
 }
 
 function mapPlaceDetailsEssentials(data, fallback = {}) {

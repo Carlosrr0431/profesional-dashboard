@@ -262,6 +262,15 @@ const SALTA_KNOWN_POIS = [
       /\bu\.?\s*n\.?\s*s\.?\s*a\.?\b/,
       /\bciudad\s+universitaria\b/,
     ],
+    pollSeeds: [
+      {
+        title: 'Universidad Nacional de Salta (UNSa)',
+        subtitle: 'Avenida Bolivia 5150',
+        geocodeQuery: 'Universidad Nacional de Salta, Avenida Bolivia 5150, Salta, Argentina',
+        lat: -24.7265576,
+        lng: -65.4075347,
+      },
+    ],
   },
   {
     id: 'ucasal',

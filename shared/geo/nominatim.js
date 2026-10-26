@@ -319,7 +319,7 @@ async function searchNominatimPoi(query, limit = 8) {
   const text = String(query || '').trim();
   if (!text) return [];
 
-  const searchQueries = buildPoiAutocompleteQueries(text).slice(0, 6);
+  const searchQueries = buildPoiAutocompleteQueries(text).slice(0, 2);
   const merged = [];
   const seen = new Set();
 

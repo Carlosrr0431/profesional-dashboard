@@ -63,3 +63,25 @@ $$;
 
 REVOKE ALL ON FUNCTION public.consume_google_places_call(text, integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.consume_google_places_call(text, integer) TO service_role;
+
+-- Búsquedas por texto (ilike) y el barrido de viajes no cancelados.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE INDEX IF NOT EXISTS idx_google_places_poi_search_trgm
+  ON public.google_places_poi_cache USING gin (search_text gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_google_places_poi_title_trgm
+  ON public.google_places_poi_cache USING gin (title gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_google_place_details_title_trgm
+  ON public.google_place_details_cache USING gin (title gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_google_place_details_address_trgm
+  ON public.google_place_details_cache USING gin (formatted_address gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_trips_active_created
+  ON public.trips (created_at DESC, id DESC)
+  WHERE status <> 'cancelled';
+
+CREATE INDEX IF NOT EXISTS idx_trips_phone_open
+  ON public.trips (passenger_phone, status);
