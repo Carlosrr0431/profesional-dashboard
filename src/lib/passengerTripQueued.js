@@ -32,6 +32,7 @@ import {
   applyFareSurcharge,
   resolveHotZoneSurchargeForPoint,
 } from './hotZones';
+import { freshGoogleLocation } from './refreshStaleGooglePlace';
 
 function sanitizeText(value, maxLen = 500) {
   return String(value || '').trim().slice(0, maxLen);
@@ -87,11 +88,11 @@ export async function resolveTripLocation({ address, lat, lng, placeId }) {
     && cleanAddress
     && isWithinServiceArea(parsedLat, parsedLng)
   ) {
-    return {
+    return freshGoogleLocation({
       formattedAddress: cleanAddress,
       lat: parsedLat,
       lng: parsedLng,
-    };
+    }, placeId);
   }
 
   try {
@@ -205,7 +206,7 @@ export async function resolvePassengerRouteFare(
 /** Intenta obtener destino final por geocode o por ruta OSRM entre direcciones. */
 export async function resolveFinalDestination(pickupLocation, payload) {
   const fromClient = resolveFinalDestinationFromClient(payload);
-  if (fromClient) return fromClient;
+  if (fromClient) return freshGoogleLocation(fromClient, payload?.destinationPlaceId);
 
   const address = sanitizeText(payload?.destinationAddress || payload?.destinationHint);
   if (!address) return null;

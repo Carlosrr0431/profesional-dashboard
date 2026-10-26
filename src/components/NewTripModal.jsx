@@ -86,9 +86,12 @@ export default function NewTripModal({
   const [destLat, setDestLat] = useState(null);
   const [destLng, setDestLng] = useState(null);
   const [destGeocodeSource, setDestGeocodeSource] = useState(null);
+  const [destPlaceId, setDestPlaceId] = useState('');
   const [mapPickTarget, setMapPickTarget] = useState(null);
   const [mapPickBusy, setMapPickBusy] = useState(false);
   const mapPickBusyRef = useRef(false);
+  const pickupRefreshRef = useRef(0);
+  const destRefreshRef = useRef(0);
 
   /* Opcionales */
   const [notes, setNotes] = useState('');
@@ -195,7 +198,37 @@ export default function NewTripModal({
     setMinimized(true);
   }, [canShowOnMap]);
 
-  const onPickupSelect = (place) => {
+  const confirmMovedPlace = useCallback(async (place, seqRef, apply) => {
+    const chosenId = String(place?.placeId || '');
+    if (!chosenId.startsWith('google:')) return;
+    const seq = seqRef.current + 1;
+    seqRef.current = seq;
+    try {
+      const qs = new URLSearchParams({ placeId: chosenId, title: place.title || '' });
+      const response = await fetch(`/api/geo/place-refresh?${qs}`);
+      const payload = await response.json().catch(() => null);
+      const data = payload?.data;
+      if (seqRef.current !== seq) return;
+      if (data?.status !== 'moved' && data?.status !== 'replaced') return;
+      const lat = Number(data.lat);
+      const lng = Number(data.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !isWithinServiceArea(lat, lng)) return;
+      apply({
+        ...place,
+        lat,
+        lng,
+        formattedAddress: data.formattedAddress || place.formattedAddress,
+        title: data.title || place.title,
+        subtitle: data.subtitle || place.subtitle,
+        placeId: data.placeId || place.placeId,
+      });
+      toast.info('Este lugar cambió de dirección. Actualicé el punto.');
+    } catch {
+      // Si Google no responde, se encola el punto que ya estaba guardado.
+    }
+  }, [toast]);
+
+  const onPickupSelect = (place, options = {}) => {
     const lat = place?.lat == null ? NaN : Number(place.lat);
     const lng = place?.lng == null ? NaN : Number(place.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -217,26 +250,29 @@ export default function NewTripModal({
     setPlaceId(place.placeId || '');
     setPickupGeocodeSource(place.geocodeSource || null);
     setError('');
+    if (!options.refreshed) confirmMovedPlace(place, pickupRefreshRef, (next) => onPickupSelect(next, { refreshed: true }));
   };
 
-  const onDestSelect = (place) => {
+  const onDestSelect = (place, options = {}) => {
     const lat = place?.lat == null ? NaN : Number(place.lat);
     const lng = place?.lng == null ? NaN : Number(place.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       setError('No se pudo ubicar el destino. Elegilo de nuevo de la lista.');
-      setDestLabel(''); setDestLat(null); setDestLng(null); setDestGeocodeSource(null);
+      setDestLabel(''); setDestLat(null); setDestLng(null); setDestGeocodeSource(null); setDestPlaceId('');
       return;
     }
     if (!isWithinServiceArea(lat, lng)) {
       setError('La dirección debe estar en la zona de cobertura: Salta, Vaqueros, Campo Quijano y alrededores.');
-      setDestLabel(''); setDestLat(null); setDestLng(null); setDestGeocodeSource(null);
+      setDestLabel(''); setDestLat(null); setDestLng(null); setDestGeocodeSource(null); setDestPlaceId('');
       return;
     }
     setDestLabel(place.formattedAddress || '');
     setDestLat(lat);
     setDestLng(lng);
+    setDestPlaceId(place.placeId || '');
     setDestGeocodeSource(place.geocodeSource || null);
     setError('');
+    if (!options.refreshed) confirmMovedPlace(place, destRefreshRef, (next) => onDestSelect(next, { refreshed: true }));
   };
 
   const stopMapPick = useCallback(() => {
@@ -418,6 +454,7 @@ export default function NewTripModal({
           pickupLat,
           pickupLng,
           placeId: placeId || null,
+          destinationPlaceId: destPlaceId || null,
           passengerName: null,
           passengerPhone: null,
           ...(destLabel.trim() ? { destinationHint: destLabel.trim() } : {}),
@@ -704,6 +741,7 @@ export default function NewTripModal({
                   setDestLat(null);
                   setDestLng(null);
                   setDestGeocodeSource(null);
+                  setDestPlaceId('');
                 }}
                 onSelect={onDestSelect}
               />

@@ -700,25 +700,27 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   // En búsqueda ampliada, `near` (ubicación de quien busca) ordena por cercanía: va en la clave.
   const origin = expand ? normalizeNearOrigin(options?.near) : null;
   const nearKey = origin ? `::near:${origin.latitude.toFixed(3)},${origin.longitude.toFixed(3)}` : '';
+  const skipSavedSearch = options?.skipSavedSearch === true;
   const cacheKey = `${normalizeQuery(text)}::${normalizedLimit}${expand ? '::expand' : ''}${nearKey}`;
-  const cached = getCached(autocompleteCache, cacheKey);
+  const flightKey = skipSavedSearch ? `${cacheKey}::refresh` : cacheKey;
+  const cached = skipSavedSearch ? null : getCached(autocompleteCache, cacheKey);
   if (cached) {
     return cached.map((item) => ({ ...item, sessionToken }));
   }
-  if (inFlightAutocomplete.has(cacheKey)) {
-    const result = await inFlightAutocomplete.get(cacheKey);
+  if (inFlightAutocomplete.has(flightKey)) {
+    const result = await inFlightAutocomplete.get(flightKey);
     return result.map((item) => ({ ...item, sessionToken }));
   }
 
   const requestPromise = (async () => {
-    if (placesBudget?.getSearch) {
+    if (!skipSavedSearch && placesBudget?.getSearch) {
       const saved = await placesBudget.getSearch(cacheKey).catch(() => null);
       if (Array.isArray(saved) && saved.length) {
         setCached(autocompleteCache, cacheKey, saved, AUTOCOMPLETE_TTL_MS);
         return saved;
       }
     }
-    if (placesBudget?.findPlaces) {
+    if (!options?.skipKnownPlaces && placesBudget?.findPlaces) {
       const known = await placesBudget.findPlaces(text, normalizedLimit).catch(() => []);
       if (Array.isArray(known) && known.length) {
         setCached(autocompleteCache, cacheKey, known, AUTOCOMPLETE_TTL_MS);
@@ -758,12 +760,12 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     return result;
   })();
 
-  inFlightAutocomplete.set(cacheKey, requestPromise);
+  inFlightAutocomplete.set(flightKey, requestPromise);
   try {
     const result = await requestPromise;
     return result.map((item) => ({ ...item, sessionToken }));
   } finally {
-    inFlightAutocomplete.delete(cacheKey);
+    inFlightAutocomplete.delete(flightKey);
   }
 }
 
@@ -888,6 +890,11 @@ async function fetchPlaceDetailsEssentials(rawPlaceId, options = {}) {
         signal: controller?.signal,
       });
 
+      if (response.status === 404) {
+        const missing = new Error('PLACE_NOT_FOUND');
+        missing.code = 'PLACE_NOT_FOUND';
+        throw missing;
+      }
       if (!response.ok) {
         throw new Error('No se pudo obtener el lugar en Google Places');
       }
@@ -903,7 +910,7 @@ async function fetchPlaceDetailsEssentials(rawPlaceId, options = {}) {
       setCached(placeDetailsCache, placeId, mapped, PLACE_DETAILS_CACHE_TTL_MS);
       return mapped;
     } catch (err) {
-      if (err?.message?.includes('Google Places')) throw err;
+      if (err?.code === 'PLACE_NOT_FOUND' || err?.message?.includes('Google Places')) throw err;
       throw new Error('No se pudo obtener el lugar en Google Places');
     } finally {
       if (timer) clearTimeout(timer);

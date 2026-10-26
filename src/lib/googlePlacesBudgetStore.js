@@ -202,6 +202,18 @@ async function savePlacesPois(suggestions) {
   )));
 }
 
+export async function upsertCachedGooglePlace(suggestion) {
+  await savePlacesPois([suggestion]);
+}
+
+export async function removeCachedGooglePlace(placeId) {
+  const id = String(placeId || '').trim();
+  if (!id.startsWith('google:')) return;
+  const supabase = getSupabaseAdmin();
+  await supabase.from(POI_TABLE).delete().eq('place_id', id);
+  await supabase.from('google_place_details_cache').delete().eq('place_id', id);
+}
+
 export async function savePlacesSearch(queryKey, suggestions) {
   const key = String(queryKey || '').trim();
   const list = Array.isArray(suggestions) ? suggestions : [];
