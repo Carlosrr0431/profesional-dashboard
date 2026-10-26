@@ -10,6 +10,7 @@ registerGooglePlaceSupabaseCache();
 
 const mapConfig = require('../../../shared/geo/mapConfig');
 const nominatim = require('../../../shared/geo/nominatim');
+const googlePlaces = require('../../../shared/geo/googlePlaces');
 const osrm = require('../../../shared/geo/osrm');
 const { decodePolyline } = require('../../../shared/geo/polyline');
 
@@ -37,6 +38,9 @@ export const {
   autocompleteAddressSalta,
   getPlaceDetails,
 } = nominatim;
+
+/** Places solo como último recurso: antes mira la base propia de lugares. */
+export const searchGooglePlacesLastResort = googlePlaces.autocompleteAddressSalta;
 
 export const {
   getRouteMetrics,

@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
-import { autocompleteAddressSalta } from '../../../../src/lib/geo/index.js';
+import { autocompleteAddressSalta, searchGooglePlacesLastResort } from '../../../../src/lib/geo/index.js';
 import { loadFrequentPlaces } from '../../../../src/lib/frequentTripCatalog';
 import { mergePlaceSuggestions, searchFrequentPlaces } from '../../../../src/lib/frequentPickups';
+import { searchCachedPlaces } from '../../../../src/lib/googlePlacesBudgetStore';
+import { pickPrimaryHouseNumber } from '../../../../shared/salta-address.js';
 
 export const dynamic = 'force-dynamic';
 /** La búsqueda ampliada (expand) explora por zonas y puede tardar varios segundos. */
@@ -73,13 +75,22 @@ export async function GET(request) {
     const frequentPromise = loadFrequentPlaces()
       .then((list) => ({ ok: true, items: searchFrequentPlaces(list, query, limit) }))
       .catch(() => ({ ok: false, items: [] }));
-    const geo = await autocompleteAddressSalta(query, limit, { sessionToken, expand, near });
-    const frequent = await Promise.race([
+    const [frequent, cachedPlaces, geo] = await Promise.all([
       frequentPromise,
-      new Promise((resolve) => setTimeout(() => resolve(null), 800)),
+      searchCachedPlaces(query, limit).catch(() => []),
+      autocompleteAddressSalta(query, limit, { sessionToken, expand, near }),
     ]);
-    const results = mergePlaceSuggestions(frequent?.items || [], geo, limit);
-    if (frequent?.ok) setCached(cacheKey, results);
+    let results = mergePlaceSuggestions(
+      mergePlaceSuggestions(frequent?.items || [], cachedPlaces, limit),
+      geo,
+      limit,
+    );
+    const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
+    if (!results.length && !hasHouseNumber && query.length >= 4) {
+      const google = await searchGooglePlacesLastResort(query, limit, { sessionToken }).catch(() => []);
+      results = mergePlaceSuggestions(results, google, limit);
+    }
+    if (frequent?.ok || results.length) setCached(cacheKey, results);
     return NextResponse.json({ ok: true, data: results });
   } catch (err) {
     return NextResponse.json(

@@ -1167,25 +1167,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       );
     }
 
-    if (!hasHouseNumber && merged.length < 2 && trimmed.length >= 4) {
-      const googleHits = await withTimeout(
-        googleSearchPoi(trimmed, Math.max(limit, 5)).catch(() => []),
-        2500,
-        [],
-      );
-      collectAutocompleteCandidates(
-        googleHits,
-        trimmed,
-        merged,
-        seenPlaceIds,
-        seenCoords,
-        seenLabels,
-        0.45,
-      );
-    }
-
-    // Fallback TomTom: último recurso, solo si Nominatim Y Google Places
-    // no encontraron suficientes resultados para una búsqueda de lugar.
+    // Fallback TomTom: último recurso si el padrón y el mapa propio no alcanzaron.
     if (useOsmPoi && !hasHouseNumber && merged.length < 2) {
       const tomtomHits = await searchTomTomPoiFallback(trimmed, Math.max(limit, 6)).catch(() => []);
       collectAutocompleteCandidates(

@@ -24,12 +24,16 @@ CREATE TABLE IF NOT EXISTS public.google_places_poi_cache (
   lat                double precision,
   lng                double precision,
   types              jsonb       NOT NULL DEFAULT '[]'::jsonb,
+  search_text        text,
   updated_at         timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT google_places_poi_cache_place_id_check CHECK (place_id ~ '^google:.+')
 );
 
 CREATE INDEX IF NOT EXISTS idx_google_places_poi_cache_updated
   ON public.google_places_poi_cache (updated_at DESC);
+
+ALTER TABLE public.google_places_poi_cache
+  ADD COLUMN IF NOT EXISTS search_text text;
 
 ALTER TABLE public.google_places_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.google_places_search_cache ENABLE ROW LEVEL SECURITY;

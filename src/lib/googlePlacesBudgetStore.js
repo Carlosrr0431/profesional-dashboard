@@ -2,7 +2,10 @@ import { getSupabaseAdmin } from './supabaseAdmin';
 import { upsertGooglePlaceDetailsCache } from './googlePlaceDetailsCache';
 import {
   PLACES_MONTHLY_CALL_LIMIT,
+  cachedPoiMatches,
+  foldPlaceText,
   interpretPlacesConsume,
+  placeQueryTokens,
   placesBillingPeriod,
 } from '../../shared/geo/placesBudget.js';
 
@@ -85,8 +88,100 @@ function poiRow(item) {
     lat: Number.isFinite(lat) ? lat : null,
     lng: Number.isFinite(lng) ? lng : null,
     types: Array.isArray(item?.types) ? item.types : [],
+    search_text: foldPlaceText(`${item?.title || item?.poiName || ''} ${item?.subtitle || ''} ${item?.formattedAddress || item?.address || ''}`),
     updated_at: new Date().toISOString(),
   };
+}
+
+function suggestionFromRow(row) {
+  const title = String(row?.title || '').trim();
+  const subtitle = String(row?.subtitle || '').trim();
+  const address = String(row?.formatted_address || '').trim() || [title, subtitle].filter(Boolean).join(', ');
+  const lat = Number(row?.lat);
+  const lng = Number(row?.lng);
+  if (!title && !address) return null;
+  const suggestion = {
+    placeId: row.place_id,
+    title: title || address.split(',')[0],
+    subtitle,
+    address,
+    formattedAddress: address,
+    poiName: title || null,
+    types: Array.isArray(row?.types) ? row.types : [],
+  };
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    suggestion.lat = lat;
+    suggestion.lng = lng;
+  }
+  return suggestion;
+}
+
+function rankRows(rows, query, limit) {
+  const tokens = placeQueryTokens(query);
+  if (!tokens.length) return [];
+  const seen = new Set();
+  const hits = [];
+  for (const row of rows) {
+    const id = String(row?.place_id || '').trim();
+    if (!id || seen.has(id)) continue;
+    const blob = `${row?.title || ''} ${row?.subtitle || ''} ${row?.formatted_address || ''} ${row?.search_text || ''}`;
+    if (!cachedPoiMatches(blob, query)) continue;
+    const suggestion = suggestionFromRow(row);
+    if (!suggestion) continue;
+    seen.add(id);
+    hits.push(suggestion);
+    if (hits.length >= limit) break;
+  }
+  return hits;
+}
+
+async function rowsForToken(table, token) {
+  const safe = String(token || '').replace(/[^a-z0-9]/g, '');
+  if (safe.length < 3) return [];
+  const supabase = getSupabaseAdmin();
+  const pattern = `%${safe}%`;
+  const poi = await supabase
+    .from(table)
+    .select('place_id, title, subtitle, formatted_address, lat, lng, types, search_text')
+    .or(`search_text.ilike.${pattern},title.ilike.${pattern},subtitle.ilike.${pattern},formatted_address.ilike.${pattern}`)
+    .limit(40);
+  if (!poi.error) return poi.data || [];
+  const fallback = await supabase
+    .from(table)
+    .select('place_id, title, subtitle, formatted_address, lat, lng, types')
+    .or(`title.ilike.${pattern},subtitle.ilike.${pattern},formatted_address.ilike.${pattern}`)
+    .limit(40);
+  if (fallback.error) return [];
+  return fallback.data || [];
+}
+
+/** Lugares ya guardados (viajes de Google y direcciones con coordenadas) que coinciden con lo escrito. */
+export async function getCachedPoiWithCoords(placeId) {
+  const id = String(placeId || '').trim();
+  const normalized = id.startsWith('google:') ? id : (id ? `google:${id}` : '');
+  if (!normalized) return null;
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from(POI_TABLE)
+    .select('place_id, title, subtitle, formatted_address, lat, lng, types')
+    .eq('place_id', normalized)
+    .maybeSingle();
+  if (error || !data) return null;
+  const suggestion = suggestionFromRow(data);
+  if (!suggestion || !Number.isFinite(suggestion.lat) || !Number.isFinite(suggestion.lng)) return null;
+  return suggestion;
+}
+
+export async function searchCachedPlaces(query, limit = 8) {
+  const tokens = placeQueryTokens(query).sort((a, b) => b.length - a.length);
+  const token = tokens[0];
+  if (!token) return [];
+  const cap = Math.max(1, Math.min(limit, 8));
+  const [pois, details] = await Promise.all([
+    rowsForToken(POI_TABLE, token).catch(() => []),
+    rowsForToken('google_place_details_cache', token).catch(() => []),
+  ]);
+  return rankRows([...(pois || []), ...(details || [])], query, cap);
 }
 
 async function savePlacesPois(suggestions) {

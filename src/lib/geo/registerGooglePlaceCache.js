@@ -5,7 +5,9 @@ import {
 } from '../googlePlaceDetailsCache.js';
 import {
   getCachedPlacesSearch,
+  getCachedPoiWithCoords,
   savePlacesSearch,
+  searchCachedPlaces,
   tryConsumePlacesCall,
 } from '../googlePlacesBudgetStore.js';
 
@@ -19,12 +21,15 @@ export function registerGooglePlaceSupabaseCache() {
   registered = true;
 
   setGooglePlacePersistentCache({
-    get: getCachedGooglePlaceDetails,
+    get: async (placeId) => (
+      await getCachedGooglePlaceDetails(placeId).catch(() => null)
+    ) || getCachedPoiWithCoords(placeId),
     upsert: upsertGooglePlaceDetailsCache,
   });
   setPlacesBudget({
     tryConsume: tryConsumePlacesCall,
     getSearch: getCachedPlacesSearch,
     saveSearch: savePlacesSearch,
+    findPlaces: searchCachedPlaces,
   });
 }

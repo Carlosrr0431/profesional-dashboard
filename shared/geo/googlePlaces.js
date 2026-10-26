@@ -718,6 +718,13 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
         return saved;
       }
     }
+    if (placesBudget?.findPlaces) {
+      const known = await placesBudget.findPlaces(text, normalizedLimit).catch(() => []);
+      if (Array.isArray(known) && known.length) {
+        setCached(autocompleteCache, cacheKey, known, AUTOCOMPLETE_TTL_MS);
+        return known;
+      }
+    }
     const suggestions = await placesAutocompleteRequest(
       text,
       sessionToken,
