@@ -511,6 +511,8 @@ export default function NewTripModal({
     }
   };
 
+  if (mapPickTarget) return null;
+
   /* ── Render minimizado ────────────────────────────────────────────────── */
   if (minimized) {
     return (

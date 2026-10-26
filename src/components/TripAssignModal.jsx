@@ -478,6 +478,8 @@ export default function TripAssignModal({
     }
   };
 
+  if (mapPickTarget) return null;
+
   /* ── Render minimizado (barra flotante sobre el mapa) ─────────────────── */
   if (minimized) {
     return (
