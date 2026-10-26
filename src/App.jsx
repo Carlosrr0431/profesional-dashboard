@@ -1319,6 +1319,7 @@ export default function App() {
           tariffBase={tariffBase}
           commissionPercent={commissionPercent}
           onRouteChange={setPreviewRoute}
+          onMapPickModeChange={handleMapPickModeChange}
         />
       )}
 

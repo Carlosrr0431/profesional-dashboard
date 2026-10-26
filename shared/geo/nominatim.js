@@ -608,13 +608,67 @@ function isCoordinateLikeAddress(text) {
   return /^-?\d+\.\d{4,},\s*-?\d+\.\d{4,}$/.test(String(text || '').trim());
 }
 
-function formatReverseGeocodeResult(data) {
-  const mapped = mapNominatimResult(data);
+function labelFromMapped(mapped) {
   if (!mapped) return null;
   const label = formatNominatimDisplayLabel(mapped);
   const formatted = String(label.full || label.title || '').trim();
   if (!formatted || isCoordinateLikeAddress(formatted)) return null;
   return formatted;
+}
+
+function formatReverseGeocodeResult(data) {
+  return labelFromMapped(mapNominatimResult(data));
+}
+
+const PIN_BLOCKED_OSM_TYPES = new Set([
+  'administrative', 'state', 'country', 'postcode', 'suburb', 'neighbourhood',
+  'quarter', 'city_district', 'locality', 'hamlet', 'village', 'town', 'city',
+  'county', 'municipality', 'region', 'farmland', 'meadow', 'grass',
+]);
+
+/** Calle con altura, o un local, y a menos de 80 m del clic. Un barrio no alcanza. */
+function reverseHitIsPrecise(hit, lat, lng) {
+  if (!hit) return false;
+  if (PIN_BLOCKED_OSM_TYPES.has(String(hit.osmType || ''))) return false;
+  const label = labelFromMapped(hit) || '';
+  if (/\b(barrio|bº|b°)\b/i.test(label)) return false;
+  if (metersBetween({ lat: Number(lat), lng: Number(lng) }, hit) > 80) return false;
+  const road = String(hit.address?.road || '').trim();
+  const number = String(hit.address?.house_number || '').trim();
+  if (String(hit.poiName || '').trim()) return true;
+  return Boolean(road && number);
+}
+
+async function firstReverseHit(lat, lng) {
+  try {
+    const data = await nominatimFetch('/reverse', {
+      lat: String(lat),
+      lon: String(lng),
+      addressdetails: '1',
+      zoom: '18',
+    });
+    const mapped = mapNominatimResult(data);
+    if (labelFromMapped(mapped)) return mapped;
+  } catch {
+    // continuar
+  }
+
+  try {
+    const tomtomHit = await tomtomReverseGeocode(lat, lng);
+    if (labelFromMapped(tomtomHit)) return tomtomHit;
+  } catch {
+    // continuar
+  }
+
+  try {
+    const data = await publicNominatimReverseFetch(lat, lng);
+    const mapped = mapNominatimResult(data);
+    if (labelFromMapped(mapped)) return mapped;
+  } catch {
+    // continuar
+  }
+
+  return null;
 }
 
 async function publicNominatimReverseFetch(lat, lng) {
@@ -663,43 +717,20 @@ async function reverseGeocode(lat, lng) {
   const parsedLat = Number(lat);
   const parsedLng = Number(lng);
   if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return fallback;
+  const hit = await firstReverseHit(parsedLat, parsedLng);
+  return labelFromMapped(hit) || fallback;
+}
 
-  // 1) Nominatim self-hosted (Railway)
-  try {
-    const data = await nominatimFetch('/reverse', {
-      lat: String(parsedLat),
-      lon: String(parsedLng),
-      addressdetails: '1',
-      zoom: '18',
-    });
-    const formatted = formatReverseGeocodeResult(data);
-    if (formatted) return formatted;
-  } catch {
-    // continuar con fallbacks
+/** El pin del mapa conserva el clic. Solo nombra el punto si es calle+altura o un local. */
+async function reverseGeocodeForPin(lat, lng) {
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
+    return { precise: false, label: null };
   }
-
-  // 2) TomTom reverse (si hay clave en servidor)
-  try {
-    const tomtomHit = await tomtomReverseGeocode(parsedLat, parsedLng);
-    if (tomtomHit) {
-      const label = formatNominatimDisplayLabel(tomtomHit);
-      const formatted = String(label.full || label.title || tomtomHit.formattedAddress || '').trim();
-      if (formatted && !isCoordinateLikeAddress(formatted)) return formatted;
-    }
-  } catch {
-    // continuar
-  }
-
-  // 3) Nominatim público (cuando el self-hosted está caído o sin datos)
-  try {
-    const data = await publicNominatimReverseFetch(parsedLat, parsedLng);
-    const formatted = formatReverseGeocodeResult(data);
-    if (formatted) return formatted;
-  } catch {
-    // último recurso: coordenadas
-  }
-
-  return fallback;
+  const hit = await firstReverseHit(parsedLat, parsedLng);
+  const precise = reverseHitIsPrecise(hit, parsedLat, parsedLng);
+  return { precise, label: precise ? labelFromMapped(hit) : null };
 }
 
 function collectAutocompleteCandidates(items, query, merged, seenPlaceIds, seenCoords, seenLabels, bonusScore = 0, titleOverride = null, dedupeByLabel = true) {
@@ -1294,6 +1325,8 @@ module.exports = {
   geocodeAddress,
   geocodeAddressMultiple,
   reverseGeocode,
+  reverseGeocodeForPin,
+  reverseHitIsPrecise,
   autocompleteAddressSalta,
   getPlaceDetails,
   buildSearchQuery,

@@ -1,12 +1,20 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { sendPushNotification, formatPrice, formatKm } from '../lib/utils';
 import { formatError } from '../lib/errorFormat';
 import { useToast } from '../context/ToastContext';
 import AddressAutocomplete from './AddressAutocomplete';
+import MapPickButton from './MapPickButton';
 import { dashboardDriverAvailability } from '../lib/assignExistingTrip';
+import {
+  MAP_PICK_SOURCE,
+  buildMapPickedPlace,
+  formatPickedCoordsLabel,
+  labelForExactMapPick,
+  validateMapPickInSalta,
+} from '../lib/mapPointPick';
 
 /* ── Estilos globales ─────────────────────────────────────────────────────── */
 const MODAL_STYLES = `
@@ -102,6 +110,7 @@ export default function TripAssignModal({
   tariffBase,
   commissionPercent,
   onRouteChange,
+  onMapPickModeChange,
   asPopover = false,
 }) {
   const toast = useToast();
@@ -119,6 +128,10 @@ export default function TripAssignModal({
   const [destAddress, setDestAddress] = useState('');
   const [destLat, setDestLat] = useState(null);
   const [destLng, setDestLng] = useState(null);
+  const [destGeocodeSource, setDestGeocodeSource] = useState(null);
+  const [mapPickTarget, setMapPickTarget] = useState(null);
+  const [mapPickBusy, setMapPickBusy] = useState(false);
+  const mapPickBusyRef = useRef(false);
 
   /* Opcionales */
   const [notes, setNotes] = useState('');
@@ -137,7 +150,10 @@ export default function TripAssignModal({
 
   /* ── Limpiar ruta al desmontar ─────────────────────────────────────────── */
   useEffect(() => {
-    return () => { onRouteChange?.(null); };
+    return () => {
+      onRouteChange?.(null);
+      onMapPickModeChange?.(null);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -165,6 +181,95 @@ export default function TripAssignModal({
   useEffect(() => {
     if (assignAsNext && originMode === 'driver') setOriginMode('custom');
   }, [assignAsNext, originMode]);
+
+  const stopMapPick = useCallback(() => {
+    mapPickBusyRef.current = false;
+    setMapPickTarget(null);
+    setMapPickBusy(false);
+    onMapPickModeChange?.(null);
+  }, [onMapPickModeChange]);
+
+  const startMapPick = useCallback((target) => {
+    if (mapPickTarget === target) {
+      stopMapPick();
+      return;
+    }
+    setError('');
+    if (target === 'origin') setOriginMode('custom');
+    setShowOnMap(true);
+    setMapPickTarget(target);
+  }, [mapPickTarget, stopMapPick]);
+
+  const applyMapPickedPoint = useCallback(async (point) => {
+    const target = mapPickTarget;
+    if (!target || mapPickBusyRef.current) return;
+    const checked = validateMapPickInSalta(point?.latitude, point?.longitude);
+    if (!checked.ok) {
+      setError(checked.message);
+      return;
+    }
+
+    const { latitude, longitude } = checked;
+    const coordsLabel = formatPickedCoordsLabel(latitude, longitude);
+    const pending = buildMapPickedPlace({ lat: latitude, lng: longitude });
+    if (target === 'origin') {
+      setOriginMode('custom');
+      setOriginAddress(pending.formattedAddress);
+      setOriginLat(pending.lat);
+      setOriginLng(pending.lng);
+      setOriginGeocodeSource(MAP_PICK_SOURCE);
+    } else {
+      setDestAddress(pending.formattedAddress);
+      setDestLat(pending.lat);
+      setDestLng(pending.lng);
+      setDestGeocodeSource(MAP_PICK_SOURCE);
+    }
+
+    mapPickBusyRef.current = true;
+    setMapPickBusy(true);
+    try {
+      const qs = new URLSearchParams({ lat: String(latitude), lng: String(longitude), exact: '1' });
+      const response = await fetch(`/api/geo/reverse?${qs}`);
+      const payload = await response.json().catch(() => ({}));
+      const reverse = payload?.ok ? payload.data : null;
+      const label = labelForExactMapPick(reverse, latitude, longitude) || coordsLabel;
+      if (target === 'origin') {
+        setOriginAddress(label);
+        setOriginLat(latitude);
+        setOriginLng(longitude);
+        setOriginGeocodeSource(MAP_PICK_SOURCE);
+      } else {
+        setDestAddress(label);
+        setDestLat(latitude);
+        setDestLng(longitude);
+        setDestGeocodeSource(MAP_PICK_SOURCE);
+      }
+    } finally {
+      stopMapPick();
+    }
+  }, [mapPickTarget, stopMapPick]);
+
+  useEffect(() => {
+    if (!mapPickTarget) {
+      onMapPickModeChange?.(null);
+      return undefined;
+    }
+    onMapPickModeChange?.({
+      mode: mapPickTarget,
+      onPick: applyMapPickedPoint,
+      onCancel: stopMapPick,
+    });
+    return () => onMapPickModeChange?.(null);
+  }, [mapPickTarget, applyMapPickedPoint, stopMapPick, onMapPickModeChange]);
+
+  useEffect(() => {
+    if (!mapPickTarget) return undefined;
+    const onKey = (event) => {
+      if (event.key === 'Escape') stopMapPick();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mapPickTarget, stopMapPick]);
 
   /* ── Calcular ruta cuando hay origen + destino ────────────────────────── */
   useEffect(() => {
@@ -625,7 +730,17 @@ export default function TripAssignModal({
                   placeholder="Ej: Belgrano 1200, Salta"
                   value={originAddress}
                   accentColor="#DC2626"
+                  emphasized={mapPickTarget === 'origin'}
                   inputIcon={<OriginDotSmall />}
+                  endAction={(
+                    <MapPickButton
+                      kind="origin"
+                      active={mapPickTarget === 'origin'}
+                      picked={originLat != null && originGeocodeSource === MAP_PICK_SOURCE}
+                      busy={mapPickBusy && mapPickTarget === 'origin'}
+                      onClick={() => startMapPick('origin')}
+                    />
+                  )}
                   onChange={(text) => {
                     setOriginAddress(text);
                     setOriginLat(null);
@@ -680,9 +795,29 @@ export default function TripAssignModal({
                 placeholder="Ej: Av. San Martín 500, Salta"
                 value={destAddress}
                 accentColor="#059669"
+                emphasized={mapPickTarget === 'dest'}
                 inputIcon={<DestDotSmall />}
-                onChange={(text) => { setDestAddress(text); setDestLat(null); setDestLng(null); }}
-                onSelect={(place) => { setDestAddress(place.formattedAddress); setDestLat(place.lat); setDestLng(place.lng); }}
+                endAction={(
+                  <MapPickButton
+                    kind="dest"
+                    active={mapPickTarget === 'dest'}
+                    picked={destLat != null && destGeocodeSource === MAP_PICK_SOURCE}
+                    busy={mapPickBusy && mapPickTarget === 'dest'}
+                    onClick={() => startMapPick('dest')}
+                  />
+                )}
+                onChange={(text) => {
+                  setDestAddress(text);
+                  setDestLat(null);
+                  setDestLng(null);
+                  setDestGeocodeSource(null);
+                }}
+                onSelect={(place) => {
+                  setDestAddress(place.formattedAddress);
+                  setDestLat(place.lat);
+                  setDestLng(place.lng);
+                  setDestGeocodeSource(place.geocodeSource || null);
+                }}
               />
             </div>
 

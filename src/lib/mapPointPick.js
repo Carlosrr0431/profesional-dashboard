@@ -29,6 +29,15 @@ export function validateMapPickInSalta(lat, lng) {
   return { ok: true, latitude, longitude };
 }
 
+/** Un barrio o una zona no reemplazan el punto elegido. */
+export function labelForExactMapPick(reverse, lat, lng) {
+  const coords = formatPickedCoordsLabel(lat, lng);
+  const text = String(reverse?.formattedAddress || '').trim();
+  if (!reverse?.precise || !text) return coords;
+  if (/\b(barrio|bº|b°)\b/i.test(text)) return coords;
+  return text;
+}
+
 export function buildMapPickedPlace({ lat, lng, reverse = null }) {
   const coordsLabel = formatPickedCoordsLabel(lat, lng);
   const formattedAddress = String(reverse?.formattedAddress || '').trim() || coordsLabel;

@@ -35,6 +35,7 @@ export const {
   geocodeAddress,
   geocodeAddressMultiple,
   reverseGeocode,
+  reverseGeocodeForPin,
   autocompleteAddressSalta,
   getPlaceDetails,
 } = nominatim;

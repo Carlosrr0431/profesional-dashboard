@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { reverseGeocode } from '../../../../src/lib/geo/index.js';
+import { reverseGeocode, reverseGeocodeForPin } from '../../../../src/lib/geo/index.js';
 import { getCachedGooglePlaceDetailsNearCoords } from '../../../../src/lib/googlePlaceDetailsCache';
 
 export const dynamic = 'force-dynamic';
@@ -18,11 +18,41 @@ export async function GET(request) {
       );
     }
 
-    // exact=1: pin del pasajero. Un lugar cacheado a hasta 120 m devolvería otra calle.
+    // exact=1: el clic del mapa. No se reemplaza por un barrio ni por un local lejano.
     const exact = searchParams.get('exact') === '1';
-    const cached = exact
-      ? null
-      : await getCachedGooglePlaceDetailsNearCoords(lat, lng).catch(() => null);
+    if (exact) {
+      const nearPlace = await getCachedGooglePlaceDetailsNearCoords(lat, lng, 40).catch(() => null);
+      if (nearPlace?.formattedAddress || nearPlace?.title) {
+        return NextResponse.json({
+          ok: true,
+          data: {
+            formattedAddress: nearPlace.formattedAddress || nearPlace.title,
+            lat,
+            lng,
+            placeId: nearPlace.placeId,
+            title: nearPlace.title,
+            subtitle: nearPlace.subtitle,
+            precise: true,
+            geocodeSource: 'map_pick',
+          },
+        });
+      }
+
+      const pin = await reverseGeocodeForPin(lat, lng);
+      const coordsLabel = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      return NextResponse.json({
+        ok: true,
+        data: {
+          formattedAddress: pin.precise ? pin.label : coordsLabel,
+          lat,
+          lng,
+          precise: Boolean(pin.precise),
+          geocodeSource: 'map_pick',
+        },
+      });
+    }
+
+    const cached = await getCachedGooglePlaceDetailsNearCoords(lat, lng).catch(() => null);
     if (cached?.formattedAddress) {
       return NextResponse.json({
         ok: true,

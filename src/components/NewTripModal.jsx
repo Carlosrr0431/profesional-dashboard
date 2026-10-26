@@ -9,7 +9,7 @@ import MapPickButton from './MapPickButton';
 import {
   MAP_PICK_SOURCE,
   buildMapPickedPlace,
-  formatPickedCoordsLabel,
+  labelForExactMapPick,
   validateMapPickInSalta,
 } from '../lib/mapPointPick';
 import { ScheduleDatePicker, ScheduleTimePicker } from './ScheduleDateTimePickers';
@@ -302,7 +302,6 @@ export default function NewTripModal({
     }
 
     const { latitude, longitude } = checked;
-    const coordsLabel = formatPickedCoordsLabel(latitude, longitude);
     const pendingPlace = buildMapPickedPlace({ lat: latitude, lng: longitude });
     if (target === 'origin') onPickupSelect(pendingPlace);
     else onDestSelect(pendingPlace);
@@ -310,16 +309,14 @@ export default function NewTripModal({
     mapPickBusyRef.current = true;
     setMapPickBusy(true);
     try {
-      const qs = new URLSearchParams({ lat: String(latitude), lng: String(longitude) });
+      const qs = new URLSearchParams({ lat: String(latitude), lng: String(longitude), exact: '1' });
       const response = await fetch(`/api/geo/reverse?${qs}`);
       const payload = await response.json().catch(() => ({}));
       const reverse = payload?.ok ? payload.data : null;
       const place = buildMapPickedPlace({
         lat: latitude,
         lng: longitude,
-        reverse: reverse?.formattedAddress
-          ? reverse
-          : { formattedAddress: coordsLabel },
+        reverse: { formattedAddress: labelForExactMapPick(reverse, latitude, longitude) },
       });
       if (target === 'origin') onPickupSelect(place);
       else onDestSelect(place);
