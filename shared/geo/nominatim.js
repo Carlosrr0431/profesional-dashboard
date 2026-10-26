@@ -893,6 +893,8 @@ function collectGeorefCandidates(items, query, merged, seenPlaceIds, seenCoords)
 }
 
 const streetPointCache = new Map();
+const streetMissUntil = new Map();
+const STREET_MISS_MS = 10 * 60 * 1000;
 
 function bareGeorefStreetName(nombre) {
   return foldStreetText(nombre)
@@ -904,32 +906,78 @@ function streetCacheKey(street) {
   return `${street.type}|${street.nameKey}`;
 }
 
+function rememberStreetMiss(key) {
+  streetMissUntil.set(key, Date.now() + STREET_MISS_MS);
+}
+
 async function locateCatalogStreet(street) {
   const key = streetCacheKey(street);
   if (streetPointCache.has(key)) return streetPointCache.get(key);
+  if ((streetMissUntil.get(key) || 0) > Date.now()) return null;
 
-  const calles = await fetchGeorefCalles(street.name, { max: 8 });
-  const wanted = foldStreetText(street.name);
-  const calle = calles.find((item) => {
-    const name = bareGeorefStreetName(item?.nombre);
-    const category = foldStreetText(item?.categoria);
-    const typeOk = !category
-      || category.includes(street.type === 'pasaje' ? 'pasaje' : street.type === 'avenida' ? 'avenida' : 'calle');
-    return typeOk && name === wanted;
-  });
-  if (!calle) return null;
+  try {
+    const calles = await fetchGeorefCalles(street.name, { max: 8 });
+    const wanted = foldStreetText(street.name);
+    const calle = (Array.isArray(calles) ? calles : []).find((item) => {
+      const name = bareGeorefStreetName(item?.nombre);
+      const category = foldStreetText(item?.categoria);
+      const typeOk = !category
+        || category.includes(street.type === 'pasaje' ? 'pasaje' : street.type === 'avenida' ? 'avenida' : 'calle');
+      return typeOk && name === wanted;
+    });
+    if (!calle) {
+      rememberStreetMiss(key);
+      return null;
+    }
 
-  const height = Number(calle?.altura?.inicio?.izquierda || calle?.altura?.inicio?.derecha || 0);
-  const hits = await searchGeorefAddress(`${calle.nombre} ${height > 0 ? height : 1}`, 2);
-  const point = hits[0] || null;
-  if (point) streetPointCache.set(key, point);
-  return point;
+    const height = Number(calle?.altura?.inicio?.izquierda || calle?.altura?.inicio?.derecha || 0);
+    const hits = await searchGeorefAddress(`${calle.nombre} ${height > 0 ? height : 1}`, 2);
+    const point = hits[0] || null;
+    if (!point) {
+      rememberStreetMiss(key);
+      return null;
+    }
+    streetMissUntil.delete(key);
+    streetPointCache.set(key, point);
+    return point;
+  } catch {
+    return null;
+  }
 }
 
 async function locateStreetTitle(title) {
   const [street] = searchStreetCatalog(title, 1);
   if (!street) return null;
   return locateCatalogStreet(street);
+}
+
+function suggestionHasPin(item) {
+  return Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
+}
+
+/** Una calle del padrón solo sigue en la lista si tiene un punto usable. */
+async function keepLocatableSuggestions(items) {
+  const located = await Promise.all((Array.isArray(items) ? items : []).map(async (item) => {
+    if (!item) return null;
+    if (suggestionHasPin(item)) return item;
+    const placeId = String(item.placeId || '');
+    if (!placeId.startsWith('street:')) return null;
+    let title = item.title || '';
+    try {
+      title = decodeURIComponent(placeId.slice('street:'.length));
+    } catch {
+      title = item.title || '';
+    }
+    const point = await locateStreetTitle(title);
+    if (!suggestionHasPin(point)) return null;
+    return {
+      ...item,
+      lat: point.lat,
+      lng: point.lng,
+      placeId: point.placeId || item.placeId,
+    };
+  }));
+  return located.filter(Boolean);
 }
 
 function streetSuggestion(street, point) {
@@ -1329,6 +1377,7 @@ module.exports = {
   reverseHitIsPrecise,
   autocompleteAddressSalta,
   getPlaceDetails,
+  keepLocatableSuggestions,
   buildSearchQuery,
   mapNominatimResult,
   sortNominatimResults,

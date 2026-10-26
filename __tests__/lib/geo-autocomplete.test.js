@@ -1,5 +1,5 @@
 const { installGeoFetchMock } = require('../helpers/geo-fetch-mock');
-const { autocompleteAddressSalta, geocodeAddress, getPlaceDetails } = require('../../shared/geo/nominatim');
+const { autocompleteAddressSalta, geocodeAddress, getPlaceDetails, keepLocatableSuggestions } = require('../../shared/geo/nominatim');
 
 const FORBIDDEN_GOOGLE_URL_PATTERNS = [
   /textsearch/i,
@@ -478,6 +478,76 @@ describe('geo autocomplete', () => {
     expect(details.lat).toBeCloseTo(-24.7952747, 4);
     expect(details.lng).toBeCloseTo(-65.4323057, 4);
     expect(details.geocodeSource).toBe('georef');
+  });
+
+  it('no ofrece una calle del padron que Georef no puede ubicar', async () => {
+    global.fetch = jest.fn(async (url) => {
+      const target = String(url);
+      if (target.includes('/calles')) {
+        return { ok: true, json: async () => ({ calles: [] }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+
+    const raw = await autocompleteAddressSalta('pasaje dr carlos costas', 6);
+    expect(raw.some((item) => /carlos costas/i.test(item.title))).toBe(true);
+
+    const located = await keepLocatableSuggestions([
+      {
+        title: 'Doctor Mariano Boedo & Pasaje Carlos Costas',
+        subtitle: 'Salta',
+        address: 'Doctor Mariano Boedo & Pasaje Carlos Costas, Salta',
+        placeId: 'google:boedo-costas',
+        lat: -24.79,
+        lng: -65.41,
+      },
+      ...raw.filter((item) => String(item.placeId || '').startsWith('street:')),
+    ]);
+
+    expect(located.map((item) => item.title)).toEqual([
+      'Doctor Mariano Boedo & Pasaje Carlos Costas',
+    ]);
+    expect(located.every((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng))).toBe(true);
+  });
+
+  it('una calle del padron que Georef ubica sale con coordenadas', async () => {
+    global.fetch = jest.fn(async (url) => {
+      const target = String(url);
+      if (target.includes('/calles')) {
+        return {
+          ok: true,
+          json: async () => ({
+            calles: [{
+              nombre: 'PJE IRUYA',
+              categoria: 'PASAJE',
+              altura: { inicio: { izquierda: 2101, derecha: 2102 } },
+            }],
+          }),
+        };
+      }
+      if (target.includes('/direcciones')) {
+        return {
+          ok: true,
+          json: async () => ({
+            direcciones: [{
+              nomenclatura: 'PJE IRUYA 2101, Salta, Capital, Salta',
+              altura: { valor: 2101 },
+              calle: { nombre: 'PJE IRUYA', categoria: 'PASAJE' },
+              localidad_censal: { nombre: 'Salta' },
+              provincia: { nombre: 'Salta' },
+              ubicacion: { lat: -24.795274651, lon: -65.432305697 },
+            }],
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+
+    const raw = await autocompleteAddressSalta('pasaje iruya', 4);
+    const located = await keepLocatableSuggestions(raw);
+    expect(located[0].title).toBe('Pasaje Iruya');
+    expect(located[0].lat).toBeCloseTo(-24.7952747, 4);
+    expect(located[0].lng).toBeCloseTo(-65.4323057, 4);
   });
 
   it('shoping lista los shoppings aunque el mapa no conteste', async () => {

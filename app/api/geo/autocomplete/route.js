@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { autocompleteAddressSalta, searchGooglePlacesLastResort } from '../../../../src/lib/geo/index.js';
+import { autocompleteAddressSalta, keepLocatableSuggestions, searchGooglePlacesLastResort } from '../../../../src/lib/geo/index.js';
 import { loadFrequentPlaces } from '../../../../src/lib/frequentTripCatalog';
 import { mergePlaceSuggestions, searchFrequentPlaces } from '../../../../src/lib/frequentPickups';
 import { searchCachedPlaces } from '../../../../src/lib/googlePlacesBudgetStore';
@@ -110,20 +110,26 @@ export async function GET(request) {
     if (intersection) {
       const pool = [...(frequent?.items || []), ...(cachedPlaces || []), ...(geo || [])];
       results = pool.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2)).slice(0, limit);
-      if (!results.length) {
-        const google = await searchGooglePlacesLastResort(intersectionSearchLabel(intersection), limit, { sessionToken }).catch(() => []);
-        results = google.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2)).slice(0, limit);
-      }
     } else {
       const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
       const localPlaces = hasHouseNumber
         ? [...(frequent?.items || []), ...(cachedPlaces || [])]
         : rankNamedGoogleFirst([...(cachedPlaces || []), ...(frequent?.items || [])], query);
       results = mergePlaceSuggestions(localPlaces, geo, limit);
-      if (!results.some(hasPin) && query.length >= 4) {
-        const google = await searchGooglePlacesLastResort(query, limit, { sessionToken }).catch(() => []);
-        results = mergePlaceSuggestions(google.filter(hasPin), results, limit);
+    }
+    results = await within(
+      keepLocatableSuggestions(results),
+      900,
+      (results || []).filter(hasPin),
+    );
+    if (intersection) {
+      if (!results.length) {
+        const google = await searchGooglePlacesLastResort(intersectionSearchLabel(intersection), limit, { sessionToken }).catch(() => []);
+        results = google.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2) && hasPin(item)).slice(0, limit);
       }
+    } else if (!results.some(hasPin) && query.length >= 4) {
+      const google = await searchGooglePlacesLastResort(query, limit, { sessionToken }).catch(() => []);
+      results = mergePlaceSuggestions(google.filter(hasPin), results, limit).filter(hasPin);
     }
     if (pickPrimaryHouseNumber(query) != null) {
       results = alignStreetNumberPins(results, query);
