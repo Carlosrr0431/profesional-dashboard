@@ -9,6 +9,7 @@ const {
   defaultArScheduleParts,
   coerceArScheduleIfTonightStillValid,
   isScheduledTripDue,
+  queuedWithoutDriverIsExpired,
   DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS,
 } = require('../../src/lib/promoteDueScheduledTrips');
 
@@ -295,5 +296,19 @@ describe('promoteDueScheduledTrips', () => {
       status: 'queued',
       scheduled_for: '2026-09-05T02:46:00.000Z',
     }, nowMs)).toBe(false);
+  });
+
+  it('una reserva creada horas antes no vence al entrar a la cola', () => {
+    const trip = {
+      status: 'queued',
+      created_at: '2026-10-26T13:44:00.000Z',
+      scheduled_for: '2026-10-26T17:00:00.000Z',
+      notes: '14:00** toque bocina',
+    };
+    expect(queuedWithoutDriverIsExpired(trip, Date.parse('2026-10-26T16:45:00.000Z'), 120)).toBe(false);
+    expect(queuedWithoutDriverIsExpired(trip, Date.parse('2026-10-26T19:01:00.000Z'), 120)).toBe(true);
+    expect(queuedWithoutDriverIsExpired({
+      created_at: '2026-10-26T13:44:00.000Z',
+    }, Date.parse('2026-10-26T16:45:00.000Z'), 120)).toBe(true);
   });
 });

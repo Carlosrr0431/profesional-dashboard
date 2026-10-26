@@ -10,6 +10,10 @@ import {
   getTripDispatchExcludedDriverIds,
 } from './dispatchExclusions';
 import { clearPassengerAssignmentPushStatuses } from './passengerPushNotifications';
+import {
+  DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS,
+  resolveScheduledForFromTrip,
+} from './promoteDueScheduledTrips';
 
 export function isDriverReleaseAlreadyApplied(tripRow, driverId) {
   const status = String(tripRow?.status || '').toLowerCase();
@@ -45,6 +49,13 @@ export function buildDriverReleaseQueuedExtras(trip, {
     wa_context,
     cancel_reason: cancelReason,
   };
+
+  const scheduledFor = resolveScheduledForFromTrip(trip);
+  if (scheduledFor && scheduledFor.getTime() > now.getTime() + DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS) {
+    extras.status = 'scheduled';
+    extras.dispatch_status = 'idle';
+    extras.next_dispatch_at = null;
+  }
 
   if (wasAssigned) {
     extras.started_at = null;
@@ -109,7 +120,7 @@ export async function releaseTripToQueue(supabase, {
         ...tripRow,
         ...data,
         driver_id: null,
-        status: 'queued',
+        status: extras.status || 'queued',
         wa_context: data.wa_context || extras.wa_context,
         cancel_reason: data.cancel_reason || extras.cancel_reason,
       }

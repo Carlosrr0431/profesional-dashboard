@@ -200,6 +200,25 @@ describe('buildDriverReleaseQueuedExtras', () => {
     }, 'drv-1')).toBe(false);
   });
 
+  it('si el chofer suelta una reserva que todavía no es hora, vuelve a programado', () => {
+    const trip = {
+      status: 'accepted',
+      notes: '[SCHEDULED_FOR] 2026-10-26T17:00:00.000Z\n14:00** toque bocina',
+      scheduled_for: '2026-10-26T17:00:00.000Z',
+      driver_id: 'drv-1',
+      wa_context: {},
+    };
+    const { extras } = buildDriverReleaseQueuedExtras(trip, {
+      driverId: 'drv-1',
+      reason: DRIVER_RELEASE_REASON,
+      now: new Date('2026-10-26T14:00:00.000Z'),
+    });
+    const update = buildPendingToQueuedUpdate(trip, extras);
+    expect(update.status).toBe('scheduled');
+    expect(update.dispatch_status).toBe('idle');
+    expect(update.driver_id).toBeNull();
+  });
+
   it('detecta el motivo de búsqueda de otro chofer', () => {
     expect(isDriverReleasedSearchReason(DRIVER_RELEASE_REASON)).toBe(true);
     expect(isDriverReleasedSearchReason('Rechazado por chofer')).toBe(false);

@@ -26,6 +26,7 @@ import {
   preferExactCatalogStreetMatches,
   sortGuemesStreetCandidates,
 } from '../../../src/lib/saltaStreetHomonyms';
+import { queuedWithoutDriverIsExpired } from '../../../src/lib/promoteDueScheduledTrips';
 import {
   messageConfirmsTripCancel,
   messageDeniesTripCancel,
@@ -5046,9 +5047,9 @@ function gatePickupStreetReply(text, openTrip) {
 function isStaleQueuedTrip(trip) {
   if (String(trip?.status || '').toLowerCase() !== 'queued') return false;
   if (trip?.driver_id) return false;
-  if (!tripHasDispatchPickup(trip)) return true;
-  const ageMinutes = getTripAgeMinutes(trip);
-  return ageMinutes != null && ageMinutes > QUEUED_WITHOUT_DRIVER_MAX_MINUTES;
+  const reserved = Boolean(trip?.scheduled_for) || String(trip?.notes || '').includes('[SCHEDULED_FOR]');
+  if (!tripHasDispatchPickup(trip) && !reserved) return true;
+  return queuedWithoutDriverIsExpired(trip, Date.now(), QUEUED_WITHOUT_DRIVER_MAX_MINUTES);
 }
 
 function shouldBlockForOpenTrip(trip) {
@@ -8933,9 +8934,10 @@ async function expireTimedOutPendingTrips() {
 
 /** Cierra colas sin chofer que quedaron abiertas, y pedidos sin dirección de retiro. */
 async function expireStaleQueuedTrips() {
-  const now = new Date().toISOString();
-  const agedCutoff = new Date(Date.now() - QUEUED_WITHOUT_DRIVER_MAX_MINUTES * 60000).toISOString();
-  const placeholderCutoff = new Date(Date.now() - QUEUED_PLACEHOLDER_MAX_MINUTES * 60000).toISOString();
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
+  const agedCutoff = new Date(nowMs - QUEUED_WITHOUT_DRIVER_MAX_MINUTES * 60000).toISOString();
+  const placeholderCutoff = new Date(nowMs - QUEUED_PLACEHOLDER_MAX_MINUTES * 60000).toISOString();
   const close = (reason) => ({
     status: 'cancelled',
     dispatch_status: 'cancelled',
@@ -8943,23 +8945,53 @@ async function expireStaleQueuedTrips() {
     status_updated_at: now,
   });
 
-  const aged = await getSupabase()
+  const agedQuery = await getSupabase()
     .from('trips')
-    .update(close('Cola vencida sin chofer'))
+    .select('id, created_at, scheduled_for, notes')
     .eq('status', 'queued')
     .is('driver_id', null)
-    .lt('created_at', agedCutoff)
-    .select('id');
+    .lt('created_at', agedCutoff);
 
-  const placeholders = await getSupabase()
+  const expiredIds = (agedQuery.data || [])
+    .filter((trip) => queuedWithoutDriverIsExpired(trip, nowMs, QUEUED_WITHOUT_DRIVER_MAX_MINUTES))
+    .map((trip) => trip.id);
+
+  const aged = agedQuery.error
+    ? { data: [], error: agedQuery.error }
+    : expiredIds.length
+      ? await getSupabase()
+        .from('trips')
+        .update(close('Cola vencida sin chofer'))
+        .in('id', expiredIds)
+        .eq('status', 'queued')
+        .is('driver_id', null)
+        .select('id')
+      : { data: [], error: null };
+
+  const placeholderQuery = await getSupabase()
     .from('trips')
-    .update(close('Pedido sin dirección de retiro'))
+    .select('id, created_at, scheduled_for, notes')
     .eq('status', 'queued')
     .is('driver_id', null)
     .is('origin_lat', null)
     .is('destination_lat', null)
-    .lt('created_at', placeholderCutoff)
-    .select('id');
+    .lt('created_at', placeholderCutoff);
+
+  const placeholderIds = (placeholderQuery.data || [])
+    .filter((trip) => !trip.scheduled_for && !String(trip.notes || '').includes('[SCHEDULED_FOR]'))
+    .map((trip) => trip.id);
+
+  const placeholders = placeholderQuery.error
+    ? { data: [], error: placeholderQuery.error }
+    : placeholderIds.length
+      ? await getSupabase()
+        .from('trips')
+        .update(close('Pedido sin dirección de retiro'))
+        .in('id', placeholderIds)
+        .eq('status', 'queued')
+        .is('driver_id', null)
+        .select('id')
+      : { data: [], error: null };
 
   const expired = (aged.data || []).length + (placeholders.data || []).length;
   if (aged.error || placeholders.error) {

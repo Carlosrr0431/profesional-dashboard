@@ -83,6 +83,22 @@ export function coerceArScheduleIfTonightStillValid(dateStr, timeStr, nowMs = Da
   return { date: today.date, time: timeStr };
 }
 
+/**
+ * Una reserva se anota horas antes. La cola de 2 h se cuenta desde el horario
+ * del viaje, no desde created_at. Si no, al empezar a buscar chofer (20 min antes)
+ * el cron la cierra con "Cola vencida sin chofer".
+ */
+export function queuedWithoutDriverIsExpired(trip, nowMs = Date.now(), maxMinutes = 120) {
+  const windowMs = Math.max(1, Number(maxMinutes) || 120) * 60_000;
+  const now = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  const scheduledFor = resolveScheduledForFromTrip(trip);
+  if (scheduledFor) return now >= scheduledFor.getTime() + windowMs;
+
+  const createdMs = new Date(trip?.created_at || 0).getTime();
+  if (!Number.isFinite(createdMs) || createdMs <= 0) return false;
+  return now >= createdMs + windowMs;
+}
+
 export function isScheduledTripDue(
   trip,
   nowMs = Date.now(),
