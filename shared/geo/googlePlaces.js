@@ -746,7 +746,8 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     // Una lista de sucursales (búsqueda ampliada) se ordena por cercanía; una calle, no.
     const ordered = expanded && origin ? orderByDistance(mapped) : mapped;
     const enriched = await enrichGuemesStreetNumberResults(ordered, text, sessionToken, normalizedLimit);
-    const result = enriched.map(({ _score, _index, ...rest }) => rest);
+    const named = enriched.map(({ _score, _index, ...rest }) => rest);
+    const result = await hydrateAutocompletePlaces(named, sessionToken);
 
     if (result.length) {
       setCached(autocompleteCache, cacheKey, result, AUTOCOMPLETE_TTL_MS);
@@ -767,6 +768,57 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
 }
 
 const searchPoiSalta = autocompleteAddressSalta;
+
+/** Autocomplete no trae coordenadas. Cada lugar de la búsqueda se guarda con latitud y longitud. */
+async function hydrateAutocompletePlaces(items, sessionToken) {
+  let sessionUsed = false;
+  const hydrated = [];
+  for (const item of items) {
+    if (Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng))) {
+      hydrated.push(item);
+      continue;
+    }
+    const rawId = String(item?.placeId || '').replace(/^google:/, '').trim();
+    if (!rawId) {
+      hydrated.push(item);
+      continue;
+    }
+
+    let details = null;
+    if (placesBudget?.lookupPlace) {
+      details = await placesBudget.lookupPlace(item.placeId).catch(() => null);
+    }
+    if (!details) {
+      try {
+        details = await fetchPlaceDetailsEssentials(rawId, {
+          sessionToken: sessionUsed ? undefined : sessionToken,
+          title: item.title,
+          subtitle: item.subtitle,
+          formattedAddress: item.formattedAddress || item.address,
+        });
+        sessionUsed = true;
+      } catch {
+        details = null;
+      }
+    }
+
+    if (details && Number.isFinite(Number(details.lat)) && Number.isFinite(Number(details.lng))) {
+      hydrated.push({
+        ...item,
+        lat: details.lat,
+        lng: details.lng,
+        formattedAddress: details.formattedAddress || item.formattedAddress,
+        address: details.formattedAddress || item.address,
+        title: details.title || item.title,
+        subtitle: details.subtitle || item.subtitle,
+        types: details.types?.length ? details.types : item.types,
+      });
+    } else {
+      hydrated.push(item);
+    }
+  }
+  return hydrated;
+}
 
 function mapPlaceDetailsEssentials(data, fallback = {}) {
   const id = String(data?.id || '').trim();

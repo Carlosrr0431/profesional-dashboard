@@ -52,21 +52,35 @@ describe('búsqueda de Places con cupo y caché', () => {
         saved.set(key, suggestions);
       },
     });
-    global.fetch = jest.fn(async () => ({
-      ok: true,
-      json: async () => ({ suggestions: [suggestion] }),
-    }));
+    global.fetch = jest.fn(async (url) => {
+      if (String(url).includes('places:autocomplete')) {
+        return { ok: true, json: async () => ({ suggestions: [suggestion] }) };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          id: 'abc123',
+          formattedAddress: 'Caseros 100, Salta',
+          location: { latitude: -24.7891, longitude: -65.4102 },
+          types: ['pharmacy'],
+        }),
+      };
+    });
 
     const first = await autocompleteAddressSalta('farmacia', 5);
     const second = await autocompleteAddressSalta('farmacia', 5);
 
     expect(first[0].title).toBe('Farmacia del Centro');
     expect(first[0].placeId).toBe('google:abc123');
+    expect(first[0].lat).toBeCloseTo(-24.7891, 4);
+    expect(first[0].lng).toBeCloseTo(-65.4102, 4);
     expect(second[0].placeId).toBe('google:abc123');
-    expect(calls).toBe(1);
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(calls).toBe(2);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
     expect(saved.size).toBe(1);
-    expect([...saved.values()][0][0].placeId).toBe('google:abc123');
+    const stored = [...saved.values()][0][0];
+    expect(stored.placeId).toBe('google:abc123');
+    expect(stored.lat).toBeCloseTo(-24.7891, 4);
   });
 
   it('si el lugar ya está guardado no llama a Google', async () => {

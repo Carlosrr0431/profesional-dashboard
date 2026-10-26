@@ -31,5 +31,8 @@ export function registerGooglePlaceSupabaseCache() {
     getSearch: getCachedPlacesSearch,
     saveSearch: savePlacesSearch,
     findPlaces: searchCachedPlaces,
+    lookupPlace: async (placeId) => (
+      await getCachedGooglePlaceDetails(placeId).catch(() => null)
+    ) || getCachedPoiWithCoords(placeId),
   });
 }
