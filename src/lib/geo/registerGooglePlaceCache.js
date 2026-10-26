@@ -1,8 +1,13 @@
-import { setGooglePlacePersistentCache } from '../../../shared/geo/googlePlaces.js';
+import { setGooglePlacePersistentCache, setPlacesBudget } from '../../../shared/geo/googlePlaces.js';
 import {
   getCachedGooglePlaceDetails,
   upsertGooglePlaceDetailsCache,
 } from '../googlePlaceDetailsCache.js';
+import {
+  getCachedPlacesSearch,
+  savePlacesSearch,
+  tryConsumePlacesCall,
+} from '../googlePlacesBudgetStore.js';
 
 let registered = false;
 
@@ -16,5 +21,10 @@ export function registerGooglePlaceSupabaseCache() {
   setGooglePlacePersistentCache({
     get: getCachedGooglePlaceDetails,
     upsert: upsertGooglePlaceDetailsCache,
+  });
+  setPlacesBudget({
+    tryConsume: tryConsumePlacesCall,
+    getSearch: getCachedPlacesSearch,
+    saveSearch: savePlacesSearch,
   });
 }

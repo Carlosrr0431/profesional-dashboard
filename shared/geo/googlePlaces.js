@@ -4,7 +4,7 @@
  * ╔══════════════════════════════════════════════════════════════╗
  * ║  SKUs permitidos                                             ║
  * ╠══════════════════════════════════════════════════════════════╣
- * ║  Autocomplete Requests   PROHIBIDO (se factura por request)  ║
+ * ║  Autocomplete Requests   hasta 9000 llamadas/mes, con caché  ║
  * ║  Place Details Essentials (IDs Only)  mask = "id"            ║
  * ║    · Verificación barata de placeId sin coordenadas          ║
  * ║  Place Details Essentials  mask = id,formattedAddress,       ║
@@ -142,6 +142,14 @@ const OUTSIDE_SALTA_CAPITAL_SUBTITLE = [
  * SKU: Place Details Essentials — mínimo para coords + dirección + tipo de POI.
  * Sin displayName (dispara Place Details Pro).
  */
+const AUTOCOMPLETE_FIELD_MASK = [
+  'suggestions.placePrediction.placeId',
+  'suggestions.placePrediction.structuredFormat',
+  'suggestions.placePrediction.text',
+  'suggestions.placePrediction.types',
+  'suggestions.placePrediction.distanceMeters',
+].join(',');
+
 const PLACE_DETAILS_ESSENTIALS_MASK = 'id,formattedAddress,location,types';
 
 /**
@@ -237,6 +245,40 @@ function fixCommonPoiTypos(query) {
     .replace(/\bmonobloq\b/ig, 'monoblock')
     .replace(/\bogigg?ins\b/ig, 'Higgins')
     .replace(/\bo['’]?higgins\b/ig, 'O Higgins');
+}
+
+function biasAutocompleteInputToSaltaCapital(input) {
+  const text = String(input || '').trim();
+  if (!text) return text;
+  if (queryNamesCoveredLocality(text)) {
+    return /\bargentina\b/i.test(text) ? text : `${text}, Salta, Argentina`;
+  }
+  if (/salta\s*capital/i.test(text)) return text;
+  if (/,\s*salta\s*,\s*argentina\s*$/i.test(text)) {
+    return text.replace(/,\s*salta\s*,\s*argentina\s*$/i, ', Salta Capital, Argentina');
+  }
+  if (/,\s*salta\s*$/i.test(text)) {
+    return text.replace(/,\s*salta\s*$/i, ', Salta Capital');
+  }
+  if (!/\b(salta|argentina|jujuy)\b/i.test(text)) {
+    return `${text}, Salta Capital`;
+  }
+  return text;
+}
+
+let placesBudget = null;
+
+function setPlacesBudget(provider) {
+  placesBudget = provider || null;
+}
+
+async function consumePlacesCall() {
+  if (!placesBudget?.tryConsume) return false;
+  try {
+    return await placesBudget.tryConsume() === true;
+  } catch {
+    return false;
+  }
 }
 
 function assertAllowedUrl(url) {
@@ -494,9 +536,54 @@ function mapAutocompletePrediction(prediction, sessionToken, query) {
   };
 }
 
-async function placesAutocompleteRequest() {
-  // Places Autocomplete (New) se factura por request. La búsqueda vive en Georef y Nominatim.
-  return [];
+async function placesAutocompleteRequest(
+  input,
+  sessionToken,
+  restriction = SALTA_CAPITAL_RESTRICTION,
+  timeoutMs = PLACES_TIMEOUT_MS,
+  origin = null,
+) {
+  const text = String(input || '').trim();
+  if (!text || !isGoogleConfigured()) return [];
+  const allowed = await consumePlacesCall();
+  if (!allowed) return [];
+
+  const key = readGoogleApiKey();
+  const url = `${PLACES_NEW_BASE}/places:autocomplete`;
+  assertAllowedUrl(url);
+
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  const searchOrigin = origin || SALTA_CAPITAL_ORIGIN;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': key,
+        'X-Goog-FieldMask': AUTOCOMPLETE_FIELD_MASK,
+      },
+      body: JSON.stringify({
+        input: biasAutocompleteInputToSaltaCapital(text),
+        sessionToken,
+        includedRegionCodes: ['ar'],
+        languageCode: 'es',
+        origin: searchOrigin,
+        locationRestriction: restriction || restrictionForQuery(text),
+      }),
+      signal: controller?.signal,
+    });
+
+    if (!response.ok) return [];
+    const data = await response.json();
+    return Array.isArray(data?.suggestions) ? data.suggestions : [];
+  } catch {
+    return [];
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /** Ubicación de quien busca, solo si cae dentro de Salta Capital (si no, se ignora). */
@@ -624,18 +711,22 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   }
 
   const requestPromise = (async () => {
-    let suggestions = await placesAutocompleteRequest(
+    if (placesBudget?.getSearch) {
+      const saved = await placesBudget.getSearch(cacheKey).catch(() => null);
+      if (Array.isArray(saved) && saved.length) {
+        setCached(autocompleteCache, cacheKey, saved, AUTOCOMPLETE_TTL_MS);
+        return saved;
+      }
+    }
+    const suggestions = await placesAutocompleteRequest(
       text,
       sessionToken,
       restrictionForQuery(text),
       PLACES_TIMEOUT_MS,
       origin,
     );
-    let expanded = false;
-    if (expand && shouldExpandAutocomplete(text, suggestions)) {
-      suggestions = await expandAutocompleteByZones(text, sessionToken, suggestions, origin);
-      expanded = true;
-    }
+    // Una sola llamada por búsqueda. Partir Salta en zonas multiplicaba el gasto.
+    const expanded = false;
     const mapped = suggestions
       .map((item, index) => ({
         ...mapAutocompletePrediction(item?.placePrediction, sessionToken, text),
@@ -650,7 +741,12 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     const enriched = await enrichGuemesStreetNumberResults(ordered, text, sessionToken, normalizedLimit);
     const result = enriched.map(({ _score, _index, ...rest }) => rest);
 
-    setCached(autocompleteCache, cacheKey, result, AUTOCOMPLETE_TTL_MS);
+    if (result.length) {
+      setCached(autocompleteCache, cacheKey, result, AUTOCOMPLETE_TTL_MS);
+      if (placesBudget?.saveSearch) {
+        await placesBudget.saveSearch(cacheKey, result).catch(() => {});
+      }
+    }
     return result;
   })();
 
@@ -729,6 +825,9 @@ async function fetchPlaceDetailsEssentials(rawPlaceId, options = {}) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), PLACES_TIMEOUT_MS) : null;
 
+    const allowed = placesBudget?.tryConsume ? await consumePlacesCall() : true;
+    if (!allowed) throw new Error('Cupo de Google Places agotado');
+
     try {
       const response = await fetch(url, {
         method: 'GET',
@@ -795,6 +894,9 @@ async function fetchPlaceIdOnly(rawPlaceId) {
 
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), PLACES_TIMEOUT_MS) : null;
+
+    const allowed = placesBudget?.tryConsume ? await consumePlacesCall() : true;
+    if (!allowed) return null;
 
     try {
       const response = await fetch(url, {
@@ -934,6 +1036,7 @@ module.exports = {
   fetchPlaceIdOnly,
   geocodeAddressGoogle,
   setGooglePlacePersistentCache,
+  setPlacesBudget,
   isGooglePlaceId,
   isGoogleConfigured,
   buildGoogleMapsSubtitle,
