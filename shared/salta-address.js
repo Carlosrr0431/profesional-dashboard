@@ -851,6 +851,41 @@ function parseStreetIntersection(value) {
   return { street1, street2 };
 }
 
+function intersectionStreetTokens(name) {
+  return normalizeForMatch(name)
+    .split(' ')
+    .filter((token) => token.length >= 4 && !GENERIC_ADDRESS_TOKENS.has(token) && !['esquina', 'entre'].includes(token));
+}
+
+/** Nombre de catálogo solo si no agrega otras palabras (Belgrano → Avenida Belgrano). */
+function preferredIntersectionStreet(typed) {
+  const [street] = searchStreetCatalog(typed, 1);
+  const typedTokens = intersectionStreetTokens(typed);
+  if (!street || !typedTokens.length) return String(typed || '').trim();
+  const extras = street.tokens.filter((token) => !typedTokens.includes(token));
+  return extras.length ? String(typed || '').trim() : street.fullLabel;
+}
+
+function intersectionSearchLabel(parsed) {
+  if (!parsed) return '';
+  return `${preferredIntersectionStreet(parsed.street1)} y ${preferredIntersectionStreet(parsed.street2)}, Salta`;
+}
+
+/** El resultado es el cruce de esas dos calles, no un local que queda sobre una de ellas. */
+function intersectionHitMatches(item, street1, street2) {
+  const types = Array.isArray(item?.types) ? item.types : [];
+  const osmType = String(item?.osmType || '');
+  const title = normalizeForMatch(item?.title || '');
+  const tokensA = intersectionStreetTokens(street1);
+  const tokensB = intersectionStreetTokens(street2);
+  if (!tokensA.length || !tokensB.length) return false;
+  const has = (tokens, text) => tokens.every((token) => text.includes(token));
+  if ((types.includes('intersection') || osmType === 'intersection') && has(tokensA, normalizeForMatch(`${item?.title} ${item?.address}`)) && has(tokensB, normalizeForMatch(`${item?.title} ${item?.address}`))) {
+    return true;
+  }
+  return has(tokensA, title) && has(tokensB, title);
+}
+
 module.exports = {
   sanitizeAddressInput,
   normalizeAddressPhrase,
@@ -866,6 +901,9 @@ module.exports = {
   parseStreetHouseFromQuery,
   pickPrimaryHouseNumber,
   parseStreetIntersection,
+  preferredIntersectionStreet,
+  intersectionSearchLabel,
+  intersectionHitMatches,
   isVagueLocalityAddress,
   formatIntersectionLabelFromQuery,
   ensureStreetCatalog,

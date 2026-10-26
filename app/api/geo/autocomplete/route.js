@@ -3,7 +3,12 @@ import { autocompleteAddressSalta, searchGooglePlacesLastResort } from '../../..
 import { loadFrequentPlaces } from '../../../../src/lib/frequentTripCatalog';
 import { mergePlaceSuggestions, searchFrequentPlaces } from '../../../../src/lib/frequentPickups';
 import { searchCachedPlaces } from '../../../../src/lib/googlePlacesBudgetStore';
-import { pickPrimaryHouseNumber } from '../../../../shared/salta-address.js';
+import {
+  intersectionHitMatches,
+  intersectionSearchLabel,
+  parseStreetIntersection,
+  pickPrimaryHouseNumber,
+} from '../../../../shared/salta-address.js';
 
 export const dynamic = 'force-dynamic';
 /** La búsqueda ampliada (expand) explora por zonas y puede tardar varios segundos. */
@@ -80,15 +85,26 @@ export async function GET(request) {
       searchCachedPlaces(query, limit).catch(() => []),
       autocompleteAddressSalta(query, limit, { sessionToken, expand, near }),
     ]);
-    let results = mergePlaceSuggestions(
-      mergePlaceSuggestions(frequent?.items || [], cachedPlaces, limit),
-      geo,
-      limit,
-    );
-    const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
-    if (!results.length && !hasHouseNumber && query.length >= 4) {
-      const google = await searchGooglePlacesLastResort(query, limit, { sessionToken }).catch(() => []);
-      results = mergePlaceSuggestions(results, google, limit);
+    const intersection = parseStreetIntersection(query);
+    let results;
+    if (intersection) {
+      const pool = [...(frequent?.items || []), ...(cachedPlaces || []), ...(geo || [])];
+      results = pool.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2)).slice(0, limit);
+      if (!results.length) {
+        const google = await searchGooglePlacesLastResort(intersectionSearchLabel(intersection), limit, { sessionToken }).catch(() => []);
+        results = google.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2)).slice(0, limit);
+      }
+    } else {
+      results = mergePlaceSuggestions(
+        mergePlaceSuggestions(frequent?.items || [], cachedPlaces, limit),
+        geo,
+        limit,
+      );
+      const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
+      if (!results.length && !hasHouseNumber && query.length >= 4) {
+        const google = await searchGooglePlacesLastResort(query, limit, { sessionToken }).catch(() => []);
+        results = mergePlaceSuggestions(results, google, limit);
+      }
     }
     if (frequent?.ok || results.length) setCached(cacheKey, results);
     return NextResponse.json({ ok: true, data: results });
