@@ -8,6 +8,7 @@ import {
   intersectionSearchLabel,
   parseStreetIntersection,
   pickPrimaryHouseNumber,
+  alignStreetNumberPins,
 } from '../../../../shared/salta-address.js';
 import { rankNamedGoogleFirst } from '../../../../shared/geo/placeFreshness.js';
 
@@ -88,15 +89,19 @@ export async function GET(request) {
       return NextResponse.json({ ok: true, data });
     }
 
+    const intersection = parseStreetIntersection(query);
     const frequentPromise = loadFrequentPlaces()
       .then((list) => ({ ok: true, items: searchFrequentPlaces(list, query, limit) }))
       .catch(() => ({ ok: false, items: [] }));
     const [frequent, cachedPlaces, geo] = await Promise.all([
       within(frequentPromise, 350, { ok: false, items: [] }),
       within(searchCachedPlaces(query, limit), 350, []),
-      within(autocompleteAddressSalta(query, limit, { sessionToken, expand, near }), 1200, []),
+      within(
+        autocompleteAddressSalta(query, limit, { sessionToken, expand, near }),
+        intersection ? 280 : 1200,
+        [],
+      ),
     ]);
-    const intersection = parseStreetIntersection(query);
     let results;
     if (intersection) {
       const pool = [...(frequent?.items || []), ...(cachedPlaces || []), ...(geo || [])];
@@ -116,7 +121,10 @@ export async function GET(request) {
         results = mergePlaceSuggestions(results, google, limit);
       }
     }
-    if (frequent?.ok || results.length) setCached(cacheKey, results);
+    if (pickPrimaryHouseNumber(query) != null) {
+      results = alignStreetNumberPins(results, query);
+    }
+    if (results.length) setCached(cacheKey, results);
     return NextResponse.json({ ok: true, data: results });
   } catch (err) {
     return NextResponse.json(

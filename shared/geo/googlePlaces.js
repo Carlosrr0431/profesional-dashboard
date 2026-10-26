@@ -40,6 +40,11 @@ const {
   SALTA_CENTER_LNG,
 } = require('./mapConfig');
 
+const {
+  parseStreetIntersection,
+  intersectionHitMatches,
+} = require('../salta-address');
+
 const PLACES_NEW_BASE = 'https://places.googleapis.com/v1';
 
 const PLACES_TIMEOUT_MS = 8000;
@@ -748,7 +753,12 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     // Una lista de sucursales (búsqueda ampliada) se ordena por cercanía; una calle, no.
     const ordered = expanded && origin ? orderByDistance(mapped) : mapped;
     const enriched = await enrichGuemesStreetNumberResults(ordered, text, sessionToken, normalizedLimit);
-    const named = enriched.map(({ _score, _index, ...rest }) => rest);
+    let named = enriched.map(({ _score, _index, ...rest }) => rest);
+    const crossing = parseStreetIntersection(text);
+    if (crossing) {
+      const hits = named.filter((item) => intersectionHitMatches(item, crossing.street1, crossing.street2));
+      if (hits.length) named = hits.slice(0, 2);
+    }
     const result = await hydrateAutocompletePlaces(named, sessionToken);
 
     if (result.length) {

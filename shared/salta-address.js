@@ -90,6 +90,11 @@ function normalizeAddressKey(value) {
     .trim();
 }
 
+const HONORIFIC_TOKENS = new Set([
+  'gral', 'general', 'dr', 'doctor', 'don', 'dna', 'cnel', 'coronel',
+  'tte', 'teniente', 'cap', 'capitan', 'pbro', 'presbitero', 'ing', 'lic', 'prof',
+]);
+
 const GENERIC_ADDRESS_TOKENS = new Set([
   'calle',
   'avenida',
@@ -854,16 +859,31 @@ function parseStreetIntersection(value) {
 function intersectionStreetTokens(name) {
   return normalizeForMatch(name)
     .split(' ')
-    .filter((token) => token.length >= 4 && !GENERIC_ADDRESS_TOKENS.has(token) && !['esquina', 'entre'].includes(token));
+    .filter((token) => (
+      token.length >= 4
+      && !GENERIC_ADDRESS_TOKENS.has(token)
+      && !HONORIFIC_TOKENS.has(token)
+      && !['esquina', 'entre'].includes(token)
+    ));
 }
 
-/** Nombre de catálogo solo si no agrega otras palabras (Belgrano → Avenida Belgrano). */
+/**
+ * Bolívar solo existe como Calle Gral. Simón Bolívar: se completa solo.
+ * Belgrano tiene varias: queda Avenida Belgrano, que no agrega otro nombre.
+ */
 function preferredIntersectionStreet(typed) {
-  const [street] = searchStreetCatalog(typed, 1);
+  const streets = searchStreetCatalog(typed, 8);
   const typedTokens = intersectionStreetTokens(typed);
-  if (!street || !typedTokens.length) return String(typed || '').trim();
-  const extras = street.tokens.filter((token) => !typedTokens.includes(token));
-  return extras.length ? String(typed || '').trim() : street.fullLabel;
+  if (!streets.length || !typedTokens.length) return String(typed || '').trim();
+  const extraNames = (street) => street.tokens.filter((token) => (
+    !typedTokens.includes(token)
+    && !HONORIFIC_TOKENS.has(token)
+    && token.length >= 4
+  ));
+  const faithful = streets.filter((street) => extraNames(street).length === 0);
+  if (faithful.length === 1 || streets.length === 1) return (faithful[0] || streets[0]).fullLabel;
+  if (faithful.length > 1) return faithful[0].fullLabel;
+  return String(typed || '').trim();
 }
 
 function intersectionSearchLabel(parsed) {
@@ -886,6 +906,74 @@ function intersectionHitMatches(item, street1, street2) {
   return has(tokensA, title) && has(tokensB, title);
 }
 
+function significantStreetTokens(text) {
+  return normalizeForMatch(text)
+    .replace(/\b\d{1,5}\b/g, ' ')
+    .split(' ')
+    .filter((token) => token.length >= 4 && !GENERIC_ADDRESS_TOKENS.has(token) && !HONORIFIC_TOKENS.has(token));
+}
+
+function sameNumberedStreet(road, otherText, houseNumber) {
+  const folded = normalizeForMatch(otherText);
+  if (!new RegExp(`\\b${houseNumber}\\b`).test(folded)) return false;
+  const roadTokens = significantStreetTokens(road);
+  const otherTokens = significantStreetTokens(otherText);
+  if (!roadTokens.length || !otherTokens.length) return false;
+  const shared = [...new Set(roadTokens.filter((token) => otherTokens.includes(token)))];
+  if (roadTokens.length >= 2 && otherTokens.length >= 2) return shared.length >= 2;
+  return roadTokens.length === 1 && otherTokens.length === 1 && shared.length === 1;
+}
+
+function metersBetweenPoints(a, b) {
+  const lat1 = Number(a?.lat);
+  const lng1 = Number(a?.lng);
+  const lat2 = Number(b?.lat);
+  const lng2 = Number(b?.lng);
+  if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) return Infinity;
+  const toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad;
+  const dLng = (lng2 - lng1) * toRad;
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(h));
+}
+
+/**
+ * Si Georef interpola la altura lejos de un lugar ya conocido en esa misma calle y número,
+ * el pin de la calle usa ese punto. No mezcla homónimas (Güemes con Adolfo Güemes).
+ */
+function alignStreetNumberPins(items, query) {
+  const houseNumber = pickPrimaryHouseNumber(query);
+  if (houseNumber == null) return items || [];
+  const list = (items || []).map((item) => ({ ...item }));
+  const anchors = list.filter((item) => (
+    !String(item?.placeId || '').startsWith('georef:')
+    && Number.isFinite(Number(item?.lat))
+    && Number.isFinite(Number(item?.lng))
+  ));
+  if (!anchors.length) return list;
+
+  for (const item of list) {
+    if (!String(item?.placeId || '').startsWith('georef:')) continue;
+    const road = `${item.title || ''} ${item.address || ''} ${item.subtitle || ''}`;
+    const matches = anchors.filter((anchor) => sameNumberedStreet(
+      road,
+      `${anchor.title || ''} ${anchor.subtitle || ''} ${anchor.address || ''} ${anchor.formattedAddress || ''}`,
+      houseNumber,
+    ));
+    if (!matches.length) continue;
+    const spread = matches.some((anchor) => metersBetweenPoints(matches[0], anchor) > 150);
+    if (spread) continue;
+    if (metersBetweenPoints(item, matches[0]) <= 150) continue;
+    const lat = Number(matches[0].lat);
+    const lng = Number(matches[0].lng);
+    item.lat = lat;
+    item.lng = lng;
+    item.placeId = `georef:${lat.toFixed(7)},${lng.toFixed(7)}`;
+  }
+  return list;
+}
+
 module.exports = {
   sanitizeAddressInput,
   normalizeAddressPhrase,
@@ -904,6 +992,8 @@ module.exports = {
   preferredIntersectionStreet,
   intersectionSearchLabel,
   intersectionHitMatches,
+  alignStreetNumberPins,
+  sameNumberedStreet,
   isVagueLocalityAddress,
   formatIntersectionLabelFromQuery,
   ensureStreetCatalog,
