@@ -45,6 +45,10 @@ function within(promise, ms, fallback) {
   });
 }
 
+function hasPin(item) {
+  return Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
+}
+
 function setCached(key, data) {
   autocompleteCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
   if (autocompleteCache.size > CACHE_MAX_ITEMS) {
@@ -116,9 +120,9 @@ export async function GET(request) {
         ? [...(frequent?.items || []), ...(cachedPlaces || [])]
         : rankNamedGoogleFirst([...(cachedPlaces || []), ...(frequent?.items || [])], query);
       results = mergePlaceSuggestions(localPlaces, geo, limit);
-      if (!results.length && !hasHouseNumber && query.length >= 4) {
+      if (!results.some(hasPin) && query.length >= 4) {
         const google = await searchGooglePlacesLastResort(query, limit, { sessionToken }).catch(() => []);
-        results = mergePlaceSuggestions(results, google, limit);
+        results = mergePlaceSuggestions(google.filter(hasPin), results, limit);
       }
     }
     if (pickPrimaryHouseNumber(query) != null) {
