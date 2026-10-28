@@ -75,7 +75,7 @@ export default function AddressSearch({
       setHits(results);
       setOpen(results.length > 0);
       setLoading(false);
-    }, 240);
+    }, 450);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };

@@ -154,13 +154,17 @@ export async function resolvePlaceSuggestion(hit, sessionToken, options = {}) {
   };
 }
 
+function textScore(hit, query) {
+  const label = [hit?.title, hit?.subtitle, hit?.formattedAddress, hit?.address].filter(Boolean).join(', ');
+  return Math.max(
+    scoreCandidateAgainstQuery(label, query),
+    scoreCandidateAgainstQuery(hit?.title || '', query),
+  );
+}
+
 /**
- * Autocomplete + resolución de cada sugerencia (misma pila que NewTripModal).
- *
- * BILLING: el sessionToken principal cierra la sesión con el PRIMER Place Details.
- * Las sugerencias restantes son calls independientes (sin token propio o con token
- * nuevo) para no mezclar sesiones ya cerradas — Google las cobra como Essentials
- * individuales, pero el cache Supabase/in-memory evita la mayoría de esas calls.
+ * Autocomplete y, como máximo, dos Place Details: el que mejor coincide con el texto.
+ * El resto no se consulta. Así una búsqueda no paga coordenadas de todas las opciones.
  */
 export async function autocompleteAndResolveAddresses(query, maxResults = 5, options = {}) {
   const text = String(query || '').trim();
@@ -170,21 +174,21 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
   const suggestions = await autocompleteAddressSalta(text, Math.max(maxResults, 5), {
     sessionToken,
   });
+  const ranked = [...suggestions].sort((a, b) => textScore(b, text) - textScore(a, text));
 
   const resolved = [];
-  let sessionUsed = false;
-  for (const hit of suggestions.slice(0, maxResults)) {
+  let detailsUsed = 0;
+  for (const hit of ranked) {
+    if (resolved.length >= maxResults || detailsUsed >= 2) break;
+    const alreadyPinned = Number.isFinite(Number(hit?.lat)) && Number.isFinite(Number(hit?.lng));
     try {
-      // El sessionToken del hit ya lleva el token actual (re-inyectado en autocomplete).
-      // Solo la primera call usa ese token para cerrar la sesión; las demás reciben
-      // undefined y fetchPlaceDetailsEssentials no añade sessionToken a la URL.
-      const effectiveToken = sessionUsed ? undefined : (hit?.sessionToken || sessionToken);
+      const effectiveToken = detailsUsed > 0 ? undefined : (hit?.sessionToken || sessionToken);
+      if (!alreadyPinned) detailsUsed += 1;
       const place = await resolvePlaceSuggestion(
-        { ...hit, sessionToken: effectiveToken },
-        effectiveToken,
+        { ...hit, sessionToken: alreadyPinned ? undefined : effectiveToken },
+        alreadyPinned ? undefined : effectiveToken,
         { query: text },
       );
-      sessionUsed = true;
       if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
       resolved.push({
         ...place,
@@ -222,18 +226,21 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
 
   const sessionToken = options.sessionToken || createSessionToken();
   const suggestions = await autocompleteAddressSalta(text, 5, { sessionToken });
+  const ranked = [...suggestions].sort((a, b) => textScore(b, text) - textScore(a, text));
 
   const resolved = [];
-  let sessionUsed = false;
-  for (const hit of suggestions) {
+  let detailsUsed = 0;
+  for (const hit of ranked) {
+    if (detailsUsed >= 2) break;
     try {
-      const effectiveToken = sessionUsed ? undefined : (hit?.sessionToken || sessionToken);
+      const alreadyPinned = Number.isFinite(Number(hit?.lat)) && Number.isFinite(Number(hit?.lng));
+      const effectiveToken = detailsUsed > 0 ? undefined : (hit?.sessionToken || sessionToken);
+      if (!alreadyPinned) detailsUsed += 1;
       const place = await resolvePlaceSuggestion(
-        { ...hit, sessionToken: effectiveToken },
-        effectiveToken,
+        { ...hit, sessionToken: alreadyPinned ? undefined : effectiveToken },
+        alreadyPinned ? undefined : effectiveToken,
         { query: text },
       );
-      sessionUsed = true;
       if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
 
       const labelForScore = [place.title, place.formattedAddress].filter(Boolean).join(', ');
@@ -252,6 +259,7 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
         geocodeSource: place.geocodeSource || null,
         score,
       });
+      if (score >= 0.35) break;
     } catch {
       // Probar la siguiente sugerencia del autocomplete.
     }

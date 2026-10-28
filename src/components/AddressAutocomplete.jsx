@@ -174,7 +174,7 @@ export default function AddressAutocomplete({
     setQuery(text);
     onChange?.(text);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fetchSuggestions(text), 200);
+    debounceRef.current = setTimeout(() => fetchSuggestions(text), 450);
   };
 
   const handlePick = async (item) => {

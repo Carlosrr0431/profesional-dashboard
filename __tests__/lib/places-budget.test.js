@@ -72,15 +72,13 @@ describe('búsqueda de Places con cupo y caché', () => {
 
     expect(first[0].title).toBe('Farmacia del Centro');
     expect(first[0].placeId).toBe('google:abc123');
-    expect(first[0].lat).toBeCloseTo(-24.7891, 4);
-    expect(first[0].lng).toBeCloseTo(-65.4102, 4);
     expect(second[0].placeId).toBe('google:abc123');
-    expect(calls).toBe(2);
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(calls).toBe(1);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(saved.size).toBe(1);
     const stored = [...saved.values()][0][0];
     expect(stored.placeId).toBe('google:abc123');
-    expect(stored.lat).toBeCloseTo(-24.7891, 4);
+    expect(String(global.fetch.mock.calls[0][1].headers['X-Goog-FieldMask'])).not.toContain('distanceMeters');
   });
 
   it('si el lugar ya está guardado no llama a Google', async () => {

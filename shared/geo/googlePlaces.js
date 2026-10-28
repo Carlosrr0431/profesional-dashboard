@@ -152,7 +152,6 @@ const AUTOCOMPLETE_FIELD_MASK = [
   'suggestions.placePrediction.structuredFormat',
   'suggestions.placePrediction.text',
   'suggestions.placePrediction.types',
-  'suggestions.placePrediction.distanceMeters',
 ].join(',');
 
 const PLACE_DETAILS_ESSENTIALS_MASK = 'id,formattedAddress,location,types';
@@ -546,7 +545,6 @@ async function placesAutocompleteRequest(
   sessionToken,
   restriction = SALTA_CAPITAL_RESTRICTION,
   timeoutMs = PLACES_TIMEOUT_MS,
-  origin = null,
 ) {
   const text = String(input || '').trim();
   if (!text || !isGoogleConfigured()) return [];
@@ -559,7 +557,6 @@ async function placesAutocompleteRequest(
 
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-  const searchOrigin = origin || SALTA_CAPITAL_ORIGIN;
 
   try {
     const response = await fetch(url, {
@@ -575,7 +572,6 @@ async function placesAutocompleteRequest(
         sessionToken,
         includedRegionCodes: ['ar'],
         languageCode: 'es',
-        origin: searchOrigin,
         locationRestriction: restriction || restrictionForQuery(text),
       }),
       signal: controller?.signal,
@@ -759,7 +755,9 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       const hits = named.filter((item) => intersectionHitMatches(item, crossing.street1, crossing.street2));
       if (hits.length) named = hits.slice(0, 2);
     }
-    const result = await hydrateAutocompletePlaces(named, sessionToken);
+    // Sin Place Details acá: pedir coords de cada sugerencia cierra la sesión y
+    // cobra Essentials por lugar. Las coords se piden solo al elegir una.
+    const result = named.slice(0, normalizedLimit);
 
     if (result.length) {
       setCached(autocompleteCache, cacheKey, result, AUTOCOMPLETE_TTL_MS);

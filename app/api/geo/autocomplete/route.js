@@ -49,6 +49,11 @@ function hasPin(item) {
   return Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
 }
 
+function canOffer(item) {
+  if (hasPin(item)) return true;
+  return String(item?.placeId || '').startsWith('google:');
+}
+
 function setCached(key, data) {
   autocompleteCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
   if (autocompleteCache.size > CACHE_MAX_ITEMS) {
@@ -125,11 +130,11 @@ export async function GET(request) {
     if (intersection) {
       if (!results.length) {
         const google = await searchGooglePlacesLastResort(intersectionSearchLabel(intersection), limit, { sessionToken }).catch(() => []);
-        results = google.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2) && hasPin(item)).slice(0, limit);
+        results = google.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2) && canOffer(item)).slice(0, limit);
       }
-    } else if (!results.some(hasPin) && query.length >= 4) {
+    } else if (!results.some(hasPin) && query.length >= 5) {
       const google = await searchGooglePlacesLastResort(query, limit, { sessionToken }).catch(() => []);
-      results = mergePlaceSuggestions(google.filter(hasPin), results, limit).filter(hasPin);
+      results = mergePlaceSuggestions(google.filter(canOffer), results, limit);
     }
     if (pickPrimaryHouseNumber(query) != null) {
       results = alignStreetNumberPins(results, query);
