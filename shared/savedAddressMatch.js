@@ -13,18 +13,41 @@ function foldPinnedQuery(value) {
     .trim();
 }
 
-function titleTokens(title) {
-  return foldPinnedQuery(title)
+function contentTokens(value) {
+  return foldPinnedQuery(value)
     .split(' ')
-    .filter((token) => token && !STOP_TOKENS.has(token) && (token.length >= 3 || /^\d{2,}$/.test(token)));
+    .filter((token) => token && !STOP_TOKENS.has(token) && (token.length >= 3 || /^\d+$/.test(token)));
 }
 
-/** El texto escrito contiene todas las palabras distintivas del nombre guardado. */
+/**
+ * La dirección guardada aparece si lo escrito está dentro de su nombre.
+ * Hace falta un número: "santa ana" solo no alcanza; "santa 1 pasaje 20" sí.
+ */
 function savedAddressMatches(title, query) {
-  const tokens = titleTokens(title);
-  if (tokens.length < 2) return false;
-  const queryTokens = new Set(foldPinnedQuery(query).split(' ').filter(Boolean));
-  return tokens.every((token) => queryTokens.has(token));
+  const queryTokens = contentTokens(query);
+  const titleTokens = contentTokens(title);
+  if (queryTokens.length < 3 || titleTokens.length < 2) return false;
+  const titleSet = new Set(titleTokens);
+  if (!queryTokens.every((token) => titleSet.has(token))) return false;
+  const titleHasNumber = titleTokens.some((token) => /^\d+$/.test(token));
+  const queryHasNumber = queryTokens.some((token) => /^\d+$/.test(token));
+  return !titleHasNumber || queryHasNumber;
+}
+
+/** Más alto = el texto comparte más palabras y números con lo que se escribió. */
+function queryOverlapScore(query, text) {
+  const tokens = contentTokens(query);
+  if (!tokens.length) return 0;
+  const hay = new Set(foldPinnedQuery(text).split(' ').filter(Boolean));
+  let score = 0;
+  let hits = 0;
+  for (const token of tokens) {
+    if (!hay.has(token)) continue;
+    hits += 1;
+    score += /^\d+$/.test(token) ? 3 : 1;
+  }
+  if (hits === tokens.length) score += 5;
+  return score;
 }
 
 /**
@@ -53,5 +76,6 @@ function parseGoogleMapsPoint(input) {
 module.exports = {
   foldPinnedQuery,
   savedAddressMatches,
+  queryOverlapScore,
   parseGoogleMapsPoint,
 };

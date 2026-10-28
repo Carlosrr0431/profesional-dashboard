@@ -1,4 +1,5 @@
-const { parseGoogleMapsPoint, savedAddressMatches } = require('../../shared/savedAddressMatch');
+const { parseGoogleMapsPoint, queryOverlapScore, savedAddressMatches } = require('../../shared/savedAddressMatch');
+const { autocompleteAddressSalta } = require('../../shared/geo/nominatim');
 
 describe('punto de Google Maps y dirección guardada', () => {
   it('lee el pin del enlace y no el centro del mapa', () => {
@@ -15,6 +16,17 @@ describe('punto de Google Maps y dirección guardada', () => {
   it('encuentra la dirección solo si el texto trae sus palabras', () => {
     const title = 'Santa Ana 1, Pasaje 20, Casa 1421';
     expect(savedAddressMatches(title, 'Santa Ana 1 pasaje 20 Casa N 1421')).toBe(true);
+    expect(savedAddressMatches(title, 'santa 1 pasaje 20')).toBe(true);
     expect(savedAddressMatches(title, 'santa ana')).toBe(false);
+    expect(queryOverlapScore('santa 1 pasaje 20', title))
+      .toBeGreaterThan(queryOverlapScore('santa 1 pasaje 20', 'santa victoria & pasaje anta'));
+  });
+
+  it('santa 1 pasaje 20 autocompleta la casa sin esperar al mapa', async () => {
+    global.fetch = jest.fn(() => new Promise(() => {}));
+    const suggestions = await autocompleteAddressSalta('santa 1 pasaje 20', 5);
+    expect(suggestions[0].title).toBe('Santa Ana 1, Pasaje 20, Casa 1421');
+    expect(suggestions[0].lat).toBeCloseTo(-24.8638868, 6);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

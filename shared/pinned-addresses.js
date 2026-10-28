@@ -12,28 +12,10 @@ const PINNED_ADDRESSES = [
   },
 ];
 
-function foldPinnedQuery(value) {
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function matchesSantaAnaPasaje20(norm) {
-  const santaAna = /\bsanta ana\b/.test(norm);
-  const pasaje20 = /\bpasaje\s*20\b/.test(norm);
-  const casa = /\b1421\b/.test(norm);
-  if (santaAna && pasaje20) return true;
-  return casa && (santaAna || pasaje20);
-}
+const { savedAddressMatches } = require('./savedAddressMatch');
 
 function findPinnedAddress(query) {
-  const norm = foldPinnedQuery(query);
-  if (!norm || !matchesSantaAnaPasaje20(norm)) return null;
-  return PINNED_ADDRESSES[0];
+  return PINNED_ADDRESSES.find((item) => savedAddressMatches(item.title, query)) || null;
 }
 
 function pinnedAddressSuggestion(item) {

@@ -12,6 +12,7 @@ import {
   alignStreetNumberPins,
 } from '../../../../shared/salta-address.js';
 import { rankNamedGoogleFirst } from '../../../../shared/geo/placeFreshness.js';
+import { queryOverlapScore } from '../../../../shared/savedAddressMatch.js';
 
 export const dynamic = 'force-dynamic';
 /** La búsqueda ampliada (expand) explora por zonas y puede tardar varios segundos. */
@@ -142,6 +143,10 @@ export async function GET(request) {
     if (pickPrimaryHouseNumber(query) != null) {
       results = alignStreetNumberPins(results, query);
     }
+    results.sort((a, b) => (
+      queryOverlapScore(query, `${b?.title || ''} ${b?.subtitle || ''} ${b?.address || ''} ${b?.formattedAddress || ''}`)
+      - queryOverlapScore(query, `${a?.title || ''} ${a?.subtitle || ''} ${a?.address || ''} ${a?.formattedAddress || ''}`)
+    ));
     if (results.length) setCached(cacheKey, results);
     return NextResponse.json({ ok: true, data: results });
   } catch (err) {
