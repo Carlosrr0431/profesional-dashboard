@@ -3,6 +3,7 @@
  * AddressAutocomplete + GET /api/geo/geocode (Place Details Essentials + caché Supabase).
  */
 import { autocompleteAddressSalta, getPlaceDetails, SALTA_CENTER_LAT, SALTA_CENTER_LNG } from './index.js';
+import { searchCachedPlaces } from '../googlePlacesBudgetStore.js';
 import {
   isGoogleConfigured,
   isGooglePlaceId,
@@ -154,6 +155,36 @@ export async function resolvePlaceSuggestion(hit, sessionToken, options = {}) {
   };
 }
 
+function hasCoordinates(item) {
+  return Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
+}
+
+/** Lugares ya guardados. Si la caché no responde, se sigue con la búsqueda normal. */
+async function cachedPlacesFirst(query, limit) {
+  try {
+    const rows = await Promise.race([
+      searchCachedPlaces(query, limit),
+      new Promise((resolve) => { setTimeout(() => resolve([]), 400); }),
+    ]);
+    return (Array.isArray(rows) ? rows : []).filter(hasCoordinates);
+  } catch {
+    return [];
+  }
+}
+
+function fromCache(item, query) {
+  return {
+    formattedAddress: item.formattedAddress || item.address || item.title,
+    lat: Number(item.lat),
+    lng: Number(item.lng),
+    placeId: item.placeId || null,
+    title: item.title || null,
+    subtitle: item.subtitle || null,
+    geocodeSource: 'cache',
+    score: textScore(item, query),
+  };
+}
+
 function textScore(hit, query) {
   const label = [hit?.title, hit?.subtitle, hit?.formattedAddress, hit?.address].filter(Boolean).join(', ');
   return Math.max(
@@ -170,16 +201,25 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
   const text = String(query || '').trim();
   if (!text) return [];
 
+  const remembered = (await cachedPlacesFirst(text, maxResults))
+    .map((item) => fromCache(item, text))
+    .sort((a, b) => b.score - a.score);
+  if (remembered.length >= maxResults) return remembered.slice(0, maxResults);
+
+  const seen = new Set(remembered.map((item) => item.placeId).filter(Boolean));
   const sessionToken = options.sessionToken || createSessionToken();
   const suggestions = await autocompleteAddressSalta(text, Math.max(maxResults, 5), {
     sessionToken,
   });
-  const ranked = [...suggestions].sort((a, b) => textScore(b, text) - textScore(a, text));
+  const ranked = [...suggestions]
+    .filter((item) => !seen.has(item?.placeId))
+    .sort((a, b) => textScore(b, text) - textScore(a, text));
 
   const resolved = [];
   let detailsUsed = 0;
+  const room = maxResults - remembered.length;
   for (const hit of ranked) {
-    if (resolved.length >= maxResults || detailsUsed >= 2) break;
+    if (resolved.length >= room || detailsUsed >= 2) break;
     const alreadyPinned = Number.isFinite(Number(hit?.lat)) && Number.isFinite(Number(hit?.lng));
     try {
       const effectiveToken = detailsUsed > 0 ? undefined : (hit?.sessionToken || sessionToken);
@@ -199,7 +239,7 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
     }
   }
 
-  return resolved
+  return [...remembered, ...resolved
     .filter((item) => item.score >= 0.10)
     .sort((a, b) => {
       const penaltyDiff = neighborMunicipalityPenalty(a) - neighborMunicipalityPenalty(b);
@@ -207,8 +247,7 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
       const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
       if (Math.abs(scoreDiff) > 0.15) return scoreDiff;
       return distanceToSaltaCenterKm(a) - distanceToSaltaCenterKm(b);
-    })
-    .slice(0, maxResults);
+    })].slice(0, maxResults);
 }
 
 /**
@@ -222,6 +261,20 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
 
   if (!isGoogleConfigured()) {
     throw new Error('Google Places no configurado');
+  }
+
+  const remembered = (await cachedPlacesFirst(text, 5))
+    .map((item) => fromCache(item, text))
+    .sort((a, b) => b.score - a.score);
+  if (remembered[0] && remembered[0].score > 0) {
+    const best = remembered[0];
+    return {
+      formattedAddress: best.formattedAddress,
+      lat: best.lat,
+      lng: best.lng,
+      placeId: best.placeId || null,
+      geocodeSource: 'cache',
+    };
   }
 
   const sessionToken = options.sessionToken || createSessionToken();

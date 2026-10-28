@@ -112,15 +112,12 @@ export async function GET(request) {
       ),
     ]);
     let results;
+    const remembered = rankNamedGoogleFirst([...(cachedPlaces || []), ...(frequent?.items || [])], query);
     if (intersection) {
-      const pool = [...(frequent?.items || []), ...(cachedPlaces || []), ...(geo || [])];
+      const pool = [...remembered, ...(geo || [])];
       results = pool.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2)).slice(0, limit);
     } else {
-      const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
-      const localPlaces = hasHouseNumber
-        ? [...(frequent?.items || []), ...(cachedPlaces || [])]
-        : rankNamedGoogleFirst([...(cachedPlaces || []), ...(frequent?.items || [])], query);
-      results = mergePlaceSuggestions(localPlaces, geo, limit);
+      results = mergePlaceSuggestions(remembered, geo, limit);
     }
     results = await within(
       keepLocatableSuggestions(results),
@@ -130,11 +127,12 @@ export async function GET(request) {
     if (intersection) {
       if (!results.length) {
         const google = await searchGooglePlacesLastResort(intersectionSearchLabel(intersection), limit, { sessionToken }).catch(() => []);
-        results = google.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2) && canOffer(item)).slice(0, limit);
+        const fresh = google.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2) && canOffer(item));
+        results = mergePlaceSuggestions(results, fresh, limit);
       }
     } else if (!results.some(hasPin) && query.length >= 5) {
       const google = await searchGooglePlacesLastResort(query, limit, { sessionToken }).catch(() => []);
-      results = mergePlaceSuggestions(google.filter(canOffer), results, limit);
+      results = mergePlaceSuggestions(results, google.filter(canOffer), limit);
     }
     if (pickPrimaryHouseNumber(query) != null) {
       results = alignStreetNumberPins(results, query);
