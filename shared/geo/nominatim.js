@@ -22,6 +22,7 @@ const {
   ensureStreetCatalog,
   searchStreetCatalog,
 } = require('../salta-address');
+const { findPinnedAddress, pinnedAddressSuggestion, pinnedAddressById } = require('../pinned-addresses');
 
 const {
   resolveSaltaKnownPoi,
@@ -519,6 +520,20 @@ async function geocodeAddress(address, options = {}) {
   const query = String(address || '').trim();
   if (!query) throw new Error('Dirección vacía');
 
+  const pinned = findPinnedAddress(query);
+  if (pinned) {
+    const suggestion = pinnedAddressSuggestion(pinned);
+    return {
+      lat: suggestion.lat,
+      lng: suggestion.lng,
+      formattedAddress: suggestion.formattedAddress,
+      placeId: suggestion.placeId,
+      title: suggestion.title,
+      subtitle: suggestion.subtitle,
+      geocodeSource: 'pinned',
+    };
+  }
+
   if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
     const official = await findOfficialHouseNumber(query);
     if (official) {
@@ -1007,6 +1022,9 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   const trimmed = String(query || '').trim();
   if (trimmed.length < 2) return [];
 
+  const pinned = findPinnedAddress(trimmed);
+  if (pinned) return [pinnedAddressSuggestion(pinned)].slice(0, limit);
+
   try {
     // Autocomplete exclusivo vía Google Places (New) + Place Details Essentials al elegir.
     if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
@@ -1286,6 +1304,21 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
 async function getPlaceDetails(placeId, options = {}) {
   const id = String(placeId || '').trim();
   if (!id) throw new Error('place_id inválido');
+
+  if (id.startsWith('pinned:')) {
+    const pinned = pinnedAddressById(id);
+    if (!pinned) throw new Error('No se pudo obtener detalles del lugar');
+    const suggestion = pinnedAddressSuggestion(pinned);
+    return {
+      lat: suggestion.lat,
+      lng: suggestion.lng,
+      formattedAddress: suggestion.formattedAddress,
+      placeId: suggestion.placeId,
+      title: suggestion.title,
+      subtitle: suggestion.subtitle,
+      geocodeSource: 'pinned',
+    };
+  }
 
   if (isGooglePlaceId(id)) {
     const details = await getGooglePlaceDetails(id, {

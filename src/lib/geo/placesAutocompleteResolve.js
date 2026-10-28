@@ -4,6 +4,7 @@
  */
 import { autocompleteAddressSalta, getPlaceDetails, SALTA_CENTER_LAT, SALTA_CENTER_LNG } from './index.js';
 import { searchCachedPlaces } from '../googlePlacesBudgetStore.js';
+import { findPinnedAddress, pinnedAddressSuggestion } from '../../../shared/pinned-addresses.js';
 import {
   isGoogleConfigured,
   isGooglePlaceId,
@@ -258,6 +259,18 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
 export async function geocodeAddressViaPlaces(query, options = {}) {
   const text = String(query || '').trim();
   if (!text) throw new Error('Dirección vacía');
+
+  const pinned = findPinnedAddress(text);
+  if (pinned) {
+    const suggestion = pinnedAddressSuggestion(pinned);
+    return {
+      formattedAddress: suggestion.formattedAddress,
+      lat: suggestion.lat,
+      lng: suggestion.lng,
+      placeId: suggestion.placeId,
+      geocodeSource: 'pinned',
+    };
+  }
 
   if (!isGoogleConfigured()) {
     throw new Error('Google Places no configurado');

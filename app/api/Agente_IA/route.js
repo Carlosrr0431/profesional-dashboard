@@ -96,6 +96,7 @@ import {
   isVagueLocalityAddress,
   formatIntersectionLabelFromQuery,
 } from '../../../shared/salta-address.js';
+import { findPinnedAddress } from '../../../shared/pinned-addresses.js';
 import { expandBusyDriverIdsToFleet } from '../../../src/lib/fleetDispatch';
 import { applyLiveGpsToDrivers, indexDriverLocationsById } from '../../../src/lib/driverMapGps';
 import {
@@ -11253,7 +11254,7 @@ async function processClaimedConversation(batch) {
   // Google Maps no indexa pasajes angostos, el sistema catastral manzana/lote,
   // ni tiene precisión de punto de retiro para kilómetros de ruta.
   const gpsCheck = requiresGpsForAddress(normalizedPickupForGeo);
-  if (gpsCheck.required) {
+  if (gpsCheck.required && !findPinnedAddress(normalizedPickupForGeo)) {
     // Verificar si ya hay un trip esperando GPS para este pasajero
     const { data: gpsTripCheck } = await getSupabase()
       .from('trips')
