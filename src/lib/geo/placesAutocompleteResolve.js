@@ -5,6 +5,7 @@
 import { autocompleteAddressSalta, getPlaceDetails, SALTA_CENTER_LAT, SALTA_CENTER_LNG } from './index.js';
 import { searchCachedPlaces } from '../googlePlacesBudgetStore.js';
 import { findPinnedAddress, pinnedAddressSuggestion } from '../../../shared/pinned-addresses.js';
+import { findSavedPinnedAddresses } from '../savedPinnedAddresses.js';
 import {
   isGoogleConfigured,
   isGooglePlaceId,
@@ -205,9 +206,14 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
   const remembered = (await cachedPlacesFirst(text, maxResults))
     .map((item) => fromCache(item, text))
     .sort((a, b) => b.score - a.score);
-  if (remembered.length >= maxResults) return remembered.slice(0, maxResults);
+  const saved = (await findSavedPinnedAddresses(text).catch(() => [])).map((item) => ({
+    ...item,
+    score: 1,
+  }));
+  const preferred = [...saved, ...remembered.filter((item) => !saved.some((row) => row.placeId === item.placeId))];
+  if (preferred.length >= maxResults) return preferred.slice(0, maxResults);
 
-  const seen = new Set(remembered.map((item) => item.placeId).filter(Boolean));
+  const seen = new Set(preferred.map((item) => item.placeId).filter(Boolean));
   const sessionToken = options.sessionToken || createSessionToken();
   const suggestions = await autocompleteAddressSalta(text, Math.max(maxResults, 5), {
     sessionToken,
@@ -218,7 +224,7 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
 
   const resolved = [];
   let detailsUsed = 0;
-  const room = maxResults - remembered.length;
+  const room = maxResults - preferred.length;
   for (const hit of ranked) {
     if (resolved.length >= room || detailsUsed >= 2) break;
     const alreadyPinned = Number.isFinite(Number(hit?.lat)) && Number.isFinite(Number(hit?.lng));
@@ -240,7 +246,7 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
     }
   }
 
-  return [...remembered, ...resolved
+  return [...preferred, ...resolved
     .filter((item) => item.score >= 0.10)
     .sort((a, b) => {
       const penaltyDiff = neighborMunicipalityPenalty(a) - neighborMunicipalityPenalty(b);
@@ -269,6 +275,17 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
       lng: suggestion.lng,
       placeId: suggestion.placeId,
       geocodeSource: 'pinned',
+    };
+  }
+
+  const savedHit = (await findSavedPinnedAddresses(text).catch(() => []))[0];
+  if (savedHit) {
+    return {
+      formattedAddress: savedHit.formattedAddress,
+      lat: savedHit.lat,
+      lng: savedHit.lng,
+      placeId: savedHit.placeId,
+      geocodeSource: 'saved',
     };
   }
 

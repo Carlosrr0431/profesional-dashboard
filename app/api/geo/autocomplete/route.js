@@ -3,6 +3,7 @@ import { autocompleteAddressSalta, keepLocatableSuggestions, searchGooglePlacesL
 import { loadFrequentPlaces } from '../../../../src/lib/frequentTripCatalog';
 import { mergePlaceSuggestions, searchFrequentPlaces } from '../../../../src/lib/frequentPickups';
 import { searchCachedPlaces } from '../../../../src/lib/googlePlacesBudgetStore';
+import { findSavedPinnedAddresses } from '../../../../src/lib/savedPinnedAddresses';
 import {
   intersectionHitMatches,
   intersectionSearchLabel,
@@ -124,6 +125,10 @@ export async function GET(request) {
       900,
       (results || []).filter(hasPin),
     );
+    const saved = await findSavedPinnedAddresses(query).catch(() => []);
+    if (saved.length) {
+      results = mergePlaceSuggestions(saved, results, limit);
+    }
     if (intersection) {
       if (!results.length) {
         const google = await searchGooglePlacesLastResort(intersectionSearchLabel(intersection), limit, { sessionToken }).catch(() => []);

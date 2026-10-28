@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { geocodeAddress, getPlaceDetails } from '../../../../src/lib/geo/index.js';
 import { searchCachedPlaces } from '../../../../src/lib/googlePlacesBudgetStore';
+import { findSavedPinnedAddresses } from '../../../../src/lib/savedPinnedAddresses';
 import { isWithinServiceArea } from '../../../../src/lib/constants';
 import { logGeocodeErrorAsync } from '../../../../src/lib/geocodeErrorLog';
 import { isGoogleConfigured } from '../../../../shared/geo/googlePlaces.js';
@@ -35,6 +36,11 @@ export async function GET(request) {
 
     let result;
     if (!placeId && address) {
+      const saved = await findSavedPinnedAddresses(address).catch(() => []);
+      const savedHit = saved.find((item) => isWithinServiceArea(item.lat, item.lng));
+      if (savedHit) result = savedHit;
+    }
+    if (!result && !placeId && address) {
       const cached = await searchCachedPlaces(address, 5).catch(() => []);
       const hit = (cached || []).find((item) => (
         Number.isFinite(Number(item?.lat))

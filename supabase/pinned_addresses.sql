@@ -1,0 +1,29 @@
+-- Direcciones fijas cargadas desde el panel.
+-- Hay que pegar este archivo en el editor SQL de Supabase.
+
+create table if not exists public.pinned_addresses (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  lat double precision not null,
+  lng double precision not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.pinned_addresses enable row level security;
+
+drop policy if exists pinned_addresses_public_read on public.pinned_addresses;
+create policy pinned_addresses_public_read
+  on public.pinned_addresses
+  for select
+  to anon, authenticated
+  using (true);
+
+grant select on public.pinned_addresses to anon, authenticated;
+grant all on public.pinned_addresses to service_role;
+
+insert into public.pinned_addresses (title, lat, lng)
+select 'Santa Ana 1, Pasaje 20, Casa 1421', -24.8638868, -65.4731354
+where not exists (
+  select 1 from public.pinned_addresses
+  where title = 'Santa Ana 1, Pasaje 20, Casa 1421'
+);
