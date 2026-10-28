@@ -766,6 +766,30 @@ function parseStreetHouseFromQuery(query) {
 /**
  * Etiqueta corta estilo Google a partir de un resultado Nominatim con addressdetails.
  */
+function uniqueCatalogStreet(road) {
+  const text = String(road || '')
+    .replace(/\b[a-zA-Z]\.?\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (text.length < 3) return null;
+  const hits = searchStreetCatalog(text, 6);
+  return hits.length === 1 ? hits[0] : null;
+}
+
+function completeStreetTitle(road, house) {
+  const street = uniqueCatalogStreet(road);
+  const base = street
+    ? street.fullLabel
+    : applyStreetNameExpansions(String(road || '').trim());
+  const number = String(house || '').trim();
+  if (!base) return number;
+  if (!number || new RegExp(`\\b${number}\\b`).test(base)) return base;
+  return `${base} ${number}`;
+}
+
+/**
+ * Etiqueta corta estilo Google a partir de un resultado Nominatim con addressdetails.
+ */
 function formatNominatimDisplayLabel(mapped) {
   const addr = mapped?.address || {};
   const road = addr.road || addr.pedestrian || addr.footway || addr.residential || '';
@@ -774,9 +798,9 @@ function formatNominatimDisplayLabel(mapped) {
 
   let title = '';
   if (road && house) {
-    title = applyStreetNameExpansions(`${road} ${house}`);
+    title = completeStreetTitle(road, house);
   } else if (road) {
-    title = applyStreetNameExpansions(road);
+    title = completeStreetTitle(road, '');
   } else if (poiName) {
     title = poiName;
   } else {

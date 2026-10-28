@@ -1107,7 +1107,7 @@ const SALTA_STREETS_FALLBACK = [
   'Calle Obispo Victoria',
   'Calle Oficial Aux Mario Duarte',
   'Calle Olavarria',
-  'Calle Olegario V Andrade',
+  'Calle Olegario Víctor Andrade',
   'Calle Omar Madrid',
   'Calle Omar Vargas',
   'Calle Oran',

@@ -1447,7 +1447,7 @@ const SALTA_STREETS_FALLBACK = [
   'Calle Obispo Victoria',
   'Calle Oficial Aux Mario Duarte',
   'Calle Olavarria',
-  'Calle Olegario V Andrade',
+  'Calle Olegario Víctor Andrade',
   'Calle Omar Madrid',
   'Calle Omar Vargas',
   'Calle Oran',
@@ -7961,8 +7961,11 @@ async function createTripFromConversation({ conversation, extracted, includeBett
   }
 
   const normalizedPickupQuery = normalizeAddressPhrase(pickupQuery);
+  const gpsLat = Number(extracted?._preGeocodedPickup?.lat);
+  const gpsLng = Number(extracted?._preGeocodedPickup?.lng);
+  const hasGpsPin = Number.isFinite(gpsLat) && Number.isFinite(gpsLng);
 
-  if (pickupNeedsExactStreet(normalizedPickupQuery || pickupQuery)) {
+  if (!hasGpsPin && pickupNeedsExactStreet(normalizedPickupQuery || pickupQuery)) {
     logWebhook('trip_create_pickup_needs_street', {
       conversationId: conversation?.id || null,
       pickupQuery,

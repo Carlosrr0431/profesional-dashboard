@@ -1,5 +1,6 @@
 const {
   alignStreetNumberPins,
+  formatNominatimDisplayLabel,
   intersectionHitMatches,
   intersectionSearchLabel,
   parseStreetIntersection,
@@ -55,5 +56,15 @@ describe('intersección de calles', () => {
       subtitle: 'Calle Simón Bolívar 407, Salta',
       address: 'Dentista Mabel y Patricia Aban, Calle Simón Bolívar 407, Salta',
     }, 'bolivar', 'belgrano')).toBe(false);
+  });
+
+  it('completa el nombre corto de Andrade con el del padrón', () => {
+    const label = formatNominatimDisplayLabel({
+      address: { road: 'V ANDRADE', house_number: '915', city: 'Salta' },
+    });
+    expect(label.title).toBe('Calle Olegario Víctor Andrade 915');
+    expect(formatNominatimDisplayLabel({
+      address: { road: 'ANDRADE', house_number: '915', city: 'Salta' },
+    }).title).toBe('Calle Olegario Víctor Andrade 915');
   });
 });
