@@ -17,7 +17,10 @@ import { selectDriversCompat } from '../../../../src/lib/driversBillingSelect';
 import {
   DRIVER_BUSY_TRIP_STATUSES,
   classifyManualAssignBusyState,
+  hasValidDriverGps,
+  resolveAssignDriverGps,
 } from '../../../../src/lib/assignExistingTrip';
+import { applyLiveGpsToDriver } from '../../../../src/lib/driverMapGps';
 import {
   buildNextTripOfferAssignUpdate,
   isNextTripUniqueViolation,
@@ -76,12 +79,11 @@ export async function POST(request) {
   const dropoffLng = toNumberOrNull(body?.dropoff_lng ?? body?.dropoffLng);
   const userNotes = sanitizeText(body?.notes || body?.userNotes, 1000);
 
-  const driverLat = toNumberOrNull(body?.origin_lat ?? body?.driverLat);
-  const driverLng = toNumberOrNull(body?.origin_lng ?? body?.driverLng);
-  const hasDriverCoords =
-    driverLat != null
-    && driverLng != null
-    && !(driverLat === 0 && driverLng === 0);
+  const clientLat = toNumberOrNull(body?.origin_lat ?? body?.driverLat);
+  const clientLng = toNumberOrNull(body?.origin_lng ?? body?.driverLng);
+  const clientGps = clientLat != null && clientLng != null && !(clientLat === 0 && clientLng === 0)
+    ? { lat: clientLat, lng: clientLng }
+    : null;
 
   const tripNotes = buildDashboardAssignNotes({
     userNotes,
@@ -95,9 +97,6 @@ export async function POST(request) {
 
   const requestedOrigin = sanitizeText(body?.origin_address);
   const knownStreet = requestedOrigin && !isCoordLikeAddress(requestedOrigin) ? requestedOrigin : '';
-  const streetPromise = hasDriverCoords && !knownStreet
-    ? resolveGpsStreetAddress(driverLat, driverLng)
-    : null;
 
   const tripData = {
     driver_id: driverId,
@@ -106,9 +105,9 @@ export async function POST(request) {
     destination_address: destinationAddress,
     destination_lat: destinationLat,
     destination_lng: destinationLng,
-    origin_address: knownStreet || (hasDriverCoords ? formatCoordAddress(driverLat, driverLng) : null),
-    origin_lat: hasDriverCoords ? driverLat : null,
-    origin_lng: hasDriverCoords ? driverLng : null,
+    origin_address: knownStreet || null,
+    origin_lat: null,
+    origin_lng: null,
     status: 'pending',
     dispatch_status: 'waiting_acceptance',
     assigned_at: new Date().toISOString(),
@@ -123,20 +122,22 @@ export async function POST(request) {
   try {
     const supabase = getSupabaseAdmin();
 
-    const [driverResult, busyResult, street] = await Promise.all([
+    const [driverResult, locResult, busyResult] = await Promise.all([
       selectDriversCompat(
         supabase,
-        'id, billing_mode, commission_blocked, pending_commission, commission_debt_since_at',
+        'id, current_lat, current_lng, updated_at, billing_mode, commission_blocked, pending_commission, commission_debt_since_at',
         (query) => query.eq('id', driverId).maybeSingle(),
       ),
+      supabase
+        .from('driver_locations')
+        .select('lat, lng, updated_at, recorded_at')
+        .eq('driver_id', driverId)
+        .limit(1),
       supabase
         .from('trips')
         .select('id, driver_id, status, next_after_trip_id, notes, wa_context')
         .eq('driver_id', driverId)
         .in('status', DRIVER_BUSY_TRIP_STATUSES),
-      streetPromise
-        ? waitForStreetAddress(streetPromise, ASSIGN_STREET_WAIT_MS)
-        : Promise.resolve(null),
     ]);
 
     const { data: driverRow, error: driverError } = driverResult;
@@ -155,10 +156,6 @@ export async function POST(request) {
 
     const { data: busyTrips, error: busyError } = busyResult;
     if (busyError) throw busyError;
-
-    if (street && !isCoordLikeAddress(street)) {
-      tripData.origin_address = street;
-    }
 
     const busyState = classifyManualAssignBusyState(busyTrips || []);
     if (busyState.reservedNext || busyState.hasPendingOffer) {
@@ -191,6 +188,26 @@ export async function POST(request) {
         assignedAt: tripData.assigned_at,
       })
       : null;
+
+    let streetPromise = null;
+    let street = null;
+    if (!nextOffer) {
+      // El panel manda el pin de cuando se abrió el formulario; el chofer pudo moverse desde entonces.
+      const loc = Array.isArray(locResult?.data) ? locResult.data[0] : null;
+      const liveDriver = applyLiveGpsToDriver(driverRow, loc || null);
+      const serverGps = hasValidDriverGps(liveDriver) ? resolveAssignDriverGps(liveDriver) : null;
+      const driverGps = serverGps || clientGps;
+      if (driverGps) {
+        tripData.origin_address = (!serverGps && knownStreet) || formatCoordAddress(driverGps.lat, driverGps.lng);
+        tripData.origin_lat = driverGps.lat;
+        tripData.origin_lng = driverGps.lng;
+        if (isCoordLikeAddress(tripData.origin_address)) {
+          streetPromise = resolveGpsStreetAddress(driverGps.lat, driverGps.lng);
+          street = await waitForStreetAddress(streetPromise, ASSIGN_STREET_WAIT_MS);
+          if (street && !isCoordLikeAddress(street)) tripData.origin_address = street;
+        }
+      }
+    }
 
     if (nextOffer) {
       tripData.origin_address = null;
