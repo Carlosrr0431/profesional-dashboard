@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { geocodeAddress, getPlaceDetails } from '../../../../src/lib/geo/index.js';
+import { searchCachedPlaces } from '../../../../src/lib/googlePlacesBudgetStore';
 import { isWithinServiceArea } from '../../../../src/lib/constants';
 import { logGeocodeErrorAsync } from '../../../../src/lib/geocodeErrorLog';
 import { isGoogleConfigured } from '../../../../shared/geo/googlePlaces.js';
@@ -33,14 +34,33 @@ export async function GET(request) {
     const formattedAddress = context.formattedAddress || undefined;
 
     let result;
-    if (placeId) {
+    if (!placeId && address) {
+      const cached = await searchCachedPlaces(address, 5).catch(() => []);
+      const hit = (cached || []).find((item) => (
+        Number.isFinite(Number(item?.lat))
+        && Number.isFinite(Number(item?.lng))
+        && isWithinServiceArea(Number(item.lat), Number(item.lng))
+      ));
+      if (hit) {
+        result = {
+          lat: Number(hit.lat),
+          lng: Number(hit.lng),
+          formattedAddress: hit.formattedAddress || hit.address || address,
+          placeId: hit.placeId || null,
+          title: hit.title || null,
+          subtitle: hit.subtitle || null,
+          geocodeSource: 'cache',
+        };
+      }
+    }
+    if (!result && placeId) {
       result = await getPlaceDetails(placeId, {
         sessionToken,
         formattedAddress,
         title: context.title || undefined,
         subtitle: context.subtitle || undefined,
       });
-    } else if (address) {
+    } else if (!result && address) {
       if (!isGoogleConfigured()) {
         return NextResponse.json(
           { ok: false, error: 'Google Places no configurado' },
@@ -48,7 +68,7 @@ export async function GET(request) {
         );
       }
       result = await geocodeAddress(address, { sessionToken });
-    } else {
+    } else if (!result) {
       return NextResponse.json(
         { ok: false, error: 'address o placeId requerido' },
         { status: 400 },

@@ -5695,10 +5695,15 @@ function pickClosestCapitalGeocodeHit(hits, candidate, query) {
     .filter((hit) => Number.isFinite(hit?.lat) && Number.isFinite(hit?.lng))
     .filter((hit) => !pollHitLooksOutsideCapital(hit))
     .filter((hit) => !catalogStreetMismatch(candidate, hit.formattedAddress, query))
-    .sort((a, b) => (
-      haversineKm(a.lat, a.lng, SALTA_CAPITAL_CENTER.lat, SALTA_CAPITAL_CENTER.lng)
-      - haversineKm(b.lat, b.lng, SALTA_CAPITAL_CENTER.lat, SALTA_CAPITAL_CENTER.lng)
-    ));
+    .sort((a, b) => {
+      const aCache = a?.geocodeSource === 'cache' ? 0 : 1;
+      const bCache = b?.geocodeSource === 'cache' ? 0 : 1;
+      if (aCache !== bCache) return aCache - bCache;
+      return (
+        haversineKm(a.lat, a.lng, SALTA_CAPITAL_CENTER.lat, SALTA_CAPITAL_CENTER.lng)
+        - haversineKm(b.lat, b.lng, SALTA_CAPITAL_CENTER.lat, SALTA_CAPITAL_CENTER.lng)
+      );
+    });
   return ranked[0] || null;
 }
 
@@ -6078,7 +6083,12 @@ async function getAddressCandidates(query, maxResults = 5) {
   for (const c of merged) {
     c.score = scoreCandidateAgainstQuery(c.formattedAddress, query);
   }
-  merged.sort((a, b) => b.score - a.score);
+  merged.sort((a, b) => {
+    const aCache = a.geocodeSource === 'cache' ? 1 : 0;
+    const bCache = b.geocodeSource === 'cache' ? 1 : 0;
+    if (aCache !== bCache) return bCache - aCache;
+    return b.score - a.score;
+  });
   logWebhook('maps_address_candidates_merged', {
     query,
     autocompleteCount: autocompleteCandidates.length,

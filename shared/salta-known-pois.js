@@ -1288,7 +1288,12 @@ function mergeDistinctAddressCandidates(base = [], extra = [], { maxResults = 6 
     merged.push(candidate);
   }
 
-  merged.sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
+  merged.sort((a, b) => {
+    const aCache = a?.geocodeSource === 'cache' ? 1 : 0;
+    const bCache = b?.geocodeSource === 'cache' ? 1 : 0;
+    if (aCache !== bCache) return bCache - aCache;
+    return Number(b?.score || 0) - Number(a?.score || 0);
+  });
   return merged.slice(0, maxResults);
 }
 
