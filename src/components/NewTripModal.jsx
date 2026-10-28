@@ -95,6 +95,7 @@ export default function NewTripModal({
 
   /* Opcionales */
   const [notes, setNotes] = useState('');
+  const [entryMode, setEntryMode] = useState('address');
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
@@ -402,6 +403,65 @@ export default function NewTripModal({
     e?.preventDefault();
     setError('');
 
+    if (entryMode === 'note') {
+      if (!notes.trim()) {
+        setError('Escribí la nota para derivar el viaje.');
+        return;
+      }
+      if (driverMode === 'choose') {
+        if (!selectedDriver?.id) {
+          setError('Ingresá el número de móvil y seleccioná el chofer.');
+          return;
+        }
+        if (selectedAvailability && !selectedAvailability.canAssign) {
+          setError(`Ese móvil no se puede asignar ahora (${selectedAvailability.label}).`);
+          return;
+        }
+      }
+      setLoading(true);
+      try {
+        const response = await fetch('/api/trips/create-queued', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source: 'dashboard',
+            notesOnly: true,
+            notes: notes.trim(),
+            passengerName: null,
+            passengerPhone: null,
+            ...(driverMode === 'choose' && selectedDriver?.id
+              ? { preferredDriverId: selectedDriver.id }
+              : {}),
+          }),
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result?.ok) {
+          throw new Error(result?.message || 'No se pudo derivar la nota.');
+        }
+        let trip = result.trip;
+        if (driverMode === 'choose' && selectedDriver?.id && trip?.id) {
+          try {
+            const assigned = await assignExistingTripToDriver({
+              tripId: trip.id,
+              driverId: selectedDriver.id,
+            });
+            trip = assigned?.trip || trip;
+          } catch (assignErr) {
+            toast.warning(assignErr?.message || 'La nota quedó en cola. Asignala desde Viajes.');
+          }
+        }
+        toast.success('Nota derivada. El chofer la ve al aceptar y arranca sin destino.');
+        if (onSuccess) onSuccess(trip, { assignedDriver: driverMode === 'choose' ? selectedDriver : null });
+        onClose();
+        onClose();
+      } catch (err) {
+        setError(err?.message || 'No se pudo derivar la nota.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     const currentPickupText = pickupInputRef.current?.value?.trim() || pickupLabel.trim();
     if (!currentPickupText) {
       setError('Ingresá la dirección de origen del pasajero.');
@@ -643,7 +703,7 @@ export default function NewTripModal({
               boxShadow: '0 0 0 4px rgba(225,29,72,0.12)',
             }} />
             <div style={{ fontSize: asPopover ? 14 : 15, fontWeight: 600, color: '#0F172A', letterSpacing: '-0.02em' }}>
-              {isScheduled ? 'Programar viaje' : 'Nuevo viaje'}
+              {entryMode === 'note' ? 'Derivar por nota' : (isScheduled ? 'Programar viaje' : 'Nuevo viaje')}
             </div>
           </div>
           <button
@@ -667,7 +727,68 @@ export default function NewTripModal({
             flex: 1, minHeight: 0, overflowY: 'auto',
             padding: asPopover ? '0 14px 8px' : '0 20px 12px',
           }}>
-          {/* Inputs */}
+          <div
+            role="group"
+            aria-label="Cómo cargar el viaje"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 2,
+              padding: 3,
+              marginBottom: 10,
+              background: '#F1F5F9',
+              borderRadius: 12,
+            }}
+          >
+            <button
+              type="button"
+              aria-pressed={entryMode === 'address'}
+              onClick={() => setEntryMode('address')}
+              style={scheduleModeBtnStyle(entryMode === 'address', false)}
+            >
+              Dirección
+            </button>
+            <button
+              type="button"
+              aria-pressed={entryMode === 'note'}
+              onClick={() => {
+                setEntryMode('note');
+                setScheduledMode(false);
+                onRouteChange?.(null);
+              }}
+              style={scheduleModeBtnStyle(entryMode === 'note', true)}
+            >
+              Solo nota
+            </button>
+          </div>
+
+          {entryMode === 'note' ? (
+            <div style={{
+              background: '#F8FAFC',
+              border: '1px solid #E8EEF4',
+              borderRadius: 16,
+              padding: asPopover ? 12 : 14,
+              marginBottom: 10,
+            }}>
+              <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
+                El chofer ve esta nota y arranca sin destino
+              </p>
+              <p style={{ margin: '0 0 10px', fontSize: 12, lineHeight: 1.45, color: '#64748B' }}>
+                Sirve para un barrio, una manzana o un apellido. No hace falta origen ni destino.
+              </p>
+              <textarea
+                rows={5}
+                maxLength={800}
+                autoFocus
+                placeholder="Ej: Barrio Castañares manzana 14 casi 21 familia Rodriguez"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                style={{ ...notesAreaStyle, minHeight: 120, fontSize: 15 }}
+              />
+            </div>
+          ) : null}
+
+          {entryMode === 'address' ? (
           <div style={{
             background: '#F8FAFC', border: '1px solid #E8EEF4',
             borderRadius: 16, padding: '2px 0', marginBottom: 10,
@@ -769,7 +890,10 @@ export default function NewTripModal({
               />
             </div>
           </div>
+          ) : null}
 
+          {entryMode === 'address' ? (
+          <>
           <div
             role="group"
             aria-label="Cuándo sale el viaje"
@@ -823,6 +947,8 @@ export default function NewTripModal({
                 Se busca chofer {DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS / 60000} minutos antes.
               </p>
             </div>
+          ) : null}
+          </>
           ) : null}
 
           <div
@@ -1038,9 +1164,11 @@ export default function NewTripModal({
               >
                 {loading
                   ? <><Spinner size={14} color="#fff" /> {isScheduled ? 'Programando…' : 'Encolando…'}</>
-                  : (isScheduled
-                    ? <><CalendarIcon size={15} color="#FFFFFF" /> Programar viaje</>
-                    : enqueueActionLabel(driverMode, selectedDriver))}
+                  : (entryMode === 'note'
+                    ? 'Derivar nota'
+                    : (isScheduled
+                      ? <><CalendarIcon size={15} color="#FFFFFF" /> Programar viaje</>
+                      : enqueueActionLabel(driverMode, selectedDriver)))}
               </button>
             </div>
           </div>

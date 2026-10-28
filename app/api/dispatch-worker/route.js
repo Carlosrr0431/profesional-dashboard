@@ -61,6 +61,7 @@ import {
   MAX_DRIVER_SEARCH_KM,
   queuedTripIdsNearFreeDrivers,
 } from '../../../src/lib/dispatchSearchRadius';
+import { isNoteOnlyTrip, NOTE_ONLY_DISPATCH_RADIUS_KM } from '../../../src/lib/noteOnlyTrip';
 import {
   pickBusyNextTripCandidate,
   pickIdleThenBusyByRadius,
@@ -738,9 +739,11 @@ async function chooseDriverForClaim(
   const queueAgeSeconds = Number.isFinite(Number(queueAgeMs))
     ? Number((Number(queueAgeMs) / 1000).toFixed(1))
     : null;
-  const allowedRadii = Array.isArray(allowedRadiiKm) && allowedRadiiKm.length > 0
-    ? allowedRadiiKm
-    : getAllowedRadiiKm(normalizedAttemptNo);
+  const allowedRadii = isNoteOnlyTrip(trip)
+    ? [NOTE_ONLY_DISPATCH_RADIUS_KM]
+    : (Array.isArray(allowedRadiiKm) && allowedRadiiKm.length > 0
+      ? allowedRadiiKm
+      : getAllowedRadiiKm(normalizedAttemptNo));
 
   if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) {
     logWorker('driver_select_missing_coords', {
@@ -2146,8 +2149,9 @@ async function wakeQueuedTripsNearFreeDrivers() {
   ));
   if (!freeDrivers.length) return 0;
 
-  const wakeIds = queuedTripIdsNearFreeDrivers({
-    trips: queuedTrips,
+  const noteOnlyTrips = (queuedTrips || []).filter((trip) => isNoteOnlyTrip(trip));
+  const locatedTrips = (queuedTrips || []).filter((trip) => !isNoteOnlyTrip(trip));
+  const wakeMatch = {
     freeDrivers,
     pickupOf: (trip) => {
       const pickup = resolveDispatchPickupCoords(trip);
@@ -2164,7 +2168,19 @@ async function wakeQueuedTripsNearFreeDrivers() {
       pickupLat,
       pickupLng,
     ),
-  });
+  };
+  const wakeIds = [
+    ...queuedTripIdsNearFreeDrivers({
+      ...wakeMatch,
+      trips: locatedTrips,
+      maxKm: MAX_DRIVER_SEARCH_KM,
+    }),
+    ...queuedTripIdsNearFreeDrivers({
+      ...wakeMatch,
+      trips: noteOnlyTrips,
+      maxKm: NOTE_ONLY_DISPATCH_RADIUS_KM,
+    }),
+  ];
   if (!wakeIds.length) return 0;
 
   const nowIso = new Date().toISOString();

@@ -15,6 +15,7 @@ import {
   hasFiniteLatLng,
 } from '../../../../src/lib/passengerTripQueued';
 import { appendDashboardAssignNotes, mergePreferredDriverWaContext } from '../../../../src/lib/assignExistingTrip';
+import { buildNoteOnlyQueuedTrip } from '../../../../src/lib/noteOnlyTrip';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -64,6 +65,40 @@ export async function POST(req) {
     const wantsDestination = Boolean(
       destinationAddress || hasFiniteLatLng(destLat, destLng)
     );
+
+    if (payload?.notesOnly === true && source === 'dashboard') {
+      let tripPayload;
+      try {
+        tripPayload = buildNoteOnlyQueuedTrip({
+          notes: sanitizeText(payload?.notes, 800),
+        });
+      } catch (noteError) {
+        return NextResponse.json(
+          { ok: false, reason: noteError.reason || 'missing_note', message: noteError.message },
+          { status: 400 },
+        );
+      }
+
+      const preferredDriverId = sanitizeText(payload?.preferredDriverId || payload?.driverId, 80);
+      if (preferredDriverId) {
+        tripPayload.wa_context = mergePreferredDriverWaContext(tripPayload.wa_context, preferredDriverId);
+        tripPayload.notes = appendDashboardAssignNotes(tripPayload.notes);
+      }
+
+      const supabase = getSupabaseAdmin();
+      const { data: trip, error } = await supabase
+        .from('trips')
+        .insert(tripPayload)
+        .select()
+        .single();
+      if (error) throw error;
+
+      if (!preferredDriverId) {
+        triggerDispatchWorker({ reason: 'dashboard_note_only', tripId: trip.id });
+      }
+
+      return NextResponse.json({ ok: true, trip });
+    }
 
     const pickupLocation = await resolveTripLocation({
       address: pickupAddress,

@@ -339,6 +339,7 @@ function cleanTripNotesForDriverDisplay(notes) {
     .replace(/Viaje asignado desde el panel de operaciones\.?/gi, '')
     .replace(/En cola de espera\. Retiro confirmado\.?/gi, '')
     .replace(/\[FREE_RIDE\]/gi, '')
+    .replace(/\[NOTE_ONLY\]/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   return result || null;
@@ -621,6 +622,7 @@ function hasReadablePickupInOrigin(trip = {}) {
  * Al asignar chofer: no pisar origin_* si ya hay retiro legible o PICKUP_JSON en notes.
  */
 function shouldPreservePickupOriginOnAssign(trip = {}) {
+  if (String(trip?.notes || '').includes('[NOTE_ONLY]')) return true;
   if (isStreetHailTrip(trip)) return true;
   if (isPassengerAppTrip(trip)) return true;
   // origin_* es la posición del chofer, no el retiro: se actualiza en cada asignación.

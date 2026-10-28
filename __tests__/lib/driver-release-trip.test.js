@@ -49,6 +49,21 @@ describe('canDriverReleaseTripToQueue', () => {
     })).toBe(false);
   });
 
+  it('no reencola una cancelación del operador', () => {
+    expect(canDriverReleaseTripToQueue({
+      status: 'going_to_pickup',
+      cancel_reason: '[MANUAL_CANCEL] Cancelado por operador',
+      notes: '[PASSENGER_APP]',
+    })).toBe(false);
+    expect(canRecoverCancelledDriverReleaseToQueue({
+      status: 'cancelled',
+      driver_id: 'drv-1',
+      started_at: null,
+      cancel_reason: '[MANUAL_CANCEL] Cancelado por operador',
+      notes: '[PASSENGER_APP]',
+    })).toBe(false);
+  });
+
   it('recupera cancelled de pickup del pasajero, no calle ni viaje ya iniciado', () => {
     const passengerCancelled = {
       status: 'cancelled',

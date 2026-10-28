@@ -186,6 +186,7 @@ export const DRIVER_CANCEL_REQUEUE_LOOKBACK_MS = 15 * 60 * 1000;
 /**
  * Recupera cancelaciones de pickup escritas directo a cancelled (APK vieja).
  * Devuelve el mismo viaje a queued y excluye al chofer.
+ * No toca cancelaciones del operador ni viajes ya iniciados.
  */
 export async function recoverCancelledDriverReleases(supabase, {
   now = new Date(),
