@@ -43,6 +43,7 @@ const {
 const {
   parseStreetIntersection,
   intersectionHitMatches,
+  pickPrimaryHouseNumber,
 } = require('../salta-address');
 
 const PLACES_NEW_BASE = 'https://places.googleapis.com/v1';
@@ -95,7 +96,11 @@ function serviceAreaRestriction() {
 }
 
 function restrictionForQuery(text) {
-  return queryNamesCoveredLocality(text) ? serviceAreaRestriction() : SALTA_CAPITAL_RESTRICTION;
+  // Calle + altura sin localidad: solo Capital, para que "Güemes 700" no salte a otra ciudad.
+  // Lugar, zona o pueblo nombrado: todo el valle hasta Cafayate.
+  const number = pickPrimaryHouseNumber(text);
+  if (number != null && !queryNamesCoveredLocality(text)) return SALTA_CAPITAL_RESTRICTION;
+  return serviceAreaRestriction();
 }
 
 /** Restricción dura para calles ambiguas: solo Salta Capital. */
@@ -118,29 +123,19 @@ const SALTA_CAPITAL_ORIGIN = {
   longitude: SALTA_CENTER_LNG,
 };
 
-/** Localidades de la provincia que Google puede mezclar aun con restricción geográfica. */
+/** Ciudades fuera de la zona de cobertura. Los pueblos del valle y Cafayate sí entran. */
 const OUTSIDE_SALTA_CAPITAL_SUBTITLE = [
   /jujuy/,
-  /\bvaqueros\b/,
-  /\bsan lorenzo\b/,
-  /\brosario de lerma\b/,
-  /\bcampo quijano\b/,
-  /\bla caldera\b/,
-  /\blesser\b/,
-  /\bcerrillos\b/,
-  /\bchimilas\b/,
-  /\bel carril\b/,
-  /\bla silleta\b/,
   /\brosario de la frontera\b/,
   /\bmetan\b/,
-  /\bcafayate\b/,
   /\btartagal\b/,
   /\boran\b/,
-  /\bcampo santo\b/,
   /\bcolonia santa rosa\b/,
-  /\bchicoana\b/,
   /\blas lajitas\b/,
-  /\bgeneral g[uü]emes,\s*salta\b/,
+  /\bembarcacion\b/,
+  /\baguaray\b/,
+  /\bpichanal\b/,
+  /\bsan antonio de los cobres\b/,
 ];
 
 /**

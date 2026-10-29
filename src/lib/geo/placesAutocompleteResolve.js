@@ -2,7 +2,13 @@
  * Resolución server-side de sugerencias de autocomplete — misma lógica que
  * AddressAutocomplete + GET /api/geo/geocode (Place Details Essentials + caché Supabase).
  */
-import { autocompleteAddressSalta, getPlaceDetails, SALTA_CENTER_LAT, SALTA_CENTER_LNG } from './index.js';
+import {
+  autocompleteAddressSalta,
+  getPlaceDetails,
+  searchGooglePlacesLastResort,
+  SALTA_CENTER_LAT,
+  SALTA_CENTER_LNG,
+} from './index.js';
 import { searchCachedPlaces } from '../googlePlacesBudgetStore.js';
 import { findPinnedAddress, pinnedAddressSuggestion } from '../../../shared/pinned-addresses.js';
 import { findSavedPinnedAddresses } from '../savedPinnedAddresses.js';
@@ -15,6 +21,7 @@ import {
   scoreCandidateAgainstQuery,
   isVagueLocalityAddress,
   formatIntersectionLabelFromQuery,
+  pickPrimaryHouseNumber,
 } from '../../../shared/salta-address.js';
 
 function firstAddressLine(value) {
@@ -25,12 +32,21 @@ function firstAddressLine(value) {
 
 function neighborMunicipalityPenalty(hit) {
   const blob = `${hit?.subtitle || ''} ${String(hit?.formattedAddress || '').split(',').slice(1).join(' ')}`;
-  if (/\b(san lorenzo|vaqueros|cerrillos|rosario de lerma|campo quijano|la caldera|la silleta|el carril|chicoana|lesser|jujuy)\b/i.test(blob)) {
-    return 1;
-  }
-  const lng = Number(hit?.lng);
-  if (Number.isFinite(lng) && lng < -65.488) return 1;
-  return 0;
+  return /\b(jujuy|tartagal|oran|orán|metan|metán|rosario de la frontera|embarcacion|embarcación)\b/i.test(blob)
+    ? 1
+    : 0;
+}
+
+function needsGoogleCoverage(results, query) {
+  const text = String(query || '').trim();
+  if (text.length < 4) return false;
+  const number = pickPrimaryHouseNumber(text);
+  if (number == null) return true;
+  return !(results || []).some((item) => (
+    Number.isFinite(Number(item?.lat))
+    && Number.isFinite(Number(item?.lng))
+    && String(item?.placeId || '').startsWith('georef:')
+  ));
 }
 
 function distanceToSaltaCenterKm(hit) {
@@ -308,7 +324,15 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
   }
 
   const sessionToken = options.sessionToken || createSessionToken();
-  const suggestions = await autocompleteAddressSalta(text, 5, { sessionToken });
+  let suggestions = await autocompleteAddressSalta(text, 5, { sessionToken });
+  if (needsGoogleCoverage(suggestions, text)) {
+    const google = await searchGooglePlacesLastResort(text, 5, { sessionToken }).catch(() => []);
+    const seen = new Set(suggestions.map((item) => item?.placeId).filter(Boolean));
+    suggestions = [
+      ...google.filter((item) => item?.placeId && !seen.has(item.placeId)),
+      ...suggestions,
+    ];
+  }
   const ranked = [...suggestions].sort((a, b) => textScore(b, text) - textScore(a, text));
 
   const resolved = [];
@@ -383,9 +407,17 @@ export async function getAutocompletePollCandidates(query, maxResults = 5, optio
   if (!text) return [];
 
   const sessionToken = options.sessionToken || createSessionToken();
-  const suggestions = await autocompleteAddressSalta(text, Math.max(maxResults, 5), {
+  let suggestions = await autocompleteAddressSalta(text, Math.max(maxResults, 5), {
     sessionToken,
   });
+  if (needsGoogleCoverage(suggestions, text)) {
+    const google = await searchGooglePlacesLastResort(text, Math.max(maxResults, 5), { sessionToken }).catch(() => []);
+    const seen = new Set(suggestions.map((item) => item?.placeId).filter(Boolean));
+    suggestions = [
+      ...google.filter((item) => item?.placeId && !seen.has(item.placeId)),
+      ...suggestions,
+    ];
+  }
 
   return suggestions.slice(0, maxResults).map((hit) => {
     const title = String(hit?.title || '').trim();
@@ -402,7 +434,7 @@ export async function getAutocompletePollCandidates(query, maxResults = 5, optio
       lat: null,
       lng: null,
       score: scoreCandidateAgainstQuery(formattedAddress, text),
-      source: 'google_autocomplete',
+      source: String(hit?.placeId || '').startsWith('google:') ? 'google_autocomplete' : 'local',
     };
   });
 }

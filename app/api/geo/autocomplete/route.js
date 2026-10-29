@@ -79,6 +79,16 @@ function canOffer(item) {
   return String(item?.placeId || '').startsWith('google:');
 }
 
+/** Georef cubre la altura. Si no está, o si es un lugar o una zona, completa Google. */
+function needsGoogleCoverage(results, query) {
+  if (String(query || '').trim().length < 4) return false;
+  const number = pickPrimaryHouseNumber(query);
+  if (number == null) return true;
+  return !(results || []).some((item) => (
+    hasPin(item) && String(item?.placeId || '').startsWith('georef:')
+  ));
+}
+
 function setCached(key, data) {
   autocompleteCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
   if (autocompleteCache.size > CACHE_MAX_ITEMS) {
@@ -160,9 +170,12 @@ export async function GET(request) {
         const fresh = google.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2) && canOffer(item));
         results = mergePlaceSuggestions(results, fresh, limit);
       }
-    } else if (!results.some(hasPin) && query.length >= 5) {
+    } else if (needsGoogleCoverage(results, query)) {
       const google = await searchGooglePlacesLastResort(query, limit, { sessionToken }).catch(() => []);
-      results = mergePlaceSuggestions(results, google.filter(canOffer), limit);
+      const fresh = google.filter(canOffer);
+      const savedFirst = (results || []).filter((item) => String(item.placeId || '').startsWith('saved:'));
+      const rest = (results || []).filter((item) => !String(item.placeId || '').startsWith('saved:'));
+      results = mergePlaceSuggestions([...savedFirst, ...fresh], rest, limit);
     }
     if (pickPrimaryHouseNumber(query) != null) {
       results = alignStreetNumberPins(results, query);

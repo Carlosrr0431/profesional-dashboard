@@ -519,6 +519,56 @@ async function geocodeAddressGoogleViaAutocomplete(query, options = {}) {
   throw new Error('No se encontró la dirección');
 }
 
+/** Google solo cuando Georef no tiene la calle, el lugar o la zona. */
+async function geocodeAddressGoogleGap(query, options = {}) {
+  if (!isGoogleConfigured()) return null;
+  try {
+    const { createSessionToken } = require('./googlePlaces');
+    const sessionToken = options.sessionToken || createSessionToken();
+    const suggestions = await googleSearchPoi(query, 5, { sessionToken });
+    const number = pickPrimaryHouseNumber(query);
+    let fallback = null;
+    let detailsUsed = 0;
+    for (const hit of suggestions) {
+      if (detailsUsed >= 2) break;
+      if (!isGooglePlaceId(hit?.placeId)) continue;
+      detailsUsed += 1;
+      let details;
+      try {
+        details = await getGooglePlaceDetails(hit.placeId, {
+          sessionToken: hit.sessionToken || sessionToken,
+          formattedAddress: hit.address,
+          title: hit.title,
+          subtitle: hit.subtitle,
+        });
+      } catch {
+        continue;
+      }
+      if (!coordsAllowedForQuery(details.lat, details.lng, query)) continue;
+      const hitNumber = pickPrimaryHouseNumber(
+        `${hit.title || ''} ${hit.address || ''} ${details.formattedAddress || ''}`,
+      );
+      const mapped = {
+        lat: details.lat,
+        lng: details.lng,
+        formattedAddress: details.formattedAddress || hit.address,
+        placeId: details.placeId || hit.placeId,
+        title: hit.title || details.title || null,
+        subtitle: hit.subtitle || details.subtitle || null,
+        geocodeSource: details.geocodeSource || 'google_place_details_essentials',
+      };
+      if (number != null && hitNumber != null && hitNumber !== number) {
+        if (!fallback) fallback = mapped;
+        continue;
+      }
+      return mapped;
+    }
+    return fallback;
+  } catch {
+    return null;
+  }
+}
+
 async function geocodeAddress(address, options = {}) {
   const query = String(address || '').trim();
   if (!query) throw new Error('Dirección vacía');
@@ -569,12 +619,16 @@ async function geocodeAddress(address, options = {}) {
     }
   }
 
+  const googleGap = await geocodeAddressGoogleGap(query, options);
+  if (googleGap) return googleGap;
+
   const [structuredHits, variantHits] = await Promise.all([
     searchStructuredAddress(query),
     runVariantsInBatches(buildAddressSearchQueries(query).slice(0, 6), 8),
   ]);
 
-  const results = sortNominatimResults([...structuredHits, ...variantHits], query);
+  const results = sortNominatimResults([...structuredHits, ...variantHits], query)
+    .filter((hit) => coordsAllowedForQuery(hit.lat, hit.lng, query));
   if (results.length === 0) {
     throw new Error('No se encontró la dirección');
   }
