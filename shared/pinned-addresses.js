@@ -24,6 +24,13 @@ const PINNED_ADDRESSES = [
     lat: -24.8533069,
     lng: -65.4045727,
   },
+  {
+    id: 'senora-del-carmen-mza-f50-lote-210',
+    title: 'Señora del Carmen, Mza F50, Lote 210',
+    subtitle: 'Salta',
+    lat: -24.782338,
+    lng: -65.4369189,
+  },
 ];
 
 const { savedAddressMatches } = require('./savedAddressMatch');

@@ -56,3 +56,10 @@ where not exists (
   select 1 from public.pinned_addresses
   where title = 'Barrio Río Ancho, Casa 2, Gomería'
 );
+
+insert into public.pinned_addresses (title, lat, lng)
+select 'Señora del Carmen, Mza F50, Lote 210', -24.782338, -65.4369189
+where not exists (
+  select 1 from public.pinned_addresses
+  where title = 'Señora del Carmen, Mza F50, Lote 210'
+);

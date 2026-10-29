@@ -57,4 +57,13 @@ describe('punto de Google Maps y dirección guardada', () => {
     expect(suggestions[0].lng).toBeCloseTo(-65.4045727, 6);
     expect(global.fetch).not.toHaveBeenCalled();
   });
+
+  it('señora del carmen mza f50 autocompleta el lote 210', async () => {
+    global.fetch = jest.fn(() => new Promise(() => {}));
+    const suggestions = await autocompleteAddressSalta('señora del carmen mza f50 lote 210', 5);
+    expect(suggestions[0].title).toBe('Señora del Carmen, Mza F50, Lote 210');
+    expect(suggestions[0].lat).toBeCloseTo(-24.782338, 6);
+    expect(suggestions[0].lng).toBeCloseTo(-65.4369189, 6);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
 });
