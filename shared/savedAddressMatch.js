@@ -56,13 +56,19 @@ function queryOverlapScore(query, text) {
  * También acepta "lat, lng".
  */
 function parseGoogleMapsPoint(input) {
-  const text = String(input || '').trim();
+  let text = String(input || '').trim();
   if (!text) return null;
+  try {
+    text = decodeURIComponent(text);
+  } catch {
+    // El texto ya estaba decodificado.
+  }
 
   const pin = text.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/);
+  const query = text.match(/[?&]q=(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i);
   const at = text.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
   const pair = text.match(/^(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)$/);
-  const match = pin || at || pair;
+  const match = pin || query || at || pair;
   if (!match) return null;
 
   const lat = Number(match[1]);

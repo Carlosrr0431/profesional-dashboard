@@ -10,6 +10,13 @@ const PINNED_ADDRESSES = [
     lat: -24.8638868,
     lng: -65.4731354,
   },
+  {
+    id: 'santa-rita-2-la-isla-manzana-20-casa-5',
+    title: 'Santa Rita 2, La Isla, Manzana 20, Casa 5',
+    subtitle: 'Salta',
+    lat: -24.8772243,
+    lng: -65.4034545,
+  },
 ];
 
 const { savedAddressMatches } = require('./savedAddressMatch');
