@@ -1002,6 +1002,33 @@ function resolveFormattedAddress(rawPlaceId, options = {}) {
 
 let persistentCacheProvider = null;
 
+/** Guarda el punto ya resuelto para que la próxima búsqueda igual no llame a Google. */
+async function rememberGoogleResolution(queries, place) {
+  if (!placesBudget?.saveSearch) return;
+  const lat = Number(place?.lat);
+  const lng = Number(place?.lng);
+  const placeId = String(place?.placeId || '').trim();
+  if (!placeId.startsWith('google:') || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  const suggestion = {
+    placeId,
+    title: place.title || '',
+    subtitle: place.subtitle || '',
+    address: place.formattedAddress || '',
+    formattedAddress: place.formattedAddress || '',
+    lat,
+    lng,
+    types: Array.isArray(place.types) ? place.types : [],
+  };
+  const keys = [...new Set(
+    (Array.isArray(queries) ? queries : [queries])
+      .map((item) => normalizeQuery(item))
+      .filter((item) => item.length >= 3),
+  )];
+  await Promise.all(keys.map((key) => (
+    placesBudget.saveSearch(`${key}::5`, [suggestion]).catch(() => {})
+  )));
+}
+
 /**
  * Registra caché persistente (p. ej. Supabase google_place_details_cache).
  * Se consulta antes de Place Details Essentials para ahorrar llamadas a Google.
@@ -1091,6 +1118,7 @@ module.exports = {
   autocompleteAddressSalta,
   searchPoiSalta,
   getGooglePlaceDetails,
+  rememberGoogleResolution,
   fetchPlaceDetailsEssentials,
   fetchPlaceIdOnly,
   geocodeAddressGoogle,

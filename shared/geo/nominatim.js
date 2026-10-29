@@ -41,6 +41,7 @@ const PUBLIC_NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
 const {
   searchPoiSalta: googleSearchPoi,
   getGooglePlaceDetails,
+  rememberGoogleResolution,
   isGooglePlaceId,
   isGoogleConfigured,
 } = require('./googlePlaces');
@@ -536,10 +537,28 @@ async function geocodeAddressGoogleGap(query, options = {}) {
     const sessionToken = options.sessionToken || createSessionToken();
     const suggestions = await googleSearchPoi(query, 5, { sessionToken });
     const number = pickPrimaryHouseNumber(query);
+    const cacheQueries = [query, ...(options.cacheQueries || [])];
     let detailsUsed = 0;
     for (const hit of suggestions) {
-      if (detailsUsed >= 2) break;
       if (!isGooglePlaceId(hit?.placeId)) continue;
+      const hitNumber = pickPrimaryHouseNumber(
+        `${hit.title || ''} ${hit.address || ''} ${hit.formattedAddress || ''}`,
+      );
+      if (number != null && hitNumber !== number) continue;
+      const cachedLat = Number(hit.lat);
+      const cachedLng = Number(hit.lng);
+      if (Number.isFinite(cachedLat) && Number.isFinite(cachedLng) && coordsAllowedForQuery(cachedLat, cachedLng, query)) {
+        return {
+          lat: cachedLat,
+          lng: cachedLng,
+          formattedAddress: hit.formattedAddress || hit.address || googleGapLabel(hit, {}),
+          placeId: hit.placeId,
+          title: hit.title || null,
+          subtitle: hit.subtitle || null,
+          geocodeSource: 'cache',
+        };
+      }
+      if (detailsUsed >= 2) break;
       detailsUsed += 1;
       let details;
       try {
@@ -553,19 +572,24 @@ async function geocodeAddressGoogleGap(query, options = {}) {
         continue;
       }
       if (!coordsAllowedForQuery(details.lat, details.lng, query)) continue;
-      const hitNumber = pickPrimaryHouseNumber(
+      const detailNumber = pickPrimaryHouseNumber(
         `${hit.title || ''} ${hit.address || ''} ${details.formattedAddress || ''}`,
       );
-      if (number != null && hitNumber !== number) continue;
-      return {
+      if (number != null && detailNumber !== number) continue;
+      const resolved = {
         lat: details.lat,
         lng: details.lng,
         formattedAddress: googleGapLabel(hit, details),
         placeId: details.placeId || hit.placeId,
         title: hit.title || details.title || null,
         subtitle: hit.subtitle || details.subtitle || null,
+        types: details.types || [],
         geocodeSource: details.geocodeSource || 'google_place_details_essentials',
       };
+      if (resolved.geocodeSource !== 'supabase_cache' && resolved.geocodeSource !== 'cache') {
+        await rememberGoogleResolution(cacheQueries, resolved);
+      }
+      return resolved;
     }
     return null;
   } catch {
@@ -641,7 +665,10 @@ async function geocodeAddress(address, options = {}) {
         geocodeSource: 'georef',
       };
     }
-    const exact = await geocodeAddressGoogleGap(pack.missingLabel || query, options);
+    const exact = await geocodeAddressGoogleGap(pack.missingLabel || query, {
+      ...options,
+      cacheQueries: [query, pack.missingLabel].filter(Boolean),
+    });
     if (exact) return exact;
     if (!(pack.missingLabel && isGoogleConfigured())) {
       const local = await fromOwnMap();
@@ -1199,8 +1226,6 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       if (merged.length > 0) {
         return merged.slice(0, limit).map(({ score, ...item }) => item);
       }
-      // Sin coordenadas oficiales no se ofrece el centroide del mapa: el punto sale de Google.
-      if (isGoogleConfigured()) return [];
 
       const [structuredHits, geocodeHits] = await Promise.all([
         withTimeout(searchStructuredAddress(trimmed).catch(() => []), 2000, []),

@@ -17,6 +17,7 @@ import {
   isGooglePlaceId,
   createSessionToken,
 } from '../../../shared/geo/googlePlaces.js';
+import { upsertCachedGooglePlace } from '../googlePlacesBudgetStore.js';
 import {
   scoreCandidateAgainstQuery,
   isVagueLocalityAddress,
@@ -317,8 +318,14 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
 
   const remembered = (await cachedPlacesFirst(text, 5))
     .map((item) => fromCache(item, text))
+    .filter((item) => {
+      const number = pickPrimaryHouseNumber(text);
+      if (number == null) return item.score > 0;
+      const hitNumber = pickPrimaryHouseNumber(`${item.title || ''} ${item.formattedAddress || ''}`);
+      return hitNumber === number;
+    })
     .sort((a, b) => b.score - a.score);
-  if (remembered[0] && remembered[0].score > 0) {
+  if (remembered[0]) {
     const best = remembered[0];
     return {
       formattedAddress: best.formattedAddress,
@@ -395,6 +402,11 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
     query: text,
   });
 
+  await rememberResolvedGooglePlace(text, {
+    ...best,
+    formattedAddress,
+  });
+
   return {
     formattedAddress,
     lat: best.lat,
@@ -402,6 +414,21 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
     placeId: best.placeId || null,
     geocodeSource: best.geocodeSource || null,
   };
+}
+
+async function rememberResolvedGooglePlace(query, place) {
+  const placeId = String(place?.placeId || '').trim();
+  if (!placeId.startsWith('google:')) return;
+  if (place.geocodeSource === 'cache' || place.geocodeSource === 'supabase_cache') return;
+  await upsertCachedGooglePlace({
+    placeId,
+    title: place.title || query,
+    subtitle: place.subtitle,
+    formattedAddress: place.formattedAddress,
+    address: place.formattedAddress,
+    lat: place.lat,
+    lng: place.lng,
+  }).catch(() => {});
 }
 
 /**
