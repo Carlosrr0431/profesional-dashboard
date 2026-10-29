@@ -37,7 +37,7 @@ export async function GET(request) {
     let result;
     if (!placeId && address) {
       const saved = await findSavedPinnedAddresses(address).catch(() => []);
-      const savedHit = saved.find((item) => isWithinServiceArea(item.lat, item.lng));
+      const savedHit = saved.find((item) => coordsAllowedForQuery(item.lat, item.lng, address));
       if (savedHit) result = savedHit;
     }
     if (!result && !placeId && address) {
@@ -45,7 +45,7 @@ export async function GET(request) {
       const hit = (cached || []).find((item) => (
         Number.isFinite(Number(item?.lat))
         && Number.isFinite(Number(item?.lng))
-        && isWithinServiceArea(Number(item.lat), Number(item.lng))
+        && coordsAllowedForQuery(Number(item.lat), Number(item.lng), address)
       ));
       if (hit) {
         result = {

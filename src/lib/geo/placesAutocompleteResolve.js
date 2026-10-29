@@ -24,7 +24,7 @@ import {
   formatIntersectionLabelFromQuery,
   pickPrimaryHouseNumber,
 } from '../../../shared/salta-address.js';
-import { hasUsableGeoPoint } from '../../../shared/geo/mapConfig.js';
+import { coordsAllowedForQuery, hasUsableGeoPoint } from '../../../shared/geo/mapConfig.js';
 
 function firstAddressLine(value) {
   const text = String(value || '').trim();
@@ -320,6 +320,7 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
   const remembered = (await cachedPlacesFirst(text, 5))
     .map((item) => fromCache(item, text))
     .filter((item) => {
+      if (!coordsAllowedForQuery(item.lat, item.lng, text)) return false;
       const number = pickPrimaryHouseNumber(text);
       if (number == null) return item.score > 0;
       const hitNumber = pickPrimaryHouseNumber(`${item.title || ''} ${item.formattedAddress || ''}`);

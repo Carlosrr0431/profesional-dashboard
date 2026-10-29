@@ -32,6 +32,12 @@ describe('zona de cobertura del valle', () => {
     expect(coordsAllowedForQuery(-24.67, -65.05, 'general guemes')).toBe(true);
   });
 
+  test('San Martín de Vaqueros no usa la avenida homónima de Capital', () => {
+    expect(coordsAllowedForQuery(-24.79395, -65.40589, 'san martin 200 vaqueros')).toBe(false);
+    expect(coordsAllowedForQuery(-24.70794, -65.40818, 'san martin 200 vaqueros')).toBe(true);
+    expect(coordsAllowedForQuery(-24.60111, -65.37426, 'san martin 300 vaqueros')).toBe(false);
+  });
+
   test('0,0 no es un punto de Salta', () => {
     const { hasUsableGeoPoint, omitUnusablePin } = require('../../shared/geo/mapConfig');
     expect(hasUsableGeoPoint(0, 0)).toBe(false);

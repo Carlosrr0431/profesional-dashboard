@@ -535,63 +535,74 @@ async function geocodeAddressGoogleGap(query, options = {}) {
   try {
     const { createSessionToken } = require('./googlePlaces');
     const sessionToken = options.sessionToken || createSessionToken();
-    const suggestions = await googleSearchPoi(query, 5, { sessionToken });
     const number = pickPrimaryHouseNumber(query);
     const cacheQueries = [query, ...(options.cacheQueries || [])];
-    let detailsUsed = 0;
-    for (const hit of suggestions) {
-      if (!isGooglePlaceId(hit?.placeId)) continue;
-      const hitNumber = pickPrimaryHouseNumber(
-        `${hit.title || ''} ${hit.address || ''} ${hit.formattedAddress || ''}`,
-      );
-      if (number != null && hitNumber !== number) continue;
-      const cachedLat = Number(hit.lat);
-      const cachedLng = Number(hit.lng);
-      if (Number.isFinite(cachedLat) && Number.isFinite(cachedLng) && coordsAllowedForQuery(cachedLat, cachedLng, query)) {
-        return {
-          lat: cachedLat,
-          lng: cachedLng,
-          formattedAddress: hit.formattedAddress || hit.address || googleGapLabel(hit, {}),
-          placeId: hit.placeId,
-          title: hit.title || null,
-          subtitle: hit.subtitle || null,
-          geocodeSource: 'cache',
+    const resolveGap = async (suggestions) => {
+      let detailsUsed = 0;
+      for (const hit of suggestions) {
+        if (!isGooglePlaceId(hit?.placeId)) continue;
+        const hitNumber = pickPrimaryHouseNumber(
+          `${hit.title || ''} ${hit.address || ''} ${hit.formattedAddress || ''}`,
+        );
+        if (number != null && hitNumber !== number) continue;
+        const cachedLat = Number(hit.lat);
+        const cachedLng = Number(hit.lng);
+        if (Number.isFinite(cachedLat) && Number.isFinite(cachedLng)) {
+          if (!coordsAllowedForQuery(cachedLat, cachedLng, query)) continue;
+          return {
+            lat: cachedLat,
+            lng: cachedLng,
+            formattedAddress: hit.formattedAddress || hit.address || googleGapLabel(hit, {}),
+            placeId: hit.placeId,
+            title: hit.title || null,
+            subtitle: hit.subtitle || null,
+            geocodeSource: 'cache',
+          };
+        }
+        if (detailsUsed >= 2) break;
+        detailsUsed += 1;
+        let details;
+        try {
+          details = await getGooglePlaceDetails(hit.placeId, {
+            sessionToken: hit.sessionToken || sessionToken,
+            formattedAddress: hit.address,
+            title: hit.title,
+            subtitle: hit.subtitle,
+          });
+        } catch {
+          continue;
+        }
+        if (!coordsAllowedForQuery(details.lat, details.lng, query)) continue;
+        const detailNumber = pickPrimaryHouseNumber(
+          `${hit.title || ''} ${hit.address || ''} ${details.formattedAddress || ''}`,
+        );
+        if (number != null && detailNumber !== number) continue;
+        const resolved = {
+          lat: details.lat,
+          lng: details.lng,
+          formattedAddress: googleGapLabel(hit, details),
+          placeId: details.placeId || hit.placeId,
+          title: hit.title || details.title || null,
+          subtitle: hit.subtitle || details.subtitle || null,
+          types: details.types || [],
+          geocodeSource: details.geocodeSource || 'google_place_details_essentials',
         };
+        if (resolved.geocodeSource !== 'supabase_cache' && resolved.geocodeSource !== 'cache') {
+          await rememberGoogleResolution(cacheQueries, resolved);
+        }
+        return resolved;
       }
-      if (detailsUsed >= 2) break;
-      detailsUsed += 1;
-      let details;
-      try {
-        details = await getGooglePlaceDetails(hit.placeId, {
-          sessionToken: hit.sessionToken || sessionToken,
-          formattedAddress: hit.address,
-          title: hit.title,
-          subtitle: hit.subtitle,
-        });
-      } catch {
-        continue;
-      }
-      if (!coordsAllowedForQuery(details.lat, details.lng, query)) continue;
-      const detailNumber = pickPrimaryHouseNumber(
-        `${hit.title || ''} ${hit.address || ''} ${details.formattedAddress || ''}`,
-      );
-      if (number != null && detailNumber !== number) continue;
-      const resolved = {
-        lat: details.lat,
-        lng: details.lng,
-        formattedAddress: googleGapLabel(hit, details),
-        placeId: details.placeId || hit.placeId,
-        title: hit.title || details.title || null,
-        subtitle: hit.subtitle || details.subtitle || null,
-        types: details.types || [],
-        geocodeSource: details.geocodeSource || 'google_place_details_essentials',
-      };
-      if (resolved.geocodeSource !== 'supabase_cache' && resolved.geocodeSource !== 'cache') {
-        await rememberGoogleResolution(cacheQueries, resolved);
-      }
-      return resolved;
-    }
-    return null;
+      return null;
+    };
+    const first = await googleSearchPoi(query, 5, { sessionToken });
+    const resolved = await resolveGap(first);
+    if (resolved) return resolved;
+    const fresh = await googleSearchPoi(query, 5, {
+      sessionToken,
+      skipSavedSearch: true,
+      skipKnownPlaces: true,
+    });
+    return resolveGap(fresh);
   } catch {
     return null;
   }
@@ -655,17 +666,21 @@ async function geocodeAddress(address, options = {}) {
       (pack.located || []).filter((hit) => georefHitMatchesStreetQuery(hit, query)),
     );
     if (ranked.length > 0) {
-      const best = pickOfficialHouseNumber(ranked) || ranked[0];
-      const label = formatNominatimLabelForQuery(best, query);
-      return {
-        lat: best.lat,
-        lng: best.lng,
-        formattedAddress: label.full || best.formattedAddress,
-        placeId: best.placeId || null,
-        geocodeSource: 'georef',
-      };
+      const best = pickOfficialHouseNumber(ranked);
+      if (best) {
+        const label = formatNominatimLabelForQuery(best, query);
+        return {
+          lat: best.lat,
+          lng: best.lng,
+          formattedAddress: label.full || best.formattedAddress,
+          placeId: best.placeId || null,
+          geocodeSource: 'georef',
+        };
+      }
     }
-    const exact = await geocodeAddressGoogleGap(pack.missingLabel || query, {
+    // El rótulo de Georef a veces es "San Martín / Ruta 9". Se busca el texto
+    // del usuario, que sí nombra el pueblo, para no caer en la calle de Capital.
+    const exact = await geocodeAddressGoogleGap(query, {
       ...options,
       cacheQueries: [query, pack.missingLabel].filter(Boolean),
     });

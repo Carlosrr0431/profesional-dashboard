@@ -194,10 +194,53 @@ function viewboxForQuery(query) {
   return matchedCoveredLocality(query) ? SALTA_NEARBY_VIEWBOX : SALTA_VIEWBOX;
 }
 
+/** Centro del pueblo, para no usar la calle homónima de Capital. */
+const LOCALITY_CENTROID = {
+  vaqueros: [-24.69648, -65.41062],
+  'san lorenzo': [-24.73123, -65.48631],
+  'rosario de lerma': [-24.98583, -65.57840],
+  'campo quijano': [-24.90813, -65.64298],
+  'la caldera': [-24.60269, -65.38064],
+  cerrillos: [-24.89581, -65.48714],
+  'la silleta': [-24.87498, -65.59048],
+  chicoana: [-25.10267, -65.53505],
+  'el carril': [-25.07667, -65.48924],
+  'la merced': [-24.96695, -65.48901],
+  cafayate: [-26.07304, -65.97598],
+  animana: [-25.96948, -65.94900],
+  'san carlos': [-25.89317, -65.92906],
+  'la vina': [-25.46812, -65.56556],
+  guachipas: [-25.52265, -65.51003],
+  'coronel moldes': [-25.28004, -65.47846],
+  tolombon: [-26.18271, -65.93981],
+  'campo santo': [-24.68297, -65.10494],
+  'general guemes': [-24.67445, -65.04660],
+};
+
+const SALTA_CITY_CENTER = [-24.7821, -65.4232];
+const NAMED_LOCALITY_RADIUS_KM = 8;
+
+function kmBetween(lat, lng, centroid) {
+  const toRad = Math.PI / 180;
+  const dLat = (centroid[0] - lat) * toRad;
+  const dLng = (centroid[1] - lng) * toRad;
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat * toRad) * Math.cos(centroid[0] * toRad) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 function coordsAllowedForQuery(lat, lng, query = '') {
   if (!isWithinServiceArea(lat, lng)) return false;
-  if (matchedCoveredLocality(query)) return true;
-  return isWithinSaltaCapital(lat, lng);
+  const key = matchedCoveredLocality(query);
+  if (!key) return isWithinSaltaCapital(lat, lng);
+  const centroid = LOCALITY_CENTROID[key];
+  if (!centroid) return true;
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  const toTown = kmBetween(parsedLat, parsedLng, centroid);
+  const toCapital = kmBetween(parsedLat, parsedLng, SALTA_CITY_CENTER);
+  if (toTown > NAMED_LOCALITY_RADIUS_KM) return false;
+  return toTown + 0.8 < toCapital;
 }
 
 const GEOREF_BASE_URL = readEnv(
