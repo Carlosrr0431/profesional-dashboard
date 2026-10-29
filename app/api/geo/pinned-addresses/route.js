@@ -73,6 +73,58 @@ export async function POST(request) {
   }
 }
 
+export async function PATCH(request) {
+  const auth = await requireAdminUser(request);
+  if (!auth.user) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+  }
+
+  try {
+    const body = await request.json();
+    const id = String(body?.id || '').trim();
+    const title = String(body?.title || '').trim().replace(/\s+/g, ' ');
+    if (!id || id.startsWith('pinned:')) {
+      return NextResponse.json(
+        { ok: false, error: 'Esta dirección todavía se está guardando. Recargá la lista.' },
+        { status: 400 },
+      );
+    }
+    if (title.length < 4) {
+      return NextResponse.json(
+        { ok: false, error: 'El nombre necesita al menos 4 letras.' },
+        { status: 400 },
+      );
+    }
+    const updates = { title };
+    if (body?.point) {
+      const point = parseGoogleMapsPoint(body.point);
+      if (!point || !isWithinServiceArea(point.lat, point.lng)) {
+        return NextResponse.json(
+          { ok: false, error: 'No pude leer un punto dentro de la zona de cobertura.' },
+          { status: 400 },
+        );
+      }
+      updates.lat = point.lat;
+      updates.lng = point.lng;
+    }
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase
+      .from('pinned_addresses')
+      .update(updates)
+      .eq('id', id)
+      .select('id, title, lat, lng')
+      .single();
+    if (error) throw error;
+    clearSavedPinnedAddressCache();
+    return NextResponse.json({ ok: true, data: toPublicRow(data) });
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: err?.message || 'No se pudo actualizar la dirección.' },
+      { status: 500 },
+    );
+  }
+}
+
 export async function DELETE(request) {
   const auth = await requireAdminUser(request);
   if (!auth.user) {

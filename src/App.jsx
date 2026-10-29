@@ -912,10 +912,6 @@ export default function App() {
             />
           </div>
 
-        ) : currentView === VIEWS.addresses ? (
-          <div className="flex-1 min-h-0 flex">
-            <PinnedAddressesPanel onBack={() => goTo(VIEWS.map)} />
-          </div>
         ) : currentView === VIEWS.geocodeErrors ? (
           <div className="flex-1 min-h-0 flex">
             <GeocodeErrorsPanel onBack={() => goTo(VIEWS.map)} />
@@ -991,6 +987,19 @@ export default function App() {
                   setVoiceChatDriver(driver);
                 }}
               />
+
+              {currentView === VIEWS.addresses ? (
+                <div className="absolute bottom-3 left-3 top-3 z-30 flex w-[min(400px,calc(100%-1.5rem))] lg:left-[356px]">
+                  <PinnedAddressesPanel
+                    onBack={() => goTo(VIEWS.map)}
+                    onShowOnMap={(row) => mapRef.current?.flyTo({
+                      center: [row.lng, row.lat],
+                      zoom: 17,
+                      duration: 0.7,
+                    })}
+                  />
+                </div>
+              ) : null}
 
               {mapPickMode ? (
                 <div className="absolute left-3 right-3 top-3 z-20 sm:left-1/2 sm:right-auto sm:top-4 sm:w-auto sm:max-w-[min(420px,calc(100vw-2rem))] sm:-translate-x-1/2">

@@ -9,7 +9,7 @@ export function clearSavedPinnedAddressCache() {
 }
 
 export async function listSavedPinnedAddresses() {
-  if (Date.now() - cache.at < 15000 && cache.rows.length) return cache.rows;
+  if (Date.now() - cache.at < 2000 && cache.rows.length) return cache.rows;
   try {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase

@@ -21,6 +21,21 @@ create policy pinned_addresses_public_read
 grant select on public.pinned_addresses to anon, authenticated;
 grant all on public.pinned_addresses to service_role;
 
+alter table public.pinned_addresses replica identity full;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'pinned_addresses'
+  ) then
+    alter publication supabase_realtime add table public.pinned_addresses;
+  end if;
+end $$;
+
 insert into public.pinned_addresses (title, lat, lng)
 select 'Santa Ana 1, Pasaje 20, Casa 1421', -24.8638868, -65.4731354
 where not exists (

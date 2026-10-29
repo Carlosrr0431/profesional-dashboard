@@ -24,6 +24,7 @@ import { shouldShowDriverOnMap } from '../lib/driverPresence';
 import { useSmoothMapCoords } from '../hooks/useSmoothMapCoords';
 import { extractMapClickLngLat } from '../lib/mapPointPick';
 import MapLandmarks from './MapLandmarks';
+import PinnedAddressMarkers from './PinnedAddressMarkers';
 import PickupDispatchModal from './PickupDispatchModal';
 import { loadFrequentPickups, peekFrequentPickups } from './ExpressDispatchPopover';
 import {
@@ -472,6 +473,7 @@ const MapView = memo(function MapView({
         />
         <ZoomControl position="topright" />
         {pickupMode ? null : <MapLandmarks />}
+        {pickupMode ? null : <PinnedAddressMarkers />}
         <MapBridge
           mapRef={mapRef}
           mapFullscreen={mapFullscreen}
