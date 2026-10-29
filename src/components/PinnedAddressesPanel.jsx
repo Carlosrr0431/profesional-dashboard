@@ -43,6 +43,7 @@ export default function PinnedAddressesPanel({ onBack, onShowOnMap }) {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState('');
+  const [removingId, setRemovingId] = useState(null);
 
   const preview = parsePreviewPoint(pointText);
   const visible = useMemo(() => {
@@ -91,9 +92,16 @@ export default function PinnedAddressesPanel({ onBack, onShowOnMap }) {
 
   const rename = async (row) => {
     const nextTitle = draft.trim().replace(/\s+/g, ' ');
-    setEditingId(null);
-    if (!nextTitle || nextTitle === row.title) return;
+    if (!nextTitle || nextTitle === row.title) {
+      setEditingId(null);
+      return;
+    }
+    if (nextTitle.length < 4) {
+      toast.error('El nombre necesita al menos 4 letras.');
+      return;
+    }
     upsertPinnedAddressRow({ ...row, title: nextTitle });
+    setEditingId(null);
     try {
       const response = await fetch('/api/geo/pinned-addresses', {
         method: 'PATCH',
@@ -110,7 +118,13 @@ export default function PinnedAddressesPanel({ onBack, onShowOnMap }) {
     }
   };
 
+  const cancelEdit = () => {
+    setEditingId(null);
+    setDraft('');
+  };
+
   const remove = async (row) => {
+    setRemovingId(null);
     removePinnedAddressRow(row.id);
     try {
       const response = await fetch(`/api/geo/pinned-addresses?id=${encodeURIComponent(row.id)}`, {
@@ -194,46 +208,76 @@ export default function PinnedAddressesPanel({ onBack, onShowOnMap }) {
                 <button type="button" onClick={() => show(row)} className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-rose-500" aria-label="Ver en el mapa" />
                 <div className="min-w-0 flex-1">
                   {editing ? (
-                    <input
-                      autoFocus
-                      value={draft}
-                      onChange={(event) => setDraft(event.target.value)}
-                      onBlur={() => rename(row)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') event.currentTarget.blur();
-                        if (event.key === 'Escape') setEditingId(null);
-                      }}
-                      className="w-full rounded-lg border border-rose-200 px-2 py-1 text-[13px] font-semibold text-slate-900 outline-none"
-                    />
+                    <div className="flex flex-col gap-2">
+                      <input
+                        autoFocus
+                        value={draft}
+                        onChange={(event) => setDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') rename(row);
+                          if (event.key === 'Escape') cancelEdit();
+                        }}
+                        className="w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-[13px] font-semibold text-slate-900 outline-none"
+                      />
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => rename(row)} className="rounded-full bg-rose-600 px-3 py-1.5 text-[12px] font-semibold text-white">
+                          Aceptar
+                        </button>
+                        <button type="button" onClick={cancelEdit} className="rounded-full border border-slate-200 px-3 py-1.5 text-[12px] font-semibold text-slate-600">
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
                   ) : (
                     <button
                       type="button"
                       onClick={() => show(row)}
-                      onDoubleClick={() => {
-                        setEditingId(row.id);
-                        setDraft(row.title);
-                      }}
                       className="block w-full truncate text-left text-[13px] font-semibold text-slate-900"
                     >
                       {row.title}
                     </button>
                   )}
-                  <p className="text-[11px] text-slate-400">{formatPoint(row.lat, row.lng)}</p>
+                  {editing ? null : <p className="text-[11px] text-slate-400">{formatPoint(row.lat, row.lng)}</p>}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingId(row.id);
-                    setDraft(row.title);
-                  }}
-                  className="text-[12px] font-semibold text-slate-500"
-                >
-                  Editar
-                </button>
-                <button type="button" onClick={() => remove(row)} className="text-[12px] font-semibold text-rose-600">
-                  Quitar
-                </button>
+                {editing || removingId === row.id ? null : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRemovingId(null);
+                        setEditingId(row.id);
+                        setDraft(row.title);
+                      }}
+                      className="rounded-full border border-slate-200 px-2.5 py-1 text-[12px] font-semibold text-slate-600"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingId(null);
+                        setRemovingId(row.id);
+                      }}
+                      className="rounded-full border border-rose-100 px-2.5 py-1 text-[12px] font-semibold text-rose-600"
+                    >
+                      Quitar
+                    </button>
+                  </>
+                )}
               </div>
+              {removingId === row.id ? (
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-rose-50 px-2 py-2">
+                  <p className="text-[12px] text-rose-700">¿Quitar esta dirección?</p>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => remove(row)} className="rounded-full bg-rose-600 px-3 py-1.5 text-[12px] font-semibold text-white">
+                      Aceptar
+                    </button>
+                    <button type="button" onClick={() => setRemovingId(null)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-600">
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </li>
           );
         })}

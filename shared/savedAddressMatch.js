@@ -13,38 +13,38 @@ function foldPinnedQuery(value) {
     .trim();
 }
 
+function normalizeToken(token) {
+  if (token === 'mza' || token === 'mz' || token === 'manzana') return 'manzana';
+  if (token === 'pje' || token === 'psje') return 'pasaje';
+  return token;
+}
+
 function contentTokens(value) {
   return foldPinnedQuery(value)
     .split(' ')
-    .filter((token) => token && !STOP_TOKENS.has(token) && (token.length >= 3 || /^\d+$/.test(token)));
+    .filter((token) => token && !STOP_TOKENS.has(token) && (token.length >= 3 || /^\d+$/.test(token)))
+    .map(normalizeToken);
 }
 
-/**
- * La dirección guardada aparece si lo escrito está dentro de su nombre.
- * Hace falta un número: "santa ana" solo no alcanza; "santa 1 pasaje 20" sí.
- */
+/** Hay coincidencia si alguna palabra de lo escrito está en el nombre guardado. */
 function savedAddressMatches(title, query) {
-  const queryTokens = contentTokens(query);
-  const titleTokens = contentTokens(title);
-  if (queryTokens.length < 3 || titleTokens.length < 2) return false;
-  const titleSet = new Set(titleTokens);
-  if (!queryTokens.every((token) => titleSet.has(token))) return false;
-  const titleHasNumber = titleTokens.some((token) => /^\d+$/.test(token));
-  const queryHasNumber = queryTokens.some((token) => /^\d+$/.test(token));
-  return !titleHasNumber || queryHasNumber;
+  const queryWords = contentTokens(query).filter((token) => token.length >= 4 && !/^\d+$/.test(token));
+  if (!queryWords.length) return false;
+  const titleTokens = new Set(contentTokens(title));
+  return queryWords.some((token) => titleTokens.has(token));
 }
 
 /** Más alto = el texto comparte más palabras y números con lo que se escribió. */
 function queryOverlapScore(query, text) {
   const tokens = contentTokens(query);
   if (!tokens.length) return 0;
-  const hay = new Set(foldPinnedQuery(text).split(' ').filter(Boolean));
+  const hay = new Set(contentTokens(text));
   let score = 0;
   let hits = 0;
   for (const token of tokens) {
     if (!hay.has(token)) continue;
     hits += 1;
-    score += /^\d+$/.test(token) ? 3 : 1;
+    score += /^\d+$/.test(token) ? 3 : 2;
   }
   if (hits === tokens.length) score += 5;
   return score;

@@ -26,32 +26,69 @@ export async function listSavedPinnedAddresses() {
   }
 }
 
+function samePinnedPoint(a, b) {
+  return Math.abs(Number(a?.lat) - Number(b?.lat)) < 0.00002
+    && Math.abs(Number(a?.lng) - Number(b?.lng)) < 0.00002;
+}
+
 function withBuiltins(rows) {
-  const seen = new Set((rows || []).map((row) => foldPinnedQuery(row.title)));
   const extras = PINNED_ADDRESSES
-    .filter((item) => !seen.has(foldPinnedQuery(item.title)))
+    .filter((item) => !(rows || []).some((row) => (
+      foldPinnedQuery(row.title) === foldPinnedQuery(item.title) || samePinnedPoint(row, item)
+    )))
     .map((item) => ({
       id: `pinned:${item.id}`,
       title: item.title,
       lat: item.lat,
       lng: item.lng,
     }));
-  return [...extras, ...(rows || [])];
+  return dedupePinnedRows([...extras, ...(rows || [])]);
+}
+
+function dedupePinnedRows(rows) {
+  const builtinTitles = new Set(PINNED_ADDRESSES.map((item) => foldPinnedQuery(item.title)));
+  const kept = [];
+  for (const row of rows || []) {
+    const index = kept.findIndex((item) => samePinnedPoint(item, row));
+    if (index === -1) {
+      kept.push(row);
+      continue;
+    }
+    const current = kept[index];
+    const currentIsBuiltin = builtinTitles.has(foldPinnedQuery(current.title));
+    const nextIsBuiltin = builtinTitles.has(foldPinnedQuery(row.title));
+    if (currentIsBuiltin && !nextIsBuiltin) kept[index] = row;
+  }
+  return kept;
 }
 
 async function ensureBuiltinAddresses(supabase, rows) {
   const valid = (rows || []).filter((row) => (
     row?.title && Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lng))
   ));
-  const seen = new Set(valid.map((row) => foldPinnedQuery(row.title)));
-  const missing = PINNED_ADDRESSES.filter((item) => !seen.has(foldPinnedQuery(item.title)));
-  if (!missing.length) return valid;
+  const builtinTitles = new Set(PINNED_ADDRESSES.map((item) => foldPinnedQuery(item.title)));
+  const duplicateIds = valid
+    .filter((row) => builtinTitles.has(foldPinnedQuery(row.title)))
+    .filter((row) => valid.some((other) => (
+      other.id !== row.id
+      && samePinnedPoint(other, row)
+      && !builtinTitles.has(foldPinnedQuery(other.title))
+    )))
+    .map((row) => row.id);
+  if (duplicateIds.length) {
+    await supabase.from('pinned_addresses').delete().in('id', duplicateIds);
+  }
+  const kept = valid.filter((row) => !duplicateIds.includes(row.id));
+  const missing = PINNED_ADDRESSES.filter((item) => !kept.some((row) => (
+    foldPinnedQuery(row.title) === foldPinnedQuery(item.title) || samePinnedPoint(row, item)
+  )));
+  if (!missing.length) return dedupePinnedRows(kept);
   const { data, error } = await supabase
     .from('pinned_addresses')
     .insert(missing.map((item) => ({ title: item.title, lat: item.lat, lng: item.lng })))
     .select('id, title, lat, lng');
-  if (error) return withBuiltins(valid);
-  return [...valid, ...(data || [])];
+  if (error) return withBuiltins(kept);
+  return dedupePinnedRows([...kept, ...(data || [])]);
 }
 
 export function suggestionFromSavedAddress(row) {

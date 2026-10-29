@@ -33,10 +33,16 @@ const PINNED_ADDRESSES = [
   },
 ];
 
-const { savedAddressMatches } = require('./savedAddressMatch');
+const { savedAddressMatches, queryOverlapScore } = require('./savedAddressMatch');
+
+function findPinnedAddresses(query) {
+  return PINNED_ADDRESSES
+    .filter((item) => savedAddressMatches(item.title, query))
+    .sort((a, b) => queryOverlapScore(query, b.title) - queryOverlapScore(query, a.title));
+}
 
 function findPinnedAddress(query) {
-  return PINNED_ADDRESSES.find((item) => savedAddressMatches(item.title, query)) || null;
+  return findPinnedAddresses(query)[0] || null;
 }
 
 function pinnedAddressSuggestion(item) {
@@ -60,6 +66,7 @@ function pinnedAddressById(placeId) {
 
 module.exports = {
   PINNED_ADDRESSES,
+  findPinnedAddresses,
   findPinnedAddress,
   pinnedAddressSuggestion,
   pinnedAddressById,

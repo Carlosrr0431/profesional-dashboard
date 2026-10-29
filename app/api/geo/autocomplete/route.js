@@ -51,6 +51,29 @@ function hasPin(item) {
   return Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
 }
 
+function dedupeSamePoint(items) {
+  const kept = [];
+  for (const item of items || []) {
+    if (!hasPin(item)) {
+      kept.push(item);
+      continue;
+    }
+    const index = kept.findIndex((prev) => (
+      hasPin(prev)
+      && Math.abs(Number(prev.lat) - Number(item.lat)) < 0.00002
+      && Math.abs(Number(prev.lng) - Number(item.lng)) < 0.00002
+    ));
+    if (index === -1) {
+      kept.push(item);
+      continue;
+    }
+    const prevSaved = String(kept[index].placeId || '').startsWith('saved:');
+    const nextSaved = String(item.placeId || '').startsWith('saved:');
+    if (nextSaved && !prevSaved) kept[index] = item;
+  }
+  return kept;
+}
+
 function canOffer(item) {
   if (hasPin(item)) return true;
   return String(item?.placeId || '').startsWith('google:');
@@ -130,6 +153,7 @@ export async function GET(request) {
     if (saved.length) {
       results = mergePlaceSuggestions(saved, results, limit);
     }
+    results = dedupeSamePoint(results);
     if (intersection) {
       if (!results.length) {
         const google = await searchGooglePlacesLastResort(intersectionSearchLabel(intersection), limit, { sessionToken }).catch(() => []);

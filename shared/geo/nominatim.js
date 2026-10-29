@@ -22,7 +22,7 @@ const {
   ensureStreetCatalog,
   searchStreetCatalog,
 } = require('../salta-address');
-const { findPinnedAddress, pinnedAddressSuggestion, pinnedAddressById } = require('../pinned-addresses');
+const { findPinnedAddresses, findPinnedAddress, pinnedAddressSuggestion, pinnedAddressById } = require('../pinned-addresses');
 
 const {
   resolveSaltaKnownPoi,
@@ -1022,8 +1022,8 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   const trimmed = String(query || '').trim();
   if (trimmed.length < 2) return [];
 
-  const pinned = findPinnedAddress(trimmed);
-  if (pinned) return [pinnedAddressSuggestion(pinned)].slice(0, limit);
+  const pins = findPinnedAddresses(trimmed);
+  if (pins.length) return pins.slice(0, limit).map(pinnedAddressSuggestion);
 
   try {
     // Autocomplete exclusivo vía Google Places (New) + Place Details Essentials al elegir.
