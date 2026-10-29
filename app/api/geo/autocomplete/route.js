@@ -13,6 +13,7 @@ import {
 } from '../../../../shared/salta-address.js';
 import { rankNamedGoogleFirst } from '../../../../shared/geo/placeFreshness.js';
 import { queryOverlapScore } from '../../../../shared/savedAddressMatch.js';
+import { hasUsableGeoPoint, omitUnusablePin } from '../../../../shared/geo/mapConfig.js';
 
 export const dynamic = 'force-dynamic';
 /** La búsqueda ampliada (expand) explora por zonas y puede tardar varios segundos. */
@@ -48,7 +49,7 @@ function within(promise, ms, fallback) {
 }
 
 function hasPin(item) {
-  return Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
+  return hasUsableGeoPoint(item?.lat, item?.lng);
 }
 
 function dedupeSamePoint(items) {
@@ -188,6 +189,7 @@ export async function GET(request) {
       queryOverlapScore(query, `${b?.title || ''} ${b?.subtitle || ''} ${b?.address || ''} ${b?.formattedAddress || ''}`)
       - queryOverlapScore(query, `${a?.title || ''} ${a?.subtitle || ''} ${a?.address || ''} ${a?.formattedAddress || ''}`)
     ));
+    results = (results || []).map(omitUnusablePin);
     if (results.length) setCached(cacheKey, results);
     return NextResponse.json({ ok: true, data: results });
   } catch (err) {

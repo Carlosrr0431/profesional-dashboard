@@ -970,11 +970,14 @@ function alignStreetNumberPins(items, query) {
   const houseNumber = pickPrimaryHouseNumber(query);
   if (houseNumber == null) return items || [];
   const list = (items || []).map((item) => ({ ...item }));
-  const anchors = list.filter((item) => (
-    !String(item?.placeId || '').startsWith('georef:')
-    && Number.isFinite(Number(item?.lat))
-    && Number.isFinite(Number(item?.lng))
-  ));
+  const anchors = list.filter((item) => {
+    const lat = Number(item?.lat);
+    const lng = Number(item?.lng);
+    return !String(item?.placeId || '').startsWith('georef:')
+      && Number.isFinite(lat)
+      && Number.isFinite(lng)
+      && !(Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001);
+  });
   if (!anchors.length) return list;
 
   for (const item of list) {

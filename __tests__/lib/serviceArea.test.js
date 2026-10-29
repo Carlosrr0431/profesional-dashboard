@@ -31,4 +31,11 @@ describe('zona de cobertura del valle', () => {
     expect(coordsAllowedForQuery(-24.67, -65.05, 'guemes 700')).toBe(false);
     expect(coordsAllowedForQuery(-24.67, -65.05, 'general guemes')).toBe(true);
   });
+
+  test('0,0 no es un punto de Salta', () => {
+    const { hasUsableGeoPoint, omitUnusablePin } = require('../../shared/geo/mapConfig');
+    expect(hasUsableGeoPoint(0, 0)).toBe(false);
+    expect(hasUsableGeoPoint(-24.803845, -65.416734)).toBe(true);
+    expect(omitUnusablePin({ title: 'Avenida Chile 800', lat: 0, lng: 0 }).lat).toBeUndefined();
+  });
 });

@@ -8,6 +8,7 @@ import {
   placeQueryTokens,
   placesBillingPeriod,
 } from '../../shared/geo/placesBudget.js';
+import { hasUsableGeoPoint, omitUnusablePin } from '../../shared/geo/mapConfig.js';
 
 const SEARCH_TABLE = 'google_places_search_cache';
 const POI_TABLE = 'google_places_poi_cache';
@@ -72,21 +73,28 @@ export async function getCachedPlacesSearch(queryKey) {
     .eq('query_key', key)
     .maybeSingle();
   if (error) throw error;
-  return Array.isArray(data?.suggestions) && data.suggestions.length ? data.suggestions : null;
+  const list = Array.isArray(data?.suggestions) ? data.suggestions.map(omitUnusablePin) : [];
+  return list.length ? list : null;
 }
 
 function poiRow(item) {
   const placeId = String(item?.placeId || '').trim();
   if (!placeId.startsWith('google:')) return null;
-  const lat = Number(item?.lat);
-  const lng = Number(item?.lng);
+  const readCoord = (value) => {
+    if (value == null || value === '') return null;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+  const lat = readCoord(item?.lat);
+  const lng = readCoord(item?.lng);
+  const usable = lat != null && lng != null && hasUsableGeoPoint(lat, lng);
   return {
     place_id: placeId,
     title: String(item?.title || item?.poiName || '').trim() || null,
     subtitle: String(item?.subtitle || '').trim() || null,
     formatted_address: String(item?.formattedAddress || item?.address || '').trim() || null,
-    lat: Number.isFinite(lat) ? lat : null,
-    lng: Number.isFinite(lng) ? lng : null,
+    lat: usable ? lat : null,
+    lng: usable ? lng : null,
     types: Array.isArray(item?.types) ? item.types : [],
     search_text: foldPlaceText(`${item?.title || item?.poiName || ''} ${item?.subtitle || ''} ${item?.formattedAddress || item?.address || ''}`),
     updated_at: new Date().toISOString(),
@@ -109,7 +117,7 @@ function suggestionFromRow(row) {
     poiName: title || null,
     types: Array.isArray(row?.types) ? row.types : [],
   };
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+  if (hasUsableGeoPoint(lat, lng)) {
     suggestion.lat = lat;
     suggestion.lng = lng;
   }
@@ -168,7 +176,7 @@ export async function getCachedPoiWithCoords(placeId) {
     .maybeSingle();
   if (error || !data) return null;
   const suggestion = suggestionFromRow(data);
-  if (!suggestion || !Number.isFinite(suggestion.lat) || !Number.isFinite(suggestion.lng)) return null;
+  if (!suggestion || !hasUsableGeoPoint(suggestion.lat, suggestion.lng)) return null;
   return suggestion;
 }
 

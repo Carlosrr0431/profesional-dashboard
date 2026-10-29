@@ -33,6 +33,8 @@
 const {
   isWithinSaltaCapital,
   isWithinServiceArea,
+  hasUsableGeoPoint,
+  omitUnusablePin,
   SALTA_CAPITAL_BOUNDS,
   SALTA_SERVICE_BOUNDS,
   queryNamesCoveredLocality,
@@ -712,15 +714,17 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     if (!skipSavedSearch && placesBudget?.getSearch) {
       const saved = await placesBudget.getSearch(cacheKey).catch(() => null);
       if (Array.isArray(saved) && saved.length) {
-        setCached(autocompleteCache, cacheKey, saved, AUTOCOMPLETE_TTL_MS);
-        return saved;
+        const clean = saved.map(omitUnusablePin);
+        setCached(autocompleteCache, cacheKey, clean, AUTOCOMPLETE_TTL_MS);
+        return clean;
       }
     }
     if (!options?.skipKnownPlaces && placesBudget?.findPlaces) {
       const known = await placesBudget.findPlaces(text, normalizedLimit).catch(() => []);
       if (Array.isArray(known) && known.length) {
-        setCached(autocompleteCache, cacheKey, known, AUTOCOMPLETE_TTL_MS);
-        return known;
+        const clean = known.map(omitUnusablePin);
+        setCached(autocompleteCache, cacheKey, clean, AUTOCOMPLETE_TTL_MS);
+        return clean;
       }
     }
     const suggestions = await placesAutocompleteRequest(
@@ -752,7 +756,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     }
     // Sin Place Details acá: pedir coords de cada sugerencia cierra la sesión y
     // cobra Essentials por lugar. Las coords se piden solo al elegir una.
-    const result = named.slice(0, normalizedLimit);
+    const result = named.slice(0, normalizedLimit).map(omitUnusablePin);
 
     if (result.length) {
       setCached(autocompleteCache, cacheKey, result, AUTOCOMPLETE_TTL_MS);
@@ -775,7 +779,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
 const searchPoiSalta = autocompleteAddressSalta;
 
 async function hydrateOnePlace(item, sessionToken) {
-  if (Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng))) return item;
+  if (hasUsableGeoPoint(item?.lat, item?.lng)) return item;
   const rawId = String(item?.placeId || '').replace(/^google:/, '').trim();
   if (!rawId) return item;
 
@@ -795,7 +799,7 @@ async function hydrateOnePlace(item, sessionToken) {
       details = null;
     }
   }
-  if (!details || !Number.isFinite(Number(details.lat)) || !Number.isFinite(Number(details.lng))) return item;
+  if (!details || !hasUsableGeoPoint(details.lat, details.lng)) return item;
   return {
     ...item,
     lat: details.lat,
@@ -1008,7 +1012,7 @@ async function rememberGoogleResolution(queries, place) {
   const lat = Number(place?.lat);
   const lng = Number(place?.lng);
   const placeId = String(place?.placeId || '').trim();
-  if (!placeId.startsWith('google:') || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  if (!placeId.startsWith('google:') || !hasUsableGeoPoint(lat, lng)) return;
   const suggestion = {
     placeId,
     title: place.title || '',

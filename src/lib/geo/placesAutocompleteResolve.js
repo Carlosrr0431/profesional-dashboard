@@ -24,6 +24,7 @@ import {
   formatIntersectionLabelFromQuery,
   pickPrimaryHouseNumber,
 } from '../../../shared/salta-address.js';
+import { hasUsableGeoPoint } from '../../../shared/geo/mapConfig.js';
 
 function firstAddressLine(value) {
   const text = String(value || '').trim();
@@ -39,7 +40,7 @@ function neighborMunicipalityPenalty(hit) {
 }
 
 function hasUsablePin(item) {
-  return Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
+  return hasUsableGeoPoint(item?.lat, item?.lng);
 }
 
 function needsGoogleCoverage(results, query) {
@@ -120,7 +121,7 @@ function preferPreciseFormattedAddress({ detailsAddress, autocompleteLabel, quer
 export async function resolvePlaceSuggestion(hit, sessionToken, options = {}) {
   const labelText = buildSuggestionLabel(hit);
 
-  if (Number.isFinite(hit?.lat) && Number.isFinite(hit?.lng)) {
+  if (hasUsableGeoPoint(hit?.lat, hit?.lng)) {
     return {
       formattedAddress: preferPreciseFormattedAddress({
         detailsAddress: labelText,
@@ -181,7 +182,7 @@ export async function resolvePlaceSuggestion(hit, sessionToken, options = {}) {
 }
 
 function hasCoordinates(item) {
-  return Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
+  return hasUsableGeoPoint(item?.lat, item?.lng);
 }
 
 /** Lugares ya guardados. Si la caché no responde, se sigue con la búsqueda normal. */
@@ -250,7 +251,7 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
   const room = maxResults - preferred.length;
   for (const hit of ranked) {
     if (resolved.length >= room || detailsUsed >= 2) break;
-    const alreadyPinned = Number.isFinite(Number(hit?.lat)) && Number.isFinite(Number(hit?.lng));
+    const alreadyPinned = hasUsableGeoPoint(hit?.lat, hit?.lng);
     try {
       const effectiveToken = detailsUsed > 0 ? undefined : (hit?.sessionToken || sessionToken);
       if (!alreadyPinned) detailsUsed += 1;
@@ -259,7 +260,7 @@ export async function autocompleteAndResolveAddresses(query, maxResults = 5, opt
         alreadyPinned ? undefined : effectiveToken,
         { query: text },
       );
-      if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
+      if (!place || !hasUsableGeoPoint(place.lat, place.lng)) continue;
       resolved.push({
         ...place,
         score: scoreCandidateAgainstQuery(place.formattedAddress, text),
@@ -353,7 +354,7 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
   for (const hit of ranked) {
     if (detailsUsed >= 2) break;
     try {
-      const alreadyPinned = Number.isFinite(Number(hit?.lat)) && Number.isFinite(Number(hit?.lng));
+      const alreadyPinned = hasUsableGeoPoint(hit?.lat, hit?.lng);
       const effectiveToken = detailsUsed > 0 ? undefined : (hit?.sessionToken || sessionToken);
       if (!alreadyPinned) detailsUsed += 1;
       const place = await resolvePlaceSuggestion(
@@ -361,7 +362,7 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
         alreadyPinned ? undefined : effectiveToken,
         { query: text },
       );
-      if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
+      if (!place || !hasUsableGeoPoint(place.lat, place.lng)) continue;
 
       const labelForScore = [place.title, place.formattedAddress].filter(Boolean).join(', ');
       const score = Math.max(

@@ -127,6 +127,25 @@ function isWithinServiceArea(lat, lng) {
   return isInsideBounds(lat, lng, SALTA_SERVICE_BOUNDS);
 }
 
+/** Un 0,0 es el vacío de la base, no una esquina de Salta. */
+function hasUsableGeoPoint(lat, lng) {
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return false;
+  if (Math.abs(parsedLat) < 0.0001 && Math.abs(parsedLng) < 0.0001) return false;
+  return parsedLat <= 0 && parsedLat >= -56 && parsedLng <= -50 && parsedLng >= -75;
+}
+
+function omitUnusablePin(item) {
+  if (!item || typeof item !== 'object') return item;
+  if (hasUsableGeoPoint(item.lat, item.lng)) return item;
+  if (item.lat == null && item.lng == null) return item;
+  const next = { ...item };
+  delete next.lat;
+  delete next.lng;
+  return next;
+}
+
 function foldGeoText(value) {
   return String(value || '')
     .normalize('NFD')
@@ -212,6 +231,8 @@ module.exports = {
   SALTA_SERVICE_BOUNDS,
   isWithinSaltaCapital,
   isWithinServiceArea,
+  hasUsableGeoPoint,
+  omitUnusablePin,
   matchedCoveredLocality,
   queryNamesCoveredLocality,
   namedLocalityIsOutsideCapital,

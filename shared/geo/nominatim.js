@@ -952,10 +952,15 @@ function metersBetween(a, b) {
 function pickOfficialHouseNumber(matches, near = null) {
   const first = matches[0];
   if (!first) return null;
-  if (!matches.some((hit) => metersBetween(hit, first) > HOMONYM_STREET_METERS)) return first;
-
   const point = { lat: Number(near?.lat), lng: Number(near?.lng) };
-  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null;
+  const nearOk = Number.isFinite(point.lat) && Number.isFinite(point.lng)
+    && !(Math.abs(point.lat) < 0.0001 && Math.abs(point.lng) < 0.0001);
+  const sameStreet = !matches.some((hit) => metersBetween(hit, first) > HOMONYM_STREET_METERS);
+  if (sameStreet) {
+    if (!nearOk) return first;
+    return metersBetween(first, point) <= HOMONYM_STREET_METERS ? first : null;
+  }
+  if (!nearOk) return null;
   const nearest = matches.reduce((best, hit) => (
     metersBetween(hit, point) < metersBetween(best, point) ? hit : best
   ));
@@ -973,10 +978,14 @@ async function findOfficialHouseNumber(query, near = null) {
 
 function streetHouseQueryFromPlace(options = {}) {
   const title = String(options.title || '').trim();
-  const head = String(options.formattedAddress || '').split(',')[0].trim();
+  const subtitle = String(options.subtitle || '').trim();
+  const formatted = String(options.formattedAddress || '').trim();
+  const head = formatted.split(',')[0].trim();
+  const locality = georefLocalityName(`${title} ${subtitle} ${formatted}`);
   for (const text of [title, head]) {
     if (pickPrimaryHouseNumber(text) == null) continue;
     if (looksLikeSaltaKnownPoi(text)) continue;
+    if (locality && !georefLocalityName(text)) return `${text}, ${locality}`;
     return text;
   }
   return null;
@@ -1068,7 +1077,10 @@ async function locateStreetTitle(title) {
 }
 
 function suggestionHasPin(item) {
-  return Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
+  const lat = Number(item?.lat);
+  const lng = Number(item?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return !(Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001);
 }
 
 /** Una calle del padrón solo sigue en la lista si tiene un punto usable. */

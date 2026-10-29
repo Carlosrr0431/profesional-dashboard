@@ -7,6 +7,14 @@ const STYLES = `
 @keyframes _ac_fade { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 `;
 
+function hasUsableGeoPoint(lat, lng) {
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return false;
+  if (Math.abs(parsedLat) < 0.0001 && Math.abs(parsedLng) < 0.0001) return false;
+  return true;
+}
+
 function Spinner() {
   return (
     <div
@@ -190,7 +198,7 @@ export default function AddressAutocomplete({
     setOpen(false);
     setSuggestions([]);
 
-    const hasCoords = Number.isFinite(item.lat) && Number.isFinite(item.lng);
+    const hasCoords = hasUsableGeoPoint(item.lat, item.lng);
     if (hasCoords) {
       sessionTokenRef.current = null;
       onSelect?.({
