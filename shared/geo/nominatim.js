@@ -628,27 +628,38 @@ async function geocodeAddress(address, options = {}) {
     }
   }
 
+  const fromOwnMap = async () => {
+    const [structuredHits, variantHits] = await Promise.all([
+      searchStructuredAddress(query),
+      runVariantsInBatches(buildAddressSearchQueries(query).slice(0, 6), 8),
+    ]);
+    const results = sortNominatimResults([...structuredHits, ...variantHits], query)
+      .filter((hit) => coordsAllowedForQuery(hit.lat, hit.lng, query));
+    if (!results.length) return null;
+    const best = results[0];
+    const label = formatNominatimLabelForQuery(best, query);
+    return {
+      lat: best.lat,
+      lng: best.lng,
+      formattedAddress: label.full || best.formattedAddress,
+    };
+  };
+
+  // Un lugar o una zona se resuelve gratis en el mapa propio. Google queda para el hueco.
+  if (!hasHouseNumber) {
+    const local = await fromOwnMap();
+    if (local) return local;
+  }
+
   const googleGap = await geocodeAddressGoogleGap(query, options);
   if (googleGap) return googleGap;
 
-  const [structuredHits, variantHits] = await Promise.all([
-    searchStructuredAddress(query),
-    runVariantsInBatches(buildAddressSearchQueries(query).slice(0, 6), 8),
-  ]);
-
-  const results = sortNominatimResults([...structuredHits, ...variantHits], query)
-    .filter((hit) => coordsAllowedForQuery(hit.lat, hit.lng, query));
-  if (results.length === 0) {
-    throw new Error('No se encontró la dirección');
+  if (hasHouseNumber) {
+    const local = await fromOwnMap();
+    if (local) return local;
   }
 
-  const best = results[0];
-  const label = formatNominatimLabelForQuery(best, query);
-  return {
-    lat: best.lat,
-    lng: best.lng,
-    formattedAddress: label.full || best.formattedAddress,
-  };
+  throw new Error('No se encontró la dirección');
 }
 
 async function geocodeAddressMultiple(address, limit = 5) {

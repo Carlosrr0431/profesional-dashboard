@@ -37,15 +37,21 @@ function neighborMunicipalityPenalty(hit) {
     : 0;
 }
 
+function hasUsablePin(item) {
+  return Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
+}
+
 function needsGoogleCoverage(results, query) {
   const text = String(query || '').trim();
   if (text.length < 4) return false;
   const number = pickPrimaryHouseNumber(text);
-  if (number == null) return true;
+  if (number != null) {
+    return !(results || []).some((item) => (
+      hasUsablePin(item) && String(item?.placeId || '').startsWith('georef:')
+    ));
+  }
   return !(results || []).some((item) => (
-    Number.isFinite(Number(item?.lat))
-    && Number.isFinite(Number(item?.lng))
-    && String(item?.placeId || '').startsWith('georef:')
+    hasUsablePin(item) && !String(item?.placeId || '').startsWith('street:')
   ));
 }
 

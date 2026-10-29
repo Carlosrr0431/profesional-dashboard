@@ -79,13 +79,17 @@ function canOffer(item) {
   return String(item?.placeId || '').startsWith('google:');
 }
 
-/** Georef cubre la altura. Si no está, o si es un lugar o una zona, completa Google. */
+/** Google solo si el padrón y el mapa propio no dejaron un punto usable. */
 function needsGoogleCoverage(results, query) {
   if (String(query || '').trim().length < 4) return false;
   const number = pickPrimaryHouseNumber(query);
-  if (number == null) return true;
+  if (number != null) {
+    return !(results || []).some((item) => (
+      hasPin(item) && String(item?.placeId || '').startsWith('georef:')
+    ));
+  }
   return !(results || []).some((item) => (
-    hasPin(item) && String(item?.placeId || '').startsWith('georef:')
+    hasPin(item) && !String(item?.placeId || '').startsWith('street:')
   ));
 }
 
