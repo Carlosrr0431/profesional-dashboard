@@ -140,6 +140,7 @@ export default function App() {
   const [mapPickMode,     setMapPickMode]     = useState(null);
   const [notePickMode,    setNotePickMode]    = useState(null);
   const [notePickDriver,  setNotePickDriver]  = useState(null);
+  const [noteFocusDriverId, setNoteFocusDriverId] = useState(null);
   const mapPickSessionRef = useRef(null);
   const [fleetDrawerOpen,   setFleetDrawerOpen] = useState(false);
   const [isDesktopLayout,   setIsDesktopLayout] = useState(false);
@@ -157,6 +158,7 @@ export default function App() {
     if (notePickMode === 'several') setMultiSelectMode(false);
     setNotePickMode(null);
     setNotePickDriver(null);
+    setNoteFocusDriverId(null);
   }, [notePickMode]);
 
   const handleMapPickModeChange = useCallback((session) => {
@@ -988,8 +990,10 @@ export default function App() {
                 pickupMode={pickupMode}
                 onPickupDispatched={handlePickupDispatched}
                 notePickMode={notePickMode}
+                noteFocusDriverId={noteFocusDriverId}
                 onNoteDriverPick={(driver) => {
                   setNotePickDriver(driver);
+                  setNoteFocusDriverId(driver?.id || null);
                 }}
                 onSendAudio={(driver) => {
                   setShowBroadcast(false);
@@ -1379,6 +1383,7 @@ export default function App() {
           onNotePickModeChange={(mode, opts) => {
             const leavingSeveral = notePickMode === 'several' && mode !== 'several';
             setNotePickMode(mode);
+            if (mode !== 'one') setNoteFocusDriverId(null);
             if (mode === 'several') {
               if (opts?.reset) setMultiSelectedIds(new Set());
               setMultiSelectMode(true);
@@ -1387,6 +1392,7 @@ export default function App() {
             if (leavingSeveral) setMultiSelectMode(false);
           }}
           onToggleNoteDriver={toggleMultiSelect}
+          onNoteFocusDriver={setNoteFocusDriverId}
           noteSelectedIds={[...multiSelectedIds]}
           pickedMapDriver={notePickDriver}
           calculatePrice={calculatePrice}

@@ -367,6 +367,7 @@ const MapView = memo(function MapView({
   pickupMode = false,
   onPickupDispatched,
   notePickMode = null,
+  noteFocusDriverId = null,
   onNoteDriverPick,
 }) {
   const [activeInfo, setActiveInfo] = useState(null);
@@ -522,6 +523,7 @@ const MapView = memo(function MapView({
           const lat = Number(driver.lat);
           const lng = Number(driver.lng);
           if (!shouldShowDriverOnMap({ ...driver, lat, lng })) return null;
+          if ((notePickMode === 'all' || notePickMode === 'several') && driver.activeTrip) return null;
           return (
             <DriverMapPin
               key={driver.id}
@@ -532,7 +534,8 @@ const MapView = memo(function MapView({
               heading={Number(driver.heading) || 0}
               isSelected={!multiSelectMode && notePickMode !== 'all' && driver.id === resolvedSelectedId}
               isMultiSelected={
-                notePickMode === 'all'
+                (notePickMode === 'one' && driver.id === noteFocusDriverId)
+                || notePickMode === 'all'
                 || ((multiSelectMode || notePickMode === 'several') && selectedSet.has(driver.id))
               }
               interactive={!pickMode}

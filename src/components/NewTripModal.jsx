@@ -66,6 +66,7 @@ export default function NewTripModal({
   onMapPickModeChange,
   onNotePickModeChange,
   onToggleNoteDriver,
+  onNoteFocusDriver,
   notePickMode = null,
   noteSelectedIds = [],
   pickedMapDriver = null,
@@ -394,6 +395,14 @@ export default function NewTripModal({
 
   const selectedDriver = driverMatches.find((driver) => driver.id === selectedDriverId) || null;
   const selectedAvailability = selectedDriver ? dashboardDriverAvailability(selectedDriver) : null;
+
+  useEffect(() => {
+    if (entryMode === 'note' && noteTarget === 'one') {
+      onNoteFocusDriver?.(selectedDriver?.id || null);
+      return;
+    }
+    onNoteFocusDriver?.(null);
+  }, [entryMode, noteTarget, selectedDriver, onNoteFocusDriver]);
 
   useEffect(() => {
     if (!isScheduled) return undefined;
