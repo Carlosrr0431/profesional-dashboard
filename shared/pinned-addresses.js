@@ -52,6 +52,7 @@ function pinnedAddressById(placeId) {
 }
 
 module.exports = {
+  PINNED_ADDRESSES,
   findPinnedAddress,
   pinnedAddressSuggestion,
   pinnedAddressById,
