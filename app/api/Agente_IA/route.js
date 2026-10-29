@@ -27,6 +27,8 @@ import {
   sortGuemesStreetCandidates,
 } from '../../../src/lib/saltaStreetHomonyms';
 import { queuedWithoutDriverIsExpired } from '../../../src/lib/promoteDueScheduledTrips';
+import { isWithinServiceArea } from '../../../src/lib/constants';
+import { queryNamesCoveredLocality } from '../../../shared/geo/mapConfig.js';
 import {
   messageConfirmsTripCancel,
   messageDeniesTripCancel,
@@ -255,10 +257,6 @@ const UPSERT_ONLY = (process.env.WHATSAPP_UPSERT_ONLY || 'true').toLowerCase() !
 const SEARCH_RADII_KM = [1, 2];
 const SALTA_CAPITAL_CENTER = { lat: -24.7829, lng: -65.4122 };
 const SALTA_CAPITAL_POSTAL_CODE = 'A4400';
-const SALTA_CAPITAL_PRIORITY_RADIUS_KM = Math.max(
-  6,
-  Number(process.env.WHATSAPP_SALTA_CAPITAL_PRIORITY_RADIUS_KM || 18) || 18
-);
 
 const DEFAULT_PENDING_ACCEPT_TIMEOUT_MS = 25 * 1000;
 const MIN_PENDING_ACCEPT_TIMEOUT_MS = 10 * 1000;
@@ -2386,18 +2384,18 @@ function extractPostalCodeFromAddress(formattedAddress) {
 }
 
 const NEIGHBORING_MUNICIPALITY_RE =
-  /\b(jujuy|metan|cafayate|tartagal|oran|campo santo|colonia santa rosa|las lajitas|rosario de la frontera)\b/i;
+  /\b(jujuy|tucuman|catamarca|chaco|formosa|bolivia|oran|tartagal|embarcacion|aguaray|salvador mazza|pichanal|hipolito yrigoyen|joaquin v gonzalez|las lajitas|san antonio de los cobres)\b/i;
 
 function mentionsNeighboringMunicipality(value) {
   return NEIGHBORING_MUNICIPALITY_RE.test(normalizeForMatch(value || ''));
 }
 
-/** Fuera del valle (Vaqueros, Campo Quijano, San Lorenzo, Cerrillos y alrededores). */
+/** Fuera del valle, Güemes y el camino hasta Cafayate. */
 function coordsLookLikeNeighboringMunicipality(lat, lng) {
   const parsedLat = Number(lat);
   const parsedLng = Number(lng);
   if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return false;
-  return parsedLat > -24.55 || parsedLat < -25.15 || parsedLng > -65.25 || parsedLng < -65.72;
+  return !isWithinServiceArea(parsedLat, parsedLng);
 }
 
 function localityBlobFromGeoCandidate(candidate = {}, formattedAddress = '') {
@@ -2411,7 +2409,7 @@ function biasAddressQueryToSaltaCapital(query) {
   const raw = String(query || '').trim();
   if (!raw) return '';
   const withoutPollHint = raw.includes('·') ? raw.split('·')[0].trim() : raw;
-  if (/\b(vaqueros|san lorenzo|rosario de lerma|campo quijano|la caldera|lesser|cerrillos|la silleta|chicoana|el carril)\b/i.test(withoutPollHint)) {
+  if (queryNamesCoveredLocality(withoutPollHint)) {
     return /\bargentina\b/i.test(withoutPollHint) ? withoutPollHint : `${withoutPollHint}, Salta, Argentina`;
   }
   if (/salta\s*capital/i.test(withoutPollHint)) return withoutPollHint;
@@ -2460,19 +2458,23 @@ function inferSaltaCapitalFromFormattedAddress(formattedAddress) {
   const country = normalizedParts[normalizedParts.length - 1];
   if (country !== 'argentina') return null;
 
-  // Formato corto: "Belgrano 1200, Salta, Argentina"
+  // Formato corto: "Belgrano 1200, Salta, Argentina" o "San Martín 100, Tartagal, Argentina"
   if (normalizedParts.length === 3) {
-    return stripPostalCodePrefix(normalizedParts[normalizedParts.length - 2]) === 'salta';
+    const middle = stripPostalCodePrefix(normalizedParts[normalizedParts.length - 2]);
+    if (middle === 'salta') return true;
+    if (NEIGHBORING_MUNICIPALITY_RE.test(middle)) return false;
+    return true;
   }
 
-  // Formato largo: "Belgrano 1200, A4400 Salta, Salta, Argentina"
+  // Formato largo: "San Martín 100, Tartagal, Salta, Argentina"
   const province = stripPostalCodePrefix(normalizedParts[normalizedParts.length - 2]);
   if (province !== 'salta') return null;
 
   const locality = stripPostalCodePrefix(normalizedParts[normalizedParts.length - 3]);
   if (!locality) return null;
+  if (NEIGHBORING_MUNICIPALITY_RE.test(locality)) return false;
 
-  return locality === 'salta';
+  return true;
 }
 
 function isSaltaCapitalCandidate(candidate) {
@@ -2482,8 +2484,8 @@ function isSaltaCapitalCandidate(candidate) {
 
   const lat = Number(candidate?.lat);
   const lng = Number(candidate?.lng);
-  if (Number.isFinite(lat) && Number.isFinite(lng) && coordsLookLikeNeighboringMunicipality(lat, lng)) {
-    return false;
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return isWithinServiceArea(lat, lng);
   }
 
   // Sugerencias de Google Autocomplete ya vienen restringidas al bbox, que
@@ -2499,22 +2501,13 @@ function isSaltaCapitalCandidate(candidate) {
 
   const postalCode = extractPostalCodeFromAddress(formatted);
   if (postalCode) {
-    return postalCode.startsWith(SALTA_CAPITAL_POSTAL_CODE);
+    return postalCode.startsWith(SALTA_CAPITAL_POSTAL_CODE) || postalCode.startsWith('A');
   }
 
   const byAddress = inferSaltaCapitalFromFormattedAddress(formatted);
   if (typeof byAddress === 'boolean') return byAddress;
 
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-
-  const distanceFromCenterKm = haversineKm(
-    lat,
-    lng,
-    SALTA_CAPITAL_CENTER.lat,
-    SALTA_CAPITAL_CENTER.lng
-  );
-
-  return distanceFromCenterKm <= SALTA_CAPITAL_PRIORITY_RADIUS_KM;
+  return false;
 }
 
 function filterSaltaCapitalCandidates(candidates) {
@@ -5701,6 +5694,12 @@ function pickClosestCapitalGeocodeHit(hits, candidate, query) {
       const aCache = a?.geocodeSource === 'cache' ? 0 : 1;
       const bCache = b?.geocodeSource === 'cache' ? 0 : 1;
       if (aCache !== bCache) return aCache - bCache;
+      if (queryNamesCoveredLocality(query)) {
+        const needle = queryNamesCoveredLocality(query);
+        const aNamed = queryNamesCoveredLocality(`${a.formattedAddress || ''} ${a.subtitle || ''}`) ? 0 : 1;
+        const bNamed = queryNamesCoveredLocality(`${b.formattedAddress || ''} ${b.subtitle || ''}`) ? 0 : 1;
+        if (aNamed !== bNamed && needle) return aNamed - bNamed;
+      }
       return (
         haversineKm(a.lat, a.lng, SALTA_CAPITAL_CENTER.lat, SALTA_CAPITAL_CENTER.lng)
         - haversineKm(b.lat, b.lng, SALTA_CAPITAL_CENTER.lat, SALTA_CAPITAL_CENTER.lng)

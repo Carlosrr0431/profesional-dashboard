@@ -3,10 +3,12 @@ const {
   NOMINATIM_USER_AGENT,
   NOMINATIM_SELF_HOSTED,
   GOOGLE_POI_AUTOCOMPLETE_ENABLED,
-  SALTA_VIEWBOX,
   SALTA_COUNTRY,
-  queryNamesCoveredLocality,
+  namedLocalityIsOutsideCapital,
+  georefLocalityName,
+  viewboxForQuery,
   coordsAllowedForQuery,
+  isWithinSaltaCapital,
 } = require('./mapConfig');
 
 const {
@@ -286,19 +288,20 @@ async function fetchSearchResults(params) {
 
 async function searchNominatimVariant(query, limit = 8) {
   try {
+    const viewbox = viewboxForQuery(query);
     const bounded = await fetchSearchResults({
       q: buildSearchQuery(query),
       limit: String(Math.max(1, Math.min(limit, 10))),
-      viewbox: SALTA_VIEWBOX,
+      viewbox,
       bounded: '1',
     });
 
-    if (bounded.length >= 2) return bounded;
+    if (bounded.length >= 2 && !namedLocalityIsOutsideCapital(query)) return bounded;
 
     const relaxed = await fetchSearchResults({
       q: buildSearchQuery(query),
       limit: String(Math.max(1, Math.min(limit, 10))),
-      viewbox: SALTA_VIEWBOX,
+      viewbox,
       bounded: '0',
     });
 
@@ -360,11 +363,11 @@ async function searchStructuredAddress(query) {
     try {
       const hits = await fetchSearchResults({
         street: streetParam,
-        city: 'Salta',
+        city: georefLocalityName(query) || 'Salta',
         state: 'Salta',
         country: 'Argentina',
         limit: '8',
-        viewbox: SALTA_VIEWBOX,
+        viewbox: viewboxForQuery(query),
         bounded: '1',
       });
       for (const hit of hits) {
@@ -832,6 +835,7 @@ function georefHitMatchesStreetQuery(hit, query) {
   const got = Number(hit?.address?.house_number);
   if (wanted == null || !Number.isFinite(got) || got !== wanted) return false;
   if (!coordsAllowedForQuery(hit.lat, hit.lng, query)) return false;
+  if (namedLocalityIsOutsideCapital(query) && isWithinSaltaCapital(hit.lat, hit.lng)) return false;
   return roadAppearsInQuery(query, hit?.address?.road);
 }
 

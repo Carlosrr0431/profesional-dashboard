@@ -18,6 +18,17 @@ describe('zona de cobertura del valle', () => {
 
   test('si el pedido nombra Campo Quijano, usa esas coordenadas', () => {
     expect(coordsAllowedForQuery(-24.91, -65.64, 'Campo Quijano')).toBe(true);
-    expect(coordsAllowedForQuery(-24.19, -65.3, 'Campo Quijano')).toBe(false);
+    expect(coordsAllowedForQuery(-31.42, -64.18, 'Campo Quijano')).toBe(false);
+  });
+
+  test('Cafayate entra si el pedido la nombra; Orán y Tartagal no', () => {
+    expect(isWithinServiceArea(-26.073, -65.976)).toBe(true);
+    expect(coordsAllowedForQuery(-26.073, -65.976, 'belgrano 50 cafayate')).toBe(true);
+    expect(coordsAllowedForQuery(-26.073, -65.976, 'belgrano 50')).toBe(false);
+    expect(isWithinServiceArea(-22.516, -63.801)).toBe(false);
+    expect(coordsAllowedForQuery(-22.516, -63.801, 'san martin 100 tartagal')).toBe(false);
+    expect(coordsAllowedForQuery(-23.137, -64.324, 'san martin 100 oran')).toBe(false);
+    expect(coordsAllowedForQuery(-24.67, -65.05, 'guemes 700')).toBe(false);
+    expect(coordsAllowedForQuery(-24.67, -65.05, 'general guemes')).toBe(true);
   });
 });

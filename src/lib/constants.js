@@ -19,11 +19,12 @@ export const SALTA_CAPITAL_BOUNDS = {
   west: -65.55,
 };
 
+/** Valle de Lerma, Güemes y camino hasta Cafayate. No incluye Orán ni Tartagal. */
 export const SALTA_SERVICE_BOUNDS = {
-  north: -24.55,
-  south: -25.15,
-  east: -65.25,
-  west: -65.72,
+  north: -24.45,
+  south: -26.22,
+  east: -64.90,
+  west: -66.10,
 };
 
 export function isWithinServiceArea(lat, lng) {
