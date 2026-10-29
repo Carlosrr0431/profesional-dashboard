@@ -48,4 +48,13 @@ describe('punto de Google Maps y dirección guardada', () => {
     expect(suggestions[0].lng).toBeCloseTo(-65.4034545, 6);
     expect(global.fetch).not.toHaveBeenCalled();
   });
+
+  it('barrio rio ancho casa 2 autocompleta la gomería', async () => {
+    global.fetch = jest.fn(() => new Promise(() => {}));
+    const suggestions = await autocompleteAddressSalta('barrio rio ancho casa 2 gomeria', 5);
+    expect(suggestions[0].title).toBe('Barrio Río Ancho, Casa 2, Gomería');
+    expect(suggestions[0].lat).toBeCloseTo(-24.8533069, 6);
+    expect(suggestions[0].lng).toBeCloseTo(-65.4045727, 6);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
 });

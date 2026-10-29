@@ -34,3 +34,10 @@ where not exists (
   select 1 from public.pinned_addresses
   where title = 'Santa Rita 2, La Isla, Manzana 20, Casa 5'
 );
+
+insert into public.pinned_addresses (title, lat, lng)
+select 'Barrio Río Ancho, Casa 2, Gomería', -24.8533069, -65.4045727
+where not exists (
+  select 1 from public.pinned_addresses
+  where title = 'Barrio Río Ancho, Casa 2, Gomería'
+);

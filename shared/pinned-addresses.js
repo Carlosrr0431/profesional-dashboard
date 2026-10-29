@@ -17,6 +17,13 @@ const PINNED_ADDRESSES = [
     lat: -24.8772243,
     lng: -65.4034545,
   },
+  {
+    id: 'barrio-rio-ancho-casa-2-gomeria',
+    title: 'Barrio Río Ancho, Casa 2, Gomería',
+    subtitle: 'Salta',
+    lat: -24.8533069,
+    lng: -65.4045727,
+  },
 ];
 
 const { savedAddressMatches } = require('./savedAddressMatch');
