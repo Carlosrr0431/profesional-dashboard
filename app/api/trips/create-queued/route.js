@@ -80,7 +80,25 @@ export async function POST(req) {
       }
 
       const preferredDriverId = sanitizeText(payload?.preferredDriverId || payload?.driverId, 80);
-      if (preferredDriverId) {
+      const dispatchTarget = String(payload?.dispatchTarget || '').trim();
+      const driverIds = Array.isArray(payload?.driverIds)
+        ? [...new Set(payload.driverIds.map((id) => String(id || '').trim()).filter(Boolean))]
+        : [];
+      if (dispatchTarget === 'several' && !driverIds.length) {
+        return NextResponse.json(
+          { ok: false, message: 'Elegí al menos un móvil en el mapa.' },
+          { status: 400 },
+        );
+      }
+      if (dispatchTarget === 'all') {
+        tripPayload.wa_context = { ...tripPayload.wa_context, dispatch_target: 'all' };
+      } else if (dispatchTarget === 'several') {
+        tripPayload.wa_context = {
+          ...tripPayload.wa_context,
+          dispatch_target: 'selected',
+          dispatch_allowed_driver_ids: driverIds,
+        };
+      } else if (preferredDriverId) {
         tripPayload.wa_context = mergePreferredDriverWaContext(tripPayload.wa_context, preferredDriverId);
         tripPayload.notes = appendDashboardAssignNotes(tripPayload.notes);
       }
@@ -93,7 +111,8 @@ export async function POST(req) {
         .single();
       if (error) throw error;
 
-      if (!preferredDriverId) {
+      const directAssign = dispatchTarget !== 'all' && dispatchTarget !== 'several' && Boolean(preferredDriverId);
+      if (!directAssign) {
         triggerDispatchWorker({ reason: 'dashboard_note_only', tripId: trip.id });
       }
 

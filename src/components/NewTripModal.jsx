@@ -64,6 +64,10 @@ export default function NewTripModal({
   commissionPercent,
   onRouteChange,
   onMapPickModeChange,
+  onNotePickModeChange,
+  notePickMode = null,
+  noteSelectedIds = [],
+  pickedMapDriver = null,
   asPopover = false,
   drivers = [],
 }) {
@@ -100,6 +104,7 @@ export default function NewTripModal({
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
   const [driverMode, setDriverMode] = useState('nearest');
+  const [noteTarget, setNoteTarget] = useState('one');
   const [driverNumberQuery, setDriverNumberQuery] = useState('');
   const [selectedDriverId, setSelectedDriverId] = useState(null);
 
@@ -121,6 +126,13 @@ export default function NewTripModal({
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!pickedMapDriver?.id) return;
+    setSelectedDriverId(pickedMapDriver.id);
+    setDriverNumberQuery(String(pickedMapDriver.driverNumber ?? ''));
+    onNotePickModeChange?.(null);
+  }, [pickedMapDriver, onNotePickModeChange]);
 
   /* ── Calcular ruta cuando hay origen + destino ────────────────────────── */
   useEffect(() => {
@@ -360,13 +372,14 @@ export default function NewTripModal({
     });
   };
 
+  const choosingOneDriver = (entryMode === 'note' && noteTarget === 'one') || driverMode === 'choose';
   const driverMatches = useMemo(
-    () => (driverMode === 'choose' ? findDashboardDriversByNumber(drivers, driverNumberQuery) : []),
-    [driverMode, drivers, driverNumberQuery],
+    () => (choosingOneDriver ? findDashboardDriversByNumber(drivers, driverNumberQuery) : []),
+    [choosingOneDriver, drivers, driverNumberQuery],
   );
 
   useEffect(() => {
-    if (driverMode !== 'choose') {
+    if (!choosingOneDriver) {
       setSelectedDriverId(null);
       return;
     }
@@ -377,7 +390,7 @@ export default function NewTripModal({
     setSelectedDriverId((prev) => (
       driverMatches.some((driver) => driver.id === prev) ? prev : null
     ));
-  }, [driverMode, driverMatches]);
+  }, [choosingOneDriver, driverMatches]);
 
   const selectedDriver = driverMatches.find((driver) => driver.id === selectedDriverId) || null;
   const selectedAvailability = selectedDriver ? dashboardDriverAvailability(selectedDriver) : null;
@@ -408,15 +421,19 @@ export default function NewTripModal({
         setError('Escribí la nota para derivar el viaje.');
         return;
       }
-      if (driverMode === 'choose') {
+      if (noteTarget === 'one') {
         if (!selectedDriver?.id) {
-          setError('Ingresá el número de móvil y seleccioná el chofer.');
+          setError('Elegí un móvil con el número o en el mapa.');
           return;
         }
         if (selectedAvailability && !selectedAvailability.canAssign) {
           setError(`Ese móvil no se puede asignar ahora (${selectedAvailability.label}).`);
           return;
         }
+      }
+      if (noteTarget === 'several' && noteSelectedIds.length === 0) {
+        setError('Elegí al menos un móvil en el mapa.');
+        return;
       }
       setLoading(true);
       try {
@@ -429,9 +446,11 @@ export default function NewTripModal({
             notes: notes.trim(),
             passengerName: null,
             passengerPhone: null,
-            ...(driverMode === 'choose' && selectedDriver?.id
+            dispatchTarget: noteTarget,
+            ...(noteTarget === 'one' && selectedDriver?.id
               ? { preferredDriverId: selectedDriver.id }
               : {}),
+            ...(noteTarget === 'several' ? { driverIds: noteSelectedIds } : {}),
           }),
         });
         const result = await response.json().catch(() => null);
@@ -439,7 +458,7 @@ export default function NewTripModal({
           throw new Error(result?.message || 'No se pudo derivar la nota.');
         }
         let trip = result.trip;
-        if (driverMode === 'choose' && selectedDriver?.id && trip?.id) {
+        if (noteTarget === 'one' && selectedDriver?.id && trip?.id) {
           try {
             const assigned = await assignExistingTripToDriver({
               tripId: trip.id,
@@ -450,9 +469,10 @@ export default function NewTripModal({
             toast.warning(assignErr?.message || 'La nota quedó en cola. Asignala desde Viajes.');
           }
         }
-        toast.success('Nota derivada. El chofer la ve al aceptar y arranca sin destino.');
-        if (onSuccess) onSuccess(trip, { assignedDriver: driverMode === 'choose' ? selectedDriver : null });
-        onClose();
+        toast.success(noteTarget === 'one'
+          ? 'Nota derivada a ese móvil.'
+          : 'Nota ofrecida. El primero que acepte se la lleva.');
+        if (onSuccess) onSuccess(trip, { assignedDriver: noteTarget === 'one' ? selectedDriver : null });
         onClose();
       } catch (err) {
         setError(err?.message || 'No se pudo derivar la nota.');
@@ -571,7 +591,7 @@ export default function NewTripModal({
     }
   };
 
-  if (mapPickTarget) return null;
+  if (mapPickTarget || notePickMode) return null;
 
   /* ── Render minimizado ────────────────────────────────────────────────── */
   if (minimized) {
@@ -763,29 +783,15 @@ export default function NewTripModal({
           </div>
 
           {entryMode === 'note' ? (
-            <div style={{
-              background: '#F8FAFC',
-              border: '1px solid #E8EEF4',
-              borderRadius: 16,
-              padding: asPopover ? 12 : 14,
-              marginBottom: 10,
-            }}>
-              <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
-                El chofer ve esta nota y arranca sin destino
-              </p>
-              <p style={{ margin: '0 0 10px', fontSize: 12, lineHeight: 1.45, color: '#64748B' }}>
-                Sirve para un barrio, una manzana o un apellido. No hace falta origen ni destino.
-              </p>
-              <textarea
-                rows={5}
-                maxLength={800}
-                autoFocus
-                placeholder="Ej: Barrio Castañares manzana 14 casi 21 familia Rodriguez"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                style={{ ...notesAreaStyle, minHeight: 120, fontSize: 15 }}
-              />
-            </div>
+            <textarea
+              rows={4}
+              maxLength={800}
+              autoFocus
+              placeholder="Ej: Barrio Castañares manzana 14, familia Rodríguez"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              style={{ ...notesAreaStyle, minHeight: 96, fontSize: 15, marginBottom: 10 }}
+            />
           ) : null}
 
           {entryMode === 'address' ? (
@@ -951,6 +957,96 @@ export default function NewTripModal({
           </>
           ) : null}
 
+          {entryMode === 'note' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
+              {[
+                ['one', 'Un móvil', 'Escribí el número o elegilo en el mapa'],
+                ['several', 'Varios móviles', 'El primero que acepte se lo lleva'],
+                ['all', 'Todos los móviles', 'Se ofrece a todos. Gana el primero'],
+              ].map(([key, title, hint]) => {
+                const active = noteTarget === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setNoteTarget(key)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 10,
+                      textAlign: 'left',
+                      padding: '10px 12px',
+                      borderRadius: 14,
+                      border: active ? '1.5px solid #0F172A' : '1px solid #E2E8F0',
+                      background: active ? '#F8FAFC' : '#FFFFFF',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <span style={{
+                      width: 18,
+                      height: 18,
+                      marginTop: 1,
+                      borderRadius: 999,
+                      border: active ? '5px solid #0F172A' : '1.5px solid #CBD5E1',
+                      flexShrink: 0,
+                      boxSizing: 'border-box',
+                    }} />
+                    <span>
+                      <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#0F172A' }}>{title}</span>
+                      <span style={{ display: 'block', marginTop: 2, fontSize: 12, color: '#64748B', lineHeight: 1.35 }}>{hint}</span>
+                    </span>
+                  </button>
+                );
+              })}
+              {noteTarget === 'one' ? (
+                <div style={{ background: '#FAFBFC', borderRadius: 14, padding: 10 }}>
+                  <label style={scheduleFieldLabelStyle}>NÚMERO DE MÓVIL</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Ej: 12"
+                    value={driverNumberQuery}
+                    onChange={(e) => setDriverNumberQuery(e.target.value)}
+                    style={optInputStyle}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onNotePickModeChange?.('one')}
+                    style={{ ...scheduleModeBtnStyle(false, false), marginTop: 8, width: '100%' }}
+                  >
+                    Elegir en el mapa
+                  </button>
+                  {selectedDriver ? (
+                    <p style={{ margin: '8px 0 0', fontSize: 12, fontWeight: 700, color: '#0F172A' }}>
+                      Móvil #{selectedDriver.driverNumber} · {driverDisplayName(selectedDriver)}
+                    </p>
+                  ) : String(driverNumberQuery || '').trim() ? (
+                    <p style={{ margin: '8px 0 0', fontSize: 12, color: '#B91C1C' }}>
+                      No hay un móvil con ese número.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              {noteTarget === 'several' ? (
+                <div style={{ background: '#FAFBFC', borderRadius: 14, padding: 10 }}>
+                  <p style={{ margin: '0 0 8px', fontSize: 12, color: '#64748B' }}>
+                    {noteSelectedIds.length
+                      ? `${noteSelectedIds.length} móvil${noteSelectedIds.length === 1 ? '' : 'es'}. El primero que acepte se lo lleva.`
+                      : 'Elegí los móviles en el mapa. El primero que acepte se lo lleva.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onNotePickModeChange?.('several')}
+                    style={{ ...scheduleModeBtnStyle(false, false), width: '100%' }}
+                  >
+                    Elegir en el mapa
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+          <>
           <div
             role="group"
             aria-label="Quién toma el viaje"
@@ -1068,6 +1164,8 @@ export default function NewTripModal({
               )}
             </div>
           ) : null}
+          </>
+          )}
 
           {/* Resumen de ruta, una línea */}
           {(routeLoading || routeInfo) ? (

@@ -67,17 +67,26 @@ export async function POST(request) {
   if (!driverId) {
     return NextResponse.json({ ok: false, message: 'Falta el chofer.' }, { status: 400 });
   }
-  if (!destinationAddress || destinationLat == null || destinationLng == null) {
+
+  const dropoffAddress = sanitizeText(body?.dropoff_address || body?.dropoffAddress || 'A confirmar');
+  const dropoffLat = toNumberOrNull(body?.dropoff_lat ?? body?.dropoffLat);
+  const dropoffLng = toNumberOrNull(body?.dropoff_lng ?? body?.dropoffLng);
+  const userNotes = sanitizeText(body?.notes || body?.userNotes, 1000);
+  const notesOnly = body?.notesOnly === true || (!destinationAddress && Boolean(userNotes));
+
+  if (notesOnly && !userNotes) {
+    return NextResponse.json({ ok: false, message: 'Escribí la nota del viaje.' }, { status: 400 });
+  }
+  if (!notesOnly && (!destinationAddress || destinationLat == null || destinationLng == null)) {
     return NextResponse.json(
       { ok: false, message: 'Ingresá la dirección de recogida del pasajero.' },
       { status: 400 },
     );
   }
 
-  const dropoffAddress = sanitizeText(body?.dropoff_address || body?.dropoffAddress || 'A confirmar');
-  const dropoffLat = toNumberOrNull(body?.dropoff_lat ?? body?.dropoffLat);
-  const dropoffLng = toNumberOrNull(body?.dropoff_lng ?? body?.dropoffLng);
-  const userNotes = sanitizeText(body?.notes || body?.userNotes, 1000);
+  const pickupAddress = notesOnly ? userNotes : destinationAddress;
+  const pickupLat = notesOnly ? -24.7891 : destinationLat;
+  const pickupLng = notesOnly ? -65.4106 : destinationLng;
 
   const clientLat = toNumberOrNull(body?.origin_lat ?? body?.driverLat);
   const clientLng = toNumberOrNull(body?.origin_lng ?? body?.driverLng);
@@ -85,15 +94,17 @@ export async function POST(request) {
     ? { lat: clientLat, lng: clientLng }
     : null;
 
-  const tripNotes = buildDashboardAssignNotes({
-    userNotes,
-    pickupAddress: destinationAddress,
-    pickupLat: destinationLat,
-    pickupLng: destinationLng,
-    dropoffAddress,
-    dropoffLat,
-    dropoffLng,
-  });
+  const tripNotes = notesOnly
+    ? ['[NOTE_ONLY]', '[DASHBOARD]', '[FREE_RIDE]', userNotes].join('\n')
+    : buildDashboardAssignNotes({
+      userNotes,
+      pickupAddress,
+      pickupLat,
+      pickupLng,
+      dropoffAddress,
+      dropoffLat,
+      dropoffLng,
+    });
 
   const requestedOrigin = sanitizeText(body?.origin_address);
   const knownStreet = requestedOrigin && !isCoordLikeAddress(requestedOrigin) ? requestedOrigin : '';
@@ -102,9 +113,9 @@ export async function POST(request) {
     driver_id: driverId,
     passenger_name: sanitizeText(body?.passenger_name || body?.passengerName || 'Pasajero', 120) || 'Pasajero',
     passenger_phone: sanitizeText(body?.passenger_phone || body?.passengerPhone, 40) || null,
-    destination_address: destinationAddress,
-    destination_lat: destinationLat,
-    destination_lng: destinationLng,
+    destination_address: pickupAddress,
+    destination_lat: pickupLat,
+    destination_lng: pickupLng,
     origin_address: knownStreet || null,
     origin_lat: null,
     origin_lng: null,
@@ -116,7 +127,12 @@ export async function POST(request) {
     distance_km: toNumberOrNull(body?.distance_km ?? body?.distanceKm),
     duration_minutes: toNumberOrNull(body?.duration_minutes ?? body?.durationMinutes),
     notes: tripNotes,
-    wa_context: { dispatch_excluded_driver_ids: [], source: 'dashboard_assign', manual_assign: true },
+    wa_context: {
+      dispatch_excluded_driver_ids: [],
+      source: 'dashboard_assign',
+      manual_assign: true,
+      ...(notesOnly ? { note_only: true } : {}),
+    },
   };
 
   try {
@@ -191,7 +207,14 @@ export async function POST(request) {
 
     let streetPromise = null;
     let street = null;
-    if (!nextOffer) {
+    if (notesOnly) {
+      tripData.origin_address = userNotes;
+      tripData.origin_lat = pickupLat;
+      tripData.origin_lng = pickupLng;
+      tripData.destination_address = null;
+      tripData.destination_lat = null;
+      tripData.destination_lng = null;
+    } else if (!nextOffer) {
       // El panel manda el pin de cuando se abrió el formulario; el chofer pudo moverse desde entonces.
       const loc = Array.isArray(locResult?.data) ? locResult.data[0] : null;
       const liveDriver = applyLiveGpsToDriver(driverRow, loc || null);

@@ -904,6 +904,28 @@ async function chooseDriverForClaim(
   }
 
   const reachableDrivers = candidateDrivers.filter((driver) => hasDriverNotificationChannel(driver));
+  const dispatchContext = trip?.wa_context && typeof trip.wa_context === 'object'
+    ? trip.wa_context
+    : {};
+  const dispatchTarget = String(dispatchContext.dispatch_target || '');
+  const allowedDriverIds = Array.isArray(dispatchContext.dispatch_allowed_driver_ids)
+    ? dispatchContext.dispatch_allowed_driver_ids.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (dispatchTarget === 'all' || dispatchTarget === 'selected') {
+    const pool = dispatchTarget === 'selected'
+      ? reachableDrivers.filter((driver) => allowedDriverIds.includes(driver.id))
+      : reachableDrivers;
+    if (!pool.length) return null;
+    return {
+      driver: pool[0],
+      distanceKm: 0,
+      scoreKm: 0,
+      radiusKm: 500,
+      allowedRadiiKm: [500],
+      wave: pool.length > 1,
+      drivers: pool,
+    };
+  }
   const noChannelFilteredCount = Math.max(0, candidateDrivers.length - reachableDrivers.length);
   logWorkerVerbose('driver_select_pool', {
     tripId: trip?.id || null,

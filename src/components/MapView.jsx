@@ -366,6 +366,8 @@ const MapView = memo(function MapView({
   onPickLocation,
   pickupMode = false,
   onPickupDispatched,
+  notePickMode = null,
+  onNoteDriverPick,
 }) {
   const [activeInfo, setActiveInfo] = useState(null);
   const [pickupPoints, setPickupPoints] = useState(null);
@@ -442,14 +444,18 @@ const MapView = memo(function MapView({
 
   const handleDriverSelect = useCallback((driver) => {
     if (pickMode) return;
-    if (multiSelectMode) {
+    if (notePickMode === 'one') {
+      onNoteDriverPick?.(driver);
+      return;
+    }
+    if (multiSelectMode || notePickMode === 'several') {
       onToggleMultiSelect?.(driver.id);
       return;
     }
     setActiveInfo({ type: 'driver', data: driver });
     onSelectDriver?.(driver.id);
     onDriverClick?.(driver);
-  }, [pickMode, multiSelectMode, onToggleMultiSelect, onSelectDriver, onDriverClick]);
+  }, [pickMode, notePickMode, multiSelectMode, onToggleMultiSelect, onSelectDriver, onDriverClick, onNoteDriverPick]);
 
   return (
     <div

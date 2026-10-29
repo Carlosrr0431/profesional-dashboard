@@ -138,6 +138,8 @@ export default function App() {
   // Ruta de preview al asignar viaje: { polylineCoords?, origin, destination? } | null
   const [previewRoute,    setPreviewRoute]    = useState(null);
   const [mapPickMode,     setMapPickMode]     = useState(null);
+  const [notePickMode,    setNotePickMode]    = useState(null);
+  const [notePickDriver,  setNotePickDriver]  = useState(null);
   const mapPickSessionRef = useRef(null);
   const [fleetDrawerOpen,   setFleetDrawerOpen] = useState(false);
   const [isDesktopLayout,   setIsDesktopLayout] = useState(false);
@@ -152,6 +154,8 @@ export default function App() {
     setPreviewRoute(null);
     mapPickSessionRef.current = null;
     setMapPickMode(null);
+    setNotePickMode(null);
+    setNotePickDriver(null);
   }, []);
 
   const handleMapPickModeChange = useCallback((session) => {
@@ -982,6 +986,11 @@ export default function App() {
                 onToggleMapFullscreen={toggleMapFullscreen}
                 pickupMode={pickupMode}
                 onPickupDispatched={handlePickupDispatched}
+                notePickMode={notePickMode}
+                onNoteDriverPick={(driver) => {
+                  setNotePickDriver(driver);
+                  setNotePickMode(null);
+                }}
                 onSendAudio={(driver) => {
                   setShowBroadcast(false);
                   setVoiceChatDriver(driver);
@@ -1035,8 +1044,48 @@ export default function App() {
                 </div>
               ) : null}
 
+              {notePickMode ? (
+                <div className="absolute left-3 right-3 top-3 z-20 sm:left-1/2 sm:right-auto sm:top-4 sm:w-auto sm:max-w-[min(420px,calc(100vw-2rem))] sm:-translate-x-1/2">
+                  <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/97 px-3 py-2.5 shadow-2xl backdrop-blur-md sm:px-4">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-bold text-navy-900">
+                        {notePickMode === 'one' ? 'Tocá un móvil' : 'Tocá los móviles'}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        {notePickMode === 'several'
+                          ? `${multiSelectedIds.size} elegido${multiSelectedIds.size === 1 ? '' : 's'}. El primero que acepte se lo lleva.`
+                          : 'La nota se le ofrece a ese móvil.'}
+                      </p>
+                    </div>
+                    {notePickMode === 'several' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNotePickMode(null);
+                          setMultiSelectMode(false);
+                        }}
+                        className="shrink-0 rounded-xl bg-slate-900 px-3 py-2 text-[12px] font-semibold text-white"
+                      >
+                        Listo
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNotePickMode(null);
+                        setMultiSelectMode(false);
+                        if (notePickMode === 'several') setMultiSelectedIds(new Set());
+                      }}
+                      className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-semibold text-slate-600"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               {/* ── Banner de selección múltiple ─────────────────────── */}
-              {multiSelectMode && (
+              {multiSelectMode && !notePickMode && (
                 <div className="absolute left-3 right-3 top-3 z-10 sm:left-1/2 sm:right-auto sm:top-4 sm:w-auto sm:max-w-[calc(100vw-2rem)] sm:-translate-x-1/2">
                   <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-light-300/60 bg-white/97 px-3 py-2.5 shadow-2xl shadow-navy-900/10 backdrop-blur-md sm:flex-nowrap sm:gap-2.5 sm:px-4">
                     <div className="flex items-center gap-2 border-light-300/60 pr-2 sm:border-r">
@@ -1366,6 +1415,16 @@ export default function App() {
           onSuccess={handleNewTripSuccess}
           onRouteChange={setPreviewRoute}
           onMapPickModeChange={handleMapPickModeChange}
+          notePickMode={notePickMode}
+          onNotePickModeChange={(mode) => {
+            setNotePickMode(mode);
+            if (mode === 'several') {
+              setMultiSelectedIds(new Set());
+              setMultiSelectMode(true);
+            }
+          }}
+          noteSelectedIds={[...multiSelectedIds]}
+          pickedMapDriver={notePickDriver}
           calculatePrice={calculatePrice}
           tariffPerKm={tariffPerKm}
           tariffBase={tariffBase}

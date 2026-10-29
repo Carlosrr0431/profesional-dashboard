@@ -405,8 +405,44 @@ export default function TripAssignModal({
       }
     }
 
-    if (!finalOriginAddress || !finalOriginLat || !finalOriginLng) {
-      setError('Ingresá la dirección de origen del pasajero');
+    if (!finalOriginAddress && !notes.trim()) {
+      setError('Escribí una nota, o la dirección de origen.');
+      return;
+    }
+
+    if (!finalOriginAddress) {
+      setSubmitting(true);
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        const assignRes = await fetch('/api/trips/assign', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            driver_id: driver.id,
+            notesOnly: true,
+            notes: notes.trim(),
+          }),
+        });
+        const assignJson = await assignRes.json().catch(() => ({}));
+        if (!assignRes.ok || !assignJson?.ok || !assignJson?.trip) {
+          throw new Error(assignJson?.message || 'Error al crear el viaje');
+        }
+        onSuccess?.(assignJson.trip);
+        onClose();
+      } catch (err) {
+        setError(err?.message || 'No se pudo asignar el viaje.');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    if (!finalOriginLat || !finalOriginLng) {
+      setError('Elegí el origen en la lista o en el mapa.');
       return;
     }
 
@@ -694,7 +730,7 @@ export default function TripAssignModal({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <OriginDot />
                   <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>
-                    ORIGEN
+                    ORIGEN <span style={{ fontWeight: 400, color: '#94A3B8' }}>(opcional)</span>
                   </span>
                 </div>
                 {assignAsNext ? null : (
@@ -831,13 +867,13 @@ export default function TripAssignModal({
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                 <NotesDot />
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>
-                  NOTAS <span style={{ fontWeight: 400, color: '#94A3B8' }}>(opcional)</span>
+                  NOTAS <span style={{ fontWeight: 400, color: '#94A3B8' }}>· alcanza para derivar</span>
                 </span>
               </div>
               <textarea
                 rows={3}
                 maxLength={800}
-                placeholder="Datos adicionales del viaje…"
+                placeholder="Ej: Barrio Castañares, familia Rodríguez"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 style={notesAreaStyle}
