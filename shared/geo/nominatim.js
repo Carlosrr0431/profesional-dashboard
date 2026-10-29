@@ -34,7 +34,7 @@ const {
   buildPoiAutocompleteQueries,
   normalizePoiText,
 } = require('../salta-known-pois');
-const { searchGeorefAddress, resolveGeorefPlaceId, fetchGeorefCalles } = require('./georef');
+const { searchGeorefAddress, lookupGeorefHouseNumbers, resolveGeorefPlaceId, fetchGeorefCalles } = require('./georef');
 const { fuzzySearch: tomtomFuzzySearch, reverseGeocodeCoords: tomtomReverseGeocode } = require('./tomtomClient');
 
 const PUBLIC_NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
@@ -536,7 +536,6 @@ async function geocodeAddressGoogleGap(query, options = {}) {
     const sessionToken = options.sessionToken || createSessionToken();
     const suggestions = await googleSearchPoi(query, 5, { sessionToken });
     const number = pickPrimaryHouseNumber(query);
-    let fallback = null;
     let detailsUsed = 0;
     for (const hit of suggestions) {
       if (detailsUsed >= 2) break;
@@ -557,7 +556,8 @@ async function geocodeAddressGoogleGap(query, options = {}) {
       const hitNumber = pickPrimaryHouseNumber(
         `${hit.title || ''} ${hit.address || ''} ${details.formattedAddress || ''}`,
       );
-      const mapped = {
+      if (number != null && hitNumber !== number) continue;
+      return {
         lat: details.lat,
         lng: details.lng,
         formattedAddress: googleGapLabel(hit, details),
@@ -566,13 +566,8 @@ async function geocodeAddressGoogleGap(query, options = {}) {
         subtitle: hit.subtitle || details.subtitle || null,
         geocodeSource: details.geocodeSource || 'google_place_details_essentials',
       };
-      if (number != null && hitNumber != null && hitNumber !== number) {
-        if (!fallback) fallback = mapped;
-        continue;
-      }
-      return mapped;
     }
-    return fallback;
+    return null;
   } catch {
     return null;
   }
@@ -611,23 +606,6 @@ async function geocodeAddress(address, options = {}) {
     return geocodeAddressGoogleViaAutocomplete(query, options);
   }
 
-  const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
-  if (hasHouseNumber) {
-    const georefHits = await searchGeorefAddress(query, 4).catch(() => []);
-    const ranked = preferSpecificRoad(query, georefHits.filter((hit) => georefHitMatchesStreetQuery(hit, query)));
-    if (ranked.length > 0) {
-      const best = pickOfficialHouseNumber(ranked) || ranked[0];
-      const label = formatNominatimLabelForQuery(best, query);
-      return {
-        lat: best.lat,
-        lng: best.lng,
-        formattedAddress: label.full || best.formattedAddress,
-        placeId: best.placeId || null,
-        geocodeSource: 'georef',
-      };
-    }
-  }
-
   const fromOwnMap = async () => {
     const [structuredHits, variantHits] = await Promise.all([
       searchStructuredAddress(query),
@@ -645,19 +623,37 @@ async function geocodeAddress(address, options = {}) {
     };
   };
 
-  // Un lugar o una zona se resuelve gratis en el mapa propio. Google queda para el hueco.
-  if (!hasHouseNumber) {
-    const local = await fromOwnMap();
-    if (local) return local;
+  const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
+  if (hasHouseNumber) {
+    const pack = await lookupGeorefHouseNumbers(query, 4).catch(() => ({ located: [], missingLabel: null }));
+    const ranked = preferSpecificRoad(
+      query,
+      (pack.located || []).filter((hit) => georefHitMatchesStreetQuery(hit, query)),
+    );
+    if (ranked.length > 0) {
+      const best = pickOfficialHouseNumber(ranked) || ranked[0];
+      const label = formatNominatimLabelForQuery(best, query);
+      return {
+        lat: best.lat,
+        lng: best.lng,
+        formattedAddress: label.full || best.formattedAddress,
+        placeId: best.placeId || null,
+        geocodeSource: 'georef',
+      };
+    }
+    const exact = await geocodeAddressGoogleGap(pack.missingLabel || query, options);
+    if (exact) return exact;
+    if (!(pack.missingLabel && isGoogleConfigured())) {
+      const local = await fromOwnMap();
+      if (local) return local;
+    }
+    throw new Error('No se encontró la dirección');
   }
 
+  const local = await fromOwnMap();
+  if (local) return local;
   const googleGap = await geocodeAddressGoogleGap(query, options);
   if (googleGap) return googleGap;
-
-  if (hasHouseNumber) {
-    const local = await fromOwnMap();
-    if (local) return local;
-  }
 
   throw new Error('No se encontró la dirección');
 }
@@ -1203,6 +1199,8 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       if (merged.length > 0) {
         return merged.slice(0, limit).map(({ score, ...item }) => item);
       }
+      // Sin coordenadas oficiales no se ofrece el centroide del mapa: el punto sale de Google.
+      if (isGoogleConfigured()) return [];
 
       const [structuredHits, geocodeHits] = await Promise.all([
         withTimeout(searchStructuredAddress(trimmed).catch(() => []), 2000, []),

@@ -359,24 +359,44 @@ async function estimateMissingGeorefPin(item) {
 }
 
 async function materializeGeorefDirecciones(items) {
-  const mapped = await Promise.all((items || []).map(async (item) => {
-    const direct = mapGeorefDireccion(item);
-    if (direct) return direct;
-    return estimateMissingGeorefPin(item);
-  }));
-  return mapped.filter(Boolean);
+  return (items || []).map((item) => mapGeorefDireccion(item)).filter(Boolean);
+}
+
+/**
+ * Punto oficial de Georef, o el nombre normalizado si la altura no tiene coordenadas.
+ * Sin lat/lon no se inventa un punto: esa dirección se resuelve con el lugar exacto de Google.
+ */
+async function lookupGeorefHouseNumbers(query, max = 3) {
+  const trimmed = String(query || '').trim();
+  if (!trimmed || pickPrimaryHouseNumber(trimmed) == null) {
+    return { located: [], missingLabel: null };
+  }
+
+  const hits = await fetchGeorefDirecciones(trimmed, { max });
+  const located = [];
+  let missingLabel = null;
+  for (const item of hits) {
+    const mapped = mapGeorefDireccion(item);
+    if (mapped) {
+      located.push(mapped);
+      continue;
+    }
+    if (missingLabel) continue;
+    const height = Number(item?.altura?.valor);
+    const name = String(item?.calle?.nombre || '').trim();
+    if (!name || !(height > 0)) continue;
+    missingLabel = String(item?.nomenclatura || '').trim() || `${name} ${height}, Salta`;
+  }
+  return { located, missingLabel };
 }
 
 /**
  * Busca direcciones con altura en Georef (Salta Capital).
- * Solo tiene sentido cuando el query incluye número de calle.
+ * Solo devuelve las que traen coordenadas. Si no las traen, el llamador pide el punto exacto.
  */
 async function searchGeorefAddress(query, max = 3) {
-  const trimmed = String(query || '').trim();
-  if (!trimmed || pickPrimaryHouseNumber(trimmed) == null) return [];
-
-  const hits = await fetchGeorefDirecciones(trimmed, { max });
-  return materializeGeorefDirecciones(hits);
+  const { located } = await lookupGeorefHouseNumbers(query, max);
+  return located;
 }
 
 /**
@@ -418,5 +438,6 @@ module.exports = {
   fetchGeorefCalles,
   fetchGeorefDirecciones,
   searchGeorefAddress,
+  lookupGeorefHouseNumbers,
   resolveGeorefPlaceId,
 };
