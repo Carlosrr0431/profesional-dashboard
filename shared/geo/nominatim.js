@@ -519,7 +519,16 @@ async function geocodeAddressGoogleViaAutocomplete(query, options = {}) {
   throw new Error('No se encontró la dirección');
 }
 
-/** Google solo cuando Georef no tiene la calle, el lugar o la zona. */
+function googleGapLabel(hit, details) {
+  const title = String(hit?.title || '').trim();
+  const subtitle = String(hit?.subtitle || '').trim();
+  const formatted = String(details?.formattedAddress || hit?.address || '').trim();
+  const titleKey = title.toLowerCase().slice(0, 16);
+  if (title && formatted && !formatted.toLowerCase().includes(titleKey)) {
+    return subtitle ? `${title}, ${subtitle}` : title;
+  }
+  return formatted || (subtitle ? `${title}, ${subtitle}` : title);
+}
 async function geocodeAddressGoogleGap(query, options = {}) {
   if (!isGoogleConfigured()) return null;
   try {
@@ -551,7 +560,7 @@ async function geocodeAddressGoogleGap(query, options = {}) {
       const mapped = {
         lat: details.lat,
         lng: details.lng,
-        formattedAddress: details.formattedAddress || hit.address,
+        formattedAddress: googleGapLabel(hit, details),
         placeId: details.placeId || hit.placeId,
         title: hit.title || details.title || null,
         subtitle: hit.subtitle || details.subtitle || null,
