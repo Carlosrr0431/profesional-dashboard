@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from './supabaseAdmin';
+import { hasUsableGeoPoint } from '../../shared/geo/mapConfig.js';
 
 const GOOGLE_PLACE_CACHE_TABLE = 'google_place_details_cache';
 
@@ -28,7 +29,7 @@ function parseTypes(value) {
 function mapRowToDetails(row) {
   const lat = Number(row?.lat);
   const lng = Number(row?.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!hasUsableGeoPoint(lat, lng)) return null;
 
   const placeId = normalizePlaceId(row?.place_id);
   if (!placeId) return null;
@@ -87,7 +88,7 @@ function formatCachedAddressLabel(mapped) {
 export async function getCachedGooglePlaceDetailsNearCoords(lat, lng, maxDistanceMeters = 120) {
   const parsedLat = Number(lat);
   const parsedLng = Number(lng);
-  if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return null;
+  if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng) || !hasUsableGeoPoint(parsedLat, parsedLng)) return null;
 
   const delta = maxDistanceMeters / 111320;
   const supabase = getSupabaseAdmin();
@@ -127,7 +128,7 @@ export async function upsertGooglePlaceDetailsCache(details) {
   const normalizedPlaceId = normalizePlaceId(details?.placeId);
   const lat = Number(details?.lat);
   const lng = Number(details?.lng);
-  if (!normalizedPlaceId || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+  if (!normalizedPlaceId || !hasUsableGeoPoint(lat, lng)) {
     return null;
   }
 
