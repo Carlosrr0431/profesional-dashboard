@@ -65,6 +65,7 @@ export default function NewTripModal({
   onRouteChange,
   onMapPickModeChange,
   onNotePickModeChange,
+  onToggleNoteDriver,
   notePickMode = null,
   noteSelectedIds = [],
   pickedMapDriver = null,
@@ -131,8 +132,7 @@ export default function NewTripModal({
     if (!pickedMapDriver?.id) return;
     setSelectedDriverId(pickedMapDriver.id);
     setDriverNumberQuery(String(pickedMapDriver.driverNumber ?? ''));
-    onNotePickModeChange?.(null);
-  }, [pickedMapDriver, onNotePickModeChange]);
+  }, [pickedMapDriver]);
 
   /* ── Calcular ruta cuando hay origen + destino ────────────────────────── */
   useEffect(() => {
@@ -591,7 +591,7 @@ export default function NewTripModal({
     }
   };
 
-  if (mapPickTarget || notePickMode) return null;
+  if (mapPickTarget) return null;
 
   /* ── Render minimizado ────────────────────────────────────────────────── */
   if (minimized) {
@@ -692,7 +692,7 @@ export default function NewTripModal({
   return (
     <div
       className={asPopover
-        ? (mapPickTarget
+        ? (mapPickTarget || entryMode === 'note'
           ? 'pointer-events-none fixed inset-0 z-[9999] md:pointer-events-auto md:inset-auto md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:left-auto md:right-4 md:top-auto md:block md:w-[min(440px,calc(100vw-2rem))] md:bg-transparent'
           : 'fixed inset-0 z-[9999] flex items-stretch bg-navy-900/45 md:inset-auto md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:left-auto md:right-4 md:top-auto md:block md:w-[min(440px,calc(100vw-2rem))] md:bg-transparent')
         : 'fixed inset-0 z-[9999] flex items-center justify-center bg-[rgba(15,23,42,0.65)] p-3 backdrop-blur-[6px]'}
@@ -701,7 +701,7 @@ export default function NewTripModal({
       <style>{MODAL_STYLES}</style>
       <div
         className={asPopover
-          ? `flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden rounded-none bg-white md:h-auto md:max-h-[min(88vh,calc(100dvh-5.5rem))] md:rounded-[22px] md:border md:border-slate-200/85 md:bg-white/94 md:shadow-[0_18px_50px_rgba(15,23,42,0.16),0_2px_8px_rgba(15,23,42,0.06)]${mapPickTarget ? ' hidden md:flex' : ''}`
+          ? `pointer-events-auto flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden rounded-none bg-white md:h-auto md:max-h-[min(88vh,calc(100dvh-5.5rem))] md:rounded-[22px] md:border md:border-slate-200/85 md:bg-white/94 md:shadow-[0_18px_50px_rgba(15,23,42,0.16),0_2px_8px_rgba(15,23,42,0.06)]${mapPickTarget ? ' hidden md:flex' : ''}${entryMode === 'note' ? ' !h-auto max-h-[min(78vh,calc(100dvh-6rem))] absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 right-3 w-auto rounded-[22px] border border-slate-200/85 shadow-[0_18px_50px_rgba(15,23,42,0.16)] md:static md:bottom-auto md:left-auto md:right-auto md:w-full' : ''}`
           : 'flex max-h-[min(92vh,100dvh)] w-full max-w-[520px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_24px_64px_rgba(0,0,0,0.28)]'}
         style={{
           backdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
@@ -763,7 +763,10 @@ export default function NewTripModal({
             <button
               type="button"
               aria-pressed={entryMode === 'address'}
-              onClick={() => setEntryMode('address')}
+              onClick={() => {
+                setEntryMode('address');
+                onNotePickModeChange?.(null);
+              }}
               style={scheduleModeBtnStyle(entryMode === 'address', false)}
             >
               Dirección
@@ -775,6 +778,7 @@ export default function NewTripModal({
                 setEntryMode('note');
                 setScheduledMode(false);
                 onRouteChange?.(null);
+                onNotePickModeChange?.(noteTarget);
               }}
               style={scheduleModeBtnStyle(entryMode === 'note', true)}
             >
@@ -784,13 +788,13 @@ export default function NewTripModal({
 
           {entryMode === 'note' ? (
             <textarea
-              rows={4}
+              rows={2}
               maxLength={800}
               autoFocus
               placeholder="Ej: Barrio Castañares manzana 14, familia Rodríguez"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              style={{ ...notesAreaStyle, minHeight: 96, fontSize: 15, marginBottom: 10 }}
+              style={{ ...notesAreaStyle, minHeight: 64, fontSize: 15, marginBottom: 10 }}
             />
           ) : null}
 
@@ -960,90 +964,147 @@ export default function NewTripModal({
           {entryMode === 'note' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
               {[
-                ['one', 'Un móvil', 'Escribí el número o elegilo en el mapa'],
-                ['several', 'Varios móviles', 'El primero que acepte se lo lleva'],
-                ['all', 'Todos los móviles', 'Se ofrece a todos. Gana el primero'],
+                ['one', 'Un móvil', 'Número, o tocá uno en el mapa'],
+                ['several', 'Varios móviles', 'Tocá los pines. Gana el primero'],
+                ['all', 'Todos los móviles', 'Los libres se marcan en violeta'],
               ].map(([key, title, hint]) => {
                 const active = noteTarget === key;
+                const accent = key === 'all' ? '#7C3AED' : '#0F172A';
                 return (
-                  <button
+                  <div
                     key={key}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => setNoteTarget(key)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 10,
-                      textAlign: 'left',
-                      padding: '10px 12px',
                       borderRadius: 14,
-                      border: active ? '1.5px solid #0F172A' : '1px solid #E2E8F0',
-                      background: active ? '#F8FAFC' : '#FFFFFF',
-                      cursor: 'pointer',
+                      border: active ? `1.5px solid ${accent}` : '1px solid #E2E8F0',
+                      background: active ? (key === 'all' ? '#F5F3FF' : '#F8FAFC') : '#FFFFFF',
+                      overflow: 'hidden',
                     }}
                   >
-                    <span style={{
-                      width: 18,
-                      height: 18,
-                      marginTop: 1,
-                      borderRadius: 999,
-                      border: active ? '5px solid #0F172A' : '1.5px solid #CBD5E1',
-                      flexShrink: 0,
-                      boxSizing: 'border-box',
-                    }} />
-                    <span>
-                      <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#0F172A' }}>{title}</span>
-                      <span style={{ display: 'block', marginTop: 2, fontSize: 12, color: '#64748B', lineHeight: 1.35 }}>{hint}</span>
-                    </span>
-                  </button>
+                    <button
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        if (key === noteTarget && entryMode === 'note') return;
+                        setNoteTarget(key);
+                        onNotePickModeChange?.(key, { reset: key === 'several' });
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 10,
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '10px 12px',
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <span style={{
+                        width: 18,
+                        height: 18,
+                        marginTop: 1,
+                        borderRadius: 999,
+                        border: active ? `5px solid ${accent}` : '1.5px solid #CBD5E1',
+                        flexShrink: 0,
+                        boxSizing: 'border-box',
+                      }} />
+                      <span>
+                        <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#0F172A' }}>{title}</span>
+                        <span style={{ display: 'block', marginTop: 2, fontSize: 12, color: '#64748B', lineHeight: 1.35 }}>{hint}</span>
+                      </span>
+                    </button>
+                    {active && key === 'one' ? (
+                      <div style={{ padding: '0 12px 12px' }}>
+                        <label style={scheduleFieldLabelStyle}>NÚMERO DE MÓVIL</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="Ej: 12"
+                          value={driverNumberQuery}
+                          onChange={(e) => setDriverNumberQuery(e.target.value)}
+                          style={optInputStyle}
+                        />
+                        {selectedDriver ? (
+                          <p style={{ margin: '8px 0 0', fontSize: 12, fontWeight: 700, color: '#0F172A' }}>
+                            Móvil #{selectedDriver.driverNumber} · {driverDisplayName(selectedDriver)}
+                          </p>
+                        ) : String(driverNumberQuery || '').trim() && driverMatches.length === 0 ? (
+                          <p style={{ margin: '8px 0 0', fontSize: 12, color: '#B91C1C' }}>
+                            No hay un móvil con ese número.
+                          </p>
+                        ) : driverMatches.length > 1 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                            {driverMatches.map((driver) => (
+                              <button
+                                key={driver.id}
+                                type="button"
+                                onClick={() => setSelectedDriverId(driver.id)}
+                                style={{
+                                  textAlign: 'left',
+                                  padding: '8px 10px',
+                                  borderRadius: 12,
+                                  border: selectedDriverId === driver.id ? '1.5px solid #0F172A' : '1px solid #E2E8F0',
+                                  background: '#FFFFFF',
+                                  cursor: 'pointer',
+                                  fontFamily: 'inherit',
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  color: '#0F172A',
+                                }}
+                              >
+                                Móvil #{driver.driverNumber} · {driverDisplayName(driver)}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {active && key === 'several' ? (
+                      <div style={{ padding: '0 12px 12px' }}>
+                        {noteSelectedIds.length === 0 ? (
+                          <p style={{ margin: 0, fontSize: 12, color: '#64748B' }}>
+                            Tocá los móviles en el mapa. Cada número aparece acá.
+                          </p>
+                        ) : (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {noteSelectedIds.map((id) => {
+                              const driver = drivers.find((item) => item.id === id);
+                              const number = driver?.driverNumber ?? '·';
+                              return (
+                                <button
+                                  key={id}
+                                  type="button"
+                                  onClick={() => onToggleNoteDriver?.(id)}
+                                  title="Quitar"
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '5px 8px 5px 10px',
+                                    borderRadius: 999,
+                                    border: 'none',
+                                    background: '#EDE9FE',
+                                    color: '#5B21B6',
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    fontFamily: 'inherit',
+                                  }}
+                                >
+                                  #{number}
+                                  <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 1 }}>×</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
                 );
               })}
-              {noteTarget === 'one' ? (
-                <div style={{ background: '#FAFBFC', borderRadius: 14, padding: 10 }}>
-                  <label style={scheduleFieldLabelStyle}>NÚMERO DE MÓVIL</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="Ej: 12"
-                    value={driverNumberQuery}
-                    onChange={(e) => setDriverNumberQuery(e.target.value)}
-                    style={optInputStyle}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onNotePickModeChange?.('one')}
-                    style={{ ...scheduleModeBtnStyle(false, false), marginTop: 8, width: '100%' }}
-                  >
-                    Elegir en el mapa
-                  </button>
-                  {selectedDriver ? (
-                    <p style={{ margin: '8px 0 0', fontSize: 12, fontWeight: 700, color: '#0F172A' }}>
-                      Móvil #{selectedDriver.driverNumber} · {driverDisplayName(selectedDriver)}
-                    </p>
-                  ) : String(driverNumberQuery || '').trim() ? (
-                    <p style={{ margin: '8px 0 0', fontSize: 12, color: '#B91C1C' }}>
-                      No hay un móvil con ese número.
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-              {noteTarget === 'several' ? (
-                <div style={{ background: '#FAFBFC', borderRadius: 14, padding: 10 }}>
-                  <p style={{ margin: '0 0 8px', fontSize: 12, color: '#64748B' }}>
-                    {noteSelectedIds.length
-                      ? `${noteSelectedIds.length} móvil${noteSelectedIds.length === 1 ? '' : 'es'}. El primero que acepte se lo lleva.`
-                      : 'Elegí los móviles en el mapa. El primero que acepte se lo lleva.'}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => onNotePickModeChange?.('several')}
-                    style={{ ...scheduleModeBtnStyle(false, false), width: '100%' }}
-                  >
-                    Elegir en el mapa
-                  </button>
-                </div>
-              ) : null}
             </div>
           ) : (
           <>
@@ -1263,7 +1324,9 @@ export default function NewTripModal({
                 {loading
                   ? <><Spinner size={14} color="#fff" /> {isScheduled ? 'Programando…' : 'Encolando…'}</>
                   : (entryMode === 'note'
-                    ? 'Derivar nota'
+                    ? (noteTarget === 'one' && selectedDriver?.driverNumber != null
+                      ? `Encolar a móvil #${selectedDriver.driverNumber}`
+                      : 'Encolar viaje')
                     : (isScheduled
                       ? <><CalendarIcon size={15} color="#FFFFFF" /> Programar viaje</>
                       : enqueueActionLabel(driverMode, selectedDriver)))}

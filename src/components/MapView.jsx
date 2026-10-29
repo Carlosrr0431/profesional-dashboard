@@ -448,6 +448,7 @@ const MapView = memo(function MapView({
       onNoteDriverPick?.(driver);
       return;
     }
+    if (notePickMode === 'all') return;
     if (multiSelectMode || notePickMode === 'several') {
       onToggleMultiSelect?.(driver.id);
       return;
@@ -529,8 +530,11 @@ const MapView = memo(function MapView({
               lng={lng}
               speed={Number(driver.speed) || 0}
               heading={Number(driver.heading) || 0}
-              isSelected={!multiSelectMode && driver.id === resolvedSelectedId}
-              isMultiSelected={multiSelectMode && selectedSet.has(driver.id)}
+              isSelected={!multiSelectMode && notePickMode !== 'all' && driver.id === resolvedSelectedId}
+              isMultiSelected={
+                notePickMode === 'all'
+                || ((multiSelectMode || notePickMode === 'several') && selectedSet.has(driver.id))
+              }
               interactive={!pickMode}
               onSelect={handleDriverSelect}
             />

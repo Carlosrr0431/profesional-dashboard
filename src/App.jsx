@@ -154,9 +154,10 @@ export default function App() {
     setPreviewRoute(null);
     mapPickSessionRef.current = null;
     setMapPickMode(null);
+    if (notePickMode === 'several') setMultiSelectMode(false);
     setNotePickMode(null);
     setNotePickDriver(null);
-  }, []);
+  }, [notePickMode]);
 
   const handleMapPickModeChange = useCallback((session) => {
     mapPickSessionRef.current = session || null;
@@ -989,7 +990,6 @@ export default function App() {
                 notePickMode={notePickMode}
                 onNoteDriverPick={(driver) => {
                   setNotePickDriver(driver);
-                  setNotePickMode(null);
                 }}
                 onSendAudio={(driver) => {
                   setShowBroadcast(false);
@@ -1037,46 +1037,6 @@ export default function App() {
                       type="button"
                       onClick={() => mapPickSessionRef.current?.onCancel?.()}
                       className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-semibold text-slate-600 hover:bg-slate-50"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-
-              {notePickMode ? (
-                <div className="absolute left-3 right-3 top-3 z-20 sm:left-1/2 sm:right-auto sm:top-4 sm:w-auto sm:max-w-[min(420px,calc(100vw-2rem))] sm:-translate-x-1/2">
-                  <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/97 px-3 py-2.5 shadow-2xl backdrop-blur-md sm:px-4">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-bold text-navy-900">
-                        {notePickMode === 'one' ? 'Tocá un móvil' : 'Tocá los móviles'}
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        {notePickMode === 'several'
-                          ? `${multiSelectedIds.size} elegido${multiSelectedIds.size === 1 ? '' : 's'}. El primero que acepte se lo lleva.`
-                          : 'La nota se le ofrece a ese móvil.'}
-                      </p>
-                    </div>
-                    {notePickMode === 'several' ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setNotePickMode(null);
-                          setMultiSelectMode(false);
-                        }}
-                        className="shrink-0 rounded-xl bg-slate-900 px-3 py-2 text-[12px] font-semibold text-white"
-                      >
-                        Listo
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNotePickMode(null);
-                        setMultiSelectMode(false);
-                        if (notePickMode === 'several') setMultiSelectedIds(new Set());
-                      }}
-                      className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-semibold text-slate-600"
                     >
                       Cancelar
                     </button>
@@ -1416,13 +1376,17 @@ export default function App() {
           onRouteChange={setPreviewRoute}
           onMapPickModeChange={handleMapPickModeChange}
           notePickMode={notePickMode}
-          onNotePickModeChange={(mode) => {
+          onNotePickModeChange={(mode, opts) => {
+            const leavingSeveral = notePickMode === 'several' && mode !== 'several';
             setNotePickMode(mode);
             if (mode === 'several') {
-              setMultiSelectedIds(new Set());
+              if (opts?.reset) setMultiSelectedIds(new Set());
               setMultiSelectMode(true);
+              return;
             }
+            if (leavingSeveral) setMultiSelectMode(false);
           }}
+          onToggleNoteDriver={toggleMultiSelect}
           noteSelectedIds={[...multiSelectedIds]}
           pickedMapDriver={notePickDriver}
           calculatePrice={calculatePrice}
