@@ -22,7 +22,6 @@ import {
   sortTariffWindows,
   timelinePercent,
   windowSegmentsForCalendarDay,
-  windowSourceLabel,
 } from '../lib/tariffUi';
 
 const CHANNEL_ORDER = ['platform', 'passenger_app', 'passenger_web'];
@@ -41,7 +40,7 @@ function artClockLabel(date) {
 function Field({ label, prefix, value, onChange, suffix }) {
   return (
     <label className="flex min-w-0 flex-1 flex-col gap-2">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
+      <span className="text-center text-[12px] font-medium text-slate-500">{label}</span>
       <span className="relative block">
         {prefix ? (
           <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[15px] font-semibold text-slate-400">
@@ -65,30 +64,6 @@ function Field({ label, prefix, value, onChange, suffix }) {
         ) : null}
       </span>
     </label>
-  );
-}
-
-function QuoteBreakdown({ km, example }) {
-  return (
-    <div className="rounded-[24px] bg-navy-900 px-5 py-5 text-white sm:px-6">
-      <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-white/45">
-        Cotizador · viaje de {km} km
-      </p>
-      <p className="mt-2 text-[36px] font-semibold tabular-nums leading-none tracking-tight">
-        {moneyAr(example.price)}
-      </p>
-      <p className="mt-2 text-[15px] text-white/60">Total que paga el pasajero</p>
-      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl bg-white/10 px-4 py-4">
-          <p className="text-[13px] font-medium text-white/55">Comisión</p>
-          <p className="mt-1 text-[24px] font-semibold tabular-nums leading-none">{moneyAr(example.commission)}</p>
-        </div>
-        <div className="rounded-2xl bg-white/10 px-4 py-4">
-          <p className="text-[13px] font-medium text-white/55">Para el chofer</p>
-          <p className="mt-1 text-[24px] font-semibold tabular-nums leading-none">{moneyAr(example.driverKeeps)}</p>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -117,15 +92,13 @@ function DeleteConfirmDialog({ row, onCancel, onConfirm }) {
         aria-labelledby="tariff-delete-title"
         className="relative w-full max-w-[420px] rounded-[28px] bg-white p-6 shadow-2xl shadow-navy-900/20 ring-1 ring-slate-200"
       >
-        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-rose-500">Borrar franja</p>
-        <h3 id="tariff-delete-title" className="mt-2 text-[22px] font-semibold tracking-tight text-navy-900">
-          ¿La querés eliminar?
+        <h3 id="tariff-delete-title" className="mt-1 text-center text-[18px] font-semibold tracking-tight text-navy-900">
+          Borrar {formatWindowHours(row)}
         </h3>
-        <p className="mt-2 text-[15px] leading-relaxed text-slate-600">
-          Se va a borrar {formatWindowHours(row)} · {formatWindowScheduleLabel(row)}.
-          Después vale la tarifa por defecto o la siguiente franja que aplique.
+        <p className="mt-1 text-center text-[14px] text-slate-500">
+          {formatWindowScheduleLabel(row)}
         </p>
-        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <div className="mt-6 flex justify-center gap-2">
           <button
             type="button"
             onClick={onCancel}
@@ -151,12 +124,6 @@ const SCHEDULE_OPTIONS = [
   { id: 'weekdays', title: 'Días de la semana' },
   { id: 'date', title: 'Un día' },
 ];
-
-function activeBadge(window) {
-  if (window?.schedule_kind === 'date') return 'Día específico activo';
-  if (window?.schedule_kind === 'weekdays') return 'Recurrente activa';
-  return 'Franja activa';
-}
 
 function DayTimeline({ windows, now, accent, activeId, onSelect }) {
   const ctx = artTimeContext(now);
@@ -222,11 +189,6 @@ function ChannelCard({
   );
   const activeWindow = pickMatchingWindow(channelWindows, channel, now);
   const liveExample = exampleTripBreakdown(live, km);
-  const defaultExample = exampleTripBreakdown({
-    perKm: defaults.perKm,
-    base: defaults.base,
-    commissionPercent: defaults.commission,
-  }, km);
   const activeHours = formatWindowHours(activeWindow);
   const fromWindow = live?.source === 'window' && activeWindow;
 
@@ -310,71 +272,29 @@ function ChannelCard({
   };
 
   return (
-    <section className="rounded-[28px] bg-white shadow-sm ring-1 ring-slate-200/70">
-      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-5 sm:px-6">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: meta.accent }} />
-            <h2 className="text-[20px] font-semibold tracking-tight text-navy-900">{meta.title}</h2>
-            {fromWindow ? (
-              <span className="rounded-full bg-amber-500/12 px-2.5 py-1 text-[11px] font-bold text-amber-700">
-                {activeBadge(activeWindow)}
-              </span>
-            ) : (
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500">
-                Por defecto
-              </span>
-            )}
-          </div>
-          <p className="mt-1.5 text-[14px] leading-snug text-slate-500">{meta.hint}</p>
-        </div>
-        <p className="shrink-0 text-right">
-          <span className="block text-[28px] font-semibold tabular-nums leading-none text-navy-900">
-            {moneyAr(live.perKm)}
-          </span>
-          <span className="mt-1.5 block text-[13px] font-medium text-slate-500">/ km ahora</span>
-        </p>
+    <section className="rounded-3xl bg-white shadow-sm ring-1 ring-slate-200/80">
+      <div className="flex items-center justify-center gap-2 px-5 pt-5">
+        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: meta.accent }} />
+        <h2 className="text-[17px] font-semibold tracking-tight text-navy-900">{meta.title}</h2>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+          fromWindow ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'
+        }`}>
+          {fromWindow ? activeHours : 'Por defecto'}
+        </span>
       </div>
-
-      <div className="space-y-4 border-b border-slate-100 px-5 py-5 sm:px-6">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-            {fromWindow ? `Vigente ahora · franja ${activeHours}` : 'Vigente ahora · tarifa por defecto'}
-          </p>
-          {fromWindow ? (
-            <p className="mt-1 text-[14px] leading-relaxed text-slate-600">
-              Estos números salen de la franja {activeHours}, no del default.
-              {Number(live.base) !== Number(defaults.base)
-                ? ` La base de ahora es ${moneyAr(live.base)}; el default (${moneyAr(defaults.base)}) se usa fuera de esta franja.`
-                : ''}
-            </p>
-          ) : (
-            <p className="mt-1 text-[14px] leading-relaxed text-slate-600">
-              No hay franja activa a esta hora, así que vale lo de “por defecto”.
-            </p>
-          )}
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl bg-slate-50 px-4 py-4">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-500">Base</p>
-            <p className="mt-2 text-[26px] font-semibold tabular-nums leading-none text-navy-900">{moneyAr(live.base)}</p>
-          </div>
-          <div className="rounded-2xl bg-slate-50 px-4 py-4">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-500">Comisión</p>
-            <p className="mt-2 text-[26px] font-semibold tabular-nums leading-none text-navy-900">{Math.round(live.commissionPercent)}%</p>
-          </div>
-        </div>
-        <QuoteBreakdown km={km} example={liveExample} />
-      </div>
+      <p className="mt-2 text-center text-[28px] font-semibold tabular-nums leading-none tracking-tight text-navy-900">
+        {moneyAr(live.perKm)}
+        <span className="text-[14px] font-medium text-slate-400">/km</span>
+      </p>
+      <p className="mt-2 text-center text-[13px] text-slate-500">
+        Base {moneyAr(live.base)} · {Math.round(live.commissionPercent)}%
+      </p>
+      <p className="mt-1 text-center text-[15px] font-semibold tabular-nums text-navy-900">
+        {km} km · {moneyAr(liveExample.price)}
+      </p>
 
       <div className="px-5 py-5 sm:px-6">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-          Por defecto · fuera de franjas
-        </p>
-        <p className="mt-1 text-[14px] leading-relaxed text-slate-600">
-          Se usa solo cuando no hay una franja activa. No pisa la base de una franja ya guardada.
-        </p>
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <Field
             label="$ / km"
             prefix="$"
@@ -389,30 +309,22 @@ function ChannelCard({
           />
           <Field
             label="Comisión"
-            value={defaults.commission}
             suffix="%"
+            value={defaults.commission}
             onChange={(value) => onUpdateSetting(defaults.keys.commission, value)}
           />
         </div>
-        <p className="mt-3 text-[14px] text-slate-500">
-          Con el default, {km} km sale {moneyAr(defaultExample.price)} · comisión {moneyAr(defaultExample.commission)} · chofer {moneyAr(defaultExample.driverKeeps)}.
-        </p>
       </div>
 
       <div className="border-t border-slate-100 px-5 py-5 sm:px-6">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Franjas horarias</p>
-            <p className="mt-1 max-w-xl text-[14px] leading-relaxed text-slate-500">
-              Cada franja tiene su propio $/km, base y comisión. Prioridad: un día específico, después días recurrentes, después todos los días.
-            </p>
-          </div>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <p className="text-[15px] font-semibold text-navy-900">Franjas</p>
           <button
             type="button"
             onClick={openNew}
-            className="h-11 shrink-0 rounded-2xl bg-navy-900 px-4 text-[14px] font-semibold text-white transition hover:bg-navy-900/90"
+            className="h-10 shrink-0 rounded-xl bg-navy-900 px-4 text-[13px] font-semibold text-white transition hover:bg-navy-900/90"
           >
-            + Agregar
+            Agregar
           </button>
         </div>
         <DayTimeline
@@ -422,11 +334,7 @@ function ChannelCard({
           activeId={activeWindow?.id}
           onSelect={openEdit}
         />
-        {channelWindows.length === 0 && !showForm ? (
-          <p className="mt-4 text-[14px] leading-relaxed text-slate-500">
-            Sin franjas: vale la tarifa por defecto las 24 horas, todos los días.
-          </p>
-        ) : (
+        {channelWindows.length === 0 && !showForm ? null : (
           <div className="mt-4 space-y-2.5">
             {channelWindows.map((row) => {
               const isActive = activeWindow?.id === row.id;
@@ -476,14 +384,11 @@ function ChannelCard({
             className="mt-4 space-y-4 rounded-[24px] bg-slate-50 p-4 ring-1 ring-slate-200 sm:p-5"
           >
             <div>
-              <p className="text-[16px] font-semibold text-navy-900">
+              <p className="text-center text-[16px] font-semibold text-navy-900">
                 {draft.id ? 'Editar franja' : 'Nueva franja'}
               </p>
-              <p className="mt-1 text-[13px] text-slate-500">
-                Si “desde” es mayor que “hasta”, cruza medianoche y sigue valiendo al día siguiente.
-              </p>
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap justify-center gap-1.5">
               {SCHEDULE_OPTIONS.map((option) => {
                 const selected = draft.scheduleKind === option.id;
                 return (
@@ -502,7 +407,7 @@ function ChannelCard({
             </div>
 
             {draft.scheduleKind === 'weekdays' ? (
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap justify-center gap-1.5">
                 {WEEKDAY_OPTIONS.map((day) => {
                   const selected = draft.weekdays.includes(day.id);
                   return (
@@ -626,8 +531,6 @@ function ChannelCard({
 export default function TariffsPanel({
   onBack,
   tariffPerKm,
-  tariffBase,
-  commissionPercent,
   platformDefaultPerKm,
   platformDefaultBase,
   platformDefaultCommission,
@@ -714,86 +617,45 @@ export default function TariffsPanel({
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col bg-[#F3F5F8]">
       <div ref={scrollRootRef} className="tariffs-scroll min-h-0 flex-1">
-        <div className="px-3 pt-2 sm:px-5">
-          <header className="mx-auto max-w-6xl rounded-2xl bg-navy-900 px-3 py-2 text-white shadow-md shadow-navy-900/10 sm:px-4">
-            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={onBack}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white/80 transition hover:bg-white/20 hover:text-white"
-                  aria-label="Volver al mapa"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                </button>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">Configuración</p>
-                  <div className="flex flex-wrap items-baseline gap-x-2">
-                    <h1 className="text-[17px] font-semibold tracking-tight">Tarifas</h1>
-                    <p className="truncate text-[12px] text-white/55">
-                      Ahora {artClockLabel(now)} · {moneyAr(tariffPerKm)}/km · base {moneyAr(tariffBase)} · comisión {Math.round(commissionPercent)}%
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col gap-1 lg:max-w-sm lg:items-stretch">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <p className="mr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">Simulador</p>
-                  {KM_PRESETS.map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setKm(preset)}
-                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
-                        km === preset ? 'bg-white text-navy-900' : 'bg-white/10 text-white/70 hover:bg-white/20'
-                      }`}
-                    >
-                      {preset} km
-                    </button>
-                  ))}
-                </div>
-                <label className="block">
-                  <span className="sr-only">Kilómetros de ejemplo</span>
-                  <input
-                    type="range"
-                    min="1"
-                    max="30"
-                    value={km}
-                    onChange={(event) => setKm(Number(event.target.value) || 5)}
-                    className="w-full accent-amber-400"
-                  />
-                </label>
-              </div>
+        <div className="mx-auto w-full max-w-2xl px-4 pt-4">
+          <header className="relative flex items-center justify-center">
+            <button
+              type="button"
+              onClick={onBack}
+              className="absolute left-0 flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-white hover:text-navy-900"
+              aria-label="Volver al mapa"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div className="text-center">
+              <h1 className="text-[20px] font-semibold tracking-tight text-navy-900">Tarifas</h1>
+              <p className="mt-0.5 text-[13px] text-slate-400">
+                {artClockLabel(now)} · {moneyAr(tariffPerKm)}/km
+              </p>
             </div>
           </header>
 
-          <div className="mx-auto mt-2 max-w-6xl">
-            <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-200/80 p-1">
-              <button
-                type="button"
-                onClick={() => setSection('general')}
-                className={`h-9 rounded-lg px-3 text-[13px] font-semibold transition ${
-                  section === 'general'
-                    ? 'bg-navy-900 text-white shadow-sm shadow-navy-900/20'
-                    : 'bg-white text-slate-500 hover:text-navy-900'
-                }`}
-              >
-                Tarifas general
-              </button>
-              <button
-                type="button"
-                onClick={() => setSection('zones')}
-                className={`h-9 rounded-lg px-3 text-[13px] font-semibold transition ${
-                  section === 'zones'
-                    ? 'bg-navy-900 text-white shadow-sm shadow-navy-900/20'
-                    : 'bg-white text-slate-500 hover:text-navy-900'
-                }`}
-              >
-                Tarifas por zonas
-              </button>
-            </div>
+          <div className="mx-auto mt-4 flex max-w-xs justify-center gap-1 rounded-full bg-white p-1 ring-1 ring-slate-200/80">
+            <button
+              type="button"
+              onClick={() => setSection('general')}
+              className={`h-9 flex-1 rounded-full px-3 text-[13px] font-semibold transition ${
+                section === 'general' ? 'bg-navy-900 text-white' : 'text-slate-500 hover:text-navy-900'
+              }`}
+            >
+              General
+            </button>
+            <button
+              type="button"
+              onClick={() => setSection('zones')}
+              className={`h-9 flex-1 rounded-full px-3 text-[13px] font-semibold transition ${
+                section === 'zones' ? 'bg-navy-900 text-white' : 'text-slate-500 hover:text-navy-900'
+              }`}
+            >
+              Zonas
+            </button>
           </div>
         </div>
 
@@ -809,51 +671,24 @@ export default function TariffsPanel({
             </div>
           </div>
         ) : (
-          <div className="mx-auto max-w-6xl space-y-5 px-3 pb-16 pt-2 sm:px-5">
-            <div className="rounded-[24px] bg-white p-5 shadow-sm ring-1 ring-slate-200/70 sm:p-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Espera del pasajero
-                  </p>
-                  <h3 className="mt-1.5 text-[20px] font-semibold tracking-tight text-navy-900">
-                    Precio por minuto de espera
-                  </h3>
-                  <p className="mt-1.5 max-w-xl text-[14px] leading-relaxed text-slate-600">
-                    Cuando el chofer marca que llegó al origen y el pasajero todavía no subió,
-                    cada minuto completo suma este monto al total. Los primeros 59 segundos no cobran.
-                    Si el viaje se cancela con espera, el saldo se cobra en el próximo viaje.
-                  </p>
-                </div>
-                <div className="w-full sm:max-w-[220px]">
+          <div className="mx-auto max-w-2xl space-y-4 px-4 pb-16 pt-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-3xl bg-white px-4 py-4 text-center shadow-sm ring-1 ring-slate-200/80">
+                <p className="text-[13px] font-semibold text-slate-500">Espera</p>
+                <div className="mt-2">
                   <Field
-                    label="$ / minuto de espera"
+                    label="$ / min"
                     prefix="$"
                     value={passengerWaitFeePerMinute}
                     onChange={(value) => onUpdateSetting('passenger_wait_fee_per_minute', value)}
                   />
                 </div>
               </div>
-            </div>
-
-            <div className="rounded-[24px] bg-white p-5 shadow-sm ring-1 ring-slate-200/70 sm:p-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Viaje sin destino
-                  </p>
-                  <h3 className="mt-1.5 text-[20px] font-semibold tracking-tight text-navy-900">
-                    Ficha de reposo
-                  </h3>
-                  <p className="mt-1.5 max-w-xl text-[14px] leading-relaxed text-slate-600">
-                    Es la ficha de la ticketera cuando el auto está parado. Cada minuto entero suma este monto.
-                    En marcha se cobra el precio por km, no esta ficha. No se suman las dos a la vez.
-                    Si queda en 0, la ficha sigue siendo la décima parte del kilómetro.
-                  </p>
-                </div>
-                <div className="w-full sm:max-w-[220px]">
+              <div className="rounded-3xl bg-white px-4 py-4 text-center shadow-sm ring-1 ring-slate-200/80">
+                <p className="text-[13px] font-semibold text-slate-500">Ficha en reposo</p>
+                <div className="mt-2">
                   <Field
-                    label="$ / ficha de reposo"
+                    label="$ / min"
                     prefix="$"
                     value={platformWaitFicha}
                     onChange={(value) => onUpdateSetting('platform_tariff_wait_ficha', value)}
@@ -862,7 +697,22 @@ export default function TariffsPanel({
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="flex justify-center gap-1.5">
+              {KM_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setKm(preset)}
+                  className={`h-8 rounded-full px-3 text-[12px] font-semibold tabular-nums ${
+                    km === preset ? 'bg-navy-900 text-white' : 'bg-white text-slate-500 ring-1 ring-slate-200'
+                  }`}
+                >
+                  {preset} km
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
               {CHANNEL_ORDER.map((id) => {
                 const meta = TARIFF_CHANNEL_META[id];
                 const live = liveByChannel[id];
@@ -873,29 +723,17 @@ export default function TariffsPanel({
                     type="button"
                     aria-pressed={selected}
                     onClick={() => setChannel(id)}
-                    className={`rounded-[24px] px-4 py-4 text-left transition ${
+                    className={`rounded-2xl px-2 py-3 text-center transition ${
                       selected
-                        ? 'bg-navy-900 text-white shadow-xl shadow-navy-900/25 ring-2 ring-amber-400'
-                        : 'bg-white text-navy-900 shadow-sm ring-1 ring-slate-200/70 hover:ring-navy-900/20'
+                        ? 'bg-navy-900 text-white'
+                        : 'bg-white text-navy-900 ring-1 ring-slate-200/80 hover:ring-slate-300'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${
-                        selected ? 'text-white/55' : 'text-slate-400'
-                      }`}>{meta.title}</p>
-                      {selected ? (
-                        <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-navy-900">
-                          Seleccionada
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className={`mt-2 text-[22px] font-semibold tabular-nums leading-none ${
-                      selected ? 'text-white' : 'text-navy-900'
-                    }`}>
-                      {moneyAr(live.perKm)}<span className={`text-[13px] font-medium ${selected ? 'text-white/55' : 'text-slate-400'}`}>/km</span>
+                    <p className={`text-[12px] font-semibold ${selected ? 'text-white/70' : 'text-slate-400'}`}>
+                      {meta.title}
                     </p>
-                    <p className={`mt-2 text-[11px] ${selected ? 'text-white/60' : 'text-slate-400'}`}>
-                      {windowSourceLabel(live)}
+                    <p className="mt-1 text-[16px] font-semibold tabular-nums leading-none">
+                      {moneyAr(live.perKm)}
                     </p>
                   </button>
                 );
