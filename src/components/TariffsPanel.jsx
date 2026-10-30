@@ -617,7 +617,7 @@ export default function TariffsPanel({
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col bg-[#F3F5F8]">
       <div ref={scrollRootRef} className="tariffs-scroll min-h-0 flex-1">
-        <div className="mx-auto w-full max-w-2xl px-4 pt-4">
+        <div className="mx-auto w-full max-w-6xl px-4 pt-6 sm:px-8">
           <header className="relative flex items-center justify-center">
             <button
               type="button"
@@ -630,14 +630,14 @@ export default function TariffsPanel({
               </svg>
             </button>
             <div className="text-center">
-              <h1 className="text-[20px] font-semibold tracking-tight text-navy-900">Tarifas</h1>
-              <p className="mt-0.5 text-[13px] text-slate-400">
+              <h1 className="text-[40px] font-semibold tracking-tight text-navy-900">Tarifas</h1>
+              <p className="mt-1 text-[22px] font-semibold tabular-nums text-slate-600">
                 {artClockLabel(now)} · {moneyAr(tariffPerKm)}/km
               </p>
             </div>
           </header>
 
-          <div className="mx-auto mt-4 flex max-w-xs justify-center gap-1 rounded-full bg-white p-1 ring-1 ring-slate-200/80">
+          <div className="mx-auto mt-6 flex max-w-md justify-center gap-1 rounded-full bg-white p-1 ring-1 ring-slate-200/80">
             <button
               type="button"
               onClick={() => setSection('general')}
@@ -671,7 +671,7 @@ export default function TariffsPanel({
             </div>
           </div>
         ) : (
-          <div className="mx-auto max-w-2xl space-y-4 px-4 pb-16 pt-4">
+          <div className="mx-auto max-w-6xl space-y-5 px-4 pb-16 pt-6 sm:px-8">
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-3xl bg-white px-4 py-4 text-center shadow-sm ring-1 ring-slate-200/80">
                 <p className="text-[13px] font-semibold text-slate-500">Espera</p>
