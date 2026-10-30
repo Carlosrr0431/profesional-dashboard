@@ -638,6 +638,7 @@ export default function TariffsPanel({
   passengerWebTariffBase,
   passengerWebCommissionPercent,
   passengerWaitFeePerMinute = 0,
+  platformWaitFicha = 0,
   tariffWindows = [],
   onUpdateSetting,
   onSaveWindow,
@@ -830,6 +831,32 @@ export default function TariffsPanel({
                     prefix="$"
                     value={passengerWaitFeePerMinute}
                     onChange={(value) => onUpdateSetting('passenger_wait_fee_per_minute', value)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[24px] bg-white p-5 shadow-sm ring-1 ring-slate-200/70 sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Viaje sin destino
+                  </p>
+                  <h3 className="mt-1.5 text-[20px] font-semibold tracking-tight text-navy-900">
+                    Ficha de reposo
+                  </h3>
+                  <p className="mt-1.5 max-w-xl text-[14px] leading-relaxed text-slate-600">
+                    Es la ficha de la ticketera cuando el auto está parado. Cada minuto entero suma este monto.
+                    En marcha se cobra el precio por km, no esta ficha. No se suman las dos a la vez.
+                    Si queda en 0, la ficha sigue siendo la décima parte del kilómetro.
+                  </p>
+                </div>
+                <div className="w-full sm:max-w-[220px]">
+                  <Field
+                    label="$ / ficha de reposo"
+                    prefix="$"
+                    value={platformWaitFicha}
+                    onChange={(value) => onUpdateSetting('platform_tariff_wait_ficha', value)}
                   />
                 </div>
               </div>

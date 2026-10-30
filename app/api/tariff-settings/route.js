@@ -16,6 +16,7 @@ const TARIFF_KEYS = [
   ...PLATFORM_TARIFF_KEYS,
   ...PASSENGER_APP_TARIFF_KEYS,
   ...PASSENGER_WEB_TARIFF_KEYS,
+  'platform_tariff_wait_ficha',
 ];
 
 function getSupabaseAdmin() {

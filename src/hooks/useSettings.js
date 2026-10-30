@@ -14,6 +14,7 @@ const SETTING_LABELS = {
   passenger_web_tariff_base: 'Tarifa base web pasajeros',
   passenger_web_commission_percent: 'Comisión web pasajeros',
   passenger_wait_fee_per_minute: 'Espera por minuto',
+  platform_tariff_wait_ficha: 'Ficha de reposo',
   whatsapp_agent_enabled: 'Agente IA de WhatsApp',
   driver_app_latest_version_code: 'versionCode app Conductor',
   passenger_app_latest_version_code: 'versionCode app Pasajero',
@@ -41,6 +42,7 @@ const NUMERIC_SETTING_KEYS = new Set([
   'passenger_web_tariff_base',
   'passenger_web_commission_percent',
   'passenger_wait_fee_per_minute',
+  'platform_tariff_wait_ficha',
   'driver_app_latest_version_code',
   'passenger_app_latest_version_code',
 ]);
@@ -257,6 +259,10 @@ export function useSettings() {
     0,
     Math.round(Number(settings.passenger_wait_fee_per_minute) || 0)
   );
+  const platformWaitFicha = Math.max(
+    0,
+    Math.round(Number(settings.platform_tariff_wait_ficha) || 0)
+  );
   const whatsappAgentEnabled = isTruthySetting(settings.whatsapp_agent_enabled, true);
   const driverAppLatestVersionCode = Math.max(
     0,
@@ -289,6 +295,7 @@ export function useSettings() {
     passengerWebTariffBase,
     passengerWebCommissionPercent,
     passengerWaitFeePerMinute,
+    platformWaitFicha,
     whatsappAgentEnabled,
     driverAppLatestVersionCode,
     passengerAppLatestVersionCode,
