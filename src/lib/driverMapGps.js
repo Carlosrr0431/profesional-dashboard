@@ -169,6 +169,20 @@ export function applyDriverLocationRealtime(drivers, loc) {
   if (idx === -1) return drivers;
 
   const prev = drivers[idx];
+  // El chofer se marcó inactivo sin moverse. Si se ignora, el pin sigue libre
+  // y al asignar la base responde que no está disponible.
+  if (loc.is_online === false) {
+    if (!prev.isAvailable && !prev.isOnline && prev.locationOnline === false) return drivers;
+    const next = drivers.slice();
+    next[idx] = {
+      ...prev,
+      isAvailable: false,
+      isOnline: false,
+      locationOnline: false,
+    };
+    return next;
+  }
+
   const locValid = hasValidDriverCoords(loc.lat, loc.lng);
   if (!locValid) return drivers;
 
@@ -233,6 +247,7 @@ export function applyDriverLocationRealtime(drivers, loc) {
     ...prev,
     ...gps,
     gpsRaw: fix.gpsRaw,
+    locationOnline: loc.is_online === true ? true : prev.locationOnline,
     isOnline: resolveDriverIsOnline({ ...prev, ...gps }),
   };
   return next;

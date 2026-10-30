@@ -316,6 +316,36 @@ describe('applyDriverLocationRealtime', () => {
     isOnline: true,
   }];
 
+  it('si el heartbeat dice inactivo, el pin deja de figurar libre aunque no se mueva', () => {
+    const next = applyDriverLocationRealtime(base, {
+      driver_id: 'd1',
+      lat: -24.80,
+      lng: -65.40,
+      speed: 0,
+      heading: 0,
+      is_online: false,
+      updated_at: '2026-09-06T20:00:02.000Z',
+    });
+    expect(next[0].isAvailable).toBe(false);
+    expect(next[0].isOnline).toBe(false);
+    expect(next[0].lat).toBe(-24.80);
+  });
+
+  it('un heartbeat con gps no vuelve a marcar libre a un inactivo', () => {
+    const offline = [{ ...base[0], isAvailable: false, isOnline: false, locationOnline: false }];
+    const next = applyDriverLocationRealtime(offline, {
+      driver_id: 'd1',
+      lat: -24.801,
+      lng: -65.401,
+      speed: 0,
+      heading: 0,
+      is_online: true,
+      updated_at: '2026-09-06T20:00:04.000Z',
+    });
+    expect(next[0].isAvailable).toBe(false);
+    expect(next[0].isOnline).toBe(false);
+  });
+
   it('aplica lat/lng del heartbeat aunque speed no cambie', () => {
     const next = applyDriverLocationRealtime(base, {
       driver_id: 'd1',

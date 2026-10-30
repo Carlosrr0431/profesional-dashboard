@@ -100,8 +100,9 @@ export function useDrivers() {
 
   useEffect(() => {
     fetchAll();
+    const poll = setInterval(fetchAll, 15000);
 
-    // GPS y flota: solo Realtime. El snapshot inicial no se vuelve a pedir en loop.
+    // GPS en vivo por Realtime. El snapshot se refresca para no dejar un inactivo como libre.
     channelRef.current = supabase
       .channel('dashboard_location_realtime')
       .on(
@@ -161,7 +162,9 @@ export function useDrivers() {
             const nextGpsRaw = gps.gpsRaw || null;
             const nextSpeed = Number.isFinite(Number(gps.speed)) ? gps.speed : prevDriver.speed;
             const nextHeading = Number.isFinite(Number(gps.heading)) ? gps.heading : prevDriver.heading;
-            const flaggedAvailable = Boolean(row.is_available);
+            const flaggedAvailable = row.is_available === true || row.is_available === false
+              ? Boolean(row.is_available)
+              : Boolean(prevDriver.isAvailable);
             const gpsSimulationActive = row.gps_simulation_active != null
               ? Boolean(row.gps_simulation_active)
               : prevDriver.gpsSimulationActive;
@@ -229,6 +232,7 @@ export function useDrivers() {
       });
 
     return () => {
+      clearInterval(poll);
       if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
