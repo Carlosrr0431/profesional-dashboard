@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import OpenAI, { toFile } from 'openai';
 import { after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -1891,14 +1892,84 @@ function maskPhone(phone) {
   return `${'*'.repeat(Math.max(0, normalized.length - 4))}${normalized.slice(-4)}`;
 }
 
+const chatTraceStore = new AsyncLocalStorage();
+
+function noteChat(patch = {}) {
+  const trace = chatTraceStore.getStore();
+  if (!trace || !patch) return;
+  for (const [key, value] of Object.entries(patch)) {
+    if (value == null || value === '') continue;
+    trace[key] = value;
+  }
+}
+
+function rememberChatStage(stage, meta = {}) {
+  const trace = chatTraceStore.getStore();
+  if (!trace) return;
+  const name = String(stage || '').replace(/^conversation_/, '').replace(/^chat_/, '');
+  const noise = new Set([
+    'process_start',
+    'process_by_id_start',
+    'process_by_id_ok',
+    'pending_loaded',
+    'in',
+    'out',
+    'waiting',
+  ]);
+  if (name && !noise.has(name)) trace.steps.push(name);
+  if (meta.text) {
+    if (stage === 'chat_in') trace.inbound = String(meta.text).slice(0, 400);
+    if (stage === 'chat_out' && !meta.skipped) trace.reply = String(meta.text).slice(0, 500);
+  }
+  if (meta.phone) trace.phone = meta.phone;
+  if (meta.intent) trace.intent = meta.intent;
+  if (meta.reason) trace.reason = meta.reason;
+  if (meta.tripId) trace.tripId = meta.tripId;
+  if (meta.driverId) trace.driverId = meta.driverId;
+  if (meta.nextStatus) trace.nextStatus = meta.nextStatus;
+  if (meta.error) trace.error = String(meta.error).slice(0, 180);
+}
+
+function flushChatTrace(trace) {
+  if (!trace || trace.flushed) return;
+  trace.flushed = true;
+  if (!trace.inbound && !trace.reply && !trace.steps?.length) return;
+  const line = {
+    telefono: trace.phone || null,
+    dijo: trace.inbound || null,
+    intent: trace.intent || null,
+    fuente: trace.fuente || null,
+    retiro: trace.retiro || null,
+    destino: trace.destino || null,
+    viaje: trace.tripId || null,
+    chofer: trace.driverId || null,
+    estado: trace.nextStatus || null,
+    motivo: trace.reason || null,
+    pasos: trace.steps?.length ? trace.steps.slice(-14) : null,
+    respondio: trace.reply || null,
+    error: trace.error || null,
+  };
+  for (const key of Object.keys(line)) {
+    if (line[key] == null || line[key] === '') delete line[key];
+  }
+  try {
+    console.info('[whatsapp-chat]', JSON.stringify(line));
+  } catch {
+    console.info('[whatsapp-chat]', line.dijo || 'chat');
+  }
+}
+
 function logWebhook(stage, meta = {}) {
   const name = String(stage || '');
   const chat = name.startsWith('conversation_') || name.startsWith('chat_');
-  const tag = chat ? '[whatsapp-chat]' : '[whatsapp-sistema]';
+  if (chat) {
+    rememberChatStage(name, meta);
+    return;
+  }
   try {
-    console.info(tag, JSON.stringify({ stage, ...meta }));
+    console.info('[whatsapp-sistema]', JSON.stringify({ stage, ...meta }));
   } catch {
-    console.info(tag, stage);
+    console.info('[whatsapp-sistema]', stage);
   }
 }
 
@@ -9675,6 +9746,15 @@ async function processClaimedConversation(batch) {
     return { handled: false, updates: { processing_started_at: null } };
   }
 
+  noteChat({
+    phone: maskPhone(batch?.phone || ''),
+    inbound: pendingMessages
+      .map((item) => item?.contenido)
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 400),
+  });
+
   logWebhook('conversation_pending_loaded', {
     conversationId: batch?.id || null,
     pendingCount: pendingMessages.length,
@@ -10366,6 +10446,13 @@ async function processClaimedConversation(batch) {
     extracted.intent = 'trip_request';
     extracted.cancel_confirmed = false;
   }
+
+  noteChat({
+    intent: extracted.intent || null,
+    fuente: extracted.source || null,
+    retiro: extracted.pickup_location || extracted.origin || null,
+    destino: extracted.destination || null,
+  });
 
   let reuseOpenTripId = null;
   if (shouldStartNewTrip(
@@ -12059,7 +12146,24 @@ async function processConversationById(conversationId) {
   const linePhone =
     extractWasenderLineFromContext(batch.context) || getActiveWasenderLinePhone();
 
-  return runWithWasenderLine(linePhone, async () => {
+  const trace = {
+    conversationId,
+    steps: [],
+    phone: maskPhone(batch.phone || ''),
+    inbound: null,
+    reply: null,
+    intent: null,
+    fuente: null,
+    retiro: null,
+    destino: null,
+    tripId: null,
+    driverId: null,
+    reason: null,
+    error: null,
+    flushed: false,
+  };
+
+  return chatTraceStore.run(trace, () => runWithWasenderLine(linePhone, async () => {
     // Declarar fuera del try para poder acceder al contexto nuevo en el catch
     let claimedResult = null;
     try {
@@ -12097,8 +12201,10 @@ async function processConversationById(conversationId) {
         error: error?.message || 'unknown_error',
       });
       throw error;
+    } finally {
+      flushChatTrace(trace);
     }
-  });
+  }));
 }
 
 async function processConversationAfterQuietWindow(conversationId, waitMs) {
