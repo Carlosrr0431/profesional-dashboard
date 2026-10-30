@@ -69,6 +69,31 @@ BEGIN
     RETURN jsonb_build_object('success', true, 'idempotent', true, 'trip', to_jsonb(v_trip));
   END IF;
 
+  -- El panel ya le asignó este viaje mientras la oferta abierta seguía en pantalla.
+  IF v_trip.driver_id = v_driver_id AND v_trip.status = 'pending' THEN
+    UPDATE public.trips
+    SET
+      status = 'going_to_pickup',
+      accepted_at = NOW(),
+      dispatch_status = 'accepted'
+    WHERE id = p_trip_id
+      AND driver_id = v_driver_id
+      AND status = 'pending';
+
+    UPDATE public.trip_dispatch_offers
+    SET status = 'accepted', resolved_at = NOW()
+    WHERE trip_id = p_trip_id AND driver_id = v_driver_id AND status = 'pending';
+
+    UPDATE public.trip_dispatch_offers
+    SET status = 'lost', resolved_at = NOW()
+    WHERE trip_id = p_trip_id
+      AND driver_id IS DISTINCT FROM v_driver_id
+      AND status = 'pending';
+
+    SELECT * INTO v_trip FROM public.trips WHERE id = p_trip_id;
+    RETURN jsonb_build_object('success', true, 'trip', to_jsonb(v_trip));
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM public.trip_dispatch_offers
     WHERE trip_id = p_trip_id

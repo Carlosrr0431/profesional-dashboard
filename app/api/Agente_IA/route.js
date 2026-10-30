@@ -7404,7 +7404,7 @@ async function requeuePendingTripAfterNotifyFailure(
 ) {
   if (!tripId) return { ok: false, reason: 'missing_trip_id' };
 
-  const { data: requeuedTrip, error } = await getSupabase()
+  let requeueQuery = getSupabase()
     .from('trips')
     .update({
       driver_id: null,
@@ -7416,9 +7416,9 @@ async function requeuePendingTripAfterNotifyFailure(
       accepted_at: null,
     })
     .eq('id', tripId)
-    .eq('status', 'pending')
-    .select('id')
-    .maybeSingle();
+    .eq('status', 'pending');
+  if (driverId) requeueQuery = requeueQuery.eq('driver_id', driverId);
+  const { data: requeuedTrip, error } = await requeueQuery.select('id').maybeSingle();
 
   if (error) {
     logWebhook('trip_requeue_notify_fail_error', {

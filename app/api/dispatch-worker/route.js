@@ -1383,7 +1383,8 @@ async function selectDriverForClaimAttempt(
   return driverSelection;
 }
 
-async function requeuePendingTripAfterNotifyFailure(tripId, notifyReason = 'notify_failed') {
+async function requeuePendingTripAfterNotifyFailure(tripId, notifyReason = 'notify_failed', driverId = null) {
+  const expectedDriverId = String(driverId || '').trim();
   const { data: tripRow } = await getSupabaseAdmin()
     .from('trips')
     .select('status, cancel_reason, wa_context, driver_id, notes, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng')
@@ -1399,13 +1400,23 @@ async function requeuePendingTripAfterNotifyFailure(tripId, notifyReason = 'noti
     });
     return false;
   }
+  if (expectedDriverId && String(tripRow?.driver_id || '') !== expectedDriverId) {
+    logWorkerVerbose('requeue_notify_fail_skipped', {
+      tripId,
+      notifyReason,
+      reason: 'driver_changed',
+      expectedDriverId,
+      driverId: tripRow?.driver_id || null,
+    });
+    return false;
+  }
 
   const updatedWaContext = buildWaContextAfterNotifyFailure(tripRow?.wa_context, notifyReason);
   const nextDispatchAt = new Date(
     Date.now() + Math.max(1, DISPATCH_NOTIFY_FAIL_RETRY_SECONDS) * 1000
   ).toISOString();
 
-  const { data, error } = await getSupabaseAdmin()
+  let requeueQuery = getSupabaseAdmin()
     .from('trips')
     .update(buildPendingToQueuedUpdate(tripRow || {}, {
       cancel_reason: `[AUTO_REQUEUE] Falla de notificacion: ${String(notifyReason).slice(0, 140)}`,
@@ -1413,9 +1424,9 @@ async function requeuePendingTripAfterNotifyFailure(tripId, notifyReason = 'noti
       next_dispatch_at: nextDispatchAt,
     }))
     .eq('id', tripId)
-    .eq('status', 'pending')
-    .select('id')
-    .maybeSingle();
+    .eq('status', 'pending');
+  if (expectedDriverId) requeueQuery = requeueQuery.eq('driver_id', expectedDriverId);
+  const { data, error } = await requeueQuery.select('id').maybeSingle();
 
   if (error) {
     logWorker('requeue_notify_fail_error', {
@@ -2006,7 +2017,8 @@ async function processDispatchClaim(claim) {
     if (!notifyResult?.ok) {
       await requeuePendingTripAfterNotifyFailure(
         tripId,
-        notifyResult?.reason || 'notify_failed'
+        notifyResult?.reason || 'notify_failed',
+        selectedDriver.id,
       );
       await setDispatchQueueRetry(
         tripId,

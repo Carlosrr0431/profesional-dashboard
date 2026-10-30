@@ -33,9 +33,7 @@ import { getSupabaseAdmin } from '../../../../src/lib/supabaseAdmin';
 import { resolveDispatchPickupCoords } from '../../../../src/lib/tripRequeue';
 import { resolveGpsStreetAddress } from '../../../../src/lib/resolveGpsStreetAddress';
 import {
-  ASSIGN_STREET_WAIT_MS,
   saveOriginStreetLater,
-  waitForStreetAddress,
 } from '../../../../src/lib/assignStreetWait';
 
 export const runtime = 'nodejs';
@@ -199,9 +197,6 @@ export async function POST(request) {
     const earlyStreetPromise = !shouldPreservePickupOriginOnAssign(trip) && hasValidDriverGps(driver)
       ? resolveGpsStreetAddress(resolveAssignDriverGps(driver).lat, resolveAssignDriverGps(driver).lng)
       : null;
-    const earlyStreetWait = earlyStreetPromise
-      ? waitForStreetAddress(earlyStreetPromise, ASSIGN_STREET_WAIT_MS)
-      : null;
 
     const { data: busyTrips, error: busyError } = await supabase
       .from('trips')
@@ -245,13 +240,10 @@ export async function POST(request) {
 
     const assignedAt = new Date().toISOString();
     const streetPromise = nextAfterTripId ? null : earlyStreetPromise;
-    const originAddress = streetPromise ? await earlyStreetWait : undefined;
-
     const assignUpdate = buildAssignExistingTripUpdate({
       trip,
       driver,
       assignedAt,
-      originAddress,
       nextAfterTripId,
     });
 
@@ -289,13 +281,13 @@ export async function POST(request) {
     const mergedTrip = { ...trip, ...assignedTrip, status: 'pending' };
     const nextTrip = isNextTripOffer(mergedTrip);
     const storedOrigin = assignedTrip?.origin_address;
+    const notifyResult = await notifyAssignedDriver(driver, mergedTrip);
 
     after(async () => {
       try {
-        if (streetPromise && originAddress == null && isCoordLikeAddress(storedOrigin)) {
+        if (streetPromise && isCoordLikeAddress(storedOrigin)) {
           await saveOriginStreetLater(supabase, tripId, streetPromise, storedOrigin);
         }
-        await notifyAssignedDriver(driver, mergedTrip);
         if (!nextTrip && isPassengerAppTrip(mergedTrip)) {
           await trySendPassengerAppTripPush(supabase, mergedTrip, driver);
         }
@@ -308,6 +300,7 @@ export async function POST(request) {
       ok: true,
       trip: assignedTrip,
       nextTrip,
+      notified: Boolean(notifyResult?.ok),
     });
   } catch (err) {
     console.error('[trips/assign-existing]', err);
