@@ -4715,11 +4715,23 @@ async function sendWhatsAppText(phone, text) {
   }
 
   if (!String(text || '').trim() || isCannedWhatsappSpam(text)) {
+    logWebhook('chat_out', {
+      phone: maskPhone(phone),
+      skipped: true,
+      text: String(text || '').slice(0, 500),
+    });
     return { skipped: true };
   }
 
   const outboundText = stripWhatsappFinalPeriods(await varyWhatsappPhrase(text, { phone }));
-  if (!outboundText) return { skipped: true };
+  if (!outboundText) {
+    logWebhook('chat_out', {
+      phone: maskPhone(phone),
+      skipped: true,
+      text: String(text || '').slice(0, 500),
+    });
+    return { skipped: true };
+  }
   logWebhook('chat_out', {
     phone: maskPhone(phone),
     text: outboundText.slice(0, 500),
@@ -8516,9 +8528,6 @@ async function createTripFromConversation({ conversation, extracted, includeBett
  */
 async function dispatchQueuedPassengers() {
   if (SUPABASE_DISPATCH_ONLY) {
-    logWebhook('queue_dispatch_skipped', {
-      reason: 'supabase_dispatch_only',
-    });
     return { dispatched: 0, skipped: true };
   }
 
@@ -8937,7 +8946,6 @@ async function expireTimedOutPendingTrips() {
   }
 
   if (!timedOut?.length) {
-    logWebhook('expire_pending_none');
     return { expired: 0 };
   }
 
@@ -9098,7 +9106,6 @@ async function requeueTimedOutPendingTripsSupabaseDispatchOnly() {
   });
 
   if (!candidateIds.length) {
-    logWebhook('expire_pending_db_first_none');
     return { expired: 0, error: false };
   }
 
@@ -9423,14 +9430,14 @@ async function processTripLifecycleTransitions() {
   }
 
   const queueResult = await dispatchQueuedPassengers();
-  logWebhook('trip_transition_scan_done', { confirmed, reassigned, queued: queueResult.dispatched });
+  if (confirmed || reassigned || queueResult.dispatched) {
+    logWebhook('trip_transition_scan_done', { confirmed, reassigned, queued: queueResult.dispatched });
+  }
   return { confirmed, reassigned, queued: queueResult.dispatched };
 }
 
 async function processTripLifecycleTransitionsForTripId(tripId) {
   if (!tripId) return { confirmed: 0, reassigned: 0, queued: 0 };
-
-  logWebhook('trip_transition_trip_scan_start', { tripId });
 
   const trip = await getConversationFlowTripById(tripId);
   if (!trip) {
@@ -9469,11 +9476,13 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
 
     if (tripStatus !== 'cancelled') {
       const queueResult = await dispatchQueuedPassengers();
-      logWebhook('trip_transition_trip_scan_done', {
-        tripId,
-        passengerAppPush: pushResult?.ok ? 1 : 0,
-        status: tripStatus,
-      });
+      if (pushResult?.ok) {
+        logWebhook('trip_transition_trip_scan_done', {
+          tripId,
+          passengerAppPush: 1,
+          status: tripStatus,
+        });
+      }
       return { confirmed: pushResult?.ok ? 1 : 0, reassigned: 0, queued: queueResult.dispatched };
     }
   }
@@ -9482,7 +9491,7 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
   if (ACTIVE_TRIP_STATUSES.includes(tripStatus) && !trip.wa_notified_at) {
     const notified = await claimAndNotifyPassengerTripAcceptedWhatsApp(trip);
     const queueResult = await dispatchQueuedPassengers();
-    logWebhook('trip_transition_trip_scan_done', { tripId, confirmed: notified ? 1 : 0 });
+    if (notified) logWebhook('trip_transition_trip_scan_done', { tripId, confirmed: 1 });
     return { confirmed: notified ? 1 : 0, reassigned: 0, queued: queueResult.dispatched };
   }
 
@@ -9496,7 +9505,6 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
       .select('id');
 
     if (!claimed?.length) {
-      logWebhook('trip_transition_trip_scan_done', { tripId, claimed: false });
       return { confirmed: 0, reassigned: 0, queued: 0 };
     }
 
@@ -9650,7 +9658,6 @@ async function processTripLifecycleTransitionsForTripId(tripId) {
     return { confirmed: 0, reassigned: 0, queued: queueResult.dispatched };
   }
 
-  logWebhook('trip_transition_trip_scan_done', { tripId, status: tripStatus });
   const queueResult = await dispatchQueuedPassengers();
   return { confirmed: 0, reassigned: 0, queued: queueResult.dispatched };
 }
@@ -12162,7 +12169,6 @@ function scheduleConversationProcessing(conversationId, delayMs = ACCUMULATION_M
 }
 
 async function processPendingConversations({ onlyBypassPhones = false } = {}) {
-  logWebhook('pending_scan_start', { accumulationMs: ACCUMULATION_MS, onlyBypassPhones });
   const threshold = new Date(Date.now() - ACCUMULATION_MS).toISOString();
   const { data, error } = await getSupabase()
     .from('whatsapp_conversations')
@@ -12175,12 +12181,14 @@ async function processPendingConversations({ onlyBypassPhones = false } = {}) {
     ? (data || []).filter((item) => isAgentDisabledBypassPhone(item?.phone))
     : (data || []);
 
-  logWebhook('pending_scan_found', {
-    total: candidates.length,
-    scanned: (data || []).length,
-    threshold,
-    onlyBypassPhones,
-  });
+  if (candidates.length) {
+    logWebhook('pending_scan_found', {
+      total: candidates.length,
+      scanned: (data || []).length,
+      threshold,
+      onlyBypassPhones,
+    });
+  }
 
   let processed = 0;
   let skipped = 0;
@@ -12199,7 +12207,9 @@ async function processPendingConversations({ onlyBypassPhones = false } = {}) {
     }
   }
 
-  logWebhook('pending_scan_done', { processed, skipped, total: candidates.length });
+  if (processed || skipped) {
+    logWebhook('pending_scan_done', { processed, skipped, total: candidates.length });
+  }
 
   // Intentar despachar pasajeros en cola después de procesar todos los mensajes pendientes.
   // Esto cubre el caso donde en el mismo ciclo de cron hay nuevos pasajeros en cola Y
@@ -12216,11 +12226,13 @@ async function processWebhookBody(body, requestMeta = {}) {
   try {
     const payloadBody = normalizeWhatsmeowWebhookBody(body || {});
     const event = payloadBody.event;
-    logWebhook('received', {
-      event: event || 'unknown',
-      rawEvent: body?.event || null,
-      agentCode: payloadBody.agent_code || body?.agent_code || null,
-    });
+    if (event !== 'trip.transition') {
+      logWebhook('received', {
+        event: event || 'unknown',
+        rawEvent: body?.event || null,
+        agentCode: payloadBody.agent_code || body?.agent_code || null,
+      });
+    }
 
     if (event === 'trip.driver_reject') {
       const authHeader = requestMeta.authHeader || '';
@@ -12359,17 +12371,6 @@ async function processWebhookBody(body, requestMeta = {}) {
       }
 
       const transitionStatus = normalizeText(payloadBody.status || '');
-
-      if (SUPABASE_DISPATCH_ONLY) {
-        logWebhook('trip_transition_dispatch_mode', {
-          tripId,
-          status: transitionStatus || null,
-          authMode,
-          mode: 'supabase_dispatch_only',
-          queueDispatch: 'disabled_in_agente_ia',
-          lifecycleTransitions: 'enabled',
-        });
-      }
 
       if (transitionStatus === 'pending') {
         schedulePendingTimeoutTimer(tripId, { source: 'trip_transition_event' });
@@ -13223,14 +13224,14 @@ async function processWebhookBody(body, requestMeta = {}) {
       };
     }
 
-    scheduleConversationProcessing(appendResult.conversation_id, ACCUMULATION_MS);
-    logWebhook('queued', {
+    logWebhook('chat_in', {
       phone: maskPhone(phone),
-      messageId,
+      text: String(content || '').slice(0, 500),
       messageType,
-      conversationId: appendResult.conversation_id,
-      accumulationMs: ACCUMULATION_MS,
+      messageId,
     });
+
+    scheduleConversationProcessing(appendResult.conversation_id, ACCUMULATION_MS);
 
     const shouldProcessImmediately =
       IMMEDIATE_PROCESSING || Boolean(requestMeta.forceImmediateProcessing);
@@ -13253,7 +13254,7 @@ async function processWebhookBody(body, requestMeta = {}) {
       };
     }
 
-    logWebhook('awaiting_cron', {
+    logWebhook('chat_waiting', {
       conversationId: appendResult.conversation_id,
       accumulationMs: ACCUMULATION_MS,
       immediateProcessing: false,
@@ -13438,26 +13439,31 @@ export async function POST(req, context = {}) {
     await ensureWarm();
     const authHeader = req.headers.get('authorization') || '';
     const tripTransitionSecretHeader = req.headers.get('x-trip-transition-secret') || '';
-    logWebhook('http_post', {
-      vercelId: req.headers.get('x-vercel-id') || null,
-      hasEvent: Boolean(body?.event),
-      event: body?.event || null,
-      agentEnabled,
-      bypassAllowlist,
-      lifecycleEvent,
-      wasenderLine: getActiveWasenderLinePhone(),
-      agentCode: getActiveWhatsmeowAgentCode() || null,
-    });
+    const isTripTransition = body?.event === 'trip.transition';
+    if (!isTripTransition) {
+      logWebhook('http_post', {
+        vercelId: req.headers.get('x-vercel-id') || null,
+        hasEvent: Boolean(body?.event),
+        event: body?.event || null,
+        agentEnabled,
+        bypassAllowlist,
+        lifecycleEvent,
+        wasenderLine: getActiveWasenderLinePhone(),
+        agentCode: getActiveWhatsmeowAgentCode() || null,
+      });
+    }
     const result = await processWebhookBody(body, {
       authHeader,
       tripTransitionSecretHeader,
       forceImmediateProcessing: bypassAllowlist,
     });
-    logWebhook('http_post_result', {
-      status: result.status,
-      success: result.body?.success === true,
-      wasenderLine: getActiveWasenderLinePhone(),
-    });
+    if (!isTripTransition) {
+      logWebhook('http_post_result', {
+        status: result.status,
+        success: result.body?.success === true,
+        wasenderLine: getActiveWasenderLinePhone(),
+      });
+    }
     return Response.json(result.body, { status: result.status });
   });
 }
