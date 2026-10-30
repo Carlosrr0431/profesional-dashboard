@@ -13,6 +13,9 @@ describe('contador de Places', () => {
   it('un lugar guardado coincide aunque la búsqueda no sea idéntica', () => {
     expect(cachedPoiMatches('Farmacia del Centro Caseros 100 Salta', 'farmacia centro')).toBe(true);
     expect(cachedPoiMatches('Hospital San Bernardo', 'alvarado 241')).toBe(false);
+    expect(cachedPoiMatches('C. Fragata Sarmiento 292, Salta', 'avenida sarmiento 292')).toBe(false);
+    expect(cachedPoiMatches('Av. Sarmiento 292, A4400 Salta', 'avenida sarmiento 292')).toBe(true);
+    expect(cachedPoiMatches('C. Fragata Sarmiento 292, Salta', 'fragata sarmiento 292')).toBe(true);
   });
 });
 
