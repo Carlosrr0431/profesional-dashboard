@@ -14,7 +14,7 @@ export { isAvailabilityAskWithoutRoute };
 
 export const BETTO_INTRO = 'Hola, soy el Chat Bot Betto 👋';
 export const ASK_PICKUP_STREET_OR_GPS =
-  'Mandame *calle y altura* (por ejemplo Mitre 200) o tu *ubicación GPS* desde WhatsApp.';
+  'Cuando quieras, pasame *calle y altura* (por ejemplo Mitre 200) o tu *ubicación GPS* desde WhatsApp';
 
 const SALTA_TZ = 'America/Argentina/Salta';
 const HOLA_PREFIX_RE =
@@ -107,13 +107,20 @@ export function buildBettoWelcomeMessage({ now } = {}) {
   const hi = conversationalGreeting({ now });
   return [
     `${hi} 👋`,
-    'Soy Betto, de Profesional.',
+    'Soy Betto, de Profesional Viajes',
     '',
-    'Decime el viaje que querés tomar.',
-    'Necesito *de dónde te buscamos*: *calle y altura*, o tu *ubicación GPS*.',
-    '',
-    'Ejemplo: _Mitre 200_ o _buscame en Mitre 200 para ir a Güemes 400_.',
+    'Contame de dónde te buscamos',
+    '*Calle y altura* (por ejemplo Mitre 200) o tu *ubicación GPS*',
   ].join('\n');
+}
+
+/** Quita el punto final de cada renglón. No toca los puntos de un precio. */
+export function stripWhatsappFinalPeriods(text) {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.replace(/(?<!\.)\.(?!\.)\s*$/u, '').trimEnd())
+    .join('\n')
+    .trim();
 }
 
 export function withBettoIntro(message, { now } = {}) {

@@ -148,12 +148,14 @@ import {
 import { isNoiseWhatsAppWebhookEvent, normalizeWhatsmeowWebhookBody } from '../../../src/lib/whatsmeowWebhook';
 import {
   ASK_PICKUP_STREET_OR_GPS,
+  buildBettoWelcomeMessage,
   buildTripTakenReply,
   isBettoGreetedContext,
   mergeWhatsappSessionContext,
   rewriteVaguePickupAsk,
   shouldSendBettoWelcome,
   stampBettoGreeted,
+  stripWhatsappFinalPeriods,
   withBettoIntro,
 } from '../../../src/lib/bettoWelcome';
 import {
@@ -1890,10 +1892,13 @@ function maskPhone(phone) {
 }
 
 function logWebhook(stage, meta = {}) {
+  const name = String(stage || '');
+  const chat = name.startsWith('conversation_') || name.startsWith('chat_');
+  const tag = chat ? '[whatsapp-chat]' : '[whatsapp-sistema]';
   try {
-    console.info('[whatsapp-webhook]', JSON.stringify({ stage, ...meta }));
+    console.info(tag, JSON.stringify({ stage, ...meta }));
   } catch {
-    console.info('[whatsapp-webhook]', stage);
+    console.info(tag, stage);
   }
 }
 
@@ -4713,8 +4718,12 @@ async function sendWhatsAppText(phone, text) {
     return { skipped: true };
   }
 
-  const outboundText = await varyWhatsappPhrase(text, { phone });
+  const outboundText = stripWhatsappFinalPeriods(await varyWhatsappPhrase(text, { phone }));
   if (!outboundText) return { skipped: true };
+  logWebhook('chat_out', {
+    phone: maskPhone(phone),
+    text: outboundText.slice(0, 500),
+  });
   const result = await sendWhatsmeowText(agentCode, phone, outboundText, {
     apiKey: getWasenderApiKey(),
   });
@@ -10064,7 +10073,10 @@ async function processClaimedConversation(batch) {
       }
     }
     if (streetGate === 'ask') {
-      await sendWhatsAppText(batch.phone, ASK_PICKUP_STREET_OR_GPS);
+      await sendWhatsAppText(
+        batch.phone,
+        isGreetingOnly(fastText) ? buildBettoWelcomeMessage() : ASK_PICKUP_STREET_OR_GPS,
+      );
       logWebhook('conversation_pickup_street_required', {
         conversationId: batch?.id || null,
         tripId: openTripByPhone?.id || null,
@@ -10125,9 +10137,17 @@ async function processClaimedConversation(batch) {
     .map((item) => item?.contenido)
     .filter(Boolean)
     .join('\n');
+  logWebhook('chat_in', {
+    conversationId: batch?.id || null,
+    phone: maskPhone(batch?.phone || ''),
+    text: combinedText.slice(0, 500),
+  });
 
   if (gatePickupStreetReply(combinedText, openTripByPhone) === 'ask') {
-    await sendWhatsAppText(batch.phone, ASK_PICKUP_STREET_OR_GPS);
+    await sendWhatsAppText(
+      batch.phone,
+      isGreetingOnly(combinedText) ? buildBettoWelcomeMessage() : ASK_PICKUP_STREET_OR_GPS,
+    );
     logWebhook('conversation_pickup_street_required', {
       conversationId: batch?.id || null,
       tripId: openTripByPhone?.id || null,
@@ -10569,11 +10589,7 @@ async function processClaimedConversation(batch) {
       looksLikeTripRequest: heuristics.looksLikeTripRequest,
     })
   ) {
-    await sendWhatsAppText(batch.phone, ASK_PICKUP_STREET_OR_GPS);
-    logWebhook('conversation_betto_welcome_skipped', {
-      conversationId: batch?.id || null,
-      intent: extracted.intent || null,
-    });
+    await sendWhatsAppText(batch.phone, buildBettoWelcomeMessage());
     logWebhook('conversation_betto_welcome', {
       conversationId: batch?.id || null,
       intent: extracted.intent || null,
@@ -11031,7 +11047,10 @@ async function processClaimedConversation(batch) {
       greetingOrAvailability,
     });
     if (greetingOrAvailability) {
-      await sendWhatsAppText(batch.phone, ASK_PICKUP_STREET_OR_GPS);
+      await sendWhatsAppText(
+        batch.phone,
+        isGreetingOnly(combinedText) ? buildBettoWelcomeMessage() : ASK_PICKUP_STREET_OR_GPS,
+      );
       return {
         handled: true,
         updates: {
@@ -11129,9 +11148,9 @@ async function processClaimedConversation(batch) {
       ? null
       : pendingScheduleInfo
         ? (rewriteVaguePickupAsk(extracted.reply) ||
-          `Perfecto, te anoto para el *${pendingScheduleInfo.displayText}*. ${ASK_PICKUP_STREET_OR_GPS}`)
+          `Perfecto, te anoto para el *${pendingScheduleInfo.displayText}*\n${ASK_PICKUP_STREET_OR_GPS}`)
         : (rewriteVaguePickupAsk(extracted.reply) ||
-          `Para derivarte un móvil. ${ASK_PICKUP_STREET_OR_GPS}`);
+          `Para derivarte el móvil\n${ASK_PICKUP_STREET_OR_GPS}`);
     if (reply) {
       await sendWhatsAppText(
         batch.phone,

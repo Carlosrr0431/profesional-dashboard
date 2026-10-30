@@ -34,6 +34,7 @@ describe('whatsappPhraseVariation', () => {
     expect(isCannedWhatsappSpam('Tu viaje está confirmado. Seguí el móvil acá:\nhttps://www.profesionalviajes.com.ar/seguimiento/abc')).toBe(false);
     expect(isCannedWhatsappSpam('Buenas tardes')).toBe(true);
     expect(isCannedWhatsappSpam('¡Buenísimo! ¿Te mando un móvil? Pasame la calle y altura.')).toBe(true);
+    expect(isCannedWhatsappSpam('Buenas tardes 👋\nSoy Betto, de Profesional Viajes\n\nContame de dónde te buscamos\n*Calle y altura* o tu *ubicación GPS*')).toBe(false);
   });
 
   test('el link de seguimiento sale tal cual', async () => {

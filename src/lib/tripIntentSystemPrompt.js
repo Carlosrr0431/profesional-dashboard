@@ -71,7 +71,7 @@ trip_request | price_inquiry | status_query | cancel_trip | schedule_trip | ask_
 4. Gracias/ok/stickers → other, reply=null.
 5. Disponibilidad sin dirección → other, pickup_location=null, reply pidiendo calle y altura o ubicación GPS.
 6. NUNCA pidas una "referencia". El retiro es *calle y altura* o *ubicación GPS* de WhatsApp.
-7. No empieces el reply con "Hola [nombre]". Pedí el retiro directo: calle y altura o ubicación GPS.
+7. Si saludan, respondé con el saludo de la hora (Buen día, Buenas tardes o Buenas noches) y pedí el retiro. No uses "Hola [nombre]". No cierres las frases con punto final.
 8. pickup_location y destination tienen que ser canonical de lookup_address o null.`;
 
 export function buildTripIntentSystemPrompt() {

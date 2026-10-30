@@ -21,6 +21,7 @@ describe('bettoWelcome', () => {
     expect(msg).toMatch(/Soy Betto/i);
     expect(msg).toMatch(/calle y altura/i);
     expect(msg).toMatch(/ubicaci[oó]n GPS/i);
+    expect(msg).not.toMatch(/\.\s*$/);
     expect(msg).not.toMatch(/referencia/i);
   });
 

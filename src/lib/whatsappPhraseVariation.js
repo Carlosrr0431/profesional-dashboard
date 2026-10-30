@@ -17,7 +17,8 @@ const SYSTEM_PROMPT = [
   'Cambiá el orden y las palabras. No copies la frase original.',
   'Conservá tal cual precios, números, nombres, direcciones, horarios y links.',
   'Si hay texto entre asteriscos, dejá esas palabras y los asteriscos.',
-  'Español rioplatense, breve, de chat. Sin comillas que envuelvan todo el mensaje.',
+  'Español rioplatense, breve, amable y profesional. Sin comillas que envuelvan todo el mensaje.',
+  'No cierres ninguna frase con punto final.',
   'No agregues datos, ofertas ni despedidas nuevas.',
   'Respondé solo con el mensaje listo para enviar.',
 ].join(' ');
@@ -108,6 +109,8 @@ export function isCannedWhatsappSpam(text) {
   if (!n.trim()) return false;
   if (n.includes('http://') || n.includes('https://')) return false;
   const bare = n.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const asksPickup = n.includes('calle y altura') && (n.includes('ubicacion gps') || /\bgps\b/.test(n));
+  if (asksPickup && !n.includes('te mando un movil') && !n.includes('ya te mando')) return false;
   if (/^(buen dia|buenos dias|buenas tardes|buenas noches|hola|hola pasajero)$/.test(bare)) {
     return true;
   }
