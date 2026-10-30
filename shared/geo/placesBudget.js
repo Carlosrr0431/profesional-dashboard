@@ -29,7 +29,7 @@ function foldPlaceText(value) {
 function placeQueryTokens(query) {
   return foldPlaceText(query)
     .split(/[^a-z0-9]+/)
-    .filter((token) => token.length >= 3 && !PLACE_QUERY_STOP.has(token));
+    .filter((token) => /^\d+$/.test(token) || (token.length >= 3 && !PLACE_QUERY_STOP.has(token)));
 }
 
 /** El lugar guardado coincide con lo escrito, sin llamar a Google. */
@@ -38,7 +38,7 @@ function cachedPoiMatches(blob, query) {
   if (!tokens.length) return false;
   const words = foldPlaceText(blob).split(/[^a-z0-9]+/).filter(Boolean);
   const tokenHit = tokens.every((token) => words.some((word) => (
-    word === token || (token.length >= 4 && word.startsWith(token))
+    word === token || (!/^\d+$/.test(token) && token.length >= 4 && word.startsWith(token))
   )));
   if (!tokenHit) return false;
   return numberedStreetAgrees(query, blob);

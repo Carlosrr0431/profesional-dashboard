@@ -75,6 +75,17 @@ function dedupeSamePoint(items) {
   return kept;
 }
 
+function withRequestedHouseNumber(items, query) {
+  const wanted = pickPrimaryHouseNumber(query);
+  if (wanted == null) return items || [];
+  return (items || []).filter((item) => {
+    const got = pickPrimaryHouseNumber(
+      `${item?.title || ''} ${item?.subtitle || ''} ${item?.address || ''} ${item?.formattedAddress || ''}`,
+    );
+    return got === wanted;
+  });
+}
+
 function canOffer(item) {
   if (hasPin(item)) return true;
   return String(item?.placeId || '').startsWith('google:');
@@ -152,12 +163,16 @@ export async function GET(request) {
       ),
     ]);
     let results;
-    const remembered = rankNamedGoogleFirst([...(cachedPlaces || []), ...(frequent?.items || [])], query);
+    const remembered = withRequestedHouseNumber(
+      rankNamedGoogleFirst([...(cachedPlaces || []), ...(frequent?.items || [])], query),
+      query,
+    );
+    const localGeo = withRequestedHouseNumber(geo, query);
     if (intersection) {
-      const pool = [...remembered, ...(geo || [])];
+      const pool = [...remembered, ...localGeo];
       results = pool.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2)).slice(0, limit);
     } else {
-      results = mergePlaceSuggestions(remembered, geo, limit);
+      results = mergePlaceSuggestions(remembered, localGeo, limit);
     }
     results = await within(
       keepLocatableSuggestions(results),
@@ -166,7 +181,7 @@ export async function GET(request) {
     );
     const saved = await findSavedPinnedAddresses(query).catch(() => []);
     if (saved.length) {
-      results = mergePlaceSuggestions(saved, results, limit);
+      results = mergePlaceSuggestions(withRequestedHouseNumber(saved, query), results, limit);
     }
     results = dedupeSamePoint(results);
     if (intersection) {
@@ -177,13 +192,13 @@ export async function GET(request) {
       }
     } else if (needsGoogleCoverage(results, query)) {
       const google = await searchGooglePlacesLastResort(query, limit, { sessionToken }).catch(() => []);
-      const fresh = google.filter(canOffer);
+      const fresh = withRequestedHouseNumber(google.filter(canOffer), query);
       const savedFirst = (results || []).filter((item) => String(item.placeId || '').startsWith('saved:'));
       const rest = (results || []).filter((item) => !String(item.placeId || '').startsWith('saved:'));
       results = mergePlaceSuggestions([...savedFirst, ...fresh], rest, limit);
     }
     if (pickPrimaryHouseNumber(query) != null) {
-      results = alignStreetNumberPins(results, query);
+      results = alignStreetNumberPins(withRequestedHouseNumber(results, query), query);
     }
     results.sort((a, b) => (
       queryOverlapScore(query, `${b?.title || ''} ${b?.subtitle || ''} ${b?.address || ''} ${b?.formattedAddress || ''}`)
