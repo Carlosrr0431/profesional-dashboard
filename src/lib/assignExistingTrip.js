@@ -184,6 +184,17 @@ export function dashboardDriverAvailability(driver) {
   return { code: 'free', label: 'Disponible', canAssign: true, nextTrip: false };
 }
 
+/** Ofertas que el chofer todavía no aceptó. La asignación de la base las reemplaza. */
+export function pendingOffersSupersededByManualAssign(trips, { keepTripId } = {}) {
+  const keep = String(keepTripId || '');
+  return (trips || []).filter((item) => {
+    if (!item?.id || String(item.id) === keep) return false;
+    if (String(item.status || '').toLowerCase() !== 'pending') return false;
+    if (item.next_after_trip_id) return false;
+    return Boolean(item.driver_id);
+  });
+}
+
 export function classifyManualAssignBusyState(trips, { ignoreTripId } = {}) {
   const partitioned = partitionDriverBusyTrips(trips, { ignoreTripId });
   const liveTrip = partitioned.liveBusyTrips.find((item) => shouldTreatAsLiveDriverTrip(item))

@@ -259,10 +259,19 @@ export default function DriverApp() {
     const openOffer = async (tripId, offeredAt) => {
       const { data } = await supabase.from('trips').select('*').eq('id', tripId).maybeSingle();
       if (cancelled || !data || data.status !== 'pending') return;
-      setPendingTrip({
-        ...data,
-        broadcast_offer: !data.driver_id,
-        assigned_at: data.assigned_at || offeredAt || new Date().toISOString(),
+      setPendingTrip((prev) => {
+        if (
+          prev?.driver_id
+          && prev.status === 'pending'
+          && String(prev.id) !== String(data.id)
+        ) {
+          return prev;
+        }
+        return {
+          ...data,
+          broadcast_offer: !data.driver_id,
+          assigned_at: data.assigned_at || offeredAt || new Date().toISOString(),
+        };
       });
       setTab('inicio');
     };

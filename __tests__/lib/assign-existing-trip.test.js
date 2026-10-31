@@ -12,6 +12,7 @@ const {
   stampManualDashboardAssign,
   dashboardDriverAvailability,
   classifyManualAssignBusyState,
+  pendingOffersSupersededByManualAssign,
 } = require('../../src/lib/assignExistingTrip');
 
 describe('assignExistingTrip', () => {
@@ -226,6 +227,12 @@ describe('assignExistingTrip', () => {
     expect(classifyManualAssignBusyState([
       { id: 'p1', driver_id: 'd1', status: 'pending' },
     ])).toMatchObject({ canAssignAsNext: false, hasPendingOffer: true });
+    expect(pendingOffersSupersededByManualAssign([
+      { id: 'p1', driver_id: 'd1', status: 'pending' },
+      { id: 'keep', driver_id: 'd1', status: 'pending' },
+      { id: 'next', driver_id: 'd1', status: 'pending', next_after_trip_id: 'live-1' },
+      { id: 'live', driver_id: 'd1', status: 'in_progress' },
+    ], { keepTripId: 'keep' }).map((item) => item.id)).toEqual(['p1']);
     expect(classifyManualAssignBusyState([
       { id: 'live-1', driver_id: 'd1', status: 'going_to_pickup' },
     ]).canAssignAsNext).toBe(false);

@@ -12,6 +12,7 @@ import {
   canManuallyAssignExistingTrip,
   classifyManualAssignBusyState,
   hasValidDriverGps,
+  pendingOffersSupersededByManualAssign,
   resolveAssignDriverGps,
 } from '../../../../src/lib/assignExistingTrip';
 import {
@@ -30,7 +31,7 @@ import {
 } from '../../../../src/lib/firebaseAdmin';
 import { trySendPassengerAppTripPush } from '../../../../src/lib/passengerPushNotifications';
 import { getSupabaseAdmin } from '../../../../src/lib/supabaseAdmin';
-import { resolveDispatchPickupCoords } from '../../../../src/lib/tripRequeue';
+import { buildPendingToQueuedUpdate, resolveDispatchPickupCoords } from '../../../../src/lib/tripRequeue';
 import { resolveGpsStreetAddress } from '../../../../src/lib/resolveGpsStreetAddress';
 import {
   saveOriginStreetLater,
@@ -200,14 +201,40 @@ export async function POST(request) {
 
     const { data: busyTrips, error: busyError } = await supabase
       .from('trips')
-      .select('id, driver_id, status, next_after_trip_id, notes, wa_context')
+      .select('id, driver_id, status, next_after_trip_id, notes, wa_context, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng')
       .eq('driver_id', driverId)
       .in('status', DRIVER_BUSY_TRIP_STATUSES)
       .neq('id', tripId);
 
     if (busyError) throw busyError;
 
-    const busyState = classifyManualAssignBusyState(busyTrips || []);
+    const superseded = pendingOffersSupersededByManualAssign(busyTrips || [], { keepTripId: tripId });
+    if (superseded.length) {
+      const now = new Date().toISOString();
+      for (const row of superseded) {
+        const update = buildPendingToQueuedUpdate(row, { next_dispatch_at: now });
+        const { error: releaseError } = await supabase
+          .from('trips')
+          .update(update)
+          .eq('id', row.id)
+          .eq('status', 'pending')
+          .eq('driver_id', driverId);
+        if (releaseError) throw releaseError;
+      }
+    }
+
+    const { error: offerError } = await supabase
+      .from('trip_dispatch_offers')
+      .update({ status: 'lost', resolved_at: new Date().toISOString() })
+      .eq('driver_id', driverId)
+      .eq('status', 'pending')
+      .neq('trip_id', tripId);
+    if (offerError && !/does not exist|schema cache|PGRST205|42P01/i.test(String(offerError.message || offerError.code || ''))) {
+      console.error('[trips/assign-existing] offers', offerError);
+    }
+
+    const stillBusy = (busyTrips || []).filter((item) => !superseded.some((row) => row.id === item.id));
+    const busyState = classifyManualAssignBusyState(stillBusy);
     if (busyState.reservedNext || busyState.hasPendingOffer) {
       return NextResponse.json(
         {
