@@ -14,6 +14,7 @@ import {
 } from './tripOffer';
 import { startOfferAlert, stopOfferAlert, unlockOfferAlert } from './offerAlert';
 import SpaTripNotes from '../shared/SpaTripNotes';
+import SpaWhatsAppThread, { isWhatsAppDriverTrip } from '../shared/SpaWhatsAppThread';
 
 export default function NewTripOffer({ trip, busy, onAccept, onReject }) {
   const [countdown, setCountdown] = useState(() => remainingAcceptSeconds(trip));
@@ -214,7 +215,11 @@ export default function NewTripOffer({ trip, busy, onAccept, onReject }) {
             </div>
           </div>
 
-          <SpaTripNotes notes={display.notes} tripId={trip?.id} />
+          {isWhatsAppDriverTrip(trip) ? (
+            <SpaWhatsAppThread tripId={trip?.id} />
+          ) : (
+            <SpaTripNotes notes={display.notes} tripId={trip?.id} />
+          )}
 
           <div className="spa-offer-actions">
             <button

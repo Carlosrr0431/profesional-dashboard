@@ -45,10 +45,25 @@ describe('approachOnlyTripPayload', () => {
     expect(payload.price).toBe(4040);
     expect(payload.commission_amount).toBe(808);
     expect(payload.notes).toContain('[APPROACH_ONLY]');
+    expect(payload.notes).not.toContain('En cola de espera');
     expect(payload.notes).toContain('[FINAL_DEST_JSON:');
     expect(payload.notes).toContain('[PICKUP_JSON:');
     expect(payload.notes).not.toContain('[DASHBOARD]');
     expect(payload.notes).not.toContain('Destino final sugerido:');
+    expect(payload.notes).not.toContain('con baul');
+  });
+
+  it('un viaje de WhatsApp no guarda comentarios en las notas', () => {
+    const payload = buildApproachOnlyTripInsertPayload({
+      pickupLocation: pickup,
+      passengerName: 'Juan',
+      passengerPhone: '543878630173',
+      source: 'whatsapp',
+      extraNotes: 'con baul',
+    });
+    expect(payload.notes).toContain('[APPROACH_ONLY]');
+    expect(payload.notes).not.toContain('con baul');
+    expect(payload.notes).not.toContain('En cola de espera');
   });
 
   it('payload passenger_app: origin_* = recogida, destination_* = destino final', () => {

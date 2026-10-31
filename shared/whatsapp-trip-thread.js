@@ -1,12 +1,12 @@
 /**
  * Hilo WhatsApp acotado a un viaje (agencia ↔ pasajero).
- * El chofer solo lo ve después de aceptar; no es el chat chofer↔pasajero.
+ * El chofer lo ve en la oferta y durante el viaje. No es el chat chofer↔pasajero.
  */
 
 const WHATSAPP_THREAD_TABLE = 'trip_whatsapp_messages';
 const WHATSAPP_THREAD_FIELDS =
   'id, trip_id, conversation_id, whatsapp_message_id, direction, message_type, body, created_at';
-const WHATSAPP_THREAD_VISIBLE_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
+const WHATSAPP_THREAD_VISIBLE_STATUSES = ['pending', 'accepted', 'going_to_pickup', 'in_progress'];
 const WHATSAPP_THREAD_PREVIEW_COUNT = 6;
 const WHATSAPP_THREAD_MAX_MESSAGES = 80;
 

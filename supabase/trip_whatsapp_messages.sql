@@ -64,7 +64,7 @@ CREATE POLICY "Chofer lee WhatsApp de su viaje aceptado"
       FROM public.trips t
       WHERE t.id = trip_whatsapp_messages.trip_id
         AND t.driver_id = public.get_my_driver_id()
-        AND t.status IN ('accepted', 'going_to_pickup', 'in_progress')
+        AND t.status IN ('pending', 'accepted', 'going_to_pickup', 'in_progress')
     )
   );
 

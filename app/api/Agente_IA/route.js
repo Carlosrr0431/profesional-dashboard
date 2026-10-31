@@ -4083,17 +4083,13 @@ function enrichWaContextForSchedule(waContext, scheduleInfo, extracted = {}) {
   };
 }
 
-function buildScheduledTripNotes({ scheduleInfo, batch, extracted, conversationText }) {
+function buildScheduledTripNotes({ scheduleInfo, batch }) {
   return [
     `[SCHEDULED_FOR] ${scheduleInfo.date.toISOString()}`,
     `[SCHEDULED_DISPLAY] ${scheduleInfo.displayText}`,
     `[SCHEDULED_SOURCE] whatsapp`,
     `[PASSENGER_PHONE] ${batch.phone}`,
     `[CONVERSATION_ID] ${batch.id}`,
-    extracted?.notes ? extracted.notes : null,
-    conversationText
-      ? `[INDICACIONES_PASAJERO] ${String(conversationText).replace(/\n+/g, ' | ').trim()}`
-      : null,
   ].filter(Boolean).join('\n');
 }
 
@@ -5119,18 +5115,8 @@ function tripHasDispatchPickup(trip) {
 }
 
 async function appendGpsPinClarification(trip, text) {
-  const extra = String(text || '').trim().slice(0, 500);
-  if (!extra || !trip?.id) return false;
-  const { data } = await getSupabase()
-    .from('trips')
-    .select('notes')
-    .eq('id', trip.id)
-    .maybeSingle();
-  const prev = String(data?.notes || '');
-  if (prev.includes(extra)) return true;
-  const notes = prev ? `${prev}\n${extra}` : extra;
-  const { error } = await getSupabase().from('trips').update({ notes }).eq('id', trip.id);
-  return !error;
+  const extra = String(text || '').trim();
+  return Boolean(extra && trip?.id);
 }
 
 function readIncomingLocation(messageData) {
@@ -7755,7 +7741,7 @@ function buildApproachOnlyQueuePayload({
     fare: passengerRouteFare,
     source: 'whatsapp',
     destinationHint: finalDestinationHint,
-    extraNotes: extracted.notes || null,
+    extraNotes: null,
     finalDestJsonPrebuilt: finalDestJson,
     additionalLines: extracted.catastral_nomenclature
       ? [`[CATASTRAL] ${extracted.catastral_nomenclature}`]
@@ -7831,7 +7817,7 @@ function buildTripCreateSuccessContext({
     passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
     pickup_location: normalizedPickupQuery || pickupQuery,
     destination: finalDestinationHint || null,
-    notes: extracted.notes || null,
+    notes: null,
     awaiting_destination_gps: destinationNeedsGps,
     destination_candidates: null,
     confirmed_trip_id: null,
@@ -8499,19 +8485,9 @@ async function createTripFromConversation({ conversation, extracted, includeBett
     duration_minutes: passengerRouteFare?.duration_minutes ?? null,
     notes: [
       '[APPROACH_ONLY]',
-      extracted.notes || 'Creado automáticamente desde WhatsApp (chofer -> retiro pasajero, sin cobro inicial).',
-      finalDestJson || (finalDestinationHint
-        ? `Destino final sugerido por pasajero: ${finalDestinationHint}`
-        : 'Destino final: se define al subir el pasajero.'),
-      // Nomenclatura catastral (Manzana/Lote) cuando el pasajero no tiene dirección en Google Maps.
-      // Preservada desde el contexto para que el chofer vea la referencia original.
+      finalDestJson,
       extracted.catastral_nomenclature
         ? `[CATASTRAL] ${extracted.catastral_nomenclature}`
-        : null,
-      // Conversación actual del pasajero como indicaciones extra para el chofer.
-      // Se incluyen los mensajes del pedido, no el historial completo.
-      extracted._conversationText
-        ? `[INDICACIONES_PASAJERO] ${extracted._conversationText.replace(/\n+/g, ' | ').trim()}`
         : null,
     ].filter(Boolean).join('\n'),
     wa_context: buildTripWhatsmeowLineContext(),
@@ -10673,7 +10649,7 @@ async function processClaimedConversation(batch) {
     pickup_location: sanitizeAddressInput(pickupLocation),
     origin: sanitizeAddressInput(extracted.origin || (llmOwnsIntent ? pickupLocation : heuristics.pickup) || ''),
     destination: sanitizeAddressInput(destinationHint),
-    notes: extracted.notes || context.notes || null,
+    notes: null,
     awaiting_destination_gps: Boolean(context.awaiting_destination_gps) && !sanitizeAddressInput(destinationHint),
   };
 

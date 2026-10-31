@@ -70,8 +70,10 @@ export function buildApproachOnlyTripNotes({
   }
   if (source === 'dashboard') markers.push('[DASHBOARD]');
 
-  const cleanedExtra = sanitizeExtraNotes(extraNotes);
-  const bodyLine = cleanedExtra || SOURCE_DEFAULT_NOTES[source] || SOURCE_DEFAULT_NOTES.dashboard;
+  const cleanedExtra = source === 'whatsapp' ? '' : sanitizeExtraNotes(extraNotes);
+  const bodyLine = source === 'whatsapp'
+    ? null
+    : (cleanedExtra || SOURCE_DEFAULT_NOTES[source] || SOURCE_DEFAULT_NOTES.dashboard);
 
   const noteParts = [...markers, bodyLine, ...additionalLines.filter(Boolean)];
 

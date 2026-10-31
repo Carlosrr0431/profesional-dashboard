@@ -96,6 +96,7 @@ export default function TripLiveSheet({
   waitTrip = null,
   notes = null,
   tripId = null,
+  extra = null,
 }) {
   const showChat = chatAvailable && typeof onChat === 'function';
   const actions = [
@@ -147,6 +148,7 @@ export default function TripLiveSheet({
         ) : null}
       </div>
 
+      {extra}
       <SpaTripNotes notes={notes} tripId={tripId} />
 
       {actions.length > 0 ? (

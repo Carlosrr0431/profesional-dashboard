@@ -17,6 +17,7 @@ import LocationBanner from '../shared/LocationBanner';
 import { initInstallPrompt, registerSpaServiceWorker } from '../shared/pwa';
 import { useDriverGps } from './useDriverGps';
 import TripLiveSheet from '../shared/TripLiveSheet';
+import SpaWhatsAppThread, { isWhatsAppDriverTrip } from '../shared/SpaWhatsAppThread';
 import TripChatModal from '../shared/TripChatModal';
 import { useSpaTripChat } from '../shared/useSpaTripChat';
 import { useSpaConfirm } from '../shared/SpaConfirm';
@@ -973,7 +974,8 @@ export default function DriverApp() {
                 personMeta={activeTrip.passenger_phone || null}
                 pickup={pickup?.address || activeTrip.origin_address}
                 destination={dropoff?.address || activeTrip.destination_address}
-                notes={cleanTripNotesForDriverDisplay(activeTrip.notes)}
+                notes={isWhatsAppDriverTrip(activeTrip) ? null : cleanTripNotesForDriverDisplay(activeTrip.notes)}
+                extra={isWhatsAppDriverTrip(activeTrip) ? <SpaWhatsAppThread tripId={activeTrip.id} /> : null}
                 tripId={activeTrip.id}
                 priceLabel={activeTrip.price ? formatArs(activeTrip.price) : null}
                 chatAvailable={chatReady}
