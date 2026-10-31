@@ -64,29 +64,54 @@ function queryOverlapScore(query, text) {
   return score;
 }
 
+function decodeMapText(value) {
+  const text = String(value || '').trim().replace(/[\u200B-\u200D\uFEFF]/g, '');
+  const embedded = text.match(/https?:\/\/\S+/i);
+  const source = embedded ? embedded[0] : text;
+  try {
+    return decodeURIComponent(source);
+  } catch {
+    return source;
+  }
+}
+
+function dmsToDecimal(degrees, minutes, seconds, hemisphere) {
+  const value = Number(degrees) + Number(minutes) / 60 + Number(seconds) / 3600;
+  if (!Number.isFinite(value)) return null;
+  return /[sw]/i.test(hemisphere) ? -value : value;
+}
+
+function parseDmsPlacePoint(text) {
+  const match = String(text || '').match(
+    /(\d+(?:\.\d+)?)[°º]\s*(\d+(?:\.\d+)?)['’]\s*(\d+(?:\.\d+)?)["”]\s*([ns])\s+(\d+(?:\.\d+)?)[°º]\s*(\d+(?:\.\d+)?)['’]\s*(\d+(?:\.\d+)?)["”]\s*([ew])/i,
+  );
+  if (!match) return null;
+  const lat = dmsToDecimal(match[1], match[2], match[3], match[4]);
+  const lng = dmsToDecimal(match[5], match[6], match[7], match[8]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
 /**
  * Saca el pin de un enlace de Google Maps.
- * Prefiere !3d lat !4d lng (el lugar) y, si no está, el centro @lat,lng.
- * También acepta "lat, lng".
+ * Prefiere !3d lat !4d lng (el lugar). Si el nombre del lugar es una coordenada
+ * en grados, usa esa. El centro @lat,lng es la cámara y no el pin.
  */
 function parseGoogleMapsPoint(input) {
-  let text = String(input || '').trim();
+  const text = decodeMapText(input);
   if (!text) return null;
-  try {
-    text = decodeURIComponent(text);
-  } catch {
-    // El texto ya estaba decodificado.
-  }
 
-  const pin = text.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/);
-  const query = text.match(/[?&]q=(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i);
+  const pinMatches = [...text.matchAll(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/g)];
+  const pin = pinMatches.length ? pinMatches[pinMatches.length - 1] : null;
+  const query = text.match(/[?&](?:q|query)=(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i);
+  const dms = parseDmsPlacePoint(text);
   const at = text.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
   const pair = text.match(/^(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)$/);
-  const match = pin || query || at || pair;
-  if (!match) return null;
+  const chosen = pin || query || (dms ? [null, dms.lat, dms.lng] : null) || at || pair;
+  if (!chosen) return null;
 
-  const lat = Number(match[1]);
-  const lng = Number(match[2]);
+  const lat = Number(chosen[1]);
+  const lng = Number(chosen[2]);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
   if (Math.abs(lat) < 0.01 && Math.abs(lng) < 0.01) return null;

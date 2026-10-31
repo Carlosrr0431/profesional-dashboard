@@ -831,9 +831,10 @@ export default function NewTripModal({
               </div>
               <AddressAutocomplete
                 id="new-trip-dest"
-                placeholder="Ej: Av. San Martín 500, Salta"
+                placeholder="Dirección o enlace de Google Maps"
                 value={destLabel}
                 accentColor="#059669"
+                acceptMapLink
                 emphasized={mapPickTarget === 'dest'}
                 inputIcon={<DestDotSmall />}
                 endAction={(
