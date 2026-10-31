@@ -64,6 +64,11 @@ import {
   MAX_DRIVER_SEARCH_KM,
   queuedTripIdsNearFreeDrivers,
 } from '../../../src/lib/dispatchSearchRadius';
+import {
+  clusterTripsForOfferLine,
+  prepareOfferLine,
+  stampDispatchOfferLine,
+} from '../../../src/lib/dispatchOfferLine';
 import { isNoteOnlyTrip, NOTE_ONLY_DISPATCH_RADIUS_KM } from '../../../src/lib/noteOnlyTrip';
 import {
   pickBusyNextTripCandidate,
@@ -650,6 +655,161 @@ async function expireTimedOutPendingTrips() {
   }
 
   return { expired, error: false };
+}
+
+async function markOfferLineShown(supabase, trip) {
+  if (!trip?.id) return;
+  const wa_context = stampDispatchOfferLine(trip.wa_context);
+  const { error } = await supabase
+    .from('trips')
+    .update({ wa_context })
+    .eq('id', trip.id);
+  if (error) {
+    logWorker('offer_line_stamp_error', { tripId: trip.id, error: summarizeDbError(error) });
+    return;
+  }
+  trip.wa_context = wa_context;
+}
+
+const OFFER_LINE_HOLD_MS = 45 * 1000;
+
+/**
+ * Si varios viajes comparten choferes, solo el primero de la fila queda listo
+ * para ofrecerse. El resto espera. La fila es del más viejo al más nuevo y,
+ * cuando todos ya tuvieron turno, vuelve a empezar.
+ */
+async function alignDispatchOfferLine() {
+  const supabase = getSupabaseAdmin();
+  const { data: queued, error } = await supabase
+    .from('trips')
+    .select('id, created_at, next_dispatch_at, origin_lat, origin_lng, destination_lat, destination_lng, notes, wa_context')
+    .eq('status', 'queued')
+    .order('created_at', { ascending: true })
+    .limit(80);
+
+  if (error) {
+    logWorker('offer_line_error', { error: summarizeDbError(error) });
+    return { held: 0, heads: 0 };
+  }
+  if (!queued?.length) return { held: 0, heads: 0 };
+
+  const entries = [];
+  for (const trip of queued) {
+    if (isStreetHailReassignmentBlocked(trip) || isDashboardAssignReassignmentBlocked(trip)) continue;
+    const pickup = resolveDispatchPickupCoords(trip);
+    const lat = Number(pickup.pickupLat);
+    const lng = Number(pickup.pickupLng);
+    entries.push({
+      id: trip.id,
+      createdAt: trip.created_at,
+      turn: trip.wa_context?.dispatch_line_turn,
+      offeredAt: trip.wa_context?.dispatch_line_offered_at || null,
+      holding: trip.wa_context?.dispatch_line_holding === true,
+      wa_context: trip.wa_context,
+      lat,
+      lng,
+    });
+  }
+
+  const holdIds = [];
+  const releaseIds = [];
+  const turnWrites = [];
+  for (const group of clusterTripsForOfferLine(entries)) {
+    if (group.length < 2) continue;
+    const { head, updates } = prepareOfferLine(group);
+    if (!head?.id) continue;
+    turnWrites.push(...updates);
+    for (const trip of group) {
+      if (trip.id === head.id) {
+        if (trip.holding) releaseIds.push(trip.id);
+      } else {
+        holdIds.push(trip.id);
+      }
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const laterIso = new Date(Date.now() + OFFER_LINE_HOLD_MS).toISOString();
+  const byId = new Map(entries.map((trip) => [trip.id, trip]));
+
+  for (const update of turnWrites) {
+    const trip = byId.get(update.id);
+    if (!trip) continue;
+    const wa_context = {
+      ...(trip.wa_context && typeof trip.wa_context === 'object' ? trip.wa_context : {}),
+      dispatch_line_turn: update.turn,
+    };
+    trip.wa_context = wa_context;
+    const { error: turnError } = await supabase
+      .from('trips')
+      .update({ wa_context })
+      .eq('id', update.id)
+      .eq('status', 'queued');
+    if (turnError) {
+      logWorker('offer_line_turn_error', { tripId: update.id, error: summarizeDbError(turnError) });
+    }
+  }
+
+  if (holdIds.length) {
+    const { error: queueError } = await supabase
+      .from('dispatch_queue')
+      .update({ next_attempt_at: laterIso, updated_at: nowIso })
+      .in('trip_id', holdIds)
+      .eq('queue_status', 'queued');
+    if (queueError) {
+      logWorker('offer_line_hold_error', { error: summarizeDbError(queueError) });
+    }
+    await supabase
+      .from('trips')
+      .update({ next_dispatch_at: laterIso })
+      .in('id', holdIds)
+      .eq('status', 'queued');
+
+    for (const id of holdIds) {
+      const trip = byId.get(id);
+      if (!trip || trip.holding) continue;
+      const wa_context = {
+        ...(trip.wa_context && typeof trip.wa_context === 'object' ? trip.wa_context : {}),
+        dispatch_line_holding: true,
+      };
+      await supabase.from('trips').update({ wa_context }).eq('id', id).eq('status', 'queued');
+    }
+  }
+
+  if (releaseIds.length) {
+    const { error: queueError } = await supabase
+      .from('dispatch_queue')
+      .update({ next_attempt_at: nowIso, updated_at: nowIso })
+      .in('trip_id', releaseIds)
+      .eq('queue_status', 'queued');
+    if (queueError) {
+      logWorker('offer_line_release_error', { error: summarizeDbError(queueError) });
+    }
+    await supabase
+      .from('trips')
+      .update({ next_dispatch_at: nowIso })
+      .in('id', releaseIds)
+      .eq('status', 'queued');
+
+    for (const id of releaseIds) {
+      const trip = byId.get(id);
+      if (!trip) continue;
+      const wa_context = {
+        ...(trip.wa_context && typeof trip.wa_context === 'object' ? trip.wa_context : {}),
+        dispatch_line_holding: false,
+      };
+      await supabase.from('trips').update({ wa_context }).eq('id', id).eq('status', 'queued');
+    }
+  }
+
+  if (holdIds.length || releaseIds.length) {
+    logWorker('offer_line_aligned', {
+      held: holdIds,
+      released: releaseIds,
+    });
+  }
+
+  return { held: holdIds.length, heads: releaseIds.length };
 }
 
 async function claimDispatchBatch() {
@@ -1547,6 +1707,8 @@ async function broadcastTripWave({
     return { status: 'trip_claim_lost' };
   }
 
+  await markOfferLineShown(supabase, trip);
+
   const notified = [];
   for (const driver of wave) {
     const notifyResult = await notifyDriver(driver, { ...trip, ...opened, status: 'pending' });
@@ -2030,6 +2192,8 @@ async function processDispatchClaim(claim) {
       return { status: 'trip_claim_lost' };
     }
 
+    await markOfferLineShown(supabase, trip);
+
     logWorker('claim_trip_assigned_pending', {
       tripId,
       attemptNo,
@@ -2352,6 +2516,7 @@ async function runDispatchWorkerCycle() {
   const expireResult = await expireTimedOutPendingTrips();
   const recoverResult = await recoverDriverCancelledPickupTrips();
   const wokenQueued = await wakeQueuedTripsNearFreeDrivers();
+  const offerLine = await alignDispatchOfferLine();
   const claimedItems = await claimDispatchBatch();
 
   const summary = {
@@ -2396,6 +2561,7 @@ async function runDispatchWorkerCycle() {
     errors: summary.errors,
     expiredPending: summary.expiredPending,
     recoveredDriverCancel: summary.recoveredDriverCancel,
+    offerLineHeld: offerLine.held,
     results: DISPATCH_VERBOSE_LOGS ? summary.results : undefined,
   });
 
