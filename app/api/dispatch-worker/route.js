@@ -978,9 +978,7 @@ async function chooseDriverForClaim(
     (driver) => Number.isFinite(Number(driver.current_lat)) && Number.isFinite(Number(driver.current_lng))
   );
 
-  const withoutSamePhone = passengerPhone
-    ? withCoords.filter((driver) => normalizePhone(driver.phone || '') !== passengerPhone)
-    : withCoords;
+  const withoutSamePhone = withCoords;
 
   // Quien canceló este viaje con motivo queda afuera 1 minuto, aunque esté a menos de 2 km.
   for (const id of driverIdsCoolingDownFromOffers(offerRowsOrEmpty(rejectedOffersRes))) {
@@ -1032,7 +1030,6 @@ async function chooseDriverForClaim(
     ).filter((driver) => (
       Number.isFinite(Number(driver.current_lat))
       && Number.isFinite(Number(driver.current_lng))
-      && (!passengerPhone || normalizePhone(driver.phone || '') !== passengerPhone)
       && !excludedDriverIdsSet.has(driver.id)
     ));
   }
@@ -1402,15 +1399,6 @@ async function notifyDriver(driver, trip) {
     hasWhatsApp: driverPhone.length >= 8,
     hasDeepLink: Boolean(driverAppDeepLink),
   });
-
-  if (passengerPhone && driverPhone && passengerPhone === driverPhone) {
-    logWorker('notify_skipped_same_phone', {
-      tripId: trip?.id || null,
-      driverId: driver?.id || null,
-      driverPhone: maskPhone(driverPhone),
-    });
-    return { ok: false, reason: 'driver_phone_matches_passenger' };
-  }
 
   if (PUSH_NOTIFICATIONS_ENABLED && hasFcmPushToken && !pushBackoffActive) {
     const pushResult = await sendPushNotification(driver.push_token, {
@@ -2442,10 +2430,7 @@ async function wakeQueuedTripsNearFreeDrivers() {
       trip?.wa_context,
       rejectedByTrip.get(String(trip?.id || '')) || [],
     )),
-    samePhone: (trip, driver) => {
-      const passengerPhone = normalizePhone(trip.passenger_phone || '');
-      return Boolean(passengerPhone) && normalizePhone(driver.phone || '') === passengerPhone;
-    },
+    samePhone: () => false,
     distanceKm: (driver, pickupLat, pickupLng) => haversineKm(
       Number(driver.current_lat),
       Number(driver.current_lng),

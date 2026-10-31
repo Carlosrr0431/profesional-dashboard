@@ -35,9 +35,13 @@ describe('bettoWelcome', () => {
     expect(conversationalGreeting({ now: morning })).toBe('Buen día');
   });
 
-  it('al tomar un pedido no manda el aviso de que ya sale el móvil', () => {
-    expect(buildTripTakenReply({ includeGreeting: true, now: afternoon })).toBe('');
-    expect(buildTripTakenReply({ includeGreeting: false })).toBe('');
+  it('al derivar el viaje avisa y deja el link para cuando acepten', () => {
+    const msg = buildTripTakenReply({ includeGreeting: true, now: morning });
+    expect(msg.startsWith('Buen día')).toBe(true);
+    expect(msg).toMatch(/ya está derivado/i);
+    expect(msg).toMatch(/link de seguimiento/i);
+    expect(msg).not.toMatch(/quer[eé]s que te mande/i);
+    expect(buildTripTakenReply({ includeGreeting: false })).not.toMatch(/Buen día/);
   });
 
   it('antepone el saludo una sola vez', () => {

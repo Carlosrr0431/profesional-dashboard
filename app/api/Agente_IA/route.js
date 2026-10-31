@@ -7063,28 +7063,8 @@ async function chooseDriver(
     return null;
   }
 
-  const samePhoneFilteredDrivers = passengerPhoneNormalized
-    ? availableDrivers.filter((driver) => normalizePhone(driver?.phone || '') === passengerPhoneNormalized)
-    : [];
-  const availableDriversForDispatch = passengerPhoneNormalized
-    ? availableDrivers.filter((driver) => normalizePhone(driver?.phone || '') !== passengerPhoneNormalized)
-    : availableDrivers;
-
-  if (samePhoneFilteredDrivers.length > 0) {
-    logWebhook('driver_select_skip_same_phone', {
-      passengerPhone: maskPhone(passengerPhoneNormalized),
-      skippedDrivers: samePhoneFilteredDrivers.length,
-    });
-  }
-
-  if (availableDriversForDispatch.length === 0) {
-    logWebhook('driver_select_no_available_after_same_phone_filter', {
-      totalAvailableFlagged: (drivers || []).length,
-      availableWithCoords: availableDrivers.length,
-      samePhoneSkipped: samePhoneFilteredDrivers.length,
-    });
-    return null;
-  }
+  const availableDriversForDispatch = availableDrivers;
+  const samePhoneFilteredDrivers = [];
 
   const { data: activeTrips, error: activeTripsError } = await getSupabase()
     .from('trips')

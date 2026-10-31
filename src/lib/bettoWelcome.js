@@ -139,10 +139,13 @@ export function buildTripTakenReply({
   now,
   followup = null,
 } = {}) {
-  void includeGreeting;
-  void now;
-  void followup;
-  return '';
+  const lines = [
+    'El viaje ya está derivado',
+    'Apenas un chofer lo acepte te mando el link de seguimiento',
+  ];
+  if (followup) lines.push(String(followup).trim());
+  const body = lines.filter(Boolean).join('\n');
+  return includeGreeting ? withBettoIntro(body, { now }) : body;
 }
 
 export function shouldSendBettoWelcome({
