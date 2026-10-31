@@ -151,9 +151,10 @@ export default function App() {
   const [mapFullscreen,     setMapFullscreen]    = useState(false);
   const [pickupMode,        setPickupMode]       = useState(false);
   const [demandMode,        setDemandMode]       = useState(false);
+  const [demandWarm,        setDemandWarm]       = useState(false);
   const [demandLayers,      setDemandLayers]     = useState({ scheduled: true, queued: true, done: true, zones: true });
   const [demandTrip,        setDemandTrip]       = useState(null);
-  const demandMap = useDemandMap(demandMode);
+  const demandMap = useDemandMap(demandMode || demandWarm);
   const dispatchNotifiedIdsRef = useRef(new Set());
   const dispatchNotifyReadyRef = useRef(false);
 
@@ -1204,6 +1205,7 @@ export default function App() {
                     title={demandMode ? 'Volver a la flota' : 'Demanda'}
                     aria-label={demandMode ? 'Ocultar demanda' : 'Ver demanda'}
                     aria-pressed={demandMode}
+                    onPointerEnter={() => setDemandWarm(true)}
                     onClick={() => {
                       setDemandMode((on) => {
                         if (!on) {

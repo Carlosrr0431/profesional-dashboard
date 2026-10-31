@@ -26,7 +26,13 @@ export default function DemandMapControls({
   selectedTrip,
   onCloseDetail,
 }) {
-  if (!summary) return null;
+  if (!summary) {
+    return (
+      <div className="pointer-events-auto w-full max-w-[34rem] rounded-[22px] border border-slate-200/80 bg-white/97 px-4 py-3 text-[13px] font-semibold text-slate-600 shadow-xl shadow-navy-900/10">
+        {error || (loading ? 'Cargando demanda…' : 'Sin datos de demanda')}
+      </div>
+    );
+  }
 
   return (
     <div className="pointer-events-auto w-full max-w-[34rem]">

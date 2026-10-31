@@ -7,6 +7,18 @@ import { buildOperatorDemandRows, saltaDayStart } from '../../../src/lib/operato
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const CACHE_MS = 20_000;
+let cachedRows = null;
+let cachedAt = 0;
+
+function rpcMissing(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return code === 'PGRST202'
+    || code === '42883'
+    || /operator_demand_forecast/i.test(message);
+}
+
 const FLEET_SELECT = 'driver_id, status, created_at, notes, origin_lat, origin_lng, destination_lat, destination_lng';
 const OPEN_SELECT = 'id, status, created_at, scheduled_for, notes, origin_lat, origin_lng, origin_address, destination_lat, destination_lng, destination_address';
 
@@ -26,6 +38,20 @@ export async function GET(request) {
 
   try {
     const supabase = getSupabaseAdmin();
+    const nowMs = Date.now();
+    if (cachedRows && nowMs - cachedAt < CACHE_MS) {
+      return NextResponse.json({ ok: true, rows: cachedRows });
+    }
+
+    const rpc = await supabase.rpc('operator_demand_forecast');
+    if (!rpc.error) {
+      const rows = Array.isArray(rpc.data) ? rpc.data : [];
+      cachedRows = rows;
+      cachedAt = nowMs;
+      return NextResponse.json({ ok: true, rows });
+    }
+    if (!rpcMissing(rpc.error)) throw rpc.error;
+
     const now = new Date();
     const dayStart = saltaDayStart(now);
     const fleetFrom = new Date(dayStart.getTime() - 28 * 24 * 60 * 60 * 1000).toISOString();
@@ -65,10 +91,10 @@ export async function GET(request) {
     }
     const scheduled = [...scheduledById.values()];
 
-    return NextResponse.json({
-      ok: true,
-      rows: buildOperatorDemandRows({ fleet, scheduled, queued }, now),
-    });
+    const rows = buildOperatorDemandRows({ fleet, scheduled, queued }, now);
+    cachedRows = rows;
+    cachedAt = nowMs;
+    return NextResponse.json({ ok: true, rows });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error?.message || 'No se pudo cargar la demanda' },

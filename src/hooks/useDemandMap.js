@@ -3,6 +3,7 @@ import { summarizeDemand } from '../lib/demandHeatmap';
 
 export function useDemandMap(enabled) {
   const [rows, setRows] = useState([]);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [minute, setMinute] = useState(() => Math.floor(Date.now() / 60000));
@@ -21,7 +22,7 @@ export function useDemandMap(enabled) {
     let cancel = false;
 
     const load = async () => {
-      setLoading(true);
+      if (!ready) setLoading(true);
       try {
         const response = await fetch('/api/demand-map', { cache: 'no-store' });
         const payload = await response.json().catch(() => null);
@@ -30,6 +31,7 @@ export function useDemandMap(enabled) {
         }
         if (!cancel) {
           setRows(Array.isArray(payload.rows) ? payload.rows : []);
+          setReady(true);
           setError('');
         }
       } catch (err) {
@@ -48,8 +50,8 @@ export function useDemandMap(enabled) {
   }, [enabled]);
 
   const summary = useMemo(
-    () => (enabled ? summarizeDemand(rows, minute * 60000) : null),
-    [enabled, rows, minute],
+    () => (ready ? summarizeDemand(rows, minute * 60000) : null),
+    [ready, rows, minute],
   );
 
   return { summary, error, loading };
