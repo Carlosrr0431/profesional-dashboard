@@ -1214,8 +1214,10 @@ export default function App() {
                         return !on;
                       });
                     }}
-                    className={`flex shrink-0 items-center justify-center rounded-full shadow-xl active:scale-[0.97] transition-all ${
-                      mapFullscreen ? 'h-12 w-12 sm:h-14 sm:w-14' : 'h-10 w-10 sm:h-11 sm:w-11'
+                    className={`flex shrink-0 items-center rounded-full font-bold shadow-xl active:scale-[0.97] transition-all ${
+                      mapFullscreen
+                        ? 'h-12 gap-2 px-4 text-[14px] sm:h-14 sm:px-5 sm:text-[15px]'
+                        : 'h-10 gap-1.5 px-3 text-[12px] sm:h-11 sm:px-3.5 sm:text-[12.5px]'
                     } ${
                       demandMode
                         ? 'bg-rose-600 text-white shadow-rose-600/35'
@@ -1225,6 +1227,7 @@ export default function App() {
                     <svg className={mapFullscreen ? 'h-5 w-5' : 'h-4 w-4'} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 3c2.2 2.4 6 6.2 6 10a6 6 0 11-12 0c0-3.8 3.8-7.6 6-10z" />
                     </svg>
+                    Demanda
                   </button>
                   <button
                     type="button"
