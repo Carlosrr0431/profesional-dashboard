@@ -12,7 +12,7 @@ import {
   alignStreetNumberPins,
 } from '../../../../shared/salta-address.js';
 import { rankNamedGoogleFirst } from '../../../../shared/geo/placeFreshness.js';
-import { queryOverlapScore } from '../../../../shared/savedAddressMatch.js';
+import { queryOverlapScore, savedAddressMatches } from '../../../../shared/savedAddressMatch.js';
 import { hasUsableGeoPoint, omitUnusablePin } from '../../../../shared/geo/mapConfig.js';
 
 export const dynamic = 'force-dynamic';
@@ -91,7 +91,14 @@ function canOffer(item) {
   return String(item?.placeId || '').startsWith('google:');
 }
 
-/** Google solo si el padrón y el mapa propio no dejaron un punto usable. */
+function coversPlaceQuery(results, query) {
+  return (results || []).some((item) => savedAddressMatches(
+    `${item?.title || ''} ${item?.subtitle || ''} ${item?.address || ''} ${item?.formattedAddress || ''}`,
+    query,
+  ));
+}
+
+/** Google solo si el padrón y el caché no cubren lo que se escribió. */
 function needsGoogleCoverage(results, query) {
   if (String(query || '').trim().length < 4) return false;
   const number = pickPrimaryHouseNumber(query);
@@ -100,9 +107,7 @@ function needsGoogleCoverage(results, query) {
       hasPin(item) && String(item?.placeId || '').startsWith('georef:')
     ));
   }
-  return !(results || []).some((item) => (
-    hasPin(item) && !String(item?.placeId || '').startsWith('street:')
-  ));
+  return !coversPlaceQuery(results, query);
 }
 
 function setCached(key, data) {

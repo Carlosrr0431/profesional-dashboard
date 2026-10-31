@@ -11,6 +11,7 @@ function placesBillingPeriod(date = new Date()) {
 const PLACE_QUERY_STOP = new Set([
   'salta', 'capital', 'argentina', 'av', 'avda', 'avenida', 'calle',
   'de', 'del', 'la', 'las', 'los', 'el', 'y', 'pasaje', 'pje',
+  'barrio', 'zona', 'villa', 'pueblo', 'ciudad',
 ]);
 
 /** Nombres de pila del padrón. No alcanzan para distinguir otra calle. */

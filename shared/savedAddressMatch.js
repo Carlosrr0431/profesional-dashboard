@@ -3,6 +3,11 @@ const STOP_TOKENS = new Set([
   'argentina', 'de', 'del', 'la', 'el', 'los', 'las', 'nro', 'numero', 'n',
 ]);
 
+/** No alcanzan para elegir un lugar. "Barrio San José" no es cualquier barrio. */
+const GENERIC_PLACE_WORDS = new Set([
+  'barrio', 'zona', 'villa', 'pueblo', 'ciudad',
+]);
+
 function foldPinnedQuery(value) {
   return String(value || '')
     .toLowerCase()
@@ -26,12 +31,21 @@ function contentTokens(value) {
     .map(normalizeToken);
 }
 
-/** Hay coincidencia si alguna palabra de lo escrito está en el nombre guardado. */
+/** Hay coincidencia si el nombre guardado tiene todas las palabras que distinguen la búsqueda. */
 function savedAddressMatches(title, query) {
-  const queryWords = contentTokens(query).filter((token) => token.length >= 4 && !/^\d+$/.test(token));
-  if (!queryWords.length) return false;
+  const distinctive = contentTokens(query).filter((token) => (
+    !GENERIC_PLACE_WORDS.has(token) && !/^\d+$/.test(token)
+  ));
   const titleTokens = new Set(contentTokens(title));
-  return queryWords.some((token) => titleTokens.has(token));
+  const words = distinctive.length
+    ? distinctive
+    : contentTokens(query).filter((token) => token.length >= 4 && !/^\d+$/.test(token));
+  if (!words.length) return false;
+  return words.every((token) => {
+    if (titleTokens.has(token)) return true;
+    if (token.length < 4) return false;
+    return [...titleTokens].some((word) => word.startsWith(token) || token.startsWith(word));
+  });
 }
 
 /** Más alto = el texto comparte más palabras y números con lo que se escribió. */

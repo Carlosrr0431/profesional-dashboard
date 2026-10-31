@@ -18,6 +18,8 @@ describe('contador de Places', () => {
     expect(cachedPoiMatches('Maipú 48, A4400 Salta', 'maipu 48')).toBe(true);
     expect(cachedPoiMatches('Maipú 49 2, A4400 Salta', 'maipu 48')).toBe(false);
     expect(cachedPoiMatches('Maipú 480, Salta', 'maipu 48')).toBe(false);
+    expect(cachedPoiMatches('Barrio Río Ancho, Casa 2, Gomería', 'barrio san jose')).toBe(false);
+    expect(cachedPoiMatches('Centro Vecinal Barrio San José, Salta', 'barrio san jose')).toBe(true);
   });
 });
 

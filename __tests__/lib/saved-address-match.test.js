@@ -30,6 +30,9 @@ describe('punto de Google Maps y dirección guardada', () => {
     expect(savedAddressMatches(title, 'Santa Ana 1 pasaje 20 Casa N 1421')).toBe(true);
     expect(savedAddressMatches(title, 'santa 1 pasaje 20')).toBe(true);
     expect(savedAddressMatches(title, 'santa ana')).toBe(true);
+    expect(savedAddressMatches('Barrio Río Ancho, Casa 2, Gomería', 'barrio rio ancho casa 2 gomeria')).toBe(true);
+    expect(savedAddressMatches('Barrio Río Ancho, Casa 2, Gomería', 'barrio san jose')).toBe(false);
+    expect(savedAddressMatches('Centro Vecinal Barrio San José', 'barrio san jose')).toBe(true);
     expect(savedAddressMatches(title, 'mitre')).toBe(false);
     expect(savedAddressMatches(
       'Señora del Carmen, Mza F50, Lote 210',
