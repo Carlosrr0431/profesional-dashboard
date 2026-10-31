@@ -14,7 +14,7 @@ import {
   resolveQueuedTripSource,
   hasFiniteLatLng,
 } from '../../../../src/lib/passengerTripQueued';
-import { appendDashboardAssignNotes, mergePreferredDriverWaContext } from '../../../../src/lib/assignExistingTrip';
+import { appendDashboardAssignNotes, mergePreferredDriverWaContext, parseWaContextObject } from '../../../../src/lib/assignExistingTrip';
 import { buildNoteOnlyQueuedTrip } from '../../../../src/lib/noteOnlyTrip';
 
 export const runtime = 'nodejs';
@@ -252,6 +252,25 @@ export async function POST(req) {
         preferredDriverId,
       );
       tripPayload.notes = appendDashboardAssignNotes(tripPayload.notes);
+    }
+
+    const dispatchTarget = source === 'dashboard'
+      ? String(payload?.dispatchTarget || '').trim()
+      : '';
+    const driverIds = Array.isArray(payload?.driverIds)
+      ? [...new Set(payload.driverIds.map((id) => String(id || '').trim()).filter(Boolean))]
+      : [];
+    if (dispatchTarget === 'several' && !driverIds.length) {
+      return NextResponse.json(
+        { ok: false, message: 'Elegí al menos un móvil en el mapa.' },
+        { status: 400 },
+      );
+    }
+    if (dispatchTarget === 'all' || dispatchTarget === 'several') {
+      const context = parseWaContextObject(tripPayload.wa_context);
+      context.dispatch_target = dispatchTarget === 'all' ? 'all' : 'selected';
+      if (dispatchTarget === 'several') context.dispatch_allowed_driver_ids = driverIds;
+      tripPayload.wa_context = context;
     }
 
     if (
