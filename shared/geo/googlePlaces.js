@@ -506,6 +506,18 @@ async function enrichGuemesStreetNumberResults(items, query, sessionToken, limit
   return results.slice(0, limit);
 }
 
+function mergeKnownPlaces(googleList, known) {
+  const primary = Array.isArray(googleList) ? googleList : [];
+  const seen = new Set(primary.map((item) => String(item?.placeId || '')).filter(Boolean));
+  const extra = (known || []).filter((item) => {
+    const id = String(item?.placeId || '');
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  return [...primary, ...extra];
+}
+
 function mapAutocompletePrediction(prediction, sessionToken, query) {
   const rawId = String(prediction?.placeId || '').trim();
   if (!rawId) return null;
@@ -565,11 +577,23 @@ async function placesAutocompleteRequest(
         'X-Goog-FieldMask': AUTOCOMPLETE_FIELD_MASK,
       },
       body: JSON.stringify({
-        input: biasAutocompleteInputToSaltaCapital(text),
+        input: queryNamesCoveredLocality(text) ? biasAutocompleteInputToSaltaCapital(text) : text,
         sessionToken,
         includedRegionCodes: ['ar'],
         languageCode: 'es',
-        locationRestriction: restriction || restrictionForQuery(text),
+        ...(queryNamesCoveredLocality(text)
+          ? { locationRestriction: restriction || restrictionForQuery(text) }
+          : {
+            locationBias: {
+              circle: {
+                center: {
+                  latitude: SALTA_CAPITAL_ORIGIN.latitude,
+                  longitude: SALTA_CAPITAL_ORIGIN.longitude,
+                },
+                radius: 18000,
+              },
+            },
+          }),
       }),
       signal: controller?.signal,
     });
@@ -719,14 +743,9 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
         return clean;
       }
     }
-    if (!options?.skipKnownPlaces && placesBudget?.findPlaces) {
-      const known = await placesBudget.findPlaces(text, normalizedLimit).catch(() => []);
-      if (Array.isArray(known) && known.length) {
-        const clean = known.map(omitUnusablePin);
-        setCached(autocompleteCache, cacheKey, clean, AUTOCOMPLETE_TTL_MS);
-        return clean;
-      }
-    }
+    const known = !options?.skipKnownPlaces && placesBudget?.findPlaces
+      ? await placesBudget.findPlaces(text, normalizedLimit).catch(() => [])
+      : [];
     const suggestions = await placesAutocompleteRequest(
       text,
       sessionToken,
@@ -742,8 +761,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
         _index: index,
       }))
       .filter(Boolean)
-      .filter((item) => !isOutsideSaltaCapitalSubtitle(item.subtitle, text))
-      .sort((a, b) => (Number(b._score || 0) - Number(a._score || 0)) || (a._index - b._index));
+      .filter((item) => !isOutsideSaltaCapitalSubtitle(item.subtitle, text));
 
     // Una lista de sucursales (búsqueda ampliada) se ordena por cercanía; una calle, no.
     const ordered = expanded && origin ? orderByDistance(mapped) : mapped;
@@ -756,15 +774,19 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     }
     // Sin Place Details acá: pedir coords de cada sugerencia cierra la sesión y
     // cobra Essentials por lugar. Las coords se piden solo al elegir una.
-    const result = named.slice(0, normalizedLimit).map(omitUnusablePin);
+    const googleReturned = suggestions.length > 0;
+    const result = mergeKnownPlaces(named, known).slice(0, normalizedLimit).map(omitUnusablePin);
+    const fallback = result.length
+      ? result
+      : (known || []).slice(0, normalizedLimit).map(omitUnusablePin);
 
-    if (result.length) {
-      setCached(autocompleteCache, cacheKey, result, AUTOCOMPLETE_TTL_MS);
+    if (googleReturned && fallback.length) {
+      setCached(autocompleteCache, cacheKey, fallback, AUTOCOMPLETE_TTL_MS);
       if (placesBudget?.saveSearch) {
-        await placesBudget.saveSearch(cacheKey, result).catch(() => {});
+        await placesBudget.saveSearch(cacheKey, fallback).catch(() => {});
       }
     }
-    return result;
+    return fallback;
   })();
 
   inFlightAutocomplete.set(flightKey, requestPromise);

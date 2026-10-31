@@ -88,24 +88,52 @@ describe('búsqueda de Places con cupo y caché', () => {
     expect(String(global.fetch.mock.calls[0][1].headers['X-Goog-FieldMask'])).not.toContain('distanceMeters');
   });
 
-  it('si el lugar ya está guardado no llama a Google', async () => {
+  it('un solo lugar guardado no alcanza: se piden los que faltan y quedan en la búsqueda', async () => {
+    const saved = new Map();
     setPlacesBudget({
-      tryConsume: async () => {
-        throw new Error('no debería gastar una llamada');
-      },
-      getSearch: async () => null,
+      tryConsume: async () => true,
+      getSearch: async (key) => saved.get(key) || null,
       findPlaces: async () => [{
         placeId: 'google:cached',
         title: 'Farmacia del Centro',
         subtitle: 'Caseros 100, Salta',
         address: 'Farmacia del Centro, Caseros 100, Salta',
       }],
-      saveSearch: async () => {},
+      saveSearch: async (key, suggestions) => {
+        saved.set(key, suggestions);
+      },
     });
-    global.fetch = jest.fn();
-    const results = await autocompleteAddressSalta('botica del centro', 5);
-    expect(results[0].placeId).toBe('google:cached');
-    expect(global.fetch).not.toHaveBeenCalled();
+    global.fetch = jest.fn(async (url) => {
+      if (String(url).includes('places:autocomplete')) {
+        return {
+          ok: true,
+          json: async () => ({
+            suggestions: [
+              suggestion,
+              {
+                placePrediction: {
+                  placeId: 'domingo',
+                  types: ['route'],
+                  structuredFormat: {
+                    mainText: { text: 'Doctor Domingo Güemes 150' },
+                    secondaryText: { text: 'Salta' },
+                  },
+                },
+              },
+            ],
+          }),
+        };
+      }
+      return { ok: false, json: async () => ({}) };
+    });
+    const first = await autocompleteAddressSalta('caseros 100', 5);
+    const second = await autocompleteAddressSalta('caseros 100', 5);
+    expect(first.map((item) => item.placeId)).toEqual(['google:abc123', 'google:domingo', 'google:cached']);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(second[1].placeId).toBe('google:domingo');
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body.locationBias.circle.radius).toBe(18000);
+    expect(body.locationRestriction).toBeUndefined();
   });
 
   it('en el tope no llama a Google', async () => {

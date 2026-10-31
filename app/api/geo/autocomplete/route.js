@@ -98,15 +98,11 @@ function coversPlaceQuery(results, query) {
   ));
 }
 
-/** Google solo si el padrón y el caché no cubren lo que se escribió. */
+/** Google solo si esta búsqueda todavía no quedó guardada completa. */
 function needsGoogleCoverage(results, query) {
-  if (String(query || '').trim().length < 4) return false;
-  const number = pickPrimaryHouseNumber(query);
-  if (number != null) {
-    return !(results || []).some((item) => (
-      hasPin(item) && String(item?.placeId || '').startsWith('georef:')
-    ));
-  }
+  const text = String(query || '').trim();
+  if (text.length < 4) return false;
+  if (pickPrimaryHouseNumber(text) != null) return true;
   return !coversPlaceQuery(results, query);
 }
 
