@@ -2,6 +2,8 @@ const {
   isWithinSaltaCapital,
   isWithinServiceArea,
   coordsAllowedForQuery,
+  preferSaltaCapitalFirst,
+  queryNamesCoveredLocality,
 } = require('../../shared/geo/mapConfig');
 
 describe('zona de cobertura del valle', () => {
@@ -30,6 +32,7 @@ describe('zona de cobertura del valle', () => {
     expect(coordsAllowedForQuery(-23.137, -64.324, 'san martin 100 oran')).toBe(false);
     expect(coordsAllowedForQuery(-24.67, -65.05, 'guemes 700')).toBe(false);
     expect(coordsAllowedForQuery(-24.67, -65.05, 'general guemes')).toBe(true);
+    expect(coordsAllowedForQuery(-24.67, -65.05, 'general guemes 150')).toBe(false);
   });
 
   test('San Martín de Vaqueros no usa la avenida homónima de Capital', () => {
@@ -43,5 +46,21 @@ describe('zona de cobertura del valle', () => {
     expect(hasUsableGeoPoint(0, 0)).toBe(false);
     expect(hasUsableGeoPoint(-24.803845, -65.416734)).toBe(true);
     expect(omitUnusablePin({ title: 'Avenida Chile 800', lat: 0, lng: 0 }).lat).toBeUndefined();
+  });
+
+  test('general guemes 150 es calle de Capital, no el pueblo ni Rosario de Lerma', () => {
+    expect(queryNamesCoveredLocality('general guemes 150')).toBe(false);
+    expect(queryNamesCoveredLocality('general guemes')).toBe(true);
+    expect(queryNamesCoveredLocality('general guemes 150 rosario de lerma')).toBe(true);
+    const ranked = preferSaltaCapitalFirst([
+      { title: 'General Güemes 150', subtitle: 'Rosario de Lerma, Salta' },
+      { title: 'Experta Seguros Salta', subtitle: 'Gral. Martín Güemes 150' },
+      { title: 'San Martín 100', subtitle: 'Vaqueros, Salta' },
+    ], 'general guemes 150');
+    expect(ranked.map((item) => item.title)).toEqual([
+      'Experta Seguros Salta',
+      'General Güemes 150',
+      'San Martín 100',
+    ]);
   });
 });

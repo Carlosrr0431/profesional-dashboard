@@ -153,14 +153,44 @@ function foldGeoText(value) {
     .toLowerCase();
 }
 
-/** Localidad de la provincia nombrada en el texto. “Güemes 700” no cuenta: es la calle. */
+/** Localidad de la provincia nombrada en el texto. “Güemes 700” y “general güemes 150” son la calle. */
 function matchedCoveredLocality(value) {
   const text = foldGeoText(value);
-  if (/\bgeneral guemes\b/.test(text)) return 'general guemes';
-  if (/\bguemes\b/.test(text) && !/\d/.test(text)) return 'general guemes';
+  const hasNumber = /\b\d{1,5}\b/.test(text);
+  if (/\bgeneral guemes\b/.test(text) && !hasNumber) return 'general guemes';
+  if (/\bguemes\b/.test(text) && !hasNumber) return 'general guemes';
   const match = text.match(COVERED_LOCALITY_RE);
   if (!match) return '';
-  return match[1].replace(/\s+/g, ' ').trim();
+  let key = match[1].replace(/\s+/g, ' ').trim();
+  if (key === 'general guemes' && hasNumber) {
+    const rest = text.replace(/\bgeneral guemes\b/g, ' ');
+    const other = rest.match(COVERED_LOCALITY_RE);
+    if (!other) return '';
+    key = other[1].replace(/\s+/g, ' ').trim();
+  }
+  return key;
+}
+
+/** Salta Capital primero. Un pueblo del valle solo gana si el texto lo nombra. */
+function preferSaltaCapitalFirst(items, query) {
+  const asked = matchedCoveredLocality(query);
+  const localityOf = (item) => {
+    const tail = [
+      item?.subtitle,
+      String(item?.formattedAddress || '').split(',').slice(1).join(' '),
+      String(item?.address || '').split(',').slice(1).join(' '),
+    ].filter(Boolean).join(' ');
+    return matchedCoveredLocality(tail);
+  };
+  const list = Array.isArray(items) ? items : [];
+  const capital = [];
+  const other = [];
+  for (const item of list) {
+    const found = localityOf(item);
+    if (found && found !== asked) other.push(item);
+    else capital.push(item);
+  }
+  return [...capital, ...other];
 }
 
 function queryNamesCoveredLocality(value) {
@@ -278,6 +308,7 @@ module.exports = {
   omitUnusablePin,
   matchedCoveredLocality,
   queryNamesCoveredLocality,
+  preferSaltaCapitalFirst,
   namedLocalityIsOutsideCapital,
   georefLocalityName,
   viewboxForQuery,
