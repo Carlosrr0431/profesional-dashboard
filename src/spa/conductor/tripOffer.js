@@ -41,6 +41,29 @@ export function formatOfferDuration(minutes) {
   return `${hrs}h ${mins}min`;
 }
 
+export function scheduledOfferLead(trip, now = Date.now()) {
+  const notes = String(trip?.notes || '');
+  const fromColumn = trip?.scheduled_for ? Date.parse(trip.scheduled_for) : NaN;
+  const match = notes.match(/\[SCHEDULED_FOR\]\s*(\S+)/i);
+  const at = Number.isFinite(fromColumn) ? fromColumn : (match ? Date.parse(match[1]) : NaN);
+  if (!Number.isFinite(at)) return null;
+  const clock = new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(at));
+  const remainingMs = at - now;
+  const totalMinutes = Math.max(0, Math.floor(remainingMs / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return {
+    clock,
+    big: hours > 0 ? `${hours} h ${String(minutes).padStart(2, '0')}` : String(totalMinutes),
+    ready: remainingMs <= 0,
+  };
+}
+
 export function getOfferDisplay(trip) {
   const approachOnly = isApproachOnlyTrip(trip);
   const passengerAppTrip = isPassengerAppTrip(trip);

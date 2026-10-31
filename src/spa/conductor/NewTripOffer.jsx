@@ -10,6 +10,7 @@ import {
   formatOfferDuration,
   getOfferDisplay,
   remainingAcceptSeconds,
+  scheduledOfferLead,
 } from './tripOffer';
 import { startOfferAlert, stopOfferAlert, unlockOfferAlert } from './offerAlert';
 import SpaTripNotes from '../shared/SpaTripNotes';
@@ -74,6 +75,7 @@ export default function NewTripOffer({ trip, busy, onAccept, onReject }) {
   if (!trip) return null;
 
   const display = getOfferDisplay(trip);
+  const scheduled = scheduledOfferLead(trip);
   const urgent = countdown <= 10;
   const progress = Math.max(0, (countdown / TRIP_ACCEPT_TIMEOUT) * 100);
 
@@ -147,7 +149,7 @@ export default function NewTripOffer({ trip, busy, onAccept, onReject }) {
           <div className="spa-offer-head">
             <div className="min-w-0">
               <p className="spa-offer-title">
-                {display.isAccumulated ? 'Viaje acumulado' : 'Nuevo viaje'}
+                {scheduled ? 'Viaje programado' : (display.isAccumulated ? 'Viaje acumulado' : 'Nuevo viaje')}
               </p>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {display.passengerAppTrip ? <span className="spa-offer-chip">App</span> : null}
@@ -159,6 +161,16 @@ export default function NewTripOffer({ trip, busy, onAccept, onReject }) {
               {countdown}s
             </div>
           </div>
+
+          {scheduled ? (
+            <div className="rounded-2xl bg-amber-50 px-3 py-3 text-amber-950">
+              <div className="flex items-end justify-between gap-3">
+                <p className="text-[13px] font-semibold text-orange-700">Retiro {scheduled.clock}</p>
+                <p className="text-[28px] font-bold leading-none">{scheduled.ready ? 'Ahora' : scheduled.big}</p>
+              </div>
+              {!scheduled.ready ? <p className="mt-1 text-[12px] text-orange-800">minutos para el retiro</p> : null}
+            </div>
+          ) : null}
 
           <div className="spa-person">
             <span className="spa-avatar spa-avatar--lg">P</span>
@@ -207,11 +219,11 @@ export default function NewTripOffer({ trip, busy, onAccept, onReject }) {
           <div className="spa-offer-actions">
             <button
               type="button"
-              className="spa-offer-accept"
+              className={`spa-offer-accept${scheduled ? ' spa-offer-accept--scheduled' : ''}`}
               disabled={busy}
               onClick={accept}
             >
-              {busy ? 'Confirmando…' : 'Aceptar viaje'}
+              {busy ? 'Confirmando…' : (scheduled ? 'Aceptar programado' : 'Aceptar viaje')}
             </button>
             <button
               type="button"

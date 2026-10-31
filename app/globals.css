@@ -1550,6 +1550,36 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   font-weight: 700;
 }
 
+.spa-offer-accept--scheduled {
+  background: linear-gradient(135deg, #f59e0b, #c2410c);
+  box-shadow: 0 6px 20px rgba(194, 65, 12, 0.35);
+}
+
+.spa-nav-cue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 12px 8px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: #0f172a;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.28);
+}
+
+.spa-nav-cue strong {
+  display: block;
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.spa-nav-cue span {
+  flex: none;
+  font-size: 18px;
+  font-weight: 800;
+}
+
 .spa-offer-reject {
   min-height: 48px;
   border-radius: 14px;

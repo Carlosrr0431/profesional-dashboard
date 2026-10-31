@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { getDriverSupabase } from './driverSupabase';
 import { spaJson } from '../shared/api';
-import { fetchRouteLine } from '../shared/geo';
+import { fetchAutocomplete, fetchGuidedRoute, geocodePlace, newPlacesSessionToken, reverseGeocode, suggestionLabel } from '../shared/geo';
 import { formatArs } from '../shared/money';
 import { normalizeDriverPhone } from '../shared/phone';
 import { DRIVER_STATUS, isOpenTripStatus } from '../shared/tripStatus';
@@ -23,6 +23,7 @@ import { useSpaConfirm } from '../shared/SpaConfirm';
 import { isTripChatAvailable } from '../shared/tripChat';
 import NewTripOffer from './NewTripOffer';
 import { unlockOfferAlert } from './offerAlert';
+import { currentNavCue } from './navCue';
 
 const SpaMap = dynamic(() => import('../shared/SpaMap'), { ssr: false });
 
@@ -55,6 +56,11 @@ export default function DriverApp() {
   const [activeTrip, setActiveTrip] = useState(null);
   const [history, setHistory] = useState([]);
   const [routeCoords, setRouteCoords] = useState(null);
+  const [navSteps, setNavSteps] = useState([]);
+  const [tariff, setTariff] = useState(null);
+  const [hailQuery, setHailQuery] = useState('');
+  const [hailHits, setHailHits] = useState([]);
+  const hailSession = useRef('');
   const readyHaptic = useRef(false);
   const locationRef = useRef(null);
   const geo = useDriverGps(driver?.id);
@@ -245,6 +251,79 @@ export default function DriverApp() {
   }, [driver?.id, loadHistory]);
 
   useEffect(() => {
+    if (!driver?.id || !online || activeTrip) return undefined;
+    const supabase = getDriverSupabase();
+    let cancelled = false;
+
+    const openOffer = async (tripId, offeredAt) => {
+      const { data } = await supabase.from('trips').select('*').eq('id', tripId).maybeSingle();
+      if (cancelled || !data || data.status !== 'pending') return;
+      setPendingTrip({
+        ...data,
+        broadcast_offer: !data.driver_id,
+        assigned_at: data.assigned_at || offeredAt || new Date().toISOString(),
+      });
+      setTab('inicio');
+    };
+
+    const pull = async () => {
+      const { data } = await supabase
+        .from('trip_dispatch_offers')
+        .select('trip_id, offered_at, status')
+        .eq('driver_id', driver.id)
+        .eq('status', 'pending')
+        .order('offered_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (data?.trip_id) await openOffer(data.trip_id, data.offered_at);
+    };
+    pull();
+
+    const offers = supabase
+      .channel(`web_driver_offers_${driver.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_dispatch_offers', filter: `driver_id=eq.${driver.id}` },
+        (payload) => {
+          const row = payload.new;
+          if (!row?.trip_id) return;
+          if (row.status === 'pending') {
+            openOffer(row.trip_id, row.offered_at);
+            return;
+          }
+          setPendingTrip((prev) => (
+            prev?.broadcast_offer && prev.id === row.trip_id ? null : prev
+          ));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(offers);
+    };
+  }, [driver?.id, online, activeTrip]);
+
+  useEffect(() => {
+    if (!driver?.id) return undefined;
+    let cancel = false;
+    spaJson('/api/settings').then(({ ok, data }) => {
+      if (cancel || !ok) return;
+      const rows = Array.isArray(data?.data) ? data.data : [];
+      const read = (key) => Number(rows.find((row) => row.key === key)?.value);
+      const base = read('platform_tariff_base');
+      const perKm = read('platform_tariff_per_km');
+      const waitFicha = read('platform_tariff_wait_ficha');
+      setTariff({
+        base: Number.isFinite(base) ? base : 0,
+        perKm: Number.isFinite(perKm) ? perKm : 0,
+        waitFicha: Number.isFinite(waitFicha) && waitFicha > 0 ? waitFicha : 0,
+      });
+    }).catch(() => {});
+    return () => { cancel = true; };
+  }, [driver?.id]);
+
+  useEffect(() => {
     if (pendingTrip?.id && !activeTrip) setTab('inicio');
   }, [pendingTrip?.id, activeTrip]);
 
@@ -254,6 +333,7 @@ export default function DriverApp() {
     const navigating = Boolean(trip && isOpenTripStatus(trip.status) && trip.status !== 'pending');
     if (!navigating && !offering) {
       setRouteCoords(null);
+      setNavSteps([]);
       return undefined;
     }
 
@@ -262,15 +342,17 @@ export default function DriverApp() {
       const loc = locationRef.current;
       const target = offering ? tripPickupPoint(trip) : tripNavTarget(trip);
       if (!loc || !target) return;
-      const line = await fetchRouteLine(
+      const guided = await fetchGuidedRoute(
         { lat: loc.lat, lng: loc.lng },
         { lat: target.lat, lng: target.lng },
       );
-      if (!cancelled) setRouteCoords(line);
+      if (cancelled) return;
+      setRouteCoords(guided?.coords || null);
+      setNavSteps(navigating ? (guided?.steps || []) : []);
     };
 
     load();
-    const id = setInterval(load, offering ? 20000 : 60000);
+    const id = setInterval(load, offering ? 20000 : 15000);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -426,19 +508,33 @@ export default function DriverApp() {
     setError('');
     try {
       const supabase = getDriverSupabase();
-      const { data, error: updateError } = await supabase
-        .from('trips')
-        .update({
-          status: 'going_to_pickup',
-          accepted_at: new Date().toISOString(),
-          dispatch_status: 'accepted',
-        })
-        .eq('id', pendingTrip.id)
-        .eq('driver_id', driver.id)
-        .eq('status', 'pending')
-        .select()
-        .maybeSingle();
-      if (updateError) throw updateError;
+      let data = null;
+      if (pendingTrip.broadcast_offer || !pendingTrip.driver_id) {
+        const { data: claimed, error: claimError } = await supabase.rpc('claim_dispatch_offer', {
+          p_trip_id: pendingTrip.id,
+        });
+        if (claimError) throw claimError;
+        if (!claimed?.success) {
+          setPendingTrip(null);
+          throw new Error('El viaje ya lo tomó otro chofer.');
+        }
+        data = claimed.trip || null;
+      } else {
+        const { data: updated, error: updateError } = await supabase
+          .from('trips')
+          .update({
+            status: 'going_to_pickup',
+            accepted_at: new Date().toISOString(),
+            dispatch_status: 'accepted',
+          })
+          .eq('id', pendingTrip.id)
+          .eq('driver_id', driver.id)
+          .eq('status', 'pending')
+          .select()
+          .maybeSingle();
+        if (updateError) throw updateError;
+        data = updated;
+      }
       if (!data) {
         setPendingTrip(null);
         throw new Error('El viaje ya no está disponible.');
@@ -468,6 +564,15 @@ export default function DriverApp() {
     setBusy(true);
     try {
       const supabase = getDriverSupabase();
+      if (pendingTrip.broadcast_offer || !pendingTrip.driver_id) {
+        const { error: declineError } = await supabase.rpc('decline_dispatch_offer', {
+          p_trip_id: pendingTrip.id,
+          p_reason: reason,
+        });
+        if (declineError) throw declineError;
+        setPendingTrip(null);
+        return;
+      }
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
       const { ok, data } = await spaJson('/api/driver/reject-trip', {
@@ -539,6 +644,79 @@ export default function DriverApp() {
       }
     } catch (err) {
       setError(err.message || 'No se pudo actualizar el viaje.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startStreetHail = async () => {
+    if (!driver?.id || !location) {
+      setError('Activá el GPS para tomar un viaje en la calle.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const place = await reverseGeocode(location.lat, location.lng);
+      const supabase = getDriverSupabase();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const { ok, data } = await spaJson('/api/driver/street-hail', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: {
+          origin_lat: location.lat,
+          origin_lng: location.lng,
+          origin_address: place?.address || '',
+        },
+      });
+      if (!ok || !data?.success || !data.trip) {
+        throw new Error(data?.message || data?.error || 'No se pudo tomar el viaje en calle.');
+      }
+      setActiveTrip(data.trip);
+      setPendingTrip(null);
+      setTab('inicio');
+    } catch (err) {
+      setError(err.message || 'No se pudo tomar el viaje en calle.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const searchHailDestination = async (text) => {
+    setHailQuery(text);
+    if (!hailSession.current) hailSession.current = newPlacesSessionToken();
+    const hits = await fetchAutocomplete(text, hailSession.current);
+    setHailHits(hits.slice(0, 5));
+  };
+
+  const saveHailDestination = async (hit) => {
+    if (!activeTrip?.id || !driver?.id) return;
+    setBusy(true);
+    setError('');
+    try {
+      const place = await geocodePlace({ ...hit, sessionToken: hailSession.current });
+      const supabase = getDriverSupabase();
+      const { data, error: updateError } = await supabase
+        .from('trips')
+        .update({
+          destination_address: place.address,
+          destination_lat: place.lat,
+          destination_lng: place.lng,
+          status: 'in_progress',
+          started_at: activeTrip.started_at || new Date().toISOString(),
+        })
+        .eq('id', activeTrip.id)
+        .eq('driver_id', driver.id)
+        .select()
+        .single();
+      if (updateError) throw updateError;
+      setActiveTrip(data);
+      setHailHits([]);
+      setHailQuery('');
+      hailSession.current = '';
+    } catch (err) {
+      setError(err.message || 'No se pudo guardar el destino.');
     } finally {
       setBusy(false);
     }
@@ -667,6 +845,9 @@ export default function DriverApp() {
   const pickup = tripPickupPoint(activeTrip || pendingTrip);
   const dropoff = tripDropoffPoint(activeTrip || pendingTrip);
   const navigating = Boolean(activeTrip && isOpenTripStatus(activeTrip.status) && activeTrip.status !== 'pending');
+  const navCue = navigating && location ? currentNavCue(navSteps, location.lat, location.lng) : null;
+  const streetHail = String(activeTrip?.notes || '').includes('[STREET_HAIL]');
+  const hailNeedsDest = streetHail && (!activeTrip?.destination_address || activeTrip.destination_address === 'A confirmar');
   const offering = Boolean(pendingTrip && !activeTrip);
   const mapCenter = location
     ? { latitude: location.lat, longitude: location.lng }
@@ -720,7 +901,12 @@ export default function DriverApp() {
           <SpaSwitch compact on={online} disabled={busy} onClick={toggleOnline} />
         </div>
       )}
-      banner={geo.showBanner ? (
+      banner={navCue ? (
+        <div className="spa-nav-cue" aria-live="polite">
+          <strong>{navCue.phrase}</strong>
+          <span>{navCue.distanceLabel}</span>
+        </div>
+      ) : geo.showBanner ? (
         <LocationBanner
           title="Ubicación desactivada"
           body={locationCopy}
@@ -740,6 +926,36 @@ export default function DriverApp() {
                 onAccept={acceptTrip}
                 onReject={rejectTrip}
               />
+            ) : null}
+
+            {tab === 'inicio' && activeTrip && hailNeedsDest ? (
+              <div className="mb-3 grid gap-2">
+                <p className="text-[13px] font-semibold text-slate-500">Destino del viaje en calle</p>
+                <input
+                  value={hailQuery}
+                  onChange={(event) => searchHailDestination(event.target.value)}
+                  className={spaFieldClass}
+                  placeholder="¿A dónde va?"
+                />
+                {hailHits.map((hit) => (
+                  <button
+                    key={hit.placeId || suggestionLabel(hit)}
+                    type="button"
+                    disabled={busy}
+                    className="rounded-xl bg-slate-50 px-3 py-2 text-left text-[14px] font-medium text-navy-900"
+                    onClick={() => saveHailDestination(hit)}
+                  >
+                    {suggestionLabel(hit)}
+                  </button>
+                ))}
+                <SpaButton
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => updateTripStatus('in_progress', { pickup_at: activeTrip.pickup_at || new Date().toISOString() })}
+                >
+                  Ir sin destino
+                </SpaButton>
+              </div>
             ) : null}
 
             {tab === 'inicio' && activeTrip ? (
@@ -767,7 +983,9 @@ export default function DriverApp() {
                   if (typeof window !== 'undefined') window.location.href = 'tel:911';
                 }}
                 primaryAction={
-                  activeTrip.status === 'going_to_pickup' && !activeTrip.driver_arrived_at
+                  streetHail && activeTrip.status !== 'in_progress'
+                    ? 'Pasajero a bordo'
+                    : activeTrip.status === 'going_to_pickup' && !activeTrip.driver_arrived_at
                     ? 'Llegué al origen'
                     : activeTrip.status === 'going_to_pickup'
                       ? 'Pasajero a bordo'
@@ -777,6 +995,8 @@ export default function DriverApp() {
                 onPrimary={
                   activeTrip.status === 'in_progress'
                     ? () => updateTripStatus('completed')
+                    : streetHail
+                      ? () => updateTripStatus('in_progress', { pickup_at: activeTrip.pickup_at || new Date().toISOString() })
                     : activeTrip.status === 'going_to_pickup' && !activeTrip.driver_arrived_at
                       ? () => updateTripStatus('going_to_pickup', { driver_arrived_at: new Date().toISOString() })
                       : () => updateTripStatus('in_progress', { pickup_at: new Date().toISOString() })
@@ -797,6 +1017,13 @@ export default function DriverApp() {
                       ? 'Cuando te asignen un móvil va a aparecer acá.'
                       : 'Ponete en línea para recibir viajes en Salta.'}
                   </p>
+                  {online ? (
+                    <div className="mt-4">
+                      <SpaButton disabled={busy || !location} onClick={startStreetHail}>
+                        Viaje en calle
+                      </SpaButton>
+                    </div>
+                  ) : null}
                 </div>
               </SpaPanel>
             ) : null}
@@ -832,6 +1059,17 @@ export default function DriverApp() {
                     <p className="mt-0.5 text-[13px] text-slate-500">{driver.vehicle_plate}</p>
                   </div>
                 ) : null}
+                <div className="rounded-2xl bg-light-100 px-4 py-3">
+                  <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">Tarifa</p>
+                  <p className="mt-1 text-[15px] font-semibold text-navy-900">
+                    {tariff
+                      ? `Base ${formatArs(tariff.base)} · ${formatArs(tariff.perKm)} por km`
+                      : 'Cargando tarifa…'}
+                  </p>
+                  {tariff?.waitFicha ? (
+                    <p className="mt-0.5 text-[13px] text-slate-500">Ficha de espera {formatArs(tariff.waitFicha)}</p>
+                  ) : null}
+                </div>
                 <SpaButton variant="ghost" onClick={logout}>Cerrar sesión</SpaButton>
                 <InstallAppButton label="Instalar Profesional Conductor" />
                 <SpaBackHome />

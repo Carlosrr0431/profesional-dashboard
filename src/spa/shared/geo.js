@@ -62,7 +62,24 @@ export async function fetchRouteMetrics(origin, dest) {
   return data.data || null;
 }
 
+function routeCoordsFromPayload(data) {
+  const coords = data?.data?.polylineCoords || data?.polylineCoords || [];
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  return coords.map((point) => {
+    if (Array.isArray(point)) return [Number(point[0]), Number(point[1])];
+    const lat = Number(point?.lat ?? point?.latitude);
+    const lng = Number(point?.lng ?? point?.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return [lng, lat];
+    return null;
+  }).filter(Boolean);
+}
+
 export async function fetchRouteLine(origin, dest) {
+  const guided = await fetchGuidedRoute(origin, dest);
+  return guided?.coords || null;
+}
+
+export async function fetchGuidedRoute(origin, dest) {
   const params = new URLSearchParams({
     originLat: String(origin.lat),
     originLng: String(origin.lng),
@@ -72,15 +89,10 @@ export async function fetchRouteLine(origin, dest) {
   });
   const { ok, data } = await spaJson(`/api/geo/directions?${params}`);
   if (!ok) return null;
-  const coords = data?.data?.polylineCoords || data?.polylineCoords || [];
-  if (!Array.isArray(coords) || coords.length < 2) return null;
-    return coords.map((point) => {
-      if (Array.isArray(point)) return [Number(point[0]), Number(point[1])];
-      const lat = Number(point?.lat ?? point?.latitude);
-      const lng = Number(point?.lng ?? point?.longitude);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) return [lng, lat];
-      return null;
-    }).filter(Boolean);
+  const coords = routeCoordsFromPayload(data);
+  if (!coords) return null;
+  const steps = Array.isArray(data?.data?.steps) ? data.data.steps : [];
+  return { coords, steps };
 }
 
 export async function fetchActiveServiceZones() {
