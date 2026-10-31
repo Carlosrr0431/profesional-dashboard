@@ -159,6 +159,7 @@ import {
   stripWhatsappFinalPeriods,
   withBettoIntro,
 } from '../../../src/lib/bettoWelcome';
+import { looksLikeGpsClarification } from '../../../src/lib/gpsPinNote';
 import {
   buildPriceInquiryCollectingContext,
   buildPriceInquiryMissingAddressReply,
@@ -4575,7 +4576,7 @@ function detectMessageType(message = {}) {
   if (message.audioMessage) return 'audio';
   if (message.documentMessage) return 'document';
   if (message.stickerMessage) return 'sticker';
-  if (message.locationMessage) return 'location';
+  if (message.locationMessage || message.liveLocationMessage) return 'location';
   if (message.contactMessage) return 'contact';
   if (message.pollUpdateMessage) return 'poll_response';
   return 'text';
@@ -5115,6 +5116,36 @@ function tripHasDispatchPickup(trip) {
     [trip?.destination_lat, trip?.destination_lng],
   ];
   return pairs.some(([lat, lng]) => Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)));
+}
+
+async function appendGpsPinClarification(trip, text) {
+  const extra = String(text || '').trim().slice(0, 500);
+  if (!extra || !trip?.id) return false;
+  const { data } = await getSupabase()
+    .from('trips')
+    .select('notes')
+    .eq('id', trip.id)
+    .maybeSingle();
+  const prev = String(data?.notes || '');
+  if (prev.includes(extra)) return true;
+  const notes = prev ? `${prev}\n${extra}` : extra;
+  const { error } = await getSupabase().from('trips').update({ notes }).eq('id', trip.id);
+  return !error;
+}
+
+function readIncomingLocation(messageData) {
+  const message = messageData?.message || {};
+  const loc = message.locationMessage || message.liveLocationMessage || {};
+  const lat = Number(loc.degreesLatitude);
+  const lng = Number(loc.degreesLongitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat === 0 && lng === 0) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return {
+    lat,
+    lng,
+    label: String(loc.address || loc.name || '').trim(),
+  };
 }
 
 function gatePickupStreetReply(text, openTrip) {
@@ -7772,7 +7803,10 @@ async function persistQueuedApproachTrip({
       finalDestinationHint,
       finalDestJson,
     }),
-    wa_context: buildTripWhatsmeowLineContext(),
+    wa_context: {
+      ...buildTripWhatsmeowLineContext(),
+      ...(extracted._gpsPin ? { gps_pin: true } : {}),
+    },
   };
 
   let queuedTrip;
@@ -8056,7 +8090,11 @@ async function createTripFromConversation({ conversation, extracted, includeBett
   const normalizedPickupQuery = normalizeAddressPhrase(pickupQuery);
   const gpsLat = Number(extracted?._preGeocodedPickup?.lat);
   const gpsLng = Number(extracted?._preGeocodedPickup?.lng);
-  const hasGpsPin = Number.isFinite(gpsLat) && Number.isFinite(gpsLng);
+  const hasGpsPin = Number.isFinite(gpsLat)
+    && Number.isFinite(gpsLng)
+    && !(gpsLat === 0 && gpsLng === 0)
+    && Math.abs(gpsLat) <= 90
+    && Math.abs(gpsLng) <= 180;
 
   if (!hasGpsPin && pickupNeedsExactStreet(normalizedPickupQuery || pickupQuery)) {
     logWebhook('trip_create_pickup_needs_street', {
@@ -8077,7 +8115,23 @@ async function createTripFromConversation({ conversation, extracted, includeBett
   }
 
   let pickupLocation;
-  if (extracted._preGeocodedPickup?.lat && extracted._preGeocodedPickup?.lng) {
+  if (hasGpsPin) {
+    const rawLabel = String(extracted._preGeocodedPickup?.formattedAddress || '').trim();
+    const label = rawLabel && !isVagueLocalityAddress(rawLabel)
+      ? rawLabel
+      : `${gpsLat.toFixed(6)}, ${gpsLng.toFixed(6)}`;
+    pickupLocation = {
+      formattedAddress: label,
+      lat: gpsLat,
+      lng: gpsLng,
+    };
+    logWebhook('trip_create_pickup_gps_pin', {
+      conversationId: conversation?.id || null,
+      lat: gpsLat,
+      lng: gpsLng,
+      formattedAddress: label,
+    });
+  } else if (extracted._preGeocodedPickup?.lat && extracted._preGeocodedPickup?.lng) {
     const preQuery = normalizedPickupQuery || pickupQuery || '';
     pickupLocation = buildPreGeocodedPickup(extracted._preGeocodedPickup, preQuery);
     if (!pickupLocation || isVagueLocalityAddress(pickupLocation.formattedAddress)) {
@@ -10172,6 +10226,29 @@ async function processClaimedConversation(batch) {
       return {
         handled: true,
         updates: { status: 'open', context: {}, last_trip_id: openTripByPhone?.id || null, processing_started_at: null, last_processed_at: new Date().toISOString() },
+      };
+    }
+
+    if (
+      tripWaContext.gps_pin
+      && tripHasDispatchPickup(openTripByPhone)
+      && looksLikeGpsClarification(fastText)
+      && !messageRequestsTripCancel(fastText)
+    ) {
+      const noted = await appendGpsPinClarification(openTripByPhone, fastText);
+      await sendWhatsAppText(
+        batch.phone,
+        noted
+          ? 'Anotado. El móvil va al punto que mandaste'
+          : 'El móvil va al punto que mandaste',
+      );
+      logWebhook('conversation_gps_pin_note', {
+        conversationId: batch?.id || null,
+        tripId: openTripByPhone.id,
+      });
+      return {
+        handled: true,
+        updates: { status: 'open', context: {}, last_trip_id: openTripByPhone.id, processing_started_at: null, last_processed_at: new Date().toISOString() },
       };
     }
 
@@ -13108,33 +13185,21 @@ async function processWebhookBody(body, requestMeta = {}) {
 
     // --- Manejo especial de ubicación GPS (pin actual de WhatsApp) ---
     if (messageType === 'location') {
-      const locMsg = messageData.message?.locationMessage || {};
-      const gpsLat = locMsg.degreesLatitude;
-      const gpsLng = locMsg.degreesLongitude;
-
-      if (typeof gpsLat === 'number' && typeof gpsLng === 'number') {
+      const pin = readIncomingLocation(messageData);
+      if (pin) {
+        const { lat: gpsLat, lng: gpsLng, label } = pin;
         logWebhook('location_message_received', { phone: maskPhone(phone), lat: gpsLat, lng: gpsLng });
 
-        // Resolver dirección: WhatsApp ya la trae en el payload, si no → reverse geocode.
-        // El flujo GPS no depende de contexto previo: crea viaje directo igual que calle+altura.
-        const waName = String(locMsg.name || '').trim();
-        const waAddress = String(locMsg.address || '').trim();
-        const waProvidedAddress = waAddress || waName || null;
-
-        let pickupAddress;
-        if (waProvidedAddress) {
-          pickupAddress = waProvidedAddress;
-          logWebhook('location_address_from_wa_payload', {
-            phone: maskPhone(phone),
-            waAddress: waProvidedAddress,
-          });
-        } else {
+        let pickupAddress = label;
+        if (!pickupAddress || isVagueLocalityAddress(pickupAddress)) {
           try {
-            pickupAddress = await reverseGeocodeLatLng(gpsLat, gpsLng);
+            const reversed = await reverseGeocodeLatLng(gpsLat, gpsLng);
+            if (reversed && !isVagueLocalityAddress(reversed)) pickupAddress = reversed;
           } catch {
-            pickupAddress = `${gpsLat.toFixed(6)}, ${gpsLng.toFixed(6)}`;
+            pickupAddress = '';
           }
         }
+        if (!pickupAddress) pickupAddress = `${gpsLat.toFixed(6)}, ${gpsLng.toFixed(6)}`;
 
         const latestOpenTrip = await getLatestOpenTripByPhone(phone).catch(() => null);
         const latestOpenTripContext = safeJsonParse(latestOpenTrip?.wa_context, {});
@@ -13235,6 +13300,7 @@ async function processWebhookBody(body, requestMeta = {}) {
               lat: Number(gpsLat),
               lng: Number(gpsLng),
             },
+            _gpsPin: true,
             _conversationText: '[UBICACION_WHATSAPP]',
             _existingTripId: isGpsPlaceholderTrip ? latestOpenTrip.id : null,
           },
