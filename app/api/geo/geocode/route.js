@@ -6,6 +6,7 @@ import { isWithinServiceArea } from '../../../../src/lib/constants';
 import { logGeocodeErrorAsync } from '../../../../src/lib/geocodeErrorLog';
 import { isGoogleConfigured } from '../../../../shared/geo/googlePlaces.js';
 import { coordsAllowedForQuery } from '../../../../shared/geo/mapConfig.js';
+import { pickPrimaryHouseNumber } from '../../../../shared/salta-address.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,9 @@ export async function GET(request) {
       const saved = await findSavedPinnedAddresses(address).catch(() => []);
       const savedHit = saved.find((item) => coordsAllowedForQuery(item.lat, item.lng, address));
       if (savedHit) result = savedHit;
+    }
+    if (!result && !placeId && address && pickPrimaryHouseNumber(address) != null) {
+      result = await geocodeAddress(address, { sessionToken });
     }
     if (!result && !placeId && address) {
       const cached = await searchCachedPlaces(address, 5).catch(() => []);

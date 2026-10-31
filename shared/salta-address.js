@@ -637,6 +637,20 @@ function pickPrimaryHouseNumber(query) {
   return nums.length > 0 ? nums[0] : null;
 }
 
+/** "J. M. Leguizamon 1455" también se busca como "Leguizamon 1455" en Georef. */
+function expandAbbreviatedStreetQueries(text) {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  const out = [];
+  const add = (value) => {
+    const next = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!next || out.some((item) => item.toLowerCase() === next.toLowerCase())) return;
+    out.push(next);
+  };
+  add(raw);
+  add(raw.replace(/\b(?:j|m|dr|av|pje|grl|gral|sr|sra)\.?(?=\s)/gi, ' '));
+  return out;
+}
+
 function scoreStreetNumberProximity(query, formattedAddress) {
   const primaryQueryNum = pickPrimaryHouseNumber(query);
   if (primaryQueryNum == null) return 0;
@@ -1015,6 +1029,7 @@ module.exports = {
   applyQueryHouseNumberToLabel,
   parseStreetHouseFromQuery,
   pickPrimaryHouseNumber,
+  expandAbbreviatedStreetQueries,
   parseStreetIntersection,
   preferredIntersectionStreet,
   intersectionSearchLabel,

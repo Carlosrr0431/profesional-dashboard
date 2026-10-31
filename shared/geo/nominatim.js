@@ -21,6 +21,7 @@ const {
   applyQueryHouseNumberToLabel,
   parseStreetHouseFromQuery,
   pickPrimaryHouseNumber,
+  expandAbbreviatedStreetQueries,
   ensureStreetCatalog,
   searchStreetCatalog,
 } = require('../salta-address');
@@ -660,11 +661,18 @@ async function geocodeAddress(address, options = {}) {
 
   const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
   if (hasHouseNumber) {
-    const pack = await lookupGeorefHouseNumbers(query, 4).catch(() => ({ located: [], missingLabel: null }));
-    const ranked = preferSpecificRoad(
-      query,
-      (pack.located || []).filter((hit) => georefHitMatchesStreetQuery(hit, query)),
-    );
+    let pack = { located: [], missingLabel: null };
+    let ranked = [];
+    for (const candidate of expandAbbreviatedStreetQueries(query)) {
+      pack = await lookupGeorefHouseNumbers(candidate, 4).catch(() => ({ located: [], missingLabel: null }));
+      ranked = preferSpecificRoad(
+        candidate,
+        (pack.located || []).filter((hit) => (
+          georefHitMatchesStreetQuery(hit, candidate) || georefHitMatchesStreetQuery(hit, query)
+        )),
+      );
+      if (ranked.length > 0) break;
+    }
     if (ranked.length > 0) {
       const best = pickOfficialHouseNumber(ranked);
       if (best) {
@@ -972,8 +980,9 @@ function pickOfficialHouseNumber(matches, near = null) {
     && !(Math.abs(point.lat) < 0.0001 && Math.abs(point.lng) < 0.0001);
   const sameStreet = !matches.some((hit) => metersBetween(hit, first) > HOMONYM_STREET_METERS);
   if (sameStreet) {
-    if (!nearOk) return first;
-    return metersBetween(first, point) <= HOMONYM_STREET_METERS ? first : null;
+    // Una sola calle: la altura oficial manda, aunque Google haya dejado el pin
+    // en la otra punta (Leguizamón 1455 caía junto a Luis Güemes, altura ~2100).
+    return first;
   }
   if (!nearOk) return null;
   const nearest = matches.reduce((best, hit) => (
@@ -986,9 +995,18 @@ async function findOfficialHouseNumber(query, near = null) {
   const text = String(query || '').trim();
   if (pickPrimaryHouseNumber(text) == null) return null;
   if (looksLikeSaltaKnownPoi(text)) return null;
-  const hits = await searchGeorefAddress(text, 4).catch(() => []);
-  const matches = preferSpecificRoad(text, hits.filter((hit) => georefHitMatchesStreetQuery(hit, text)));
-  return pickOfficialHouseNumber(matches, near);
+  for (const candidate of expandAbbreviatedStreetQueries(text)) {
+    const hits = await searchGeorefAddress(candidate, 4).catch(() => []);
+    const matches = preferSpecificRoad(
+      candidate,
+      hits.filter((hit) => (
+        georefHitMatchesStreetQuery(hit, candidate) || georefHitMatchesStreetQuery(hit, text)
+      )),
+    );
+    const best = pickOfficialHouseNumber(matches, near);
+    if (best) return best;
+  }
+  return null;
 }
 
 function streetHouseQueryFromPlace(options = {}) {
