@@ -730,7 +730,11 @@ function labelHasToken(label, token) {
   const roman = ORDINAL_TO_ROMAN[token];
   if (roman && padded.includes(` ${roman} `)) return true;
   const ordinal = Object.keys(ORDINAL_TO_ROMAN).find((key) => ORDINAL_TO_ROMAN[key] === token);
-  return Boolean(ordinal && padded.includes(` ${ordinal} `));
+  if (ordinal && padded.includes(` ${ordinal} `)) return true;
+  if (token === 'paseo' && padded.includes(' p ')) return true;
+  if (token === 'avenida' && (padded.includes(' av ') || padded.includes(' avda '))) return true;
+  if (token === 'pasaje' && (padded.includes(' pje ') || padded.includes(' psje '))) return true;
+  return false;
 }
 
 /**

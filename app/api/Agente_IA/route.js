@@ -159,6 +159,7 @@ import {
   stripWhatsappFinalPeriods,
   withBettoIntro,
 } from '../../../src/lib/bettoWelcome';
+import { buildWhatsAppNoteOnlyQueuedTrip } from '../../../src/lib/noteOnlyTrip';
 import { looksLikeGpsClarification } from '../../../src/lib/gpsPinNote';
 import { readGpsPinFromPassengerText } from '../../../src/lib/mapLinkPoint';
 import {
@@ -5762,7 +5763,9 @@ async function geocodeAddress(address) {
       query: safeAddress,
       error: err?.message || 'unknown',
     });
-    throw new Error(`Dirección demasiado amplia o ambigua: ${address}`);
+    const wrapped = new Error(`Dirección demasiado amplia o ambigua: ${address}`);
+    wrapped.code = err?.code || (/no se encontró la dirección/i.test(err?.message || '') ? 'address_not_on_map' : null);
+    throw wrapped;
   }
 }
 
@@ -7817,6 +7820,74 @@ async function persistQueuedApproachTrip({
   return queuedTrip;
 }
 
+async function queueWhatsAppUnmatchedPickup({
+  conversation,
+  extracted,
+  noteText,
+  includeBettoIntro = false,
+}) {
+  const text = String(noteText || '').trim();
+  const base = buildWhatsAppNoteOnlyQueuedTrip({
+    notes: text,
+    passengerName: extracted?.passenger_name || conversation?.push_name || 'Pasajero WhatsApp',
+    passengerPhone: conversation?.phone || null,
+  });
+  const queuePayload = {
+    ...base,
+    wa_context: {
+      ...buildTripWhatsmeowLineContext(),
+      source: 'whatsapp',
+      note_only: true,
+    },
+  };
+
+  let queuedTrip;
+  if (extracted?._existingTripId) {
+    const { data, error } = await getSupabase()
+      .from('trips')
+      .update(queuePayload)
+      .eq('id', extracted._existingTripId)
+      .select()
+      .single();
+    if (error) throw error;
+    queuedTrip = data;
+  } else {
+    const { data, error } = await getSupabase()
+      .from('trips')
+      .insert(queuePayload)
+      .select()
+      .single();
+    if (error) throw error;
+    queuedTrip = data;
+  }
+
+  await refreshDispatchQueueForTrip(queuedTrip.id);
+  triggerDispatchWorker({ reason: 'trip_created_note', tripId: queuedTrip.id });
+  logWebhook('trip_create_unmatched_note', {
+    conversationId: conversation?.id || null,
+    tripId: queuedTrip?.id || null,
+    note: text,
+  });
+
+  return {
+    ok: true,
+    queued: true,
+    trip: queuedTrip,
+    driver: null,
+    reply: buildPassengerTripDerivedReply({ includeBettoIntro }),
+    context: {
+      passenger_name: base.passenger_name,
+      pickup_location: text,
+      destination: null,
+      notes: null,
+      awaiting_gps: false,
+      destination_candidates: null,
+      confirmed_trip_id: null,
+      last_cancellation_notified_trip_id: null,
+    },
+  };
+}
+
 function buildTripCreateSuccessContext({
   conversation,
   extracted,
@@ -8187,6 +8258,14 @@ async function createTripFromConversation({ conversation, extracted, includeBett
       }
     }
   } catch (error) {
+    if (error?.code === 'address_not_on_map') {
+      return queueWhatsAppUnmatchedPickup({
+        conversation,
+        extracted,
+        noteText: normalizedPickupQuery || pickupQuery,
+        includeBettoIntro,
+      });
+    }
     // Normalización por IA: ya estaba corriendo en paralelo, solo esperamos el resultado.
     const aiCorrected = await aiNormPromise;
     if (aiCorrected) {

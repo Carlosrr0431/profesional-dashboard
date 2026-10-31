@@ -23,6 +23,7 @@ import {
   isVagueLocalityAddress,
   formatIntersectionLabelFromQuery,
   pickPrimaryHouseNumber,
+  placeLabelMatchesQuery,
 } from '../../../shared/salta-address.js';
 import { coordsAllowedForQuery, hasUsableGeoPoint } from '../../../shared/geo/mapConfig.js';
 
@@ -201,6 +202,25 @@ function fromCache(item, query) {
   };
 }
 
+function unmatchedAddressError() {
+  const error = new Error('No se encontró la dirección');
+  error.code = 'address_not_on_map';
+  return error;
+}
+
+/** El rótulo de Google tiene que contener lo pedido. No sirve repetir la consulta. */
+function labelIsExactPlace(query, item) {
+  const title = String(item?.title || '').trim();
+  const subtitle = String(item?.subtitle || '').trim();
+  const formatted = String(item?.formattedAddress || item?.address || '').trim();
+  const own = [title, subtitle].filter(Boolean).join(', ');
+  if (own && placeLabelMatchesQuery(query, own)) return true;
+  if (!formatted) return false;
+  const asked = String(query || '').trim().toLowerCase();
+  if (formatted.toLowerCase() === asked) return false;
+  return placeLabelMatchesQuery(query, formatted);
+}
+
 function textScore(hit, query) {
   const label = [hit?.title, hit?.subtitle, hit?.formattedAddress, hit?.address].filter(Boolean).join(', ');
   return Math.max(
@@ -283,17 +303,19 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
   const pinned = findPinnedAddress(text);
   if (pinned) {
     const suggestion = pinnedAddressSuggestion(pinned);
-    return {
-      formattedAddress: suggestion.formattedAddress,
-      lat: suggestion.lat,
-      lng: suggestion.lng,
-      placeId: suggestion.placeId,
-      geocodeSource: 'pinned',
-    };
+    if (labelIsExactPlace(text, suggestion)) {
+      return {
+        formattedAddress: suggestion.formattedAddress,
+        lat: suggestion.lat,
+        lng: suggestion.lng,
+        placeId: suggestion.placeId,
+        geocodeSource: 'pinned',
+      };
+    }
   }
 
   const savedHit = (await findSavedPinnedAddresses(text).catch(() => []))[0];
-  if (savedHit) {
+  if (savedHit && labelIsExactPlace(text, savedHit)) {
     return {
       formattedAddress: savedHit.formattedAddress,
       lat: savedHit.lat,
@@ -314,7 +336,7 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
       const number = pickPrimaryHouseNumber(text);
       if (number == null) return item.score > 0;
       const hitNumber = pickPrimaryHouseNumber(`${item.title || ''} ${item.formattedAddress || ''}`);
-      return hitNumber === number;
+      return hitNumber === number && labelIsExactPlace(text, item);
     })
     .sort((a, b) => b.score - a.score);
   if (remembered[0]) {
@@ -338,7 +360,9 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
       ...suggestions,
     ];
   }
-  const ranked = [...suggestions].sort((a, b) => textScore(b, text) - textScore(a, text));
+  const ranked = [...suggestions]
+    .filter((hit) => labelIsExactPlace(text, hit))
+    .sort((a, b) => textScore(b, text) - textScore(a, text));
 
   const resolved = [];
   let detailsUsed = 0;
@@ -361,7 +385,7 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
         scoreCandidateAgainstQuery(labelForScore, text),
         scoreCandidateAgainstQuery(hit?.title || '', text),
       );
-      resolved.push({
+      const candidate = {
         formattedAddress: place.formattedAddress,
         lat: place.lat,
         lng: place.lng,
@@ -370,19 +394,17 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
         subtitle: place.subtitle || hit?.subtitle || null,
         geocodeSource: place.geocodeSource || null,
         score,
-      });
-      if (score >= 0.35) break;
+      };
+      if (!labelIsExactPlace(text, candidate)) continue;
+      resolved.push(candidate);
+      break;
     } catch {
       // Probar la siguiente sugerencia del autocomplete.
     }
   }
 
-  resolved.sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
-  const scored = resolved.filter((item) => Number(item.score || 0) >= 0.35);
-  const best = pickPreferredSaltaCapitalHit(scored.length ? scored : resolved);
-  if (!best) {
-    throw new Error('No se encontró la dirección');
-  }
+  const best = pickPreferredSaltaCapitalHit(resolved);
+  if (!best) throw unmatchedAddressError();
 
   const formattedAddress = preferPreciseFormattedAddress({
     detailsAddress: best.formattedAddress,

@@ -41,3 +41,32 @@ export function buildNoteOnlyQueuedTrip({ notes } = {}) {
     next_dispatch_at: new Date().toISOString(),
   };
 }
+
+/** WhatsApp: el texto que se entendió es la nota, porque el lugar no coincide al 100%. */
+export function buildWhatsAppNoteOnlyQueuedTrip({ notes, passengerName, passengerPhone } = {}) {
+  const text = String(notes || '').trim().slice(0, 800);
+  if (!text) {
+    const error = new Error('Escribí la nota del viaje.');
+    error.reason = 'missing_note';
+    throw error;
+  }
+
+  return {
+    status: 'queued',
+    dispatch_status: 'queued',
+    origin_address: text,
+    origin_lat: SALTA_NOTE_ANCHOR.lat,
+    origin_lng: SALTA_NOTE_ANCHOR.lng,
+    destination_address: null,
+    destination_lat: null,
+    destination_lng: null,
+    passenger_name: passengerName || 'Pasajero WhatsApp',
+    passenger_phone: passengerPhone || null,
+    notes: [NOTE_ONLY_MARKER, '[APPROACH_ONLY]', '[FREE_RIDE]', text].join('\n'),
+    price: null,
+    distance_km: null,
+    duration_minutes: null,
+    wa_context: { source: 'whatsapp', note_only: true },
+    next_dispatch_at: new Date().toISOString(),
+  };
+}

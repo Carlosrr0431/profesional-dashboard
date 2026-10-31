@@ -24,11 +24,10 @@ describe('placesAutocompleteResolve', () => {
     expect(/chacabuco/i.test(geo.formattedAddress)).toBe(true);
   });
 
-  it('prioriza Georef cuando la calle y la altura ya existen', async () => {
+  it('guemes 200 no mezcla una homónima del padrón', async () => {
     const hits = await getAutocompletePollCandidates('guemes 200', 5);
     expect(hits.length).toBeGreaterThan(0);
-    expect(hits.some((h) => String(h.placeId).startsWith('georef:'))).toBe(true);
-    expect(hits.some((h) => /g[uü]emes/i.test(h.title))).toBe(true);
+    expect(hits.every((h) => !String(h.placeId).startsWith('georef:'))).toBe(true);
   });
 });
 
