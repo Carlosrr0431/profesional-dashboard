@@ -541,15 +541,14 @@ const MapView = memo(function MapView({
             onSelectScheduled={onDemandScheduledSelect}
           />
         ) : null}
-        {pickupMode || demandMode ? (
-          pickupMode ? (
+        {!demandMode && pickupMode ? (
           <PickupMarkers
             pickups={pickupPoints || []}
             selectedId={activeInfo?.type === 'pickup' ? activeInfo.data?.id : null}
             onSelect={handlePickupSelect}
           />
-          ) : null
-        ) : drivers.map((driver) => {
+        ) : null}
+        {!demandMode && !pickupMode ? drivers.map((driver) => {
           const lat = Number(driver.lat);
           const lng = Number(driver.lng);
           if (!shouldShowDriverOnMap({ ...driver, lat, lng })) return null;
@@ -572,8 +571,7 @@ const MapView = memo(function MapView({
               onSelect={handleDriverSelect}
             />
           );
-        }))}
-
+        }) : null}
         {pickupMode || demandMode ? null : tripList.map((trip) => {
           const pasLat = Number(trip.passenger_lat ?? trip.pickup_lat ?? trip.origin_lat ?? trip.lat);
           const pasLng = Number(trip.passenger_lng ?? trip.pickup_lng ?? trip.origin_lng ?? trip.lng);
