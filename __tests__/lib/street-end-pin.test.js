@@ -44,6 +44,14 @@ describe('la altura oficial no cae en la otra punta de la calle', () => {
     expect(chosen.lng).toBeCloseTo(official.lng, 5);
   });
 
+  test('paseo guemes 50 no es doctor a ni adolfo guemes', () => {
+    const { sameNumberedStreet } = require('../../shared/salta-address');
+    expect(sameNumberedStreet('Adolfo Güemes', 'Paseo Güemes 50', 50)).toBe(false);
+    expect(sameNumberedStreet('Doctor Adolfo Güemes', 'Paseo Güemes 50', 50)).toBe(false);
+    expect(sameNumberedStreet('Dr. A. Güemes', 'P.º Güemes 50', 50)).toBe(false);
+    expect(sameNumberedStreet('Paseo Güemes', 'Paseo Güemes 50', 50)).toBe(true);
+  });
+
   test('dos calles homónimas no se mezclan', () => {
     const martin = { lat: -24.7868, lng: -65.4006 };
     const adolfo = { lat: -24.7874, lng: -65.4178 };

@@ -21,6 +21,7 @@ const {
   applyQueryHouseNumberToLabel,
   parseStreetHouseFromQuery,
   pickPrimaryHouseNumber,
+  sameNumberedStreet,
   expandAbbreviatedStreetQueries,
   ensureStreetCatalog,
   searchStreetCatalog,
@@ -930,14 +931,9 @@ function preferSpecificRoad(query, matches) {
 }
 
 function roadAppearsInQuery(query, road) {
-  const q = foldStreetText(query);
-  const tokens = foldStreetText(road)
-    .replace(/\b(avenida|av|calle|pasaje|pje)\b/g, ' ')
-    .split(/\s+/)
-    .filter((token) => token.length >= 3);
-  if (!tokens.length) return false;
-  const hits = tokens.filter((token) => q.includes(token));
-  return hits.length >= Math.min(2, tokens.length) || hits.some((token) => token.length >= 5);
+  const number = pickPrimaryHouseNumber(query);
+  if (number == null) return false;
+  return sameNumberedStreet(String(road || ''), query, number);
 }
 
 function georefHitMatchesStreetQuery(hit, query) {
@@ -1466,7 +1462,14 @@ async function getPlaceDetails(placeId, options = {}) {
     });
     const streetQuery = streetHouseQueryFromPlace(options);
     const official = streetQuery ? await findOfficialHouseNumber(streetQuery, details) : null;
-    if (!official) return details;
+    const officialRoad = String(official?.address?.road || '').trim();
+    const houseNumber = pickPrimaryHouseNumber(streetQuery);
+    const sameStreet = Boolean(
+      officialRoad
+      && houseNumber != null
+      && sameNumberedStreet(officialRoad, streetQuery, houseNumber),
+    );
+    if (!official || !sameStreet) return details;
     return {
       ...details,
       lat: official.lat,

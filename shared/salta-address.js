@@ -711,6 +711,45 @@ function scoreSaltaCapitalLocality(formattedAddress) {
   return 0;
 }
 
+const PLACE_QUERY_SKIP = new Set([
+  'salta', 'capital', 'argentina', 'calle', 'avenida', 'avda', 'pasaje', 'barrio', 'zona',
+  'doctor', 'doctora', 'general', 'gral', 'altura', 'provincia', 'province',
+]);
+
+const ORDINAL_TO_ROMAN = {
+  primero: 'i',
+  segundo: 'ii',
+  tercero: 'iii',
+  cuarto: 'iv',
+  quinto: 'v',
+};
+
+function labelHasToken(label, token) {
+  const padded = ` ${label} `;
+  if (padded.includes(` ${token} `)) return true;
+  const roman = ORDINAL_TO_ROMAN[token];
+  if (roman && padded.includes(` ${roman} `)) return true;
+  const ordinal = Object.keys(ORDINAL_TO_ROMAN).find((key) => ORDINAL_TO_ROMAN[key] === token);
+  return Boolean(ordinal && padded.includes(` ${ordinal} `));
+}
+
+/**
+ * El lugar resuelto es el que se pidió: cada palabra propia está en el rótulo
+ * y, si había altura, esa altura también. "colectora 3" no es "Juan Pablo Segundo".
+ */
+function placeLabelMatchesQuery(query, label) {
+  const asked = normalizeForMatch(query);
+  const found = normalizeForMatch(label);
+  if (!asked || !found) return false;
+  const tokens = asked.split(' ').filter((token) => (
+    token.length >= 4 && !PLACE_QUERY_SKIP.has(token) && !/^\d+$/.test(token)
+  ));
+  if (tokens.some((token) => !labelHasToken(found, token))) return false;
+  const number = pickPrimaryHouseNumber(query);
+  if (number != null && !labelHasToken(found, String(number))) return false;
+  return true;
+}
+
 function scoreCandidateAgainstQuery(formattedAddress, query) {
   const queryTokens = new Set(tokenizeAddress(query));
   const addressTokens = new Set(tokenizeAddress(formattedAddress || ''));
@@ -973,7 +1012,11 @@ function sameNumberedStreet(road, otherText, houseNumber) {
     const shorter = roadTokens.length <= otherTokens.length ? roadTokens : otherTokens;
     if (shorter.every((token) => shared.includes(token))) return true;
   }
-  return roadTokens.length === 1 && otherTokens.length === 1 && shared.length === 1;
+  // "Güemes" solo no alcanza: Paseo Güemes y Doctor A. Güemes no son la misma calle.
+  return roadTokens.length === 1
+    && otherTokens.length === 1
+    && shared.length === 1
+    && shared[0].length >= 7;
 }
 
 function isBareStreetAddress(item, roadText) {
@@ -1066,6 +1109,7 @@ module.exports = {
   applyQueryHouseNumberToLabel,
   parseStreetHouseFromQuery,
   pickPrimaryHouseNumber,
+  placeLabelMatchesQuery,
   expandAbbreviatedStreetQueries,
   parseStreetIntersection,
   preferredIntersectionStreet,
