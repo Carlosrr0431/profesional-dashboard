@@ -38,6 +38,7 @@ export function buildDriverReleaseQueuedExtras(trip, {
     trip?.wa_context,
     driverId,
     isTimeout ? 'driver_timeout' : 'driver_rejected',
+    now,
   );
 
   if (wasAssigned) {

@@ -1,8 +1,12 @@
 import {
+  DRIVER_REJECT_COOLDOWN_MS,
   MAX_DRIVER_OFFER_ATTEMPTS,
   buildWaContextWithExcludedDriver,
   canResetTimeoutRoundExclusions,
   clearTimeoutRoundExclusions,
+  driverIdsCoolingDownFromOffers,
+  driverIdsWithPendingOffer,
+  excludedDriverIdsForTrip,
   getActiveDispatchExcludedDriverIds,
   getDispatchDriverOfferCounts,
   normalizeDispatchExclusionState,
@@ -31,12 +35,40 @@ describe('dispatchExclusions', () => {
     expect(canResetTimeoutRoundExclusions(context)).toBe(false);
   });
 
-  it('rechazo explicito queda excluido permanentemente', () => {
-    const rejected = buildWaContextWithExcludedDriver({}, 'drv-b', 'driver_rejected');
+  it('un rechazo con motivo deja al chofer fuera de ese viaje por 1 minuto', () => {
+    const now = new Date('2026-10-31T12:00:00.000Z');
+    const rejected = buildWaContextWithExcludedDriver({}, 'drv-b', 'driver_rejected', now);
 
-    expect(normalizeDispatchExclusionState(rejected).permanentExcluded).toEqual(['drv-b']);
+    expect(normalizeDispatchExclusionState(rejected).permanentExcluded).toEqual([]);
+    expect(getActiveDispatchExcludedDriverIds(rejected, now.getTime())).toEqual(['drv-b']);
+    expect(getActiveDispatchExcludedDriverIds(rejected, now.getTime() + DRIVER_REJECT_COOLDOWN_MS - 1)).toEqual(['drv-b']);
+    expect(getActiveDispatchExcludedDriverIds(rejected, now.getTime() + DRIVER_REJECT_COOLDOWN_MS)).toEqual([]);
+    expect(rejected.dispatch_driver_reject_cooldown_until['drv-b']).toBe('2026-10-31T12:01:00.000Z');
     expect(canResetTimeoutRoundExclusions(rejected)).toBe(false);
     expect(getDispatchDriverOfferCounts(rejected)).toEqual({});
+  });
+
+  it('una oferta rechazada hace menos de un minuto no se vuelve a abrir', () => {
+    const now = Date.parse('2026-10-31T12:00:30.000Z');
+    const offers = [
+      { driver_id: 'drv-b', status: 'rejected', resolved_at: '2026-10-31T12:00:00.000Z' },
+      { driver_id: 'drv-c', status: 'rejected', resolved_at: '2026-10-31T11:58:00.000Z' },
+      { driver_id: 'drv-d', status: 'pending', resolved_at: null },
+    ];
+
+    expect(driverIdsCoolingDownFromOffers(offers, now)).toEqual(['drv-b']);
+    expect(excludedDriverIdsForTrip({}, offers, now)).toEqual(['drv-b']);
+  });
+
+  it('un chofer con otra oferta abierta no recibe el resto de los viajes de la zona', () => {
+    const offers = [
+      { trip_id: 'viaje-a', driver_id: 'drv-1', status: 'pending' },
+      { trip_id: 'viaje-b', driver_id: 'drv-2', status: 'pending' },
+      { trip_id: 'viaje-a', driver_id: 'drv-3', status: 'rejected' },
+    ];
+
+    expect(driverIdsWithPendingOffer(offers)).toEqual(['drv-1', 'drv-2']);
+    expect(driverIdsWithPendingOffer(offers, { ignoreTripId: 'viaje-a' })).toEqual(['drv-2']);
   });
 
   it('notify_fail no excluye al chofer y solo registra metadata', () => {

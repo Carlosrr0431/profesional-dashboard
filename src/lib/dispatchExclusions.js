@@ -1,4 +1,6 @@
 export const MAX_DRIVER_OFFER_ATTEMPTS = 3;
+/** Tras cancelar con motivo, ese viaje no vuelve a ese chofer durante este lapso. */
+export const DRIVER_REJECT_COOLDOWN_MS = 60 * 1000;
 
 function safeJsonParse(value, fallback = {}) {
   if (value == null || value === '') return fallback;
@@ -85,14 +87,63 @@ export function normalizeDispatchExclusionState(waContext) {
   };
 }
 
-export function getActiveDispatchExcludedDriverIds(waContext) {
+export function getDriverRejectCooldownMap(waContext, now = Date.now()) {
+  const context = safeJsonParse(waContext, {});
+  const raw = context?.dispatch_driver_reject_cooldown_until;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+
+  const active = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const id = String(key || '').trim();
+    const until = Date.parse(value);
+    if (!id || !Number.isFinite(until) || until <= now) continue;
+    active[id] = new Date(until).toISOString();
+  }
+  return active;
+}
+
+export function getActiveDispatchExcludedDriverIds(waContext, now = Date.now()) {
   const state = normalizeDispatchExclusionState(waContext);
-  if (state.isLegacy) return state.allExcluded;
+  const cooling = Object.keys(getDriverRejectCooldownMap(waContext, now));
+  const base = state.isLegacy
+    ? state.allExcluded
+    : [
+      ...state.permanentExcluded,
+      ...state.roundExcluded,
+      ...getTripDispatchExcludedDriverIds(state.context),
+    ];
+  return normalizeDriverIdList([...base, ...cooling]);
+}
+
+/** Ofertas rechazadas hace menos de un minuto: el upsert no debe reabrirlas. */
+export function driverIdsCoolingDownFromOffers(offers, now = Date.now(), cooldownMs = DRIVER_REJECT_COOLDOWN_MS) {
+  const ids = [];
+  for (const offer of offers || []) {
+    if (String(offer?.status || '') !== 'rejected' || !offer?.driver_id) continue;
+    const resolvedAt = Date.parse(offer.resolved_at || '');
+    if (!Number.isFinite(resolvedAt) || now - resolvedAt >= cooldownMs) continue;
+    ids.push(String(offer.driver_id));
+  }
+  return normalizeDriverIdList(ids);
+}
+
+export function excludedDriverIdsForTrip(waContext, offers, now = Date.now()) {
   return normalizeDriverIdList([
-    ...state.permanentExcluded,
-    ...state.roundExcluded,
-    ...getTripDispatchExcludedDriverIds(state.context),
+    ...getActiveDispatchExcludedDriverIds(waContext, now),
+    ...driverIdsCoolingDownFromOffers(offers, now),
   ]);
+}
+
+/** Choferes que ya tienen otra oferta abierta. Así no se les apilan todos los viajes de la zona. */
+export function driverIdsWithPendingOffer(offers, { ignoreTripId } = {}) {
+  const ignore = ignoreTripId ? String(ignoreTripId) : '';
+  const ids = [];
+  for (const offer of offers || []) {
+    if (String(offer?.status || '') !== 'pending' || !offer?.driver_id) continue;
+    if (ignore && String(offer.trip_id || '') === ignore) continue;
+    ids.push(String(offer.driver_id));
+  }
+  return normalizeDriverIdList(ids);
 }
 
 export function canResetTimeoutRoundExclusions(waContext) {
@@ -127,7 +178,7 @@ export function buildWaContextAfterNotifyFailure(waContext, notifyReason = 'unkn
   };
 }
 
-export function buildWaContextWithExcludedDriver(waContext, driverId, reason = 'unknown') {
+export function buildWaContextWithExcludedDriver(waContext, driverId, reason = 'unknown', now = new Date()) {
   const normalizedDriverId = String(driverId || '').trim();
   if (!normalizedDriverId) return safeJsonParse(waContext, {});
 
@@ -152,6 +203,8 @@ export function buildWaContextWithExcludedDriver(waContext, driverId, reason = '
   const offerCounts = { ...state.offerCounts };
   const reasonStr = String(reason || 'unknown').slice(0, 140);
   exclusionReasons[normalizedDriverId] = reasonStr;
+  const nowMs = now instanceof Date ? now.getTime() : (Date.parse(now) || Date.now());
+  const cooldown = { ...getDriverRejectCooldownMap(context, nowMs) };
 
   if (isTimeoutDispatchExclusionReason(reason)) {
     const nextOfferCount = (offerCounts[normalizedDriverId] || 0) + 1;
@@ -165,10 +218,9 @@ export function buildWaContextWithExcludedDriver(waContext, driverId, reason = '
       roundExcluded.push(normalizedDriverId);
     }
   } else {
+    // Motivo del chofer: un minuto fuera de este viaje, no una exclusión para siempre.
     roundExcluded = roundExcluded.filter((id) => id !== normalizedDriverId);
-    if (!permanentExcluded.includes(normalizedDriverId)) {
-      permanentExcluded.push(normalizedDriverId);
-    }
+    cooldown[normalizedDriverId] = new Date(nowMs + DRIVER_REJECT_COOLDOWN_MS).toISOString();
   }
 
   const allExcluded = normalizeDriverIdList([...permanentExcluded, ...roundExcluded]);
@@ -179,8 +231,9 @@ export function buildWaContextWithExcludedDriver(waContext, driverId, reason = '
     dispatch_permanent_excluded_driver_ids: permanentExcluded,
     dispatch_round_excluded_driver_ids: roundExcluded,
     dispatch_driver_offer_counts: offerCounts,
+    dispatch_driver_reject_cooldown_until: cooldown,
     dispatch_exclusion_reasons: exclusionReasons,
-    dispatch_last_excluded_at: new Date().toISOString(),
+    dispatch_last_excluded_at: new Date(nowMs).toISOString(),
     dispatch_last_excluded_reason: reasonStr,
   };
 }

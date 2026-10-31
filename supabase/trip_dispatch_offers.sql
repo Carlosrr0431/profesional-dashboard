@@ -151,6 +151,39 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.request_dispatch_worker_wake()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_url TEXT;
+  v_secret TEXT;
+  v_headers JSONB := '{}'::jsonb;
+BEGIN
+  SELECT value INTO v_url FROM public.settings WHERE key = 'dispatch_worker_url' LIMIT 1;
+  SELECT value INTO v_secret FROM public.settings WHERE key = 'dispatch_worker_secret' LIMIT 1;
+  IF v_url IS NULL OR btrim(v_url) = '' THEN
+    RETURN;
+  END IF;
+
+  v_headers := jsonb_build_object('Content-Type', 'application/json');
+  IF v_secret IS NOT NULL AND btrim(v_secret) <> '' THEN
+    v_headers := v_headers || jsonb_build_object(
+      'Authorization', 'Bearer ' || btrim(v_secret),
+      'x-cron-secret', btrim(v_secret)
+    );
+  END IF;
+
+  PERFORM net.http_get(btrim(v_url), '{}'::jsonb, v_headers, 8000);
+EXCEPTION WHEN OTHERS THEN
+  RETURN;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.request_dispatch_worker_wake() FROM PUBLIC;
+
 CREATE OR REPLACE FUNCTION public.decline_dispatch_offer(
   p_trip_id UUID,
   p_reason TEXT DEFAULT 'Rechazado por chofer'
@@ -187,28 +220,43 @@ BEGIN
   SELECT * INTO v_trip FROM public.trips WHERE id = p_trip_id FOR UPDATE;
 
   IF v_trip.id IS NOT NULL AND v_trip.driver_id IS NULL AND v_trip.status = 'pending' THEN
-    UPDATE public.trips
-    SET wa_context = COALESCE(wa_context, '{}'::jsonb) || jsonb_build_object(
-      'dispatch_excluded_driver_ids',
-      (
-        SELECT COALESCE(jsonb_agg(DISTINCT value), '[]'::jsonb)
-        FROM (
-          SELECT jsonb_array_elements_text(COALESCE(v_trip.wa_context->'dispatch_excluded_driver_ids', '[]'::jsonb)) AS value
-          UNION
-          SELECT v_driver_id::text
-        ) ids
-      ),
-      'dispatch_permanent_excluded_driver_ids',
-      (
-        SELECT COALESCE(jsonb_agg(DISTINCT value), '[]'::jsonb)
-        FROM (
-          SELECT jsonb_array_elements_text(COALESCE(v_trip.wa_context->'dispatch_permanent_excluded_driver_ids', '[]'::jsonb)) AS value
-          UNION
-          SELECT v_driver_id::text
-        ) ids
+    IF COALESCE(NULLIF(trim(p_reason), ''), 'Rechazado por chofer') = 'Tiempo agotado' THEN
+      UPDATE public.trips
+      SET wa_context = COALESCE(wa_context, '{}'::jsonb) || jsonb_build_object(
+        'dispatch_excluded_driver_ids',
+        (
+          SELECT COALESCE(jsonb_agg(DISTINCT value), '[]'::jsonb)
+          FROM (
+            SELECT jsonb_array_elements_text(COALESCE(v_trip.wa_context->'dispatch_excluded_driver_ids', '[]'::jsonb)) AS value
+            UNION
+            SELECT v_driver_id::text
+          ) ids
+        ),
+        'dispatch_permanent_excluded_driver_ids',
+        (
+          SELECT COALESCE(jsonb_agg(DISTINCT value), '[]'::jsonb)
+          FROM (
+            SELECT jsonb_array_elements_text(COALESCE(v_trip.wa_context->'dispatch_permanent_excluded_driver_ids', '[]'::jsonb)) AS value
+            UNION
+            SELECT v_driver_id::text
+          ) ids
+        )
       )
-    )
-    WHERE id = p_trip_id;
+      WHERE id = p_trip_id;
+    ELSE
+      UPDATE public.trips
+      SET wa_context = COALESCE(wa_context, '{}'::jsonb) || jsonb_build_object(
+        'dispatch_driver_reject_cooldown_until',
+        COALESCE(wa_context->'dispatch_driver_reject_cooldown_until', '{}'::jsonb)
+          || jsonb_build_object(
+            v_driver_id::text,
+            to_char((NOW() + interval '60 seconds') AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+          ),
+        'dispatch_last_excluded_at', to_char(NOW() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        'dispatch_last_excluded_reason', 'driver_rejected'
+      )
+      WHERE id = p_trip_id;
+    END IF;
   END IF;
 
   IF v_remaining = 0
@@ -218,6 +266,8 @@ BEGIN
     SET status = 'queued', dispatch_status = 'queued', assigned_at = NULL
     WHERE id = p_trip_id;
   END IF;
+
+  PERFORM public.request_dispatch_worker_wake();
 
   RETURN jsonb_build_object('success', true, 'remaining', v_remaining);
 END;

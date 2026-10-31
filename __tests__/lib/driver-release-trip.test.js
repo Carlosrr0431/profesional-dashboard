@@ -124,7 +124,7 @@ describe('buildDriverReleaseQueuedExtras', () => {
     expect(update.wa_notified_at).toBeNull();
     expect(update.cancel_reason).toBe(DRIVER_RELEASE_REASON);
     expect(update.origin_address).toBe('Doctor Mariano Boedo 547, Salta');
-    expect(extras.wa_context.dispatch_excluded_driver_ids).toContain('drv-1');
+    expect(extras.wa_context.dispatch_driver_reject_cooldown_until['drv-1']).toBe('2026-09-06T15:01:00.000Z');
     expect(extras.wa_context.passenger_push_statuses).not.toContain('accepted');
     expect(extras.wa_context.passenger_push_statuses).not.toContain('going_to_pickup');
   });
@@ -162,7 +162,7 @@ describe('buildDriverReleaseQueuedExtras', () => {
     expect(update.origin_address).toBe('Juan Gálvez 218, Salta');
     expect(update).not.toHaveProperty('destination_address');
     expect(update.wa_notified_at).toBeNull();
-    expect(extras.wa_context.dispatch_excluded_driver_ids).toContain('drv-1');
+    expect(extras.wa_context.dispatch_driver_reject_cooldown_until['drv-1']).toBe('2026-09-14T22:49:31.000Z');
   });
 
   it('al soltar ya en el punto de retiro borra la llegada, así el próximo chofer no hereda la espera', () => {

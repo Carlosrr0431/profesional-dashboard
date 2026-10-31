@@ -44,6 +44,9 @@ import {
   buildWaContextWithExcludedDriver,
   canResetTimeoutRoundExclusions,
   clearTimeoutRoundExclusions,
+  driverIdsCoolingDownFromOffers,
+  driverIdsWithPendingOffer,
+  excludedDriverIdsForTrip,
   getActiveDispatchExcludedDriverIds,
   getDispatchDriverOfferCounts,
   getTripDispatchExcludedDriverIds,
@@ -763,7 +766,7 @@ async function chooseDriverForClaim(
     : getActiveDispatchExcludedDriverIds(trip?.wa_context);
   const excludedDriverIdsSet = new Set(excludedDriverIdList);
 
-  const [{ data: driversRaw, error }, locsRes, busyTripsRes] = await Promise.all([
+  const [{ data: driversRaw, error }, locsRes, busyTripsRes, pendingOffersRes, rejectedOffersRes] = await Promise.all([
     selectDriversCompat(
       getSupabaseAdmin(),
       'id, full_name, phone, push_token, current_lat, current_lng, updated_at, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
@@ -777,6 +780,17 @@ async function chooseDriverForClaim(
       .select('id, driver_id, status, destination_lat, destination_lng, next_after_trip_id, notes, wa_context')
       .in('status', DRIVER_BUSY_TRIP_STATUSES)
       .not('driver_id', 'is', null),
+    getSupabaseAdmin()
+      .from('trip_dispatch_offers')
+      .select('trip_id, driver_id, status')
+      .eq('status', 'pending'),
+    trip?.id
+      ? getSupabaseAdmin()
+        .from('trip_dispatch_offers')
+        .select('trip_id, driver_id, status, resolved_at')
+        .eq('trip_id', trip.id)
+        .eq('status', 'rejected')
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (error) throw error;
@@ -808,8 +822,10 @@ async function chooseDriverForClaim(
     ? withCoords.filter((driver) => normalizePhone(driver.phone || '') !== passengerPhone)
     : withCoords;
 
-  // La lista solo frena un nuevo viaje paralelo mientras el chofer sigue ocupado.
-  // Libre y a ≤2 km del retiro, entra igual aunque haya rechazado o no haya podido tomar.
+  // Quien canceló este viaje con motivo queda afuera 1 minuto, aunque esté a menos de 2 km.
+  for (const id of driverIdsCoolingDownFromOffers(offerRowsOrEmpty(rejectedOffersRes))) {
+    excludedDriverIdsSet.add(id);
+  }
   const withoutExcluded = withoutSamePhone.filter((driver) => !excludedDriverIdsSet.has(driver.id));
   const excludedFilteredCount = Math.max(0, withoutSamePhone.length - withoutExcluded.length);
 
@@ -830,6 +846,7 @@ async function chooseDriverForClaim(
     ...partitionedBusy.liveBusyTrips.map((item) => item.driver_id).filter(Boolean),
     ...partitionedBusy.reservedNextDriverIds,
     ...partitionedBusy.pendingOfferDriverIds,
+    ...driverIdsWithPendingOffer(offerRowsOrEmpty(pendingOffersRes), { ignoreTripId: trip?.id }),
   ]);
 
   const { data: fleetRows, error: fleetRowsError } = await getSupabaseAdmin()
@@ -1444,6 +1461,16 @@ async function requeuePendingTripAfterNotifyFailure(tripId, notifyReason = 'noti
   return Boolean(data?.id);
 }
 
+function offerRowsOrEmpty(result) {
+  if (!result || result.error) {
+    if (result?.error && !isMissingOffersTable(result.error)) {
+      logWorker('dispatch_offers_read_error', { error: summarizeDbError(result.error) });
+    }
+    return [];
+  }
+  return result.data || [];
+}
+
 function isMissingOffersTable(error) {
   const code = String(error?.code || '');
   const message = String(error?.message || '').toLowerCase();
@@ -1461,7 +1488,15 @@ async function broadcastTripWave({
   drivers,
   radiusKm,
 }) {
-  const wave = (drivers || []).filter((driver) => driver?.id);
+  const { data: existingOffers, error: existingOffersError } = await supabase
+    .from('trip_dispatch_offers')
+    .select('trip_id, driver_id, status, resolved_at')
+    .eq('trip_id', tripId);
+  const blocked = new Set(excludedDriverIdsForTrip(
+    trip?.wa_context,
+    existingOffersError ? [] : existingOffers,
+  ));
+  const wave = (drivers || []).filter((driver) => driver?.id && !blocked.has(String(driver.id)));
   if (wave.length < 2) return null;
 
   const assignedAt = new Date().toISOString();
@@ -1847,6 +1882,33 @@ async function processDispatchClaim(claim) {
     const selectedDriver = driverSelection.driver;
     const isNextTripOffer = Boolean(driverSelection.nextTrip && driverSelection.currentTripId);
 
+    if (!isNextTripOffer && !preferredOnly) {
+      const { data: freshRejects, error: freshRejectsError } = await supabase
+        .from('trip_dispatch_offers')
+        .select('trip_id, driver_id, status, resolved_at')
+        .eq('trip_id', tripId)
+        .eq('driver_id', selectedDriver.id)
+        .eq('status', 'rejected');
+      const stillCooling = !freshRejectsError && excludedDriverIdsForTrip(
+        trip.wa_context,
+        freshRejects,
+      ).includes(String(selectedDriver.id));
+      if (stillCooling) {
+        await releaseDispatchClaim({
+          tripId,
+          lockToken,
+          result: 'retry',
+          retrySeconds: 5,
+          errorCode: 'driver_reject_cooldown',
+        });
+        logWorker('claim_driver_reject_cooldown', {
+          tripId,
+          driverId: selectedDriver.id,
+        });
+        return { status: 'no_driver_available' };
+      }
+    }
+
     if (driverSelection.wave && !isNextTripOffer && !preferredOnly) {
       const waveResult = await broadcastTripWave({
         supabase,
@@ -2142,7 +2204,8 @@ async function wakeQueuedTripsNearFreeDrivers() {
   }
   if (!queuedTrips?.length) return 0;
 
-  const [{ data: driversRaw, error: driversError }, locsRes, busyRes] = await Promise.all([
+  const queuedIds = queuedTrips.map((trip) => trip.id).filter(Boolean);
+  const [{ data: driversRaw, error: driversError }, locsRes, busyRes, pendingOffersRes, rejectedOffersRes] = await Promise.all([
     selectDriversCompat(
       supabase,
       'id, phone, push_token, current_lat, current_lng, is_available, pending_commission, commission_debt_since_at, billing_mode, commission_blocked',
@@ -2156,6 +2219,17 @@ async function wakeQueuedTripsNearFreeDrivers() {
       .select('id, driver_id, status, next_after_trip_id, notes, wa_context')
       .in('status', DRIVER_BUSY_TRIP_STATUSES)
       .not('driver_id', 'is', null),
+    supabase
+      .from('trip_dispatch_offers')
+      .select('trip_id, driver_id, status')
+      .eq('status', 'pending'),
+    queuedIds.length
+      ? supabase
+        .from('trip_dispatch_offers')
+        .select('trip_id, driver_id, status, resolved_at')
+        .in('trip_id', queuedIds)
+        .eq('status', 'rejected')
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (driversError || busyRes.error) {
@@ -2167,10 +2241,19 @@ async function wakeQueuedTripsNearFreeDrivers() {
   }
 
   const partitioned = partitionDriverBusyTrips(busyRes.data || []);
+  const rejectedByTrip = new Map();
+  for (const offer of offerRowsOrEmpty(rejectedOffersRes)) {
+    const tripId = String(offer?.trip_id || '');
+    if (!tripId) continue;
+    const list = rejectedByTrip.get(tripId) || [];
+    list.push(offer);
+    rejectedByTrip.set(tripId, list);
+  }
   const busyIds = new Set([
     ...partitioned.liveBusyTrips.map((item) => item.driver_id).filter(Boolean),
     ...partitioned.reservedNextDriverIds,
     ...partitioned.pendingOfferDriverIds,
+    ...driverIdsWithPendingOffer(offerRowsOrEmpty(pendingOffersRes)),
   ]);
   const locByDriver = indexDriverLocationsById(locsRes.error ? [] : locsRes.data);
   const freeDrivers = applyLiveGpsToDrivers(
@@ -2191,7 +2274,10 @@ async function wakeQueuedTripsNearFreeDrivers() {
       const pickup = resolveDispatchPickupCoords(trip);
       return { lat: pickup.pickupLat, lng: pickup.pickupLng };
     },
-    excludedIdsOf: () => new Set(),
+    excludedIdsOf: (trip) => new Set(excludedDriverIdsForTrip(
+      trip?.wa_context,
+      rejectedByTrip.get(String(trip?.id || '')) || [],
+    )),
     samePhone: (trip, driver) => {
       const passengerPhone = normalizePhone(trip.passenger_phone || '');
       return Boolean(passengerPhone) && normalizePhone(driver.phone || '') === passengerPhone;
