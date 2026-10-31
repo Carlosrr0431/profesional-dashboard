@@ -12,8 +12,9 @@ import {
   alignStreetNumberPins,
 } from '../../../../shared/salta-address.js';
 import { rankNamedGoogleFirst } from '../../../../shared/geo/placeFreshness.js';
-import { queryOverlapScore, savedAddressMatches } from '../../../../shared/savedAddressMatch.js';
+import { queryOverlapScore } from '../../../../shared/savedAddressMatch.js';
 import { hasUsableGeoPoint, omitUnusablePin, preferSaltaCapitalFirst } from '../../../../shared/geo/mapConfig.js';
+import { mergeGoogleFirst } from '../../../../shared/geo/googlePlaces.js';
 
 export const dynamic = 'force-dynamic';
 /** La búsqueda ampliada (expand) explora por zonas y puede tardar varios segundos. */
@@ -89,21 +90,6 @@ function withRequestedHouseNumber(items, query) {
 function canOffer(item) {
   if (hasPin(item)) return true;
   return String(item?.placeId || '').startsWith('google:');
-}
-
-function coversPlaceQuery(results, query) {
-  return (results || []).some((item) => savedAddressMatches(
-    `${item?.title || ''} ${item?.subtitle || ''} ${item?.address || ''} ${item?.formattedAddress || ''}`,
-    query,
-  ));
-}
-
-/** Google solo si esta búsqueda todavía no quedó guardada completa. */
-function needsGoogleCoverage(results, query) {
-  const text = String(query || '').trim();
-  if (text.length < 4) return false;
-  if (pickPrimaryHouseNumber(text) != null) return true;
-  return !coversPlaceQuery(results, query);
 }
 
 function setCached(key, data) {
@@ -187,27 +173,23 @@ export async function GET(request) {
       results = mergePlaceSuggestions(withRequestedHouseNumber(saved, query), results, limit);
     }
     results = dedupeSamePoint(results);
-    if (intersection) {
-      if (!results.length) {
-        const google = await searchGooglePlacesLastResort(intersectionSearchLabel(intersection), limit, { sessionToken }).catch(() => []);
-        const fresh = google.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2) && canOffer(item));
-        results = mergePlaceSuggestions(results, fresh, limit);
-      }
-    } else if (needsGoogleCoverage(results, query)) {
-      const google = await searchGooglePlacesLastResort(query, limit, { sessionToken }).catch(() => []);
-      const fresh = withRequestedHouseNumber(google.filter(canOffer), query);
-      const savedFirst = (results || []).filter((item) => String(item.placeId || '').startsWith('saved:'));
-      const rest = (results || []).filter((item) => !String(item.placeId || '').startsWith('saved:'));
-      results = mergePlaceSuggestions([...savedFirst, ...fresh], rest, limit);
+    const googleQuery = intersection ? intersectionSearchLabel(intersection) : query;
+    const google = await searchGooglePlacesLastResort(googleQuery, limit, { sessionToken }).catch(() => []);
+    const fresh = (google || []).filter((item) => (
+      canOffer(item) && (!intersection || intersectionHitMatches(item, intersection.street1, intersection.street2))
+    ));
+    if (fresh.length) {
+      results = mergeGoogleFirst(fresh, results, limit);
+    } else {
+      results.sort((a, b) => (
+        queryOverlapScore(query, `${b?.title || ''} ${b?.subtitle || ''} ${b?.address || ''} ${b?.formattedAddress || ''}`)
+        - queryOverlapScore(query, `${a?.title || ''} ${a?.subtitle || ''} ${a?.address || ''} ${a?.formattedAddress || ''}`)
+      ));
+      results = preferSaltaCapitalFirst(results, query);
     }
     if (pickPrimaryHouseNumber(query) != null) {
-      results = alignStreetNumberPins(withRequestedHouseNumber(results, query), query);
+      results = alignStreetNumberPins(results, query);
     }
-    results.sort((a, b) => (
-      queryOverlapScore(query, `${b?.title || ''} ${b?.subtitle || ''} ${b?.address || ''} ${b?.formattedAddress || ''}`)
-      - queryOverlapScore(query, `${a?.title || ''} ${a?.subtitle || ''} ${a?.address || ''} ${a?.formattedAddress || ''}`)
-    ));
-    results = preferSaltaCapitalFirst(results, query);
     results = (results || []).map(omitUnusablePin);
     if (results.length) setCached(cacheKey, results);
     return NextResponse.json({ ok: true, data: results });

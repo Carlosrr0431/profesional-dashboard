@@ -1,5 +1,5 @@
 const { cachedPoiMatches, interpretPlacesConsume, placesBillingPeriod, PLACES_MONTHLY_CALL_LIMIT } = require('../../shared/geo/placesBudget');
-const { autocompleteAddressSalta, setPlacesBudget } = require('../../shared/geo/googlePlaces');
+const { autocompleteAddressSalta, mergeGoogleFirst, setPlacesBudget } = require('../../shared/geo/googlePlaces');
 
 describe('contador de Places', () => {
   it('corta en 9000 y deja pasar la llamada que llega justo a ese número', () => {
@@ -134,6 +134,23 @@ describe('búsqueda de Places con cupo y caché', () => {
     const body = JSON.parse(global.fetch.mock.calls[0][1].body);
     expect(body.locationBias.circle.radius).toBe(18000);
     expect(body.locationRestriction).toBeUndefined();
+  });
+
+  it('la lista de Google queda adelante y no se repite', () => {
+    const merged = mergeGoogleFirst([
+      { placeId: 'google:martin', title: 'General Martin Güemes 150' },
+      { placeId: 'google:domingo', title: 'Doctor Domingo Güemes 150' },
+      { placeId: 'google:vaqueros', title: 'Avenida General Güemes 150', subtitle: 'Vaqueros, Salta' },
+    ], [
+      { placeId: 'georef:1', title: 'General Güemes 150', subtitle: 'Rosario de Lerma, Salta' },
+      { placeId: 'google:martin', title: 'General Martin Güemes 150' },
+    ], 5);
+    expect(merged.map((item) => item.placeId)).toEqual([
+      'google:martin',
+      'google:domingo',
+      'google:vaqueros',
+      'georef:1',
+    ]);
   });
 
   it('en el tope no llama a Google', async () => {

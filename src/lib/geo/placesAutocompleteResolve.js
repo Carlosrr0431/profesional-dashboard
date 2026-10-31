@@ -43,18 +43,8 @@ function hasUsablePin(item) {
   return hasUsableGeoPoint(item?.lat, item?.lng);
 }
 
-function needsGoogleCoverage(results, query) {
-  const text = String(query || '').trim();
-  if (text.length < 4) return false;
-  const number = pickPrimaryHouseNumber(text);
-  if (number != null) {
-    return !(results || []).some((item) => (
-      hasUsablePin(item) && String(item?.placeId || '').startsWith('georef:')
-    ));
-  }
-  return !(results || []).some((item) => (
-    hasUsablePin(item) && !String(item?.placeId || '').startsWith('street:')
-  ));
+function needsGoogleCoverage(_results, query) {
+  return String(query || '').trim().length >= 2;
 }
 
 function distanceToSaltaCenterKm(hit) {

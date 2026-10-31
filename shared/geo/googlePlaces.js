@@ -518,6 +518,24 @@ function mergeKnownPlaces(googleList, known) {
   return [...primary, ...extra];
 }
 
+/** La lista de Google va primero, en su orden. Lo local que no esté, detrás. */
+function mergeGoogleFirst(google, local, limit) {
+  const seen = new Set();
+  const out = [];
+  const push = (item) => {
+    const id = String(item?.placeId || '').trim();
+    const label = `${item?.title || ''}|${item?.subtitle || ''}`.toLowerCase();
+    const key = id || label;
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(item);
+  };
+  for (const item of google || []) push(item);
+  for (const item of local || []) push(item);
+  const cap = Number(limit);
+  return Number.isFinite(cap) && cap > 0 ? out.slice(0, cap) : out;
+}
+
 function mapAutocompletePrediction(prediction, sessionToken, query) {
   const rawId = String(prediction?.placeId || '').trim();
   if (!rawId) return null;
@@ -1142,6 +1160,7 @@ async function geocodeAddressGoogle() {
 
 module.exports = {
   autocompleteAddressSalta,
+  mergeGoogleFirst,
   searchPoiSalta,
   getGooglePlaceDetails,
   rememberGoogleResolution,
