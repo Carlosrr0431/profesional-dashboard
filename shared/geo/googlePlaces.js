@@ -38,6 +38,7 @@ const {
   SALTA_CAPITAL_BOUNDS,
   SALTA_SERVICE_BOUNDS,
   preferSaltaCapitalFirst,
+  isOutsideSaltaCapitalSuggestion,
   queryNamesCoveredLocality,
   SALTA_CENTER_LAT,
   SALTA_CENTER_LNG,
@@ -600,19 +601,9 @@ async function placesAutocompleteRequest(
         sessionToken,
         includedRegionCodes: ['ar'],
         languageCode: 'es',
-        ...(queryNamesCoveredLocality(text)
-          ? { locationRestriction: restriction || restrictionForQuery(text) }
-          : {
-            locationBias: {
-              circle: {
-                center: {
-                  latitude: SALTA_CAPITAL_ORIGIN.latitude,
-                  longitude: SALTA_CAPITAL_ORIGIN.longitude,
-                },
-                radius: 18000,
-              },
-            },
-          }),
+        locationRestriction: queryNamesCoveredLocality(text)
+          ? (restriction || restrictionForQuery(text))
+          : SALTA_CAPITAL_RESTRICTION,
       }),
       signal: controller?.signal,
     });
@@ -741,7 +732,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   const origin = expand ? normalizeNearOrigin(options?.near) : null;
   const nearKey = origin ? `::near:${origin.latitude.toFixed(3)},${origin.longitude.toFixed(3)}` : '';
   const skipSavedSearch = options?.skipSavedSearch === true;
-  const cacheKey = `${foldText(text)}${expand ? '::expand' : ''}${nearKey}`;
+  const cacheKey = `c2::${foldText(text)}${expand ? '::expand' : ''}${nearKey}`;
   const flightKey = skipSavedSearch ? `${cacheKey}::refresh` : cacheKey;
   const serve = (list) => preferSaltaCapitalFirst(list, text)
     .slice(0, normalizedLimit)
@@ -777,12 +768,31 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       .filter((item) => !isOutsideSaltaCapitalSubtitle(item.subtitle, text));
     const ordered = expand && origin ? orderByDistance(mapped) : mapped;
     let named = ordered.map(({ _score, ...rest }) => rest);
+    let googleReturned = suggestions.length > 0;
+    if (
+      !queryNamesCoveredLocality(text)
+      && !named.some((item) => !isOutsideSaltaCapitalSuggestion(item, text))
+    ) {
+      const retry = await placesAutocompleteRequest(
+        `${text}, Salta Capital`,
+        sessionToken,
+        SALTA_CAPITAL_RESTRICTION,
+        PLACES_TIMEOUT_MS,
+      );
+      const retried = retry
+        .map((item) => mapAutocompletePrediction(item?.placePrediction, sessionToken, text))
+        .filter(Boolean);
+      if (retried.some((item) => !isOutsideSaltaCapitalSuggestion(item, text))) {
+        named = retried.map(({ _score, ...rest }) => rest);
+        googleReturned = true;
+      }
+    }
     const crossing = parseStreetIntersection(text);
     if (crossing) {
       const hits = named.filter((item) => intersectionHitMatches(item, crossing.street1, crossing.street2));
       if (hits.length) named = hits;
     }
-    if (!suggestions.length) {
+    if (!googleReturned) {
       return (known || []).slice(0, normalizedLimit).map(omitUnusablePin);
     }
     const snapshot = named.map((item) => {

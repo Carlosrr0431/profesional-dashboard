@@ -132,8 +132,8 @@ describe('búsqueda de Places con cupo y caché', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(second[1].placeId).toBe('google:domingo');
     const body = JSON.parse(global.fetch.mock.calls[0][1].body);
-    expect(body.locationBias.circle.radius).toBe(18000);
-    expect(body.locationRestriction).toBeUndefined();
+    expect(body.locationRestriction.rectangle.low.latitude).toBeCloseTo(-24.9, 1);
+    expect(body.locationBias).toBeUndefined();
   });
 
   it('la lista de Google queda adelante y no se repite', () => {
