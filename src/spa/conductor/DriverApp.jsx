@@ -173,7 +173,7 @@ export default function DriverApp() {
   }, [online, location, syncLocation, geo.simReady, geo.simulating]);
 
   useEffect(() => {
-    if (!online || !driver?.id || !location || activeTrip || pendingTrip || geo.simulating) return undefined;
+    if (!online || !driver?.id || !location || activeTrip || pendingTrip) return undefined;
     let cancelled = false;
     const look = async () => {
       const supabase = getDriverSupabase();
@@ -194,7 +194,7 @@ export default function DriverApp() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [online, driver?.id, location, activeTrip, pendingTrip, geo.simulating]);
+  }, [online, driver?.id, location, activeTrip, pendingTrip]);
 
   useEffect(() => {
     if (!readyHaptic.current) {
