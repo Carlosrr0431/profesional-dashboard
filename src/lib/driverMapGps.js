@@ -310,13 +310,12 @@ export const GPS_REVERSE_HEADING_DEG = 110;
 /** Por encima de esto, en poco tiempo, el punto no es un auto: son dos GPS peleando. */
 export const GPS_JUMP_MIN_M = 45;
 export const GPS_MAX_PLAUSIBLE_MPS = 28;
-export const GPS_JUMP_CONFIRM_M = 40;
-export const GPS_JUMP_CONFIRM_MS = 6000;
 export const GPS_JUMP_RELOCATE_MS = 20000;
 
 /**
  * Descarta un salto imposible (dos fuentes de GPS sobre el mismo móvil).
- * Si el punto nuevo se repite, se acepta: el celular realmente se movió.
+ * El punto lejano no gana por repetirse: gana si el pin mostrado
+ * dejó de moverse el tiempo de una reubicación real.
  */
 export function acceptDriverGpsFix(prev, next, now = Date.now()) {
   const fromLat = Number(prev?.lat);
@@ -332,17 +331,14 @@ export function acceptDriverGpsFix(prev, next, now = Date.now()) {
 
   const dist = haversineMeters(fromLat, fromLng, toLat, toLng);
   const elapsed = Math.max(0, now - toTs(prev?.updatedAt));
-  const raw = prev?.gpsRaw;
-  const rawAt = Number(raw?.at) || 0;
-  const agrees = Boolean(raw)
-    && (now - rawAt) < GPS_JUMP_CONFIRM_MS
-    && haversineMeters(raw.lat, raw.lng, toLat, toLng) < GPS_JUMP_CONFIRM_M
-    && haversineMeters(fromLat, fromLng, raw.lat, raw.lng) >= GPS_JUMP_MIN_M;
+  // Un punto lejano que se repite enseguida no es que el auto se haya movido:
+  // son dos GPS peleando. Solo se acepta si el pin mostrado dejó de recibir
+  // puntos por un rato.
   const plausible = dist < GPS_JUMP_MIN_M
     || elapsed >= GPS_JUMP_RELOCATE_MS
     || (elapsed >= 400 && dist / (elapsed / 1000) <= GPS_MAX_PLAUSIBLE_MPS);
 
-  if (plausible || agrees) {
+  if (plausible) {
     return { lat: toLat, lng: toLng, gpsRaw: null, rejected: false };
   }
   return {

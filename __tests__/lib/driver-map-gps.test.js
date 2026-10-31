@@ -15,6 +15,7 @@ import {
   shouldAcceptForwardGpsStep,
   acceptDriverGpsFix,
   MAX_GPS_EXTRAPOLATE_MS,
+  GPS_JUMP_RELOCATE_MS,
 } from '../../src/lib/driverMapGps';
 
 describe('pickDriverGps', () => {
@@ -480,7 +481,7 @@ describe('acceptDriverGpsFix', () => {
     expect(second.gpsRaw).toBeNull();
   });
 
-  it('acepta la posición nueva si el salto se repite', () => {
+  it('no acepta el salto aunque el punto lejano se repita enseguida', () => {
     const first = acceptDriverGpsFix(here, away, now);
     const nearAway = { lat: -24.78262, lng: -65.40905 };
     const second = acceptDriverGpsFix(
@@ -488,8 +489,58 @@ describe('acceptDriverGpsFix', () => {
       nearAway,
       now + 1500,
     );
+    expect(second.rejected).toBe(true);
+    expect(second.lat).toBe(here.lat);
+    expect(second.lng).toBe(here.lng);
+  });
+
+  it('acepta el lugar nuevo si el pin anterior quedó quieto 20 s', () => {
+    const first = acceptDriverGpsFix(here, away, now);
+    const second = acceptDriverGpsFix(
+      { ...here, gpsRaw: first.gpsRaw },
+      away,
+      now + GPS_JUMP_RELOCATE_MS,
+    );
     expect(second.rejected).toBe(false);
-    expect(second.lat).toBe(nearAway.lat);
+    expect(second.lat).toBe(away.lat);
+    expect(second.lng).toBe(away.lng);
+  });
+
+  it('dos GPS que se alternan no hacen volar el pin', () => {
+    const track = [
+      { lat: -24.83920, lng: -65.43240 },
+      { lat: -24.83922, lng: -65.43248 },
+      { lat: -24.83924, lng: -65.43256 },
+      { lat: -24.83926, lng: -65.43264 },
+      { lat: -24.83928, lng: -65.43272 },
+    ];
+    const other = { lat: -24.79262, lng: -65.37591 };
+    let state = {
+      lat: track[0].lat,
+      lng: track[0].lng,
+      updatedAt: new Date(now).toISOString(),
+      gpsRaw: null,
+    };
+    for (let i = 1; i < track.length; i += 1) {
+      const t = now + i * 1000;
+      const otherFix = acceptDriverGpsFix(state, other, t);
+      expect(otherFix.rejected).toBe(true);
+      expect(otherFix.lat).toBe(state.lat);
+      const step = acceptDriverGpsFix(
+        { ...state, gpsRaw: otherFix.gpsRaw },
+        track[i],
+        t + 400,
+      );
+      expect(step.rejected).toBe(false);
+      state = {
+        lat: step.lat,
+        lng: step.lng,
+        updatedAt: new Date(t + 400).toISOString(),
+        gpsRaw: step.gpsRaw,
+      };
+    }
+    expect(haversineMeters(state.lat, state.lng, track[track.length - 1].lat, track[track.length - 1].lng)).toBeLessThan(5);
+    expect(haversineMeters(state.lat, state.lng, other.lat, other.lng)).toBeGreaterThan(1000);
   });
 
   it('deja pasar un avance corto de ciudad', () => {
