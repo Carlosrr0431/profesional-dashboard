@@ -178,7 +178,7 @@ export async function GET(request) {
       canOffer(item) && (!intersection || intersectionHitMatches(item, intersection.street1, intersection.street2))
     ));
     if (fresh.length) {
-      results = fresh.slice(0, limit);
+      results = preferSaltaCapitalFirst(fresh, query).slice(0, limit);
     } else {
       results.sort((a, b) => (
         queryOverlapScore(query, `${b?.title || ''} ${b?.subtitle || ''} ${b?.address || ''} ${b?.formattedAddress || ''}`)

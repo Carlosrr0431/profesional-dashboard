@@ -37,6 +37,7 @@ const {
   omitUnusablePin,
   SALTA_CAPITAL_BOUNDS,
   SALTA_SERVICE_BOUNDS,
+  preferSaltaCapitalFirst,
   queryNamesCoveredLocality,
   SALTA_CENTER_LAT,
   SALTA_CENTER_LNG,
@@ -742,7 +743,9 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   const skipSavedSearch = options?.skipSavedSearch === true;
   const cacheKey = `${foldText(text)}${expand ? '::expand' : ''}${nearKey}`;
   const flightKey = skipSavedSearch ? `${cacheKey}::refresh` : cacheKey;
-  const serve = (list) => (list || []).slice(0, normalizedLimit).map((item) => ({ ...item, sessionToken }));
+  const serve = (list) => preferSaltaCapitalFirst(list, text)
+    .slice(0, normalizedLimit)
+    .map((item) => ({ ...item, sessionToken }));
   const cached = skipSavedSearch ? null : getCached(autocompleteCache, cacheKey);
   if (cached) return serve(cached);
   if (inFlightAutocomplete.has(flightKey)) {

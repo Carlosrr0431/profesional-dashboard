@@ -62,5 +62,15 @@ describe('zona de cobertura del valle', () => {
       'General Güemes 150',
       'San Martín 100',
     ]);
+    const mitre = preferSaltaCapitalFirst([
+      { title: 'Mitre 300', subtitle: 'Cerrillos, Salta' },
+      { title: 'Mitre 300', subtitle: 'Santa María, Catamarca' },
+      { title: 'Mitre 300', subtitle: 'Rosario, Santa Fe' },
+      { title: 'Avenida Mitre 300', subtitle: 'Avellaneda, Provincia de Buenos Aires' },
+      { title: 'Mitre 300', subtitle: 'Charata, Chaco' },
+      { title: 'Bartolomé Mitre 300', subtitle: 'Salta' },
+    ], 'mitre 300');
+    expect(mitre[0].title).toBe('Bartolomé Mitre 300');
+    expect(mitre.slice(1).every((item) => item.title !== 'Bartolomé Mitre 300')).toBe(true);
   });
 });

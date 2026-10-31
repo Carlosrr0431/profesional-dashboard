@@ -171,23 +171,38 @@ function matchedCoveredLocality(value) {
   return key;
 }
 
-/** Salta Capital primero. Un pueblo del valle solo gana si el texto lo nombra. */
+const OTHER_ARGENTINE_PROVINCE_RE = /\b(buenos aires|catamarca|chaco|chubut|cordoba|corrientes|entre rios|formosa|jujuy|la pampa|la rioja|mendoza|misiones|neuquen|rio negro|san juan|san luis|santa cruz|santa fe|santiago del estero|tierra del fuego|tucuman)\b/;
+
+function suggestionTail(item) {
+  return [
+    item?.subtitle,
+    String(item?.formattedAddress || '').split(',').slice(1).join(' '),
+    String(item?.address || '').split(',').slice(1).join(' '),
+  ].filter(Boolean).join(' ');
+}
+
+/** Salta Capital primero. Otra provincia o un pueblo del valle van después, salvo que se los haya escrito. */
 function preferSaltaCapitalFirst(items, query) {
   const asked = matchedCoveredLocality(query);
-  const localityOf = (item) => {
-    const tail = [
-      item?.subtitle,
-      String(item?.formattedAddress || '').split(',').slice(1).join(' '),
-      String(item?.address || '').split(',').slice(1).join(' '),
-    ].filter(Boolean).join(' ');
-    return matchedCoveredLocality(tail);
+  const queryText = foldGeoText(query);
+  const outside = (item) => {
+    const tail = foldGeoText(suggestionTail(item));
+    if (tail) {
+      const province = tail.match(OTHER_ARGENTINE_PROVINCE_RE);
+      if (province && !queryText.includes(province[0])) return true;
+      const found = matchedCoveredLocality(tail);
+      if (found && found !== asked) return true;
+    }
+    const lat = Number(item?.lat);
+    const lng = Number(item?.lng);
+    if (hasUsableGeoPoint(lat, lng) && !isWithinSaltaCapital(lat, lng) && !asked) return true;
+    return false;
   };
   const list = Array.isArray(items) ? items : [];
   const capital = [];
   const other = [];
   for (const item of list) {
-    const found = localityOf(item);
-    if (found && found !== asked) other.push(item);
+    if (outside(item)) other.push(item);
     else capital.push(item);
   }
   return [...capital, ...other];
