@@ -204,6 +204,30 @@ export default function DriverApp() {
   }, [online, driver?.id, location, activeTrip, pendingTrip]);
 
   useEffect(() => {
+    if (!online || !driver?.id) return undefined;
+    let cancelled = false;
+    const pullAssigned = async () => {
+      const supabase = getDriverSupabase();
+      const { data } = await supabase
+        .from('trips')
+        .select('*')
+        .eq('driver_id', driver.id)
+        .eq('status', 'pending')
+        .order('assigned_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled || !data?.id) return;
+      setPendingTrip((prev) => (prev?.id === data.id && prev?.driver_id ? prev : data));
+    };
+    pullAssigned();
+    const timer = setInterval(pullAssigned, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [online, driver?.id]);
+
+  useEffect(() => {
     if (!readyHaptic.current) {
       readyHaptic.current = true;
       return;

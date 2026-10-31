@@ -1141,27 +1141,19 @@ async function chooseDriverForClaim(
         pickupLat,
         pickupLng,
       );
-      if (preferredOnly || distanceKm <= MAX_DRIVER_SEARCH_KM) {
-        logWorker('driver_selected_preferred', {
-          tripId: trip?.id || null,
-          driverId: preferred.id,
-          distanceKm: Number(distanceKm.toFixed(3)),
-        });
-        return {
-          driver: preferred,
-          distanceKm,
-          scoreKm: distanceKm,
-          radiusKm: allowedRadii[allowedRadii.length - 1] ?? MAX_DRIVER_SEARCH_KM,
-          allowedRadiiKm: allowedRadii,
-          preferred: true,
-        };
-      }
-      logWorker('driver_preferred_outside_radius', {
+      logWorker('driver_selected_preferred', {
         tripId: trip?.id || null,
         driverId: preferred.id,
         distanceKm: Number(distanceKm.toFixed(3)),
-        maxKm: MAX_DRIVER_SEARCH_KM,
       });
+      return {
+        driver: preferred,
+        distanceKm,
+        scoreKm: distanceKm,
+        radiusKm: allowedRadii[allowedRadii.length - 1] ?? MAX_DRIVER_SEARCH_KM,
+        allowedRadiiKm: allowedRadii,
+        preferred: true,
+      };
     }
     if (preferredOnly) {
       const busyOffer = selectBusyNextTripOffer({
@@ -2438,18 +2430,24 @@ async function wakeQueuedTripsNearFreeDrivers() {
       pickupLng,
     ),
   };
-  const wakeIds = [
+  const wakeIds = [...new Set([
     ...queuedTripIdsNearFreeDrivers({
       ...wakeMatch,
       trips: locatedTrips,
       maxKm: MAX_DRIVER_SEARCH_KM,
     }),
+    ...locatedTrips
+      .filter((trip) => {
+        const preferredId = resolvePreferredDriverId(trip?.wa_context);
+        return preferredId && freeDrivers.some((driver) => driver.id === preferredId);
+      })
+      .map((trip) => trip.id),
     ...queuedTripIdsNearFreeDrivers({
       ...wakeMatch,
       trips: noteOnlyTrips,
       maxKm: NOTE_ONLY_DISPATCH_RADIUS_KM,
     }),
-  ];
+  ])];
   if (!wakeIds.length) return 0;
 
   const nowIso = new Date().toISOString();
