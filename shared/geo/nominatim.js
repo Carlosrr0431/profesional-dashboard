@@ -661,18 +661,8 @@ async function geocodeAddress(address, options = {}) {
 
   const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
   if (hasHouseNumber) {
-    let pack = { located: [], missingLabel: null };
-    let ranked = [];
-    for (const candidate of expandAbbreviatedStreetQueries(query)) {
-      pack = await lookupGeorefHouseNumbers(candidate, 4).catch(() => ({ located: [], missingLabel: null }));
-      ranked = preferSpecificRoad(
-        candidate,
-        (pack.located || []).filter((hit) => (
-          georefHitMatchesStreetQuery(hit, candidate) || georefHitMatchesStreetQuery(hit, query)
-        )),
-      );
-      if (ranked.length > 0) break;
-    }
+    const { ranked, missingLabel } = await locatedOfficialHouseHits(query);
+    const pack = { missingLabel };
     if (ranked.length > 0) {
       const best = pickOfficialHouseNumber(ranked);
       if (best) {
@@ -971,6 +961,22 @@ function metersBetween(a, b) {
   return 2 * 6371000 * Math.asin(Math.sqrt(h));
 }
 
+async function locatedOfficialHouseHits(query) {
+  let missingLabel = null;
+  for (const candidate of expandAbbreviatedStreetQueries(query)) {
+    const pack = await lookupGeorefHouseNumbers(candidate, 4).catch(() => ({ located: [], missingLabel: null }));
+    if (!missingLabel && pack.missingLabel) missingLabel = pack.missingLabel;
+    const ranked = preferSpecificRoad(
+      candidate,
+      (pack.located || []).filter((hit) => (
+        georefHitMatchesStreetQuery(hit, candidate) || georefHitMatchesStreetQuery(hit, query)
+      )),
+    );
+    if (ranked.length > 0) return { ranked, missingLabel };
+  }
+  return { ranked: [], missingLabel };
+}
+
 /** Con homónimas solo vale la que está junto a `near`; sin referencia no se adivina. */
 function pickOfficialHouseNumber(matches, near = null) {
   const first = matches[0];
@@ -995,18 +1001,8 @@ async function findOfficialHouseNumber(query, near = null) {
   const text = String(query || '').trim();
   if (pickPrimaryHouseNumber(text) == null) return null;
   if (looksLikeSaltaKnownPoi(text)) return null;
-  for (const candidate of expandAbbreviatedStreetQueries(text)) {
-    const hits = await searchGeorefAddress(candidate, 4).catch(() => []);
-    const matches = preferSpecificRoad(
-      candidate,
-      hits.filter((hit) => (
-        georefHitMatchesStreetQuery(hit, candidate) || georefHitMatchesStreetQuery(hit, text)
-      )),
-    );
-    const best = pickOfficialHouseNumber(matches, near);
-    if (best) return best;
-  }
-  return null;
+  const { ranked } = await locatedOfficialHouseHits(text);
+  return pickOfficialHouseNumber(ranked, near);
 }
 
 function streetHouseQueryFromPlace(options = {}) {
@@ -1202,8 +1198,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
 
       const hasHouseNumber = pickPrimaryHouseNumber(trimmed) != null;
       if (hasHouseNumber && !expand) {
-        const georefHits = await searchGeorefAddress(trimmed, 4).catch(() => []);
-        const official = georefHits.filter((hit) => georefHitMatchesStreetQuery(hit, trimmed));
+        const official = (await locatedOfficialHouseHits(trimmed)).ranked;
         const best = pickOfficialHouseNumber(official);
         // Homónimas: Google ya nombra cada una ("Pje. Ministro Alvarado 69") y al elegirla
         // getPlaceDetails toma la oficial más cercana. Filas Georef iguales solo confunden.
@@ -1262,11 +1257,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
 
     // Fast-path: calle + altura (caso más común en despacho) con mínimo costo/latencia.
     if (hasHouseNumber) {
-      const georefHits = await searchGeorefAddress(trimmed, 4).catch(() => []);
-      const matchingGeoref = preferSpecificRoad(
-        trimmed,
-        georefHits.filter((hit) => georefHitMatchesStreetQuery(hit, trimmed)),
-      );
+      const matchingGeoref = (await locatedOfficialHouseHits(trimmed)).ranked;
       collectGeorefCandidates(matchingGeoref, trimmed, merged, seenPlaceIds, seenCoords);
       if (merged.length > 0) {
         return merged.slice(0, limit).map(({ score, ...item }) => item);
@@ -1557,6 +1548,7 @@ module.exports = {
   autocompleteAddressSalta,
   getPlaceDetails,
   keepLocatableSuggestions,
+  pickOfficialHouseNumber,
   buildSearchQuery,
   mapNominatimResult,
   sortNominatimResults,

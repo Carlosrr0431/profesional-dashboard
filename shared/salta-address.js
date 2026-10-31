@@ -637,17 +637,26 @@ function pickPrimaryHouseNumber(query) {
   return nums.length > 0 ? nums[0] : null;
 }
 
-/** "J. M. Leguizamon 1455" también se busca como "Leguizamon 1455" en Georef. */
+/** "J. M. Leguizamon 1455" y "Cnel. Moldes al 200" también se buscan sin el título. */
 function expandAbbreviatedStreetQueries(text) {
   const raw = String(text || '').replace(/\s+/g, ' ').trim();
   const out = [];
   const add = (value) => {
-    const next = String(value || '').replace(/\s+/g, ' ').trim();
+    const next = String(value || '').replace(/\s+/g, ' ').replace(/^[,.\s]+|[,.\s]+$/g, '').trim();
     if (!next || out.some((item) => item.toLowerCase() === next.toLowerCase())) return;
     out.push(next);
   };
+  const base = raw
+    .replace(/,?\s*\b(?:salta|argentina|capital)\b/gi, ' ')
+    .replace(/\b(?:al|altura)\s+(?=\d)/gi, ' ');
+  const titles = /\b(?:dr|dra|av|avda|pje|psje|grl|gral|sr|sra|sta|sto|ing|arq|prof|lic|cnel|cn|cap|crio|tte|pte|pbro|bv|bvard|dna|don)\b\.?/gi;
+  const withoutInitials = base
+    .replace(/\b(?:[A-Za-z]\.){1,4}/g, ' ')
+    .replace(/\b(?!(?:AV|DE|LA|EL|Y)\b)[A-Z]{1,2}(?=\s+[A-ZÁÉÍÓÚÑ])/g, ' ');
   add(raw);
-  add(raw.replace(/\b(?:j|m|dr|av|pje|grl|gral|sr|sra)\.?(?=\s)/gi, ' '));
+  add(base);
+  add(withoutInitials);
+  add(withoutInitials.replace(titles, ' '));
   return out;
 }
 
@@ -954,12 +963,26 @@ function significantStreetTokens(text) {
 function sameNumberedStreet(road, otherText, houseNumber) {
   const folded = normalizeForMatch(otherText);
   if (!new RegExp(`\\b${houseNumber}\\b`).test(folded)) return false;
-  const roadTokens = significantStreetTokens(road);
-  const otherTokens = significantStreetTokens(otherText);
+  const roadTokens = [...new Set(significantStreetTokens(road))];
+  const otherTokens = [...new Set(significantStreetTokens(otherText))];
   if (!roadTokens.length || !otherTokens.length) return false;
-  const shared = [...new Set(roadTokens.filter((token) => otherTokens.includes(token)))];
+  const shared = roadTokens.filter((token) => otherTokens.includes(token));
   if (roadTokens.length >= 2 && otherTokens.length >= 2) return shared.length >= 2;
+  // "J. M. Zuviria" queda en un token. "Güemes" (6) no alcanza: hay varias calles.
+  if (shared.length === 1 && shared[0].length >= 7) {
+    const shorter = roadTokens.length <= otherTokens.length ? roadTokens : otherTokens;
+    if (shorter.every((token) => shared.includes(token))) return true;
+  }
   return roadTokens.length === 1 && otherTokens.length === 1 && shared.length === 1;
+}
+
+function isBareStreetAddress(item, roadText) {
+  const roadTokens = significantStreetTokens(roadText);
+  const titleTokens = significantStreetTokens(
+    `${item?.title || ''} ${item?.address || ''} ${item?.formattedAddress || ''}`,
+  );
+  if (!roadTokens.length || !titleTokens.length) return false;
+  return titleTokens.every((token) => roadTokens.includes(token));
 }
 
 function metersBetweenPoints(a, b) {
@@ -976,9 +999,13 @@ function metersBetweenPoints(a, b) {
   return 2 * 6371000 * Math.asin(Math.sqrt(h));
 }
 
+/** Un local a esta distancia corrige la puerta. Más lejos es la otra punta de la calle. */
+const DOOR_CORRECTION_METERS = 700;
+
 /**
- * Si Georef interpola la altura lejos de un lugar ya conocido en esa misma calle y número,
- * el pin de la calle usa ese punto. No mezcla homónimas (Güemes con Adolfo Güemes).
+ * La altura oficial no se corre a un pin de calle que quedó en la otra punta.
+ * Un local de esa misma puerta, a menos de 700 m, sí corrige la altura.
+ * No mezcla homónimas (Güemes con Adolfo Güemes).
  */
 function alignStreetNumberPins(items, query) {
   const houseNumber = pickPrimaryHouseNumber(query);
@@ -1003,14 +1030,24 @@ function alignStreetNumberPins(items, query) {
       houseNumber,
     ));
     if (!matches.length) continue;
-    const spread = matches.some((anchor) => metersBetweenPoints(matches[0], anchor) > 150);
-    if (spread) continue;
-    if (metersBetweenPoints(item, matches[0]) <= 150) continue;
-    const lat = Number(matches[0].lat);
-    const lng = Number(matches[0].lng);
-    item.lat = lat;
-    item.lng = lng;
-    item.placeId = `georef:${lat.toFixed(7)},${lng.toFixed(7)}`;
+    const places = matches.filter((anchor) => !isBareStreetAddress(anchor, road));
+    const bare = matches.filter((anchor) => isBareStreetAddress(anchor, road));
+    const placeSpread = places.some((anchor) => metersBetweenPoints(places[0], anchor) > 150);
+    if (places.length && !placeSpread) {
+      const gap = metersBetweenPoints(item, places[0]);
+      if (gap > 150 && gap <= DOOR_CORRECTION_METERS) {
+        const lat = Number(places[0].lat);
+        const lng = Number(places[0].lng);
+        item.lat = lat;
+        item.lng = lng;
+        item.placeId = `georef:${lat.toFixed(7)},${lng.toFixed(7)}`;
+      }
+    }
+    for (const anchor of bare) {
+      if (metersBetweenPoints(anchor, item) <= 150) continue;
+      anchor.lat = Number(item.lat);
+      anchor.lng = Number(item.lng);
+    }
   }
   return list;
 }

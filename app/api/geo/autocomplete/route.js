@@ -176,6 +176,8 @@ export async function GET(request) {
     if (intersection) {
       const pool = [...remembered, ...localGeo];
       results = pool.filter((item) => intersectionHitMatches(item, intersection.street1, intersection.street2)).slice(0, limit);
+    } else if (pickPrimaryHouseNumber(query) != null) {
+      results = mergePlaceSuggestions(localGeo, remembered, limit);
     } else {
       results = mergePlaceSuggestions(remembered, localGeo, limit);
     }
