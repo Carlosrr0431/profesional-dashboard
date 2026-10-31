@@ -15,6 +15,12 @@ describe('punto de Google Maps y dirección guardada', () => {
     expect(point.lng).toBeCloseTo(-65.4034545, 6);
   });
 
+  it('lee q=lat,lng sin codificar y no lo mueve', () => {
+    const point = parseGoogleMapsPoint('https://www.google.com/maps?q=-24.7944312,-65.3768616&z=17&hl=es');
+    expect(point.lat).toBe(-24.7944312);
+    expect(point.lng).toBe(-65.3768616);
+  });
+
   it('acepta latitud y longitud escritas', () => {
     expect(parseGoogleMapsPoint('-24.86, -65.47').lat).toBeCloseTo(-24.86, 2);
   });

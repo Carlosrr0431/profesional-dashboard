@@ -789,9 +789,10 @@ export default function NewTripModal({
               </div>
               <AddressAutocomplete
                 id="new-trip-pickup"
-                placeholder="Ej: Belgrano 1200, Salta"
+                placeholder="Dirección o enlace de Google Maps"
                 value={pickupLabel}
                 accentColor="#DC2626"
+                acceptMapLink
                 emphasized={mapPickTarget === 'origin'}
                 inputIcon={<OriginDotSmall />}
                 endAction={(

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { formatMapPointLabel, readMapLinkPoint } from '../lib/mapLinkPoint';
 
 const STYLES = `
 @keyframes _ac_spin { to { transform: rotate(360deg); } }
@@ -80,6 +81,7 @@ export default function AddressAutocomplete({
   endAction = null,
   emphasized = false,
   accentColor = '#DC2626',
+  acceptMapLink = false,
 }) {
   const [query, setQuery] = useState(value || '');
   const [suggestions, setSuggestions] = useState([]);
@@ -177,8 +179,55 @@ export default function AddressAutocomplete({
     }
   }, [beginSession]);
 
+  const applyMapLink = useCallback(async (text) => {
+    const point = readMapLinkPoint(text);
+    if (!point) return false;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+    const requestId = ++requestSeqRef.current;
+    const coordsLabel = formatMapPointLabel(point.lat, point.lng);
+    const emit = (label) => {
+      setQuery(label);
+      onChange?.(label);
+      onSelect?.({
+        formattedAddress: label,
+        lat: point.lat,
+        lng: point.lng,
+        placeId: null,
+        title: label,
+        subtitle: null,
+        geocodeSource: 'map_url',
+      });
+    };
+    emit(coordsLabel);
+    setSuggestions([]);
+    setOpen(false);
+    setLoading(true);
+    try {
+      const qs = new URLSearchParams({
+        lat: String(point.lat),
+        lng: String(point.lng),
+        cacheOnly: '1',
+      });
+      const res = await fetch(`/api/geo/reverse?${qs.toString()}`);
+      const payload = await res.json().catch(() => null);
+      if (requestId !== requestSeqRef.current) return true;
+      const name = String(payload?.data?.formattedAddress || '').trim();
+      if (name) emit(name);
+    } catch {
+      // Si el cache no responde, queda la latitud y longitud del enlace.
+    } finally {
+      if (requestId === requestSeqRef.current) setLoading(false);
+    }
+    return true;
+  }, [onChange, onSelect]);
+
   const handleInput = (e) => {
     const text = e.target.value;
+    if (acceptMapLink && readMapLinkPoint(text)) {
+      void applyMapLink(text);
+      return;
+    }
     setQuery(text);
     onChange?.(text);
     if (debounceRef.current) clearTimeout(debounceRef.current);

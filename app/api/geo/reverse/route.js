@@ -18,6 +18,23 @@ export async function GET(request) {
       );
     }
 
+    // cacheOnly=1: solo el nombre guardado cerca del punto. La latitud y longitud
+    // de la respuesta son siempre las que llegaron, no las del cache.
+    if (searchParams.get('cacheOnly') === '1') {
+      const nearPlace = await getCachedGooglePlaceDetailsNearCoords(lat, lng, 40).catch(() => null);
+      const name = String(nearPlace?.formattedAddress || nearPlace?.title || '').trim();
+      return NextResponse.json({
+        ok: true,
+        data: {
+          formattedAddress: name || null,
+          lat,
+          lng,
+          title: name || null,
+          fromCache: Boolean(name),
+        },
+      });
+    }
+
     // exact=1: el clic del mapa. No se reemplaza por un barrio ni por un local lejano.
     const exact = searchParams.get('exact') === '1';
     if (exact) {
