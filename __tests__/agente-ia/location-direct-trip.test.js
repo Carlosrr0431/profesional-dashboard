@@ -14,7 +14,7 @@ const OpenAI = require('openai').default;
 
 const { createOpenAIMock } = require('../helpers/openai-mock');
 const { createQueryBuilder } = require('../helpers/supabase-mock');
-const { makePostRequest, makeLocationEvent } = require('../helpers/request-factory');
+const { makePostRequest, makeLocationEvent, makeTextMessageEvent } = require('../helpers/request-factory');
 
 const PHONE = '5493878630173';
 
@@ -146,5 +146,26 @@ describe('messages.upsert location -> viaje directo', () => {
     expect(
       conversationUpdates.some((update) => update && update.last_trip_id === 'trip-location-direct-1')
     ).toBe(true);
+  });
+
+  it('un enlace de Maps con texto de barrio deriva el pin y no pregunta Güemes', async () => {
+    const url = 'http://google.com/maps/place/24%C2%B048\'48.9%22S+65%C2%B025\'53.8%22W/@-24.8135826,-65.4329045,18z/data=!3m1!4b1!4m10!1m5!3m4!2zMjTCsDQ3JzQwLjAiUyA2NcKwMjInMzYuNyJX!8m2!3d-24.7944295!4d-65.3768583!3m3!8m2!3d-24.813585!4d-65.431617?hl=es';
+    const event = makeTextMessageEvent(
+      PHONE,
+      `${url}\nBarrio parque martin Miguel de guemes calle Mujica casa 9`,
+    );
+
+    const res = await POST(makePostRequest(event));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.gpsHandled).toBe(true);
+    expect(body.ok).toBe(true);
+    expect(capturedTripInsert).toBeTruthy();
+    expect(capturedTripInsert.status).toBe('queued');
+    expect(capturedTripInsert.origin_lat).toBeCloseTo(-24.813585, 5);
+    expect(capturedTripInsert.origin_lng).toBeCloseTo(-65.431617, 5);
+    expect(Number(capturedTripInsert.origin_lat)).not.toBeCloseTo(-24.7944295, 3);
+    expect(String(capturedTripInsert.notes || '')).not.toMatch(/guemes/i);
   });
 });

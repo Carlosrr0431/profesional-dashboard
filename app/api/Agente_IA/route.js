@@ -160,6 +160,7 @@ import {
   withBettoIntro,
 } from '../../../src/lib/bettoWelcome';
 import { looksLikeGpsClarification } from '../../../src/lib/gpsPinNote';
+import { readGpsPinFromPassengerText } from '../../../src/lib/mapLinkPoint';
 import {
   buildPriceInquiryCollectingContext,
   buildPriceInquiryMissingAddressReply,
@@ -5122,16 +5123,27 @@ async function appendGpsPinClarification(trip, text) {
 function readIncomingLocation(messageData) {
   const message = messageData?.message || {};
   const loc = message.locationMessage || message.liveLocationMessage || {};
-  const lat = Number(loc.degreesLatitude);
-  const lng = Number(loc.degreesLongitude);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  if (lat === 0 && lng === 0) return null;
-  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
-  return {
-    lat,
-    lng,
-    label: String(loc.address || loc.name || '').trim(),
-  };
+  const candidates = [
+    [loc.degreesLatitude, loc.degreesLongitude, loc.address || loc.name],
+    [messageData?.latitude, messageData?.longitude, messageData?.address],
+  ];
+  for (const [rawLat, rawLng, label] of candidates) {
+    const lat = Number(rawLat);
+    const lng = Number(rawLng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    if (lat === 0 && lng === 0) continue;
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) continue;
+    return { lat, lng, label: String(label || '').trim() };
+  }
+  const fromText = readGpsPinFromPassengerText([
+    messageData?.messageBody,
+    message?.conversation,
+    message?.extendedTextMessage?.text,
+    loc.address,
+    loc.name,
+  ].filter(Boolean).join('\n'));
+  if (!fromText) return null;
+  return { lat: fromText.lat, lng: fromText.lng, label: '' };
 }
 
 function gatePickupStreetReply(text, openTrip) {
@@ -10263,6 +10275,55 @@ async function processClaimedConversation(batch) {
     text: combinedText.slice(0, 500),
   });
 
+  const chatGps = readGpsPinFromPassengerText(combinedText);
+  const gpsPlaceholder = Boolean(openTripByPhone)
+    && ['queued', 'scheduled'].includes(String(openTripByPhone?.status || '').toLowerCase())
+    && safeJsonParse(openTripByPhone?.wa_context, {})?.awaiting_gps === true;
+  if (chatGps && !(openTripByPhone && shouldBlockForOpenTrip(openTripByPhone) && !gpsPlaceholder)) {
+    const pinLabel = `${chatGps.lat.toFixed(6)}, ${chatGps.lng.toFixed(6)}`;
+    const tripResult = await createTripFromConversation({
+      conversation: batch,
+      extracted: {
+        passenger_name: batch.push_name || null,
+        pickup_location: pinLabel,
+        origin: pinLabel,
+        destination: null,
+        notes: null,
+        _preGeocodedPickup: {
+          formattedAddress: pinLabel,
+          lat: chatGps.lat,
+          lng: chatGps.lng,
+        },
+        _gpsPin: true,
+        _conversationText: '[UBICACION_WHATSAPP]',
+        ...(gpsPlaceholder ? { _existingTripId: openTripByPhone.id } : {}),
+      },
+    });
+    if (tripResult?.reply) {
+      await sendWhatsAppText(batch.phone, tripResult.reply);
+    }
+    if (tripResult?.queued) {
+      await dispatchQueuedPassengers();
+    }
+    logWebhook('conversation_gps_pin_from_text', {
+      conversationId: batch?.id || null,
+      lat: chatGps.lat,
+      lng: chatGps.lng,
+      tripId: tripResult?.trip?.id || null,
+      ok: Boolean(tripResult?.ok),
+    });
+    return {
+      handled: true,
+      updates: {
+        status: 'open',
+        context: {},
+        last_trip_id: tripResult?.trip?.id || openTripByPhone?.id || null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
+
   if (gatePickupStreetReply(combinedText, openTripByPhone) === 'ask') {
     await sendWhatsAppText(
       batch.phone,
@@ -13139,9 +13200,10 @@ async function processWebhookBody(body, requestMeta = {}) {
     let transcription = null;
     let mediaUrl = null;
 
-    // --- Manejo especial de ubicación GPS (pin actual de WhatsApp) ---
-    if (messageType === 'location') {
-      const pin = readIncomingLocation(messageData);
+    // --- Ubicación GPS o enlace de Maps: el pin alcanza para derivar ---
+    const textPin = readGpsPinFromPassengerText(content);
+    if (messageType === 'location' || textPin) {
+      const pin = readIncomingLocation(messageData) || (textPin ? { lat: textPin.lat, lng: textPin.lng, label: '' } : null);
       if (pin) {
         const { lat: gpsLat, lng: gpsLng, label } = pin;
         logWebhook('location_message_received', { phone: maskPhone(phone), lat: gpsLat, lng: gpsLng });
