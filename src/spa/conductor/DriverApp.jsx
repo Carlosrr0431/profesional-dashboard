@@ -173,6 +173,30 @@ export default function DriverApp() {
   }, [online, location, syncLocation, geo.simReady, geo.simulating]);
 
   useEffect(() => {
+    if (!online || !driver?.id || !location || activeTrip || pendingTrip || geo.simulating) return undefined;
+    let cancelled = false;
+    const look = async () => {
+      const supabase = getDriverSupabase();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token || cancelled) return;
+      const { ok, data } = await spaJson('/api/driver/nearby-queued', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: { lat: location.lat, lng: location.lng },
+      });
+      if (cancelled || !ok || !data?.trip?.id) return;
+      setPendingTrip(data.trip);
+    };
+    look();
+    const timer = setInterval(look, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [online, driver?.id, location, activeTrip, pendingTrip, geo.simulating]);
+
+  useEffect(() => {
     if (!readyHaptic.current) {
       readyHaptic.current = true;
       return;
