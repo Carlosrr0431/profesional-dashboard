@@ -27,6 +27,8 @@ import ViajesPanel from './components/ViajesPanel';
 import ScheduledTripsPanel from './components/ScheduledTripsPanel';
 import MapDockPopovers, { isMapListPopover, listActiveDockTrips } from './components/MapDockPopovers';
 import ExpressDispatchPopover, { loadFrequentPickups } from './components/ExpressDispatchPopover';
+import DemandMapControls from './components/DemandMapControls';
+import { useDemandMap } from './hooks/useDemandMap';
 import StatisticsPanel from './components/StatisticsPanel';
 import TariffsPanel from './components/TariffsPanel';
 import GeocodeErrorsPanel from './components/GeocodeErrorsPanel';
@@ -148,6 +150,10 @@ export default function App() {
   const [mapPopover,        setMapPopover]       = useState(null);
   const [mapFullscreen,     setMapFullscreen]    = useState(false);
   const [pickupMode,        setPickupMode]       = useState(false);
+  const [demandMode,        setDemandMode]       = useState(false);
+  const [demandLayers,      setDemandLayers]     = useState({ scheduled: true, queued: true, done: true, zones: true });
+  const [demandTrip,        setDemandTrip]       = useState(null);
+  const demandMap = useDemandMap(demandMode);
   const dispatchNotifiedIdsRef = useRef(new Set());
   const dispatchNotifyReadyRef = useRef(false);
 
@@ -990,6 +996,10 @@ export default function App() {
                 mapFullscreen={mapFullscreen}
                 onToggleMapFullscreen={toggleMapFullscreen}
                 pickupMode={pickupMode}
+                demandMode={demandMode}
+                demandSummary={demandMap.summary}
+                demandLayers={demandLayers}
+                onDemandScheduledSelect={setDemandTrip}
                 onPickupDispatched={handlePickupDispatched}
                 notePickMode={notePickMode}
                 noteFocusDriverId={noteFocusDriverId}
@@ -1122,6 +1132,20 @@ export default function App() {
                 {mapPopover === 'express' ? (
                   <ExpressDispatchPopover onDispatched={() => { closePopover(); refetchTripSurfaces(); }} />
                 ) : null}
+                {demandMode ? (
+                  <DemandMapControls
+                    summary={demandMap.summary}
+                    layers={demandLayers}
+                    loading={demandMap.loading}
+                    error={demandMap.error}
+                    selectedTrip={demandTrip}
+                    onCloseDetail={() => setDemandTrip(null)}
+                    onToggle={(key) => {
+                      setDemandLayers((prev) => ({ ...prev, [key]: !prev[key] }));
+                      if (key === 'scheduled') setDemandTrip(null);
+                    }}
+                  />
+                ) : null}
 
                 <div className={`pointer-events-auto flex w-full items-end gap-2 md:w-auto ${mapFullscreen ? 'gap-2.5' : ''}`}>
                   {!mapFullscreen && !fleetDrawerOpen && !panelDriverId ? (
@@ -1177,13 +1201,43 @@ export default function App() {
                   </button>
                   <button
                     type="button"
+                    title={demandMode ? 'Volver a la flota' : 'Demanda'}
+                    aria-label={demandMode ? 'Ocultar demanda' : 'Ver demanda'}
+                    aria-pressed={demandMode}
+                    onClick={() => {
+                      setDemandMode((on) => {
+                        if (!on) {
+                          setPickupMode(false);
+                          setMapPopover(null);
+                          setDemandTrip(null);
+                        }
+                        return !on;
+                      });
+                    }}
+                    className={`flex shrink-0 items-center justify-center rounded-full shadow-xl active:scale-[0.97] transition-all ${
+                      mapFullscreen ? 'h-12 w-12 sm:h-14 sm:w-14' : 'h-10 w-10 sm:h-11 sm:w-11'
+                    } ${
+                      demandMode
+                        ? 'bg-rose-600 text-white shadow-rose-600/35'
+                        : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
+                    }`}
+                  >
+                    <svg className={mapFullscreen ? 'h-5 w-5' : 'h-4 w-4'} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 3c2.2 2.4 6 6.2 6 10a6 6 0 11-12 0c0-3.8 3.8-7.6 6-10z" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
                     title={pickupMode ? 'Volver a los choferes' : 'Mapa Pro'}
                     aria-label={pickupMode ? 'Volver a los choferes' : 'Mapa Pro'}
                     aria-pressed={pickupMode}
                     onPointerEnter={() => { loadFrequentPickups().catch(() => {}); }}
                     onClick={() => {
                       setMapPopover(null);
-                      setPickupMode((on) => !on);
+                      setPickupMode((on) => {
+                        if (!on) setDemandMode(false);
+                        return !on;
+                      });
                     }}
                     className={`flex shrink-0 items-center rounded-full font-bold shadow-xl active:scale-[0.97] transition-all ${
                       mapFullscreen

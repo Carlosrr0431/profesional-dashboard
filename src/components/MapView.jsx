@@ -26,6 +26,7 @@ import { extractMapClickLngLat } from '../lib/mapPointPick';
 import MapLandmarks from './MapLandmarks';
 import PinnedAddressMarkers from './PinnedAddressMarkers';
 import PickupDispatchModal from './PickupDispatchModal';
+import DemandMapLayer from './DemandMapLayer';
 import { loadFrequentPickups, peekFrequentPickups } from './ExpressDispatchPopover';
 import {
   artWeekMinute,
@@ -54,6 +55,22 @@ const MAP_CSS = `
 .fleet-map-pin { background: transparent; border: none; }
 .map-pick-arrow, .map-pick-arrow .leaflet-container { cursor: default !important; }
 .pickup-map-pin { background: transparent; border: none; }
+.demand-score-pin, .demand-scheduled-pin, .demand-queue-pin { background: transparent; border: none; }
+.demand-queue-dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 4px;
+  border-radius: 999px;
+  background: #F97316;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 6px rgba(249,115,22,.28);
+  animation: demand-queue-pulse 1.4s ease-in-out infinite;
+}
+@keyframes demand-queue-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(249,115,22,.18); }
+  50% { box-shadow: 0 0 0 10px rgba(249,115,22,.05); }
+}
 `;
 
 const GOOGLE_TILES = {
@@ -365,6 +382,10 @@ const MapView = memo(function MapView({
   pickMode = null,
   onPickLocation,
   pickupMode = false,
+  demandMode = false,
+  demandSummary = null,
+  demandLayers = null,
+  onDemandScheduledSelect,
   onPickupDispatched,
   notePickMode = null,
   noteFocusDriverId = null,
@@ -433,10 +454,10 @@ const MapView = memo(function MapView({
   }, [pickupMode, loadPickupPoints]);
 
   useEffect(() => {
-    if (pickupMode) setActiveInfo((prev) => (
+    if (pickupMode || demandMode) setActiveInfo((prev) => (
       prev?.type === 'driver' || prev?.type === 'trip' ? null : prev
     ));
-  }, [pickupMode]);
+  }, [pickupMode, demandMode]);
 
   const handlePickupSelect = useCallback((pickup) => {
     if (pickMode) return;
@@ -480,8 +501,8 @@ const MapView = memo(function MapView({
           crossOrigin
         />
         <ZoomControl position="topright" />
-        {pickupMode ? null : <MapLandmarks />}
-        {pickupMode ? null : <PinnedAddressMarkers />}
+        {pickupMode || demandMode ? null : <MapLandmarks />}
+        {pickupMode || demandMode ? null : <PinnedAddressMarkers />}
         <MapBridge
           mapRef={mapRef}
           mapFullscreen={mapFullscreen}
@@ -513,12 +534,21 @@ const MapView = memo(function MapView({
           />
         ) : null}
 
-        {pickupMode ? (
+        {demandMode && demandSummary ? (
+          <DemandMapLayer
+            summary={demandSummary}
+            layers={demandLayers || { scheduled: true, queued: true, done: true, zones: true }}
+            onSelectScheduled={onDemandScheduledSelect}
+          />
+        ) : null}
+        {pickupMode || demandMode ? (
+          pickupMode ? (
           <PickupMarkers
             pickups={pickupPoints || []}
             selectedId={activeInfo?.type === 'pickup' ? activeInfo.data?.id : null}
             onSelect={handlePickupSelect}
           />
+          ) : null
         ) : drivers.map((driver) => {
           const lat = Number(driver.lat);
           const lng = Number(driver.lng);
@@ -542,9 +572,9 @@ const MapView = memo(function MapView({
               onSelect={handleDriverSelect}
             />
           );
-        })}
+        }))}
 
-        {pickupMode ? null : tripList.map((trip) => {
+        {pickupMode || demandMode ? null : tripList.map((trip) => {
           const pasLat = Number(trip.passenger_lat ?? trip.pickup_lat ?? trip.origin_lat ?? trip.lat);
           const pasLng = Number(trip.passenger_lng ?? trip.pickup_lng ?? trip.origin_lng ?? trip.lng);
           if (!Number.isFinite(pasLat) || !Number.isFinite(pasLng)) return null;
@@ -629,7 +659,7 @@ const MapView = memo(function MapView({
         </>
       ) : null}
 
-      {activeInfo?.type === 'trip' && !multiSelectMode && !pickupMode ? (
+      {activeInfo?.type === 'trip' && !multiSelectMode && !pickupMode && !demandMode ? (
         <>
           <button
             type="button"
@@ -656,7 +686,7 @@ const MapView = memo(function MapView({
         </>
       ) : null}
 
-      {activeInfo?.type === 'driver' && !multiSelectMode && !pickupMode ? (
+      {activeInfo?.type === 'driver' && !multiSelectMode && !pickupMode && !demandMode ? (
         <>
           <button
             type="button"
