@@ -14,7 +14,6 @@ import {
 import { rankNamedGoogleFirst } from '../../../../shared/geo/placeFreshness.js';
 import { queryOverlapScore } from '../../../../shared/savedAddressMatch.js';
 import { hasUsableGeoPoint, omitUnusablePin, preferSaltaCapitalFirst } from '../../../../shared/geo/mapConfig.js';
-import { mergeGoogleFirst } from '../../../../shared/geo/googlePlaces.js';
 
 export const dynamic = 'force-dynamic';
 /** La búsqueda ampliada (expand) explora por zonas y puede tardar varios segundos. */
@@ -179,7 +178,7 @@ export async function GET(request) {
       canOffer(item) && (!intersection || intersectionHitMatches(item, intersection.street1, intersection.street2))
     ));
     if (fresh.length) {
-      results = mergeGoogleFirst(fresh, results, limit);
+      results = fresh.slice(0, limit);
     } else {
       results.sort((a, b) => (
         queryOverlapScore(query, `${b?.title || ''} ${b?.subtitle || ''} ${b?.address || ''} ${b?.formattedAddress || ''}`)

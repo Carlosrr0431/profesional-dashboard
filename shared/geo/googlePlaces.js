@@ -735,21 +735,18 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   const normalizedLimit = Math.max(1, Math.min(limit, expand ? EXPAND_MAX_LIMIT : 8));
   const sessionToken = registerAutocompleteSession(resolveSessionToken(options));
 
-  // La clave NO incluye sessionToken: misma query + límite = mismo resultado de Google,
-  // independientemente de la sesión. Re-inyectamos el token actual al devolver del cache.
-  // En búsqueda ampliada, `near` (ubicación de quien busca) ordena por cercanía: va en la clave.
+  // Una sola ficha por texto, sin el límite ni la sesión. Güemes y guemes comparten caché.
+  // Al devolver se recorta al límite pedido y se pone el token de esta sesión.
   const origin = expand ? normalizeNearOrigin(options?.near) : null;
   const nearKey = origin ? `::near:${origin.latitude.toFixed(3)},${origin.longitude.toFixed(3)}` : '';
   const skipSavedSearch = options?.skipSavedSearch === true;
-  const cacheKey = `${normalizeQuery(text)}::${normalizedLimit}${expand ? '::expand' : ''}${nearKey}`;
+  const cacheKey = `${foldText(text)}${expand ? '::expand' : ''}${nearKey}`;
   const flightKey = skipSavedSearch ? `${cacheKey}::refresh` : cacheKey;
+  const serve = (list) => (list || []).slice(0, normalizedLimit).map((item) => ({ ...item, sessionToken }));
   const cached = skipSavedSearch ? null : getCached(autocompleteCache, cacheKey);
-  if (cached) {
-    return cached.map((item) => ({ ...item, sessionToken }));
-  }
+  if (cached) return serve(cached);
   if (inFlightAutocomplete.has(flightKey)) {
-    const result = await inFlightAutocomplete.get(flightKey);
-    return result.map((item) => ({ ...item, sessionToken }));
+    return serve(await inFlightAutocomplete.get(flightKey));
   }
 
   const requestPromise = (async () => {
@@ -771,46 +768,34 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       PLACES_TIMEOUT_MS,
       origin,
     );
-    // Una sola llamada por búsqueda. Partir Salta en zonas multiplicaba el gasto.
-    const expanded = false;
     const mapped = suggestions
-      .map((item, index) => ({
-        ...mapAutocompletePrediction(item?.placePrediction, sessionToken, text),
-        _index: index,
-      }))
+      .map((item) => mapAutocompletePrediction(item?.placePrediction, sessionToken, text))
       .filter(Boolean)
       .filter((item) => !isOutsideSaltaCapitalSubtitle(item.subtitle, text));
-
-    // Una lista de sucursales (búsqueda ampliada) se ordena por cercanía; una calle, no.
-    const ordered = expanded && origin ? orderByDistance(mapped) : mapped;
-    const enriched = await enrichGuemesStreetNumberResults(ordered, text, sessionToken, normalizedLimit);
-    let named = enriched.map(({ _score, _index, ...rest }) => rest);
+    const ordered = expand && origin ? orderByDistance(mapped) : mapped;
+    let named = ordered.map(({ _score, ...rest }) => rest);
     const crossing = parseStreetIntersection(text);
     if (crossing) {
       const hits = named.filter((item) => intersectionHitMatches(item, crossing.street1, crossing.street2));
-      if (hits.length) named = hits.slice(0, 2);
+      if (hits.length) named = hits;
     }
-    // Sin Place Details acá: pedir coords de cada sugerencia cierra la sesión y
-    // cobra Essentials por lugar. Las coords se piden solo al elegir una.
-    const googleReturned = suggestions.length > 0;
-    const result = mergeKnownPlaces(named, known).slice(0, normalizedLimit).map(omitUnusablePin);
-    const fallback = result.length
-      ? result
-      : (known || []).slice(0, normalizedLimit).map(omitUnusablePin);
-
-    if (googleReturned && fallback.length) {
-      setCached(autocompleteCache, cacheKey, fallback, AUTOCOMPLETE_TTL_MS);
-      if (placesBudget?.saveSearch) {
-        await placesBudget.saveSearch(cacheKey, fallback).catch(() => {});
-      }
+    if (!suggestions.length) {
+      return (known || []).slice(0, normalizedLimit).map(omitUnusablePin);
     }
-    return fallback;
+    const snapshot = named.map((item) => {
+      const { sessionToken: _token, ...rest } = item;
+      return omitUnusablePin(rest);
+    });
+    setCached(autocompleteCache, cacheKey, snapshot, AUTOCOMPLETE_TTL_MS);
+    if (placesBudget?.saveSearch) {
+      await placesBudget.saveSearch(cacheKey, snapshot).catch(() => {});
+    }
+    return snapshot;
   })();
 
   inFlightAutocomplete.set(flightKey, requestPromise);
   try {
-    const result = await requestPromise;
-    return result.map((item) => ({ ...item, sessionToken }));
+    return serve(await requestPromise);
   } finally {
     inFlightAutocomplete.delete(flightKey);
   }

@@ -128,7 +128,7 @@ describe('búsqueda de Places con cupo y caché', () => {
     });
     const first = await autocompleteAddressSalta('caseros 100', 5);
     const second = await autocompleteAddressSalta('caseros 100', 5);
-    expect(first.map((item) => item.placeId)).toEqual(['google:abc123', 'google:domingo', 'google:cached']);
+    expect(first.map((item) => item.placeId)).toEqual(['google:abc123', 'google:domingo']);
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(second[1].placeId).toBe('google:domingo');
     const body = JSON.parse(global.fetch.mock.calls[0][1].body);
