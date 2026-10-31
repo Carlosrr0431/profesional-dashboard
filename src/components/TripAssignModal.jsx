@@ -765,9 +765,10 @@ export default function TripAssignModal({
               ) : (
                 <AddressAutocomplete
                   id="assign-origin"
-                  placeholder="Ej: Belgrano 1200, Salta"
+                  placeholder="Dirección o enlace de Google Maps"
                   value={originAddress}
                   accentColor="#DC2626"
+                  acceptMapLink
                   emphasized={mapPickTarget === 'origin'}
                   inputIcon={<OriginDotSmall />}
                   endAction={(
@@ -796,7 +797,13 @@ export default function TripAssignModal({
               {originMode === 'custom' && originLat != null && originGeocodeSource && (
                 <div style={{ marginTop: 4 }}>
                   <span
-                    title={originGeocodeSource === 'supabase_cache' ? 'Coordenadas desde cache en base de datos' : 'Coordenadas desde Google Place Details Essentials'}
+                    title={
+                      originGeocodeSource === 'map_url'
+                        ? 'Punto exacto del enlace de Google Maps'
+                        : originGeocodeSource === 'supabase_cache'
+                          ? 'Coordenadas desde cache en base de datos'
+                          : 'Coordenadas desde Google Place Details Essentials'
+                    }
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -805,11 +812,17 @@ export default function TripAssignModal({
                       fontSize: 10,
                       fontWeight: 700,
                       letterSpacing: '0.03em',
-                      background: originGeocodeSource === 'supabase_cache' ? '#ECFDF5' : '#EFF6FF',
-                      color: originGeocodeSource === 'supabase_cache' ? '#047857' : '#1D4ED8',
+                      background: originGeocodeSource === 'map_url'
+                        ? '#F5F3FF'
+                        : originGeocodeSource === 'supabase_cache' ? '#ECFDF5' : '#EFF6FF',
+                      color: originGeocodeSource === 'map_url'
+                        ? '#6D28D9'
+                        : originGeocodeSource === 'supabase_cache' ? '#047857' : '#1D4ED8',
                     }}
                   >
-                    {originGeocodeSource === 'supabase_cache' ? 'cache BD' : 'Google'}
+                    {originGeocodeSource === 'map_url'
+                      ? 'Enlace'
+                      : originGeocodeSource === 'supabase_cache' ? 'cache BD' : 'Google'}
                   </span>
                 </div>
               )}
@@ -830,9 +843,10 @@ export default function TripAssignModal({
               </div>
               <AddressAutocomplete
                 id="assign-dest"
-                placeholder="Ej: Av. San Martín 500, Salta"
+                placeholder="Dirección o enlace de Google Maps"
                 value={destAddress}
                 accentColor="#059669"
+                acceptMapLink
                 emphasized={mapPickTarget === 'dest'}
                 inputIcon={<DestDotSmall />}
                 endAction={(
