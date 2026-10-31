@@ -106,6 +106,16 @@ export function pickDriverGps(loc, driver, now = Date.now()) {
   const locUpdatedAt = loc?.updated_at || loc?.recorded_at || null;
   const curUpdatedAt = driver?.updated_at || null;
 
+  if (driver?.gps_simulation_active && curValid) {
+    return {
+      lat: toCoordNumber(curLat, 0),
+      lng: toCoordNumber(curLng, 0),
+      updatedAt: curUpdatedAt || locUpdatedAt,
+      speed,
+      heading,
+    };
+  }
+
   if (curValid && locValid) {
     const locTs = toTs(locUpdatedAt);
     const curTs = toTs(curUpdatedAt);
@@ -169,6 +179,7 @@ export function applyDriverLocationRealtime(drivers, loc) {
   if (idx === -1) return drivers;
 
   const prev = drivers[idx];
+  if (prev.gpsSimulationActive) return drivers;
   // El chofer se marcó inactivo sin moverse. Si se ignora, el pin sigue libre
   // y al asignar la base responde que no está disponible.
   if (loc.is_online === false) {
@@ -265,6 +276,9 @@ export function mergeSnapshotKeepingFresherGps(prev, next) {
   return next.map((incoming) => {
     const local = prevById.get(incoming.id);
     if (!local) return incoming;
+    if (incoming.gpsSimulationActive && hasValidDriverCoords(incoming.lat, incoming.lng)) {
+      return incoming;
+    }
     if (!hasValidDriverCoords(local.lat, local.lng)) return incoming;
     const gps = {
       lat: local.lat,

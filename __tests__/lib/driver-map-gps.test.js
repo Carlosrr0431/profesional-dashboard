@@ -58,6 +58,24 @@ describe('pickDriverGps', () => {
     expect(gps.lng).toBe(-65.41);
   });
 
+  it('con simulación muestra current_lat aunque el heartbeat esté en otro lado', () => {
+    const gps = pickDriverGps({
+      lat: -24.78,
+      lng: -65.42,
+      updated_at: '2026-09-06T19:59:59.000Z',
+      speed: 12,
+      heading: 90,
+    }, {
+      ...driver,
+      gps_simulation_active: true,
+      current_lat: -24.7901888,
+      current_lng: -65.411613,
+      updated_at: '2026-09-06T20:00:00.000Z',
+    }, now);
+    expect(gps.lat).toBeCloseTo(-24.7901888, 6);
+    expect(gps.lng).toBeCloseTo(-65.411613, 6);
+  });
+
   it('cae a driver_locations si no hay current_lat', () => {
     const gps = pickDriverGps({
       lat: -24.78,
@@ -165,6 +183,28 @@ describe('mergeSnapshotKeepingFresherGps', () => {
     expect(merged[0].speed).toBe(8);
     expect(merged[0].heading).toBe(90);
     expect(merged[0].pendingCommission).toBe(4);
+  });
+
+  it('con simulación el poll trae la posición actual y suelta la vieja', () => {
+    const prev = [{
+      id: 'd1',
+      lat: -24.78,
+      lng: -65.42,
+      updatedAt: '2026-09-06T19:59:00.000Z',
+      gpsSimulationActive: true,
+      isAvailable: true,
+    }];
+    const next = [{
+      id: 'd1',
+      lat: -24.7901888,
+      lng: -65.411613,
+      updatedAt: '2026-09-06T20:00:00.000Z',
+      gpsSimulationActive: true,
+      isAvailable: true,
+    }];
+    const merged = mergeSnapshotKeepingFresherGps(prev, next);
+    expect(merged[0].lat).toBeCloseTo(-24.7901888, 6);
+    expect(merged[0].lng).toBeCloseTo(-65.411613, 6);
   });
 });
 
@@ -316,6 +356,23 @@ describe('applyDriverLocationRealtime', () => {
     isAvailable: true,
     isOnline: true,
   }];
+
+  it('un chofer simulado no se mueve con el heartbeat del celular', () => {
+    const next = applyDriverLocationRealtime([{
+      ...base[0],
+      gpsSimulationActive: true,
+    }], {
+      driver_id: 'd1',
+      lat: -24.70,
+      lng: -65.30,
+      speed: 0,
+      heading: 0,
+      is_online: true,
+      updated_at: '2026-09-06T20:00:05.000Z',
+    });
+    expect(next[0].lat).toBe(-24.80);
+    expect(next[0].lng).toBe(-65.40);
+  });
 
   it('si el heartbeat dice inactivo, el pin deja de figurar libre aunque no se mueva', () => {
     const next = applyDriverLocationRealtime(base, {
