@@ -24,6 +24,7 @@ import {
   formatIntersectionLabelFromQuery,
   pickPrimaryHouseNumber,
   placeLabelMatchesQuery,
+  labelsAreOneStreet,
 } from '../../../shared/salta-address.js';
 import { coordsAllowedForQuery, hasUsableGeoPoint } from '../../../shared/geo/mapConfig.js';
 
@@ -360,9 +361,12 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
       ...suggestions,
     ];
   }
-  const ranked = [...suggestions]
-    .filter((hit) => labelIsExactPlace(text, hit))
-    .sort((a, b) => textScore(b, text) - textScore(a, text));
+  const exact = [...suggestions].filter((hit) => labelIsExactPlace(text, hit));
+  const exactLabels = exact.map((hit) => (
+    [hit.title, hit.subtitle].filter(Boolean).join(', ') || hit.formattedAddress || ''
+  ));
+  if (!labelsAreOneStreet(text, exactLabels)) throw unmatchedAddressError();
+  const ranked = exact.sort((a, b) => textScore(b, text) - textScore(a, text));
 
   const resolved = [];
   let detailsUsed = 0;

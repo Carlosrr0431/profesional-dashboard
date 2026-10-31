@@ -98,6 +98,7 @@ import {
   scoreCandidateAgainstQuery,
   isVagueLocalityAddress,
   formatIntersectionLabelFromQuery,
+  placeLabelMatchesQuery,
 } from '../../../shared/salta-address.js';
 import { findPinnedAddress } from '../../../shared/pinned-addresses.js';
 import { findSavedPinnedAddresses } from '../../../src/lib/savedPinnedAddresses.js';
@@ -8183,12 +8184,21 @@ async function createTripFromConversation({ conversation, extracted, includeBett
   } else if (extracted._preGeocodedPickup?.lat && extracted._preGeocodedPickup?.lng) {
     const preQuery = normalizedPickupQuery || pickupQuery || '';
     pickupLocation = buildPreGeocodedPickup(extracted._preGeocodedPickup, preQuery);
-    if (!pickupLocation || isVagueLocalityAddress(pickupLocation.formattedAddress)) {
+    const preLabel = pickupLocation?.formattedAddress || '';
+    if (!pickupLocation || isVagueLocalityAddress(preLabel) || (preQuery && !placeLabelMatchesQuery(preQuery, preLabel))) {
       logWebhook('trip_create_pickup_pre_geocoded_vague', {
         conversationId: conversation?.id || null,
         query: preQuery,
         rawFormattedAddress: extracted._preGeocodedPickup.formattedAddress,
       });
+      if (preQuery) {
+        return queueWhatsAppUnmatchedPickup({
+          conversation,
+          extracted,
+          noteText: preQuery,
+          includeBettoIntro,
+        });
+      }
       return {
         ok: false,
         reason: 'invalid_address',
@@ -8197,7 +8207,7 @@ async function createTripFromConversation({ conversation, extracted, includeBett
         ),
         context: {
           passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
-          pickup_location: preQuery || null,
+          pickup_location: null,
           notes: extracted.notes || null,
           awaiting_gps: true,
         },
@@ -8242,19 +8252,12 @@ async function createTripFromConversation({ conversation, extracted, includeBett
           hasStreet1,
           hasStreet2,
         });
-        return {
-          ok: false,
-          reason: 'intersection_not_found',
-          reply: wrapTripReply(
-            `No encontré la intersección *${intersectionMatch[1].trim()} y ${intersectionMatch[2].trim()}* en Salta. ¿Me das *calle y altura* (por ejemplo España 400) o tu *ubicación* de WhatsApp?`,
-          ),
-          context: {
-            passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
-            pickup_location: normalizedPickupQuery || pickupQuery,
-            notes: extracted.notes || null,
-            awaiting_gps: true,
-          },
-        };
+        return queueWhatsAppUnmatchedPickup({
+          conversation,
+          extracted,
+          noteText: normalizedPickupQuery || pickupQuery,
+          includeBettoIntro,
+        });
       }
     }
   } catch (error) {
@@ -8270,12 +8273,17 @@ async function createTripFromConversation({ conversation, extracted, includeBett
     const aiCorrected = await aiNormPromise;
     if (aiCorrected) {
       try {
-        pickupLocation = await geocodeAddress(aiCorrected);
+        const aiGeo = await geocodeAddress(aiCorrected);
+        const originalText = normalizedPickupQuery || pickupQuery;
+        if (placeLabelMatchesQuery(originalText, aiGeo.formattedAddress)) {
+          pickupLocation = aiGeo;
+        }
         logWebhook('trip_create_geocode_ai_correction_ok', {
           conversationId: conversation?.id || null,
           originalQuery: pickupQuery,
           aiCorrected,
-          formattedAddress: pickupLocation.formattedAddress,
+          formattedAddress: aiGeo.formattedAddress,
+          kept: Boolean(pickupLocation),
         });
       } catch {
         // AI tampoco pudo resolver la dirección → falla definitiva
@@ -8283,25 +8291,18 @@ async function createTripFromConversation({ conversation, extracted, includeBett
     }
 
     if (!pickupLocation) {
-    logWebhook('trip_create_geocode_error', {
-      conversationId: conversation?.id || null,
-      error: error?.message || 'geocode_error',
-      pickupQuery,
-      knowledgeCandidatesTried: 0,
-    });
-    return {
-      ok: false,
-      reason: 'invalid_address',
-      reply: wrapTripReply(
-        'No pude ubicar bien el retiro. Mandame *calle y altura* (por ejemplo Mitre 1234) o tu *ubicación* de WhatsApp y te derivo el móvil.',
-      ),
-      context: {
-        passenger_name: extracted.passenger_name || conversation.push_name || 'Pasajero WhatsApp',
-        pickup_location: normalizedPickupQuery || pickupQuery,
-        notes: extracted.notes || null,
-        awaiting_gps: true,
-      },
-    };
+      logWebhook('trip_create_geocode_error', {
+        conversationId: conversation?.id || null,
+        error: error?.message || 'geocode_error',
+        pickupQuery,
+        knowledgeCandidatesTried: 0,
+      });
+      return queueWhatsAppUnmatchedPickup({
+        conversation,
+        extracted,
+        noteText: normalizedPickupQuery || pickupQuery,
+        includeBettoIntro,
+      });
     }
   }
   } // end pre-geocoded else
@@ -8379,7 +8380,9 @@ async function createTripFromConversation({ conversation, extracted, includeBett
       } catch (geoErr) {
         for (const candidate of destinationKnowledgeCandidates) {
           try {
-            finalDestinationGeo = await geocodeAddress(candidate);
+            const candidateGeo = await geocodeAddress(candidate);
+            if (!placeLabelMatchesQuery(finalDestinationHint, candidateGeo.formattedAddress)) continue;
+            finalDestinationGeo = candidateGeo;
             logWebhook('trip_final_destination_geocode_fallback_knowledge_ok', {
               hint: finalDestinationHint,
               candidate,

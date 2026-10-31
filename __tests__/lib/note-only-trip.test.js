@@ -1,4 +1,4 @@
-const { placeLabelMatchesQuery } = require('../../shared/salta-address');
+const { labelsAreOneStreet, placeLabelMatchesQuery } = require('../../shared/salta-address');
 const {
   NOTE_ONLY_MARKER,
   buildNoteOnlyQueuedTrip,
@@ -38,6 +38,18 @@ describe('noteOnlyTrip', () => {
       'mitre 300',
       'Bartolomé Mitre 300, Salta',
     )).toBe(true);
+    expect(placeLabelMatchesQuery(
+      'doctor a guemes 150',
+      'Luis Güemes 150, Salta',
+    )).toBe(false);
+    expect(labelsAreOneStreet('guemes 150', [
+      'Doctor A. Güemes 150, Salta',
+      'Luis Güemes 150, Salta',
+    ])).toBe(false);
+    expect(labelsAreOneStreet('mitre 300', [
+      'Bartolomé Mitre 300, Salta',
+      'Mitre 300, Salta',
+    ])).toBe(true);
   });
 
   it('arma la nota de WhatsApp con el texto entendido y sin pin de retiro', () => {

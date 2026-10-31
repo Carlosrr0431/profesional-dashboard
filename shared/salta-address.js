@@ -712,29 +712,50 @@ function scoreSaltaCapitalLocality(formattedAddress) {
 }
 
 const PLACE_QUERY_SKIP = new Set([
-  'salta', 'capital', 'argentina', 'calle', 'avenida', 'avda', 'pasaje', 'barrio', 'zona',
-  'doctor', 'doctora', 'general', 'gral', 'altura', 'provincia', 'province',
+  'salta', 'capital', 'argentina', 'calle', 'barrio', 'zona', 'altura', 'provincia', 'province',
 ]);
 
-const ORDINAL_TO_ROMAN = {
-  primero: 'i',
-  segundo: 'ii',
-  tercero: 'iii',
-  cuarto: 'iv',
-  quinto: 'v',
+const ADDRESS_EQUIV = {
+  gral: 'general',
+  general: 'general',
+  dr: 'doctor',
+  doctor: 'doctor',
+  dra: 'doctora',
+  doctora: 'doctora',
+  av: 'avenida',
+  avda: 'avenida',
+  avenida: 'avenida',
+  pje: 'pasaje',
+  psje: 'pasaje',
+  pasaje: 'pasaje',
+  paseo: 'paseo',
+  primero: 'primero',
+  i: 'primero',
+  segundo: 'segundo',
+  ii: 'segundo',
+  tercero: 'tercero',
+  iii: 'tercero',
+  cuarto: 'cuarto',
+  iv: 'cuarto',
+  quinto: 'quinto',
+  v: 'quinto',
 };
 
-function labelHasToken(label, token) {
-  const padded = ` ${label} `;
-  if (padded.includes(` ${token} `)) return true;
-  const roman = ORDINAL_TO_ROMAN[token];
-  if (roman && padded.includes(` ${roman} `)) return true;
-  const ordinal = Object.keys(ORDINAL_TO_ROMAN).find((key) => ORDINAL_TO_ROMAN[key] === token);
-  if (ordinal && padded.includes(` ${ordinal} `)) return true;
-  if (token === 'paseo' && padded.includes(' p ')) return true;
-  if (token === 'avenida' && (padded.includes(' av ') || padded.includes(' avda '))) return true;
-  if (token === 'pasaje' && (padded.includes(' pje ') || padded.includes(' psje '))) return true;
-  return false;
+const STREET_TYPE_TOKENS = new Set(['avenida', 'pasaje', 'paseo', 'calle']);
+
+function addressTokens(text) {
+  const raw = normalizeForMatch(text).split(' ').filter(Boolean);
+  const out = [];
+  raw.forEach((token, index) => {
+    if (/^\d+$/.test(token) || PLACE_QUERY_SKIP.has(token)) return;
+    if (token === 'p' && index === 0) {
+      out.push('paseo');
+      return;
+    }
+    const canon = ADDRESS_EQUIV[token] || token;
+    if (canon.length >= 3) out.push(canon);
+  });
+  return out;
 }
 
 /**
@@ -742,16 +763,25 @@ function labelHasToken(label, token) {
  * y, si había altura, esa altura también. "colectora 3" no es "Juan Pablo Segundo".
  */
 function placeLabelMatchesQuery(query, label) {
-  const asked = normalizeForMatch(query);
-  const found = normalizeForMatch(label);
-  if (!asked || !found) return false;
-  const tokens = asked.split(' ').filter((token) => (
-    token.length >= 4 && !PLACE_QUERY_SKIP.has(token) && !/^\d+$/.test(token)
-  ));
-  if (tokens.some((token) => !labelHasToken(found, token))) return false;
+  const asked = addressTokens(query);
+  const found = new Set(addressTokens(label));
+  if (!asked.length && pickPrimaryHouseNumber(query) == null) return false;
+  if (asked.some((token) => !found.has(token))) return false;
   const number = pickPrimaryHouseNumber(query);
-  if (number != null && !labelHasToken(found, String(number))) return false;
+  if (number != null && !new RegExp(`\\b${number}\\b`).test(` ${normalizeForMatch(label)} `)) return false;
   return true;
+}
+
+/** Varias calles distintas para el mismo texto: no hay una sola dirección segura. */
+function labelsAreOneStreet(query, labels) {
+  const matching = (labels || []).filter((label) => placeLabelMatchesQuery(query, label));
+  if (!matching.length) return false;
+  const asked = new Set(addressTokens(query));
+  const extras = matching.map((label) => addressTokens(label)
+    .filter((token) => !asked.has(token) && !STREET_TYPE_TOKENS.has(token))
+    .sort()
+    .join(' '));
+  return new Set(extras.filter(Boolean)).size <= 1;
 }
 
 function scoreCandidateAgainstQuery(formattedAddress, query) {
@@ -1114,6 +1144,7 @@ module.exports = {
   parseStreetHouseFromQuery,
   pickPrimaryHouseNumber,
   placeLabelMatchesQuery,
+  labelsAreOneStreet,
   expandAbbreviatedStreetQueries,
   parseStreetIntersection,
   preferredIntersectionStreet,
