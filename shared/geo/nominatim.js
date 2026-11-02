@@ -1454,28 +1454,14 @@ async function getPlaceDetails(placeId, options = {}) {
   }
 
   if (isGooglePlaceId(id)) {
-    const details = await getGooglePlaceDetails(id, {
+    // El punto de Google es el de ese lugar. No se reemplaza por otra altura
+    // del padrón: "Güemes 150" también existe en Paseo Güemes, a 400 m.
+    return getGooglePlaceDetails(id, {
       sessionToken: options?.sessionToken,
       formattedAddress: options?.formattedAddress,
       title: options?.title,
       subtitle: options?.subtitle,
     });
-    const streetQuery = streetHouseQueryFromPlace(options);
-    const official = streetQuery ? await findOfficialHouseNumber(streetQuery, details) : null;
-    const officialRoad = String(official?.address?.road || '').trim();
-    const houseNumber = pickPrimaryHouseNumber(streetQuery);
-    const sameStreet = Boolean(
-      officialRoad
-      && houseNumber != null
-      && sameNumberedStreet(officialRoad, streetQuery, houseNumber),
-    );
-    if (!official || !sameStreet) return details;
-    return {
-      ...details,
-      lat: official.lat,
-      lng: official.lng,
-      geocodeSource: 'georef',
-    };
   }
 
   if (id.startsWith('georef:')) {

@@ -48,6 +48,7 @@ const {
   parseStreetIntersection,
   intersectionHitMatches,
   pickPrimaryHouseNumber,
+  applyStreetNameExpansions,
 } = require('../salta-address');
 
 const PLACES_NEW_BASE = 'https://places.googleapis.com/v1';
@@ -629,6 +630,57 @@ function normalizeNearOrigin(near) {
  * Ordena de más cerca a más lejos y marca `byDistance` para que la capa superior
  * conserve este orden. Si algún resultado no trae distancia, no reordena.
  */
+function bareSurnameExpansion(text) {
+  const folded = foldText(text);
+  const words = folded
+    .replace(/\b\d{1,5}\b/g, ' ')
+    .replace(/\b(salta|capital|argentina)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!words || words.includes(' ')) return '';
+  const expanded = applyStreetNameExpansions(text);
+  if (foldText(expanded) === folded) return '';
+  return expanded;
+}
+
+function titleHasExpandedName(title, expanded) {
+  const tokens = foldText(expanded)
+    .replace(/\b\d{1,5}\b/g, ' ')
+    .split(' ')
+    .filter((token) => token.length >= 4);
+  const name = foldText(title);
+  return tokens.length > 0 && tokens.every((token) => name.includes(token));
+}
+
+/** "alvear 700" no trae la calle; "Marcelo T. de Alvear 700" sí. Esa va primera. */
+async function withExpandedStreet(text, named, sessionToken) {
+  const expanded = bareSurnameExpansion(text);
+  const list = Array.isArray(named) ? named : [];
+  if (!expanded || list.some((item) => titleHasExpandedName(item?.title, expanded))) return list;
+  const extra = await placesAutocompleteRequest(
+    expanded,
+    sessionToken,
+    SALTA_CAPITAL_RESTRICTION,
+    PLACES_TIMEOUT_MS,
+  );
+  const mapped = extra
+    .map((item) => mapAutocompletePrediction(item?.placePrediction, sessionToken, text))
+    .filter(Boolean)
+    .filter((item) => titleHasExpandedName(item.title, expanded))
+    .map(({ _score, ...rest }) => rest);
+  if (!mapped.length) return list;
+  const seen = new Set(mapped.map((item) => item.placeId));
+  const token = foldText(text).split(' ').find((part) => part.length >= 4 && !/^\d+$/.test(part));
+  const merged = [...mapped, ...list.filter((item) => !seen.has(item.placeId))];
+  if (!token) return merged;
+  const mentioned = merged.filter((item) => foldText(`${item.title} ${item.subtitle}`).includes(token));
+  return mentioned.length ? mentioned : merged;
+}
+
+/**
+ * Ordena de más cerca a más lejos y marca `byDistance` para que la capa superior
+ * conserve este orden. Si algún resultado no trae distancia, no reordena.
+ */
 function orderByDistance(items) {
   if (!items.length || !items.every((item) => Number.isFinite(item.distanceMeters))) return items;
   return items
@@ -747,8 +799,13 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     if (!skipSavedSearch && placesBudget?.getSearch) {
       const saved = await placesBudget.getSearch(cacheKey).catch(() => null);
       if (Array.isArray(saved) && saved.length) {
-        const clean = saved.map(omitUnusablePin);
+        const clean = await withExpandedStreet(text, saved.map(omitUnusablePin), sessionToken);
         setCached(autocompleteCache, cacheKey, clean, AUTOCOMPLETE_TTL_MS);
+        if (clean[0]?.placeId !== saved[0]?.placeId || clean.length !== saved.length) {
+          if (placesBudget?.saveSearch) {
+            await placesBudget.saveSearch(cacheKey, clean).catch(() => {});
+          }
+        }
         return clean;
       }
     }
@@ -792,6 +849,8 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
       const hits = named.filter((item) => intersectionHitMatches(item, crossing.street1, crossing.street2));
       if (hits.length) named = hits;
     }
+    named = await withExpandedStreet(text, named, sessionToken);
+    if (named.length) googleReturned = true;
     if (!googleReturned) {
       return (known || []).slice(0, normalizedLimit).map(omitUnusablePin);
     }

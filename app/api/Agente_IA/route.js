@@ -3341,6 +3341,7 @@ const SALTA_STREET_EXPANSIONS = [
   [/\bsarmiento\b/gi, 'Domingo F. Sarmiento'],
   [/\byrigoyen\b/gi, 'Hipólito Yrigoyen'],
   [/\bvelez\s+sarsfield\b/gi, 'Dr Velez Sarsfield'],
+  [/\balvear\b/gi, 'Marcelo T. de Alvear'],
 ];
 
 function applyStreetNameExpansions(text) {

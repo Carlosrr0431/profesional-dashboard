@@ -1,4 +1,9 @@
-const { alignStreetNumberPins } = require('../../shared/salta-address');
+const { alignStreetNumberPins, applyStreetNameExpansions } = require('../../shared/salta-address');
+
+test('alvear se completa como Marcelo T. de Alvear', () => {
+  expect(applyStreetNameExpansions('alvear 700')).toBe('Marcelo T. de Alvear 700');
+  expect(applyStreetNameExpansions('Marcelo T. de Alvear 700')).toBe('Marcelo T. de Alvear 700');
+});
 const { pickOfficialHouseNumber } = require('../../shared/geo/nominatim');
 
 const STREETS = [
