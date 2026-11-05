@@ -716,16 +716,16 @@ export default function NewTripModal({
   return (
     <div
       className={asPopover
-        ? (mapPickTarget || dispatchMode
-          ? 'pointer-events-none fixed inset-0 z-[9999] md:pointer-events-auto md:inset-auto md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:left-auto md:right-4 md:top-auto md:block md:w-[min(420px,calc(100vw-2rem))] md:bg-transparent'
-          : 'fixed inset-0 z-[9999] flex items-stretch bg-navy-900/45 md:inset-auto md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:left-auto md:right-4 md:top-auto md:block md:w-[min(440px,calc(100vw-2rem))] md:bg-transparent')
+        ? (mapPickTarget
+          ? 'pointer-events-none fixed inset-0 z-[9999] md:pointer-events-auto md:inset-auto md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:left-auto md:right-4 md:top-auto md:block md:w-[min(400px,calc(100vw-2rem))] md:bg-transparent'
+          : 'fixed inset-0 z-[9999] flex items-end bg-navy-900/45 md:inset-auto md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:left-auto md:right-4 md:top-auto md:block md:w-[min(400px,calc(100vw-2rem))] md:bg-transparent')
         : 'fixed inset-0 z-[9999] flex items-center justify-center bg-[rgba(15,23,42,0.65)] p-3 backdrop-blur-[6px]'}
       onClick={asPopover ? undefined : ((e) => e.target === e.currentTarget && onClose())}
     >
       <style>{MODAL_STYLES}</style>
       <div
         className={asPopover
-          ? `pointer-events-auto flex h-auto max-h-[min(100dvh,640px)] w-full flex-col overflow-visible rounded-none bg-white md:rounded-[22px] md:border md:border-white/70 md:bg-white/92 md:shadow-[0_24px_60px_rgba(15,23,42,0.18)]${mapPickTarget ? ' hidden md:flex' : ''}${dispatchMode ? ' absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-3 right-3 w-auto rounded-[22px] border border-slate-200/80 shadow-[0_18px_50px_rgba(15,23,42,0.16)] md:static md:bottom-auto md:left-auto md:right-auto md:w-full' : ''}`
+          ? `pointer-events-auto flex h-auto w-full flex-col overflow-hidden rounded-t-[22px] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.16)] md:rounded-[22px] md:border md:border-white/80 md:bg-white/94${mapPickTarget ? ' hidden md:flex' : ''}`
           : 'flex max-h-[min(92vh,100dvh)] w-full max-w-[520px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_24px_64px_rgba(0,0,0,0.28)]'}
         style={{
           backdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
@@ -736,8 +736,8 @@ export default function NewTripModal({
       >
         {/* Header */}
         <div style={{
-          padding: asPopover ? '12px 14px 10px' : '16px 20px',
-          paddingTop: asPopover ? 'max(12px, env(safe-area-inset-top))' : 16,
+          padding: asPopover ? '8px 12px 4px' : '16px 20px',
+          paddingTop: asPopover ? '10px' : 16,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           flexShrink: 0,
         }}>
@@ -755,7 +755,7 @@ export default function NewTripModal({
             onClick={onClose}
             aria-label="Cerrar"
             style={{
-              width: 40, height: 40, background: 'transparent', border: 'none',
+              width: asPopover ? 32 : 40, height: asPopover ? 32 : 40, background: 'transparent', border: 'none',
               borderRadius: 10, color: '#94A3B8', fontSize: 18, cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
@@ -768,25 +768,33 @@ export default function NewTripModal({
           display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0,
         }}>
           <div ref={modalScrollRef} className="_ntm_scroll" style={{
-            flex: 1, minHeight: 0, overflowY: 'auto',
-            padding: asPopover ? '0 14px 8px' : '0 20px 12px',
+            flex: asPopover ? '0 0 auto' : 1,
+            minHeight: 0,
+            overflowY: asPopover ? 'visible' : 'auto',
+            padding: asPopover ? '0 12px 4px' : '0 20px 12px',
           }}>
           <div style={{
-            background: '#F8FAFC', border: '1px solid #E8EEF4',
-            borderRadius: 16, padding: '2px 0', marginBottom: 8,
+            background: '#FFFFFF',
+            border: '1px solid #E8EEF4',
+            borderRadius: 16,
+            padding: asPopover ? '4px 0' : '2px 0',
+            marginBottom: asPopover ? 8 : 8,
+            boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
           }}>
-            {/* Recogida */}
-            <div style={{ padding: asPopover ? '8px 12px' : '10px 14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-                <OriginDot />
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em' }}>ORIGEN</span>
-              </div>
+            <div style={{ padding: asPopover ? '6px 10px' : '10px 14px' }}>
+              {asPopover ? null : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                  <OriginDot />
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em' }}>ORIGEN</span>
+                </div>
+              )}
               <AddressAutocomplete
                 id="new-trip-pickup"
-                placeholder="Dirección o enlace de Google Maps"
+                placeholder="Origen o enlace de Maps"
                 value={pickupLabel}
                 accentColor="#DC2626"
                 acceptMapLink
+                dense={asPopover}
                 emphasized={mapPickTarget === 'origin'}
                 inputIcon={<OriginDotSmall />}
                 endAction={(
@@ -811,24 +819,24 @@ export default function NewTripModal({
               />
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px' }}>
-              <div style={{ width: 1, height: 16, background: '#E2E8F0', marginLeft: 6 }} />
-            </div>
+            <div style={{ height: 1, background: '#F1F5F9', margin: '0 12px' }} />
 
-            {/* Destino */}
-            <div style={{ padding: asPopover ? '8px 12px 10px' : '10px 14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-                <DestDot />
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em' }}>
-                  DESTINO <span style={{ fontWeight: 500, color: '#CBD5E1' }}>opcional</span>
-                </span>
-              </div>
+            <div style={{ padding: asPopover ? '6px 10px' : '10px 14px' }}>
+              {asPopover ? null : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                  <DestDot />
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em' }}>
+                    DESTINO <span style={{ fontWeight: 500, color: '#CBD5E1' }}>opcional</span>
+                  </span>
+                </div>
+              )}
               <AddressAutocomplete
                 id="new-trip-dest"
-                placeholder="Dirección o enlace de Google Maps"
+                placeholder="Destino, opcional"
                 value={destLabel}
                 accentColor="#059669"
                 acceptMapLink
+                dense={asPopover}
                 emphasized={mapPickTarget === 'dest'}
                 inputIcon={<DestDotSmall />}
                 endAction={(
@@ -851,60 +859,76 @@ export default function NewTripModal({
               />
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px' }}>
-              <div style={{ width: 1, height: 16, background: '#E2E8F0', marginLeft: 6 }} />
-            </div>
+            <div style={{ height: 1, background: '#F1F5F9', margin: '0 12px' }} />
 
-            <div style={{ padding: asPopover ? '8px 12px 10px' : '10px 14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-                <NotesDot />
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em' }}>
-                  NOTAS <span style={{ fontWeight: 500, color: '#CBD5E1' }}>opcional</span>
-                </span>
-              </div>
+            <div style={{ padding: asPopover ? '6px 10px' : '10px 14px' }}>
+              {asPopover ? null : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                  <NotesDot />
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em' }}>
+                    NOTAS <span style={{ fontWeight: 500, color: '#CBD5E1' }}>opcional</span>
+                  </span>
+                </div>
+              )}
               <textarea
-                rows={2}
+                rows={asPopover ? 1 : 2}
                 maxLength={800}
-                placeholder="Nota, barrio o apellido. Sin dirección se ofrece a todos."
+                placeholder="Nota, barrio o apellido"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                style={notesAreaStyle}
+                style={{
+                  ...notesAreaStyle,
+                  minHeight: asPopover ? 36 : 52,
+                  resize: asPopover ? 'none' : 'vertical',
+                  padding: asPopover ? '8px 12px' : notesAreaStyle.padding,
+                }}
                 onFocus={(e) => { e.target.style.borderColor = '#0F172A'; e.target.style.boxShadow = '0 0 0 3px rgba(15,23,42,0.08)'; }}
                 onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
               />
             </div>
           </div>
 
-          <div
-            role="group"
-            aria-label="Cuándo sale el viaje"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 2,
-              padding: 3,
-              marginBottom: 8,
-              background: '#F1F5F9',
-              borderRadius: 12,
-            }}
-          >
-            <button
-              type="button"
-              aria-pressed={!isScheduled}
-              onClick={() => setScheduledMode(false)}
-              style={scheduleModeBtnStyle(!isScheduled, false)}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: isScheduled ? 8 : 0 }}>
+            <div
+              role="group"
+              aria-label="Cuándo sale el viaje"
+              style={{
+                flex: 1,
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 2,
+                padding: 3,
+                background: '#F1F5F9',
+                borderRadius: 12,
+              }}
             >
-              Ahora
-            </button>
-            <button
-              type="button"
-              aria-pressed={isScheduled}
-              onClick={() => setScheduledMode(true)}
-              style={scheduleModeBtnStyle(isScheduled, true)}
-            >
-              <CalendarIcon size={13} color={isScheduled ? '#FFFFFF' : '#64748B'} />
-              Programar
-            </button>
+              <button
+                type="button"
+                aria-pressed={!isScheduled}
+                onClick={() => setScheduledMode(false)}
+                style={scheduleModeBtnStyle(!isScheduled, false)}
+              >
+                Ahora
+              </button>
+              <button
+                type="button"
+                aria-pressed={isScheduled}
+                onClick={() => setScheduledMode(true)}
+                style={scheduleModeBtnStyle(isScheduled, true)}
+              >
+                <CalendarIcon size={13} color={isScheduled ? '#FFFFFF' : '#64748B'} />
+                Programar
+              </button>
+            </div>
+            <DispatchPicker
+              driverNumberQuery={driverNumberQuery}
+              onNumberChange={setDriverNumberQuery}
+              selectedDriver={selectedDriver}
+              driverMatches={driverMatches}
+              numberInactive={driverResolution.inactive}
+              selectedDriverId={selectedDriverId}
+              onSelectDriver={setSelectedDriverId}
+            />
           </div>
 
           {isScheduled ? (
@@ -926,16 +950,6 @@ export default function NewTripModal({
               </div>
             </div>
           ) : null}
-
-          <DispatchPicker
-            driverNumberQuery={driverNumberQuery}
-            onNumberChange={setDriverNumberQuery}
-            selectedDriver={selectedDriver}
-            driverMatches={driverMatches}
-            numberInactive={driverResolution.inactive}
-            selectedDriverId={selectedDriverId}
-            onSelectDriver={setSelectedDriverId}
-          />
 
           {/* Resumen de ruta, una línea */}
           {(routeLoading || routeInfo) ? (
@@ -971,9 +985,9 @@ export default function NewTripModal({
 
           <div style={{
             flexShrink: 0,
-            padding: asPopover ? '10px 14px 14px' : '12px 20px 18px',
+            padding: asPopover ? '8px 12px 10px' : '12px 20px 18px',
             paddingBottom: asPopover
-              ? 'max(14px, env(safe-area-inset-bottom))'
+              ? '10px'
               : 18,
             borderTop: '1px solid #F1F5F9',
             background: asPopover
@@ -1017,7 +1031,7 @@ export default function NewTripModal({
               <button
                 type="submit" disabled={loading}
                 style={{
-                  flex: 1, padding: '12px 16px',
+                  flex: 1, padding: asPopover ? '10px 14px' : '12px 16px',
                   background: loading
                     ? '#CBD5E1'
                     : (isScheduled ? '#0F172A' : '#E11D48'),
@@ -1079,25 +1093,27 @@ function NumberField({
 }) {
   const showList = !selectedDriver && driverMatches.length > 1;
   return (
-    <div style={{ marginTop: 8 }}>
+    <>
       <input
         type="text"
         inputMode="numeric"
-        placeholder="Número de móvil, ej. 12"
+        aria-label="Número de móvil"
+        placeholder="# móvil"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        style={optInputStyle}
+        title={selectedDriver ? `Móvil #${selectedDriver.driverNumber} · ${driverDisplayName(selectedDriver)}` : undefined}
+        style={{ ...optInputStyle, width: 108, flexShrink: 0, padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}
       />
       {selectedDriver ? (
-        <p style={{ margin: '6px 0 0', fontSize: 12, fontWeight: 700, color: '#0F172A' }}>
-          Móvil #{selectedDriver.driverNumber} · {driverDisplayName(selectedDriver)}
+        <p style={{ flexBasis: '100%', margin: 0, fontSize: 12, fontWeight: 600, color: '#0F172A', lineHeight: 1.2 }}>
+          {driverDisplayName(selectedDriver)}
         </p>
       ) : numberInactive ? (
-        <p style={{ margin: '6px 0 0', fontSize: 12, color: '#B91C1C' }}>Ese número no está activo ahora.</p>
+        <p style={{ flexBasis: '100%', margin: 0, fontSize: 12, color: '#B91C1C', lineHeight: 1.2 }}>Ese número no está activo ahora.</p>
       ) : String(value || '').trim() && driverMatches.length === 0 ? (
-        <p style={{ margin: '6px 0 0', fontSize: 12, color: '#B91C1C' }}>No hay un móvil con ese número.</p>
+        <p style={{ flexBasis: '100%', margin: 0, fontSize: 12, color: '#B91C1C', lineHeight: 1.2 }}>No hay un móvil con ese número.</p>
       ) : showList ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+        <div style={{ flexBasis: '100%', display: 'flex', flexDirection: 'column', gap: 4 }}>
           {driverMatches.map((driver) => (
             <button
               key={driver.id}
@@ -1121,7 +1137,7 @@ function NumberField({
           ))}
         </div>
       ) : null}
-    </div>
+    </>
   );
 }
 
