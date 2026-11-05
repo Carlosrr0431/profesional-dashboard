@@ -928,8 +928,6 @@ export default function NewTripModal({
           ) : null}
 
           <DispatchPicker
-            mode={dispatchMode}
-            noteOnly={noteOnly}
             driverNumberQuery={driverNumberQuery}
             onNumberChange={setDriverNumberQuery}
             selectedDriver={selectedDriver}
@@ -1048,18 +1046,7 @@ export default function NewTripModal({
 
 /* ── Sub-componentes ──────────────────────────────────────────────────────── */
 
-function dispatchSummary(mode, noteOnly, selectedDriver, count) {
-  if (mode === 'one') {
-    return selectedDriver?.driverNumber != null ? `Móvil #${selectedDriver.driverNumber}` : 'Un móvil';
-  }
-  if (mode === 'several') return count ? `${count} móviles` : 'Varios móviles';
-  if (mode === 'all') return 'Todos los libres';
-  return noteOnly ? 'Nota · a todos' : 'Al más cercano';
-}
-
 function DispatchPicker({
-  mode,
-  noteOnly,
   driverNumberQuery,
   onNumberChange,
   selectedDriver,
@@ -1068,33 +1055,16 @@ function DispatchPicker({
   selectedDriverId,
   onSelectDriver,
 }) {
-  const summary = dispatchSummary(mode, noteOnly, selectedDriver, 0);
   return (
-    <div style={{ position: 'relative', marginBottom: 8 }}>
-      <div style={{
-        width: '100%',
-        padding: '10px 12px',
-        borderRadius: 14,
-        border: mode === 'one' ? '1.5px solid #0F172A' : '1px solid #E2E8F0',
-        background: '#FFFFFF',
-      }}>
-        <span style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#94A3B8' }}>
-          DERIVAR
-        </span>
-        <span style={{ display: 'block', marginTop: 2, fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
-          {summary}
-        </span>
-      </div>
-      <NumberField
-        value={driverNumberQuery}
-        onChange={onNumberChange}
-        selectedDriver={selectedDriver}
-        driverMatches={driverMatches}
-        numberInactive={numberInactive}
-        selectedDriverId={selectedDriverId}
-        onSelectDriver={onSelectDriver}
-      />
-    </div>
+    <NumberField
+      value={driverNumberQuery}
+      onChange={onNumberChange}
+      selectedDriver={selectedDriver}
+      driverMatches={driverMatches}
+      numberInactive={numberInactive}
+      selectedDriverId={selectedDriverId}
+      onSelectDriver={onSelectDriver}
+    />
   );
 }
 
