@@ -717,15 +717,15 @@ export default function NewTripModal({
     <div
       className={asPopover
         ? (mapPickTarget
-          ? 'pointer-events-none fixed inset-0 z-[9999] md:pointer-events-auto md:inset-auto md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:left-auto md:right-4 md:top-auto md:block md:w-[min(400px,calc(100vw-2rem))] md:bg-transparent'
-          : 'fixed inset-0 z-[9999] flex items-end bg-navy-900/45 md:inset-auto md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:left-auto md:right-4 md:top-auto md:block md:w-[min(400px,calc(100vw-2rem))] md:bg-transparent')
+          ? 'pointer-events-none fixed inset-0 z-[9999] md:pointer-events-auto md:inset-auto md:bottom-28 md:left-auto md:right-4 md:top-auto md:block md:w-[min(440px,calc(100vw-2rem))] md:bg-transparent'
+          : 'fixed inset-0 z-[9999] flex items-end bg-navy-900/45 md:inset-auto md:bottom-28 md:left-auto md:right-4 md:top-auto md:block md:w-[min(440px,calc(100vw-2rem))] md:bg-transparent')
         : 'fixed inset-0 z-[9999] flex items-center justify-center bg-[rgba(15,23,42,0.65)] p-3 backdrop-blur-[6px]'}
       onClick={asPopover ? undefined : ((e) => e.target === e.currentTarget && onClose())}
     >
       <style>{MODAL_STYLES}</style>
       <div
         className={asPopover
-          ? `pointer-events-auto flex h-auto w-full flex-col overflow-hidden rounded-t-[22px] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.16)] md:rounded-[22px] md:border md:border-white/80 md:bg-white/94${mapPickTarget ? ' hidden md:flex' : ''}`
+          ? `pointer-events-auto flex h-auto w-full flex-col overflow-visible rounded-t-[22px] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.16)] md:rounded-[22px] md:border md:border-white/80 md:bg-white/94${mapPickTarget ? ' hidden md:flex' : ''}`
           : 'flex max-h-[min(92vh,100dvh)] w-full max-w-[520px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_24px_64px_rgba(0,0,0,0.28)]'}
         style={{
           backdropFilter: asPopover ? 'blur(22px) saturate(1.4)' : undefined,
@@ -878,7 +878,7 @@ export default function NewTripModal({
                 onChange={(e) => setNotes(e.target.value)}
                 style={{
                   ...notesAreaStyle,
-                  minHeight: asPopover ? 36 : 52,
+                  minHeight: asPopover ? 42 : 52,
                   resize: asPopover ? 'none' : 'vertical',
                   padding: asPopover ? '8px 12px' : notesAreaStyle.padding,
                 }}
@@ -888,7 +888,7 @@ export default function NewTripModal({
             </div>
           </div>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: isScheduled ? 8 : 0 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
             <div
               role="group"
               aria-label="Cuándo sale el viaje"
@@ -985,7 +985,7 @@ export default function NewTripModal({
 
           <div style={{
             flexShrink: 0,
-            padding: asPopover ? '8px 12px 10px' : '12px 20px 18px',
+            padding: asPopover ? '8px 12px 12px' : '12px 20px 18px',
             paddingBottom: asPopover
               ? '10px'
               : 18,
@@ -1102,16 +1102,16 @@ function NumberField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         title={selectedDriver ? `Móvil #${selectedDriver.driverNumber} · ${driverDisplayName(selectedDriver)}` : undefined}
-        style={{ ...optInputStyle, width: 108, flexShrink: 0, padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}
+        style={{ ...optInputStyle, width: 120, flexShrink: 0, padding: '11px 12px', textAlign: 'center', fontWeight: 700 }}
       />
       {selectedDriver ? (
-        <p style={{ flexBasis: '100%', margin: 0, fontSize: 12, fontWeight: 600, color: '#0F172A', lineHeight: 1.2 }}>
+        <p style={{ flexBasis: '100%', margin: 0, padding: '2px 2px 0', fontSize: 14, fontWeight: 600, color: '#0F172A', lineHeight: 1.4 }}>
           {driverDisplayName(selectedDriver)}
         </p>
       ) : numberInactive ? (
-        <p style={{ flexBasis: '100%', margin: 0, fontSize: 12, color: '#B91C1C', lineHeight: 1.2 }}>Ese número no está activo ahora.</p>
+        <p style={{ flexBasis: '100%', margin: 0, padding: '2px 2px 0', fontSize: 13, color: '#B91C1C', lineHeight: 1.35 }}>Ese número no está activo ahora.</p>
       ) : String(value || '').trim() && driverMatches.length === 0 ? (
-        <p style={{ flexBasis: '100%', margin: 0, fontSize: 12, color: '#B91C1C', lineHeight: 1.2 }}>No hay un móvil con ese número.</p>
+        <p style={{ flexBasis: '100%', margin: 0, padding: '2px 2px 0', fontSize: 13, color: '#B91C1C', lineHeight: 1.35 }}>No hay un móvil con ese número.</p>
       ) : showList ? (
         <div style={{ flexBasis: '100%', display: 'flex', flexDirection: 'column', gap: 4 }}>
           {driverMatches.map((driver) => (
@@ -1178,7 +1178,7 @@ function scheduleModeBtnStyle(active, isScheduleTab) {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    padding: '8px 8px',
+    padding: '10px 8px',
     border: 'none',
     borderRadius: 9,
     background: active ? (isScheduleTab ? '#0F172A' : '#FFFFFF') : 'transparent',

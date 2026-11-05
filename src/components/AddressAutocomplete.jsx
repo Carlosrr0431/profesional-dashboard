@@ -354,7 +354,7 @@ export default function AddressAutocomplete({
           style={{
             flex: 1,
             minWidth: 0,
-            padding: dense ? '6px 0' : '10px 0',
+            padding: dense ? '9px 0' : '10px 0',
             background: 'transparent',
             border: 'none',
             color: '#0F172A',
