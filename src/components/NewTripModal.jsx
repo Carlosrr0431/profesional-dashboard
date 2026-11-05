@@ -22,7 +22,8 @@ import {
 } from '../lib/promoteDueScheduledTrips';
 import { assignExistingTripToDriver } from '../lib/assignExistingTripClient';
 import {
-  findDashboardDriversByNumber,
+  parseDriverNumberInput,
+  resolveActiveDriverByNumber,
   dashboardDriverAvailability,
   driverDisplayName,
 } from '../lib/assignExistingTrip';
@@ -105,7 +106,6 @@ export default function NewTripModal({
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
   const [dispatchMode, setDispatchMode] = useState(null);
-  const [dispatchOpen, setDispatchOpen] = useState(false);
   const [driverNumberQuery, setDriverNumberQuery] = useState('');
   const [selectedDriverId, setSelectedDriverId] = useState(null);
 
@@ -133,6 +133,13 @@ export default function NewTripModal({
     setSelectedDriverId(pickedMapDriver.id);
     setDriverNumberQuery(String(pickedMapDriver.driverNumber ?? ''));
   }, [pickedMapDriver]);
+
+  useEffect(() => {
+    onNotePickModeChange?.('one');
+    return () => onNotePickModeChange?.(null);
+  // El selector de un móvil queda activo mientras el formulario está abierto.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* ── Calcular ruta cuando hay origen + destino ────────────────────────── */
   useEffect(() => {
@@ -372,25 +379,22 @@ export default function NewTripModal({
     });
   };
 
-  const choosingOneDriver = dispatchMode === 'one';
-  const driverMatches = useMemo(
-    () => (choosingOneDriver ? findDashboardDriversByNumber(drivers, driverNumberQuery) : []),
-    [choosingOneDriver, drivers, driverNumberQuery],
+  const choosingOneDriver = Boolean(parseDriverNumberInput(driverNumberQuery));
+  const driverResolution = useMemo(
+    () => resolveActiveDriverByNumber(drivers, driverNumberQuery),
+    [drivers, driverNumberQuery],
   );
+  const driverMatches = driverResolution.matches;
 
   useEffect(() => {
     if (!choosingOneDriver) {
       setSelectedDriverId(null);
+      setDispatchMode((prev) => (prev === 'one' ? null : prev));
       return;
     }
-    if (driverMatches.length === 1) {
-      setSelectedDriverId(driverMatches[0].id);
-      return;
-    }
-    setSelectedDriverId((prev) => (
-      driverMatches.some((driver) => driver.id === prev) ? prev : null
-    ));
-  }, [choosingOneDriver, driverMatches]);
+    setDispatchMode('one');
+    setSelectedDriverId(driverResolution.chosen?.id || null);
+  }, [choosingOneDriver, driverResolution.chosen]);
 
   const selectedDriver = driverMatches.find((driver) => driver.id === selectedDriverId) || null;
   const selectedAvailability = selectedDriver ? dashboardDriverAvailability(selectedDriver) : null;
@@ -405,16 +409,6 @@ export default function NewTripModal({
 
   const originTextNow = (pickupLabel || '').trim();
   const noteOnly = !originTextNow && pickupLat == null && !(destLabel || '').trim() && destLat == null;
-
-  const chooseDispatch = (key) => {
-    const next = dispatchMode === key ? null : key;
-    setDispatchMode(next);
-    if (next !== 'one') {
-      setDriverNumberQuery('');
-      setSelectedDriverId(null);
-    }
-    onNotePickModeChange?.(next, { reset: next === 'several' });
-  };
 
   useEffect(() => {
     if (!isScheduled) return undefined;
@@ -774,7 +768,7 @@ export default function NewTripModal({
           display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0,
         }}>
           <div ref={modalScrollRef} className="_ntm_scroll" style={{
-            flex: 1, minHeight: 0, overflowY: dispatchOpen ? 'visible' : 'auto',
+            flex: 1, minHeight: 0, overflowY: 'auto',
             padding: asPopover ? '0 14px 8px' : '0 20px 12px',
           }}>
           <div style={{
@@ -934,20 +928,15 @@ export default function NewTripModal({
           ) : null}
 
           <DispatchPicker
-            open={dispatchOpen}
             mode={dispatchMode}
             noteOnly={noteOnly}
-            onToggle={() => setDispatchOpen((value) => !value)}
-            onChoose={chooseDispatch}
             driverNumberQuery={driverNumberQuery}
             onNumberChange={setDriverNumberQuery}
             selectedDriver={selectedDriver}
             driverMatches={driverMatches}
+            numberInactive={driverResolution.inactive}
             selectedDriverId={selectedDriverId}
             onSelectDriver={setSelectedDriverId}
-            noteSelectedIds={noteSelectedIds}
-            drivers={drivers}
-            onToggleNoteDriver={onToggleNoteDriver}
           />
 
           {/* Resumen de ruta, una línea */}
@@ -1058,11 +1047,6 @@ export default function NewTripModal({
 }
 
 /* ── Sub-componentes ──────────────────────────────────────────────────────── */
-const DISPATCH_OPTIONS = [
-  ['one', 'Un móvil', 'Número, o tocá uno en el mapa'],
-  ['several', 'Varios móviles', 'Tocá los pines. Gana el primero'],
-  ['all', 'Todos los móviles', 'Los libres se marcan en violeta'],
-];
 
 function dispatchSummary(mode, noteOnly, selectedDriver, count) {
   if (mode === 'one') {
@@ -1074,140 +1058,42 @@ function dispatchSummary(mode, noteOnly, selectedDriver, count) {
 }
 
 function DispatchPicker({
-  open,
   mode,
   noteOnly,
-  onToggle,
-  onChoose,
   driverNumberQuery,
   onNumberChange,
   selectedDriver,
   driverMatches,
+  numberInactive,
   selectedDriverId,
   onSelectDriver,
-  noteSelectedIds,
-  drivers,
-  onToggleNoteDriver,
 }) {
-  const summary = dispatchSummary(mode, noteOnly, selectedDriver, noteSelectedIds.length);
+  const summary = dispatchSummary(mode, noteOnly, selectedDriver, 0);
   return (
     <div style={{ position: 'relative', marginBottom: 8 }}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={onToggle}
-        style={{
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 10,
-          padding: '10px 12px',
-          borderRadius: 14,
-          border: mode ? '1.5px solid #0F172A' : '1px solid #E2E8F0',
-          background: mode === 'all' ? '#F5F3FF' : '#FFFFFF',
-          cursor: 'pointer',
-          fontFamily: 'inherit',
-          textAlign: 'left',
-        }}
-      >
-        <span>
-          <span style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#94A3B8' }}>
-            DERIVAR
-          </span>
-          <span style={{ display: 'block', marginTop: 2, fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
-            {summary}
-          </span>
+      <div style={{
+        width: '100%',
+        padding: '10px 12px',
+        borderRadius: 14,
+        border: mode === 'one' ? '1.5px solid #0F172A' : '1px solid #E2E8F0',
+        background: '#FFFFFF',
+      }}>
+        <span style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#94A3B8' }}>
+          DERIVAR
         </span>
-        <span style={{ fontSize: 16, color: '#94A3B8', lineHeight: 1 }}>{open ? '▴' : '▾'}</span>
-      </button>
-
-      {mode === 'one' && !open ? (
-        <NumberField
-          value={driverNumberQuery}
-          onChange={onNumberChange}
-          selectedDriver={selectedDriver}
-          driverMatches={driverMatches}
-          selectedDriverId={selectedDriverId}
-          onSelectDriver={onSelectDriver}
-        />
-      ) : null}
-      {mode === 'several' && !open ? (
-        <SeveralChips ids={noteSelectedIds} drivers={drivers} onToggle={onToggleNoteDriver} />
-      ) : null}
-
-      {open ? (
-        <div style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 'calc(100% + 8px)',
-          zIndex: 40,
-          padding: 6,
-          borderRadius: 18,
-          background: 'rgba(255,255,255,0.98)',
-          border: '1px solid #E2E8F0',
-          boxShadow: '0 18px 48px rgba(15,23,42,0.16)',
-        }}>
-          {DISPATCH_OPTIONS.map(([key, title, hint]) => {
-            const active = mode === key;
-            const accent = key === 'all' ? '#7C3AED' : '#0F172A';
-            return (
-              <div key={key}>
-                <button
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => onChoose(key)}
-                  style={{
-                    width: '100%',
-                    display: 'flex',
-                    gap: 10,
-                    alignItems: 'flex-start',
-                    textAlign: 'left',
-                    padding: '9px 10px',
-                    border: 'none',
-                    borderRadius: 12,
-                    background: active ? (key === 'all' ? '#F5F3FF' : '#F8FAFC') : 'transparent',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  <span style={{
-                    width: 16,
-                    height: 16,
-                    marginTop: 2,
-                    borderRadius: 999,
-                    boxSizing: 'border-box',
-                    border: active ? `5px solid ${accent}` : '1.5px solid #CBD5E1',
-                    flexShrink: 0,
-                  }} />
-                  <span>
-                    <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#0F172A' }}>{title}</span>
-                    <span style={{ display: 'block', marginTop: 1, fontSize: 12, color: '#64748B', lineHeight: 1.3 }}>{hint}</span>
-                  </span>
-                </button>
-                {active && key === 'one' ? (
-                  <div style={{ padding: '0 8px 8px 36px' }}>
-                    <NumberField
-                      value={driverNumberQuery}
-                      onChange={onNumberChange}
-                      selectedDriver={selectedDriver}
-                      driverMatches={driverMatches}
-                      selectedDriverId={selectedDriverId}
-                      onSelectDriver={onSelectDriver}
-                    />
-                  </div>
-                ) : null}
-                {active && key === 'several' ? (
-                  <div style={{ padding: '0 8px 8px 36px' }}>
-                    <SeveralChips ids={noteSelectedIds} drivers={drivers} onToggle={onToggleNoteDriver} />
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
+        <span style={{ display: 'block', marginTop: 2, fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
+          {summary}
+        </span>
+      </div>
+      <NumberField
+        value={driverNumberQuery}
+        onChange={onNumberChange}
+        selectedDriver={selectedDriver}
+        driverMatches={driverMatches}
+        numberInactive={numberInactive}
+        selectedDriverId={selectedDriverId}
+        onSelectDriver={onSelectDriver}
+      />
     </div>
   );
 }
@@ -1217,9 +1103,11 @@ function NumberField({
   onChange,
   selectedDriver,
   driverMatches,
+  numberInactive,
   selectedDriverId,
   onSelectDriver,
 }) {
+  const showList = !selectedDriver && driverMatches.length > 1;
   return (
     <div style={{ marginTop: 8 }}>
       <input
@@ -1234,9 +1122,11 @@ function NumberField({
         <p style={{ margin: '6px 0 0', fontSize: 12, fontWeight: 700, color: '#0F172A' }}>
           Móvil #{selectedDriver.driverNumber} · {driverDisplayName(selectedDriver)}
         </p>
+      ) : numberInactive ? (
+        <p style={{ margin: '6px 0 0', fontSize: 12, color: '#B91C1C' }}>Ese número no está activo ahora.</p>
       ) : String(value || '').trim() && driverMatches.length === 0 ? (
         <p style={{ margin: '6px 0 0', fontSize: 12, color: '#B91C1C' }}>No hay un móvil con ese número.</p>
-      ) : driverMatches.length > 1 ? (
+      ) : showList ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
           {driverMatches.map((driver) => (
             <button
@@ -1261,48 +1151,6 @@ function NumberField({
           ))}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function SeveralChips({ ids, drivers, onToggle }) {
-  if (!ids.length) {
-    return (
-      <p style={{ margin: '6px 0 0', fontSize: 12, color: '#64748B' }}>
-        Tocá los móviles libres en el mapa.
-      </p>
-    );
-  }
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-      {ids.map((id) => {
-        const driver = drivers.find((item) => item.id === id);
-        return (
-          <button
-            key={id}
-            type="button"
-            onClick={() => onToggle?.(id)}
-            title="Quitar"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '4px 8px 4px 10px',
-              borderRadius: 999,
-              border: 'none',
-              background: '#EDE9FE',
-              color: '#5B21B6',
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-            }}
-          >
-            #{driver?.driverNumber ?? '·'}
-            <span aria-hidden="true">×</span>
-          </button>
-        );
-      })}
     </div>
   );
 }

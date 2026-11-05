@@ -6,6 +6,7 @@ const {
   hasValidDriverGps,
   parseDriverNumberInput,
   findDashboardDriversByNumber,
+  resolveActiveDriverByNumber,
   resolvePreferredDriverId,
   mergePreferredDriverWaContext,
   appendDashboardAssignNotes,
@@ -115,6 +116,15 @@ describe('assignExistingTrip', () => {
     ];
     expect(findDashboardDriversByNumber(drivers, '12').map((d) => d.id)).toEqual(['a', 'c']);
     expect(findDashboardDriversByNumber(drivers, '99')).toEqual([]);
+    expect(resolveActiveDriverByNumber(drivers, '12').matches.map((d) => d.id)).toEqual(['a', 'c']);
+    expect(resolveActiveDriverByNumber([
+      { id: 'off', driverNumber: 1, isOnline: false },
+      { id: 'on', driverNumber: 1, isOnline: true },
+    ], '1')).toMatchObject({ chosen: { id: 'on' }, inactive: false });
+    expect(resolveActiveDriverByNumber([
+      { id: 'off-a', driverNumber: 1, isOnline: false },
+      { id: 'off-b', driverNumber: 1, isOnline: false },
+    ], '1')).toEqual({ matches: [], chosen: null, inactive: true });
     expect(dashboardDriverAvailability(drivers[0]).canAssign).toBe(true);
     expect(dashboardDriverAvailability(drivers[1])).toEqual({
       code: 'offline',

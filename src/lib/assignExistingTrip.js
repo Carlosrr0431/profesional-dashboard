@@ -73,6 +73,17 @@ export function findDashboardDriversByNumber(drivers, value) {
   );
 }
 
+/** Si el número está repetido, queda solo el chofer activo y se elige solo. */
+export function resolveActiveDriverByNumber(drivers, value) {
+  const matches = findDashboardDriversByNumber(drivers, value);
+  if (!matches.length) return { matches: [], chosen: null, inactive: false };
+  if (matches.length === 1) return { matches, chosen: matches[0], inactive: false };
+  const online = matches.filter((driver) => driver.isOnline);
+  if (online.length === 1) return { matches: online, chosen: online[0], inactive: false };
+  if (online.length > 1) return { matches: online, chosen: null, inactive: false };
+  return { matches: [], chosen: null, inactive: true };
+}
+
 export function parseWaContextObject(waContext) {
   if (!waContext) return {};
   if (typeof waContext === 'object') return { ...waContext };
