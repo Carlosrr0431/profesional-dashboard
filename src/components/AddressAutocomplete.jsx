@@ -305,7 +305,7 @@ export default function AddressAutocomplete({
   };
 
   const lit = focused || emphasized;
-  const borderColor = lit ? accentColor : '#E2E8F0';
+  const borderColor = lit ? accentColor : '#94A3B8';
   const shadowColor = lit ? `${accentColor}22` : 'transparent';
 
   return (

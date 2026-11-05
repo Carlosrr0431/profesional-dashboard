@@ -883,7 +883,7 @@ export default function NewTripModal({
                   padding: asPopover ? '8px 12px' : notesAreaStyle.padding,
                 }}
                 onFocus={(e) => { e.target.style.borderColor = '#0F172A'; e.target.style.boxShadow = '0 0 0 3px rgba(15,23,42,0.08)'; }}
-                onBlur={(e) => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; }}
+                onBlur={(e) => { e.target.style.borderColor = '#94A3B8'; e.target.style.boxShadow = 'none'; }}
               />
             </div>
           </div>
@@ -1219,7 +1219,7 @@ function NotesDot() {
 
 const optInputStyle = {
   width: '100%', padding: '9px 12px',
-  background: '#FFFFFF', border: '1.5px solid #E2E8F0',
+  background: '#FFFFFF', border: '1.5px solid #94A3B8',
   borderRadius: 10, color: '#0F172A',
   fontSize: 13, outline: 'none', fontFamily: 'inherit',
   transition: 'border-color 0.15s, box-shadow 0.15s',
