@@ -1,4 +1,4 @@
-/** Tope mensual de llamadas HTTP a Places API (New). El recargo empieza en 10.000. */
+/** Referencia del mes. Ya no corta las llamadas: la caché evita repetirlas. */
 const PLACES_MONTHLY_CALL_LIMIT = 9000;
 
 function placesBillingPeriod(date = new Date()) {

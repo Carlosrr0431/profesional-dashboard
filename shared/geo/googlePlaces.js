@@ -4,7 +4,7 @@
  * ╔══════════════════════════════════════════════════════════════╗
  * ║  SKUs permitidos                                             ║
  * ╠══════════════════════════════════════════════════════════════╣
- * ║  Autocomplete Requests   hasta 9000 llamadas/mes, con caché  ║
+ * ║  Autocomplete Requests   con caché: la misma búsqueda no se cobra otra vez ║
  * ║  Place Details Essentials (IDs Only)  mask = "id"            ║
  * ║    · Verificación barata de placeId sin coordenadas          ║
  * ║  Place Details Essentials  mask = id,formattedAddress,       ║
@@ -276,13 +276,15 @@ function setPlacesBudget(provider) {
   placesBudget = provider || null;
 }
 
-async function consumePlacesCall() {
+/** Anota la llamada si hay contador. Un tope o un error de la base no frenan la búsqueda. */
+async function notePlacesCall() {
   if (!placesBudget?.tryConsume) return false;
   try {
-    return await placesBudget.tryConsume() === true;
+    await placesBudget.tryConsume();
   } catch {
-    return false;
+    // El conteo es informativo.
   }
+  return true;
 }
 
 function assertAllowedUrl(url) {
@@ -578,8 +580,7 @@ async function placesAutocompleteRequest(
 ) {
   const text = String(input || '').trim();
   if (!text || !isGoogleConfigured()) return [];
-  const allowed = await consumePlacesCall();
-  if (!allowed) return [];
+  if (!await notePlacesCall()) return [];
 
   const key = readGoogleApiKey();
   const url = `${PLACES_NEW_BASE}/places:autocomplete`;
@@ -763,6 +764,31 @@ async function expandAutocompleteByZones(text, sessionToken, rootSuggestions, or
 }
 
 /**
+ * Si el lugar ya se eligió alguna vez, la lista sale con su punto.
+ * No llama a Google: solo lee la ficha guardada.
+ */
+async function attachCachedCoordinates(list) {
+  const items = Array.isArray(list) ? list : [];
+  if (!placesBudget?.lookupPlace) return { items, filled: false };
+  let filled = false;
+  const next = await Promise.all(items.map(async (item) => {
+    if (!item || hasUsableGeoPoint(item.lat, item.lng) || !isGooglePlaceId(item.placeId)) return item;
+    const details = await placesBudget.lookupPlace(item.placeId).catch(() => null);
+    if (!details || !hasUsableGeoPoint(details.lat, details.lng)) return item;
+    filled = true;
+    return {
+      ...item,
+      lat: Number(details.lat),
+      lng: Number(details.lng),
+      formattedAddress: item.formattedAddress || details.formattedAddress || item.address,
+      title: item.title || details.title || null,
+      subtitle: item.subtitle || details.subtitle || null,
+    };
+  }));
+  return { items: next, filled };
+}
+
+/**
  * SKU: Autocomplete (New) — devuelve sugerencias estilo Google Maps sin coords.
  *
  * BILLING: El sessionToken agrupa TODOS los keystrokes de la sesión en un único
@@ -786,9 +812,17 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   const skipSavedSearch = options?.skipSavedSearch === true;
   const cacheKey = `c2::${foldText(text)}${expand ? '::expand' : ''}${nearKey}`;
   const flightKey = skipSavedSearch ? `${cacheKey}::refresh` : cacheKey;
-  const serve = (list) => preferSaltaCapitalFirst(list, text)
-    .slice(0, normalizedLimit)
-    .map((item) => ({ ...item, sessionToken }));
+  const serve = async (list) => {
+    const { items, filled } = await attachCachedCoordinates(list);
+    if (filled && placesBudget?.saveSearch && !skipSavedSearch) {
+      const stored = items.map(({ sessionToken: _token, ...rest }) => rest);
+      await placesBudget.saveSearch(cacheKey, stored).catch(() => {});
+      setCached(autocompleteCache, cacheKey, stored, AUTOCOMPLETE_TTL_MS);
+    }
+    return preferSaltaCapitalFirst(items, text)
+      .slice(0, normalizedLimit)
+      .map((item) => ({ ...item, sessionToken }));
+  };
   const cached = skipSavedSearch ? null : getCached(autocompleteCache, cacheKey);
   if (cached) return serve(cached);
   if (inFlightAutocomplete.has(flightKey)) {
@@ -980,8 +1014,9 @@ async function fetchPlaceDetailsEssentials(rawPlaceId, options = {}) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), PLACES_TIMEOUT_MS) : null;
 
-    const allowed = placesBudget?.tryConsume ? await consumePlacesCall() : true;
-    if (!allowed) throw new Error('Cupo de Google Places agotado');
+    if (!await notePlacesCall()) {
+      throw new Error('Google Places no configurado');
+    }
 
     try {
       const response = await fetch(url, {
@@ -1055,8 +1090,7 @@ async function fetchPlaceIdOnly(rawPlaceId) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), PLACES_TIMEOUT_MS) : null;
 
-    const allowed = placesBudget?.tryConsume ? await consumePlacesCall() : true;
-    if (!allowed) return null;
+    if (!await notePlacesCall()) return null;
 
     try {
       const response = await fetch(url, {

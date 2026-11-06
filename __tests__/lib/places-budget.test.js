@@ -153,15 +153,46 @@ describe('búsqueda de Places con cupo y caché', () => {
     ]);
   });
 
-  it('en el tope no llama a Google', async () => {
+  it('un contador que rechaza no frena la búsqueda', async () => {
     setPlacesBudget({
       tryConsume: async () => false,
       getSearch: async () => null,
       saveSearch: async () => {},
     });
-    global.fetch = jest.fn();
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({ suggestions: [suggestion] }),
+    }));
     const results = await autocompleteAddressSalta('farmacia del centro', 5);
-    expect(results).toEqual([]);
+    expect(results[0].placeId).toBe('google:abc123');
+    expect(global.fetch).toHaveBeenCalled();
+  });
+
+  it('completa el punto guardado del lugar y no vuelve a llamar a Google', async () => {
+    const stored = [{
+      placeId: 'google:penal2',
+      title: 'Sitio de Memoria Unidad Penal de Villa Las Rosas',
+      subtitle: 'Avenida Hipólito Yrigoyen, Salta',
+    }];
+    setPlacesBudget({
+      tryConsume: async () => false,
+      getSearch: async (key) => (String(key).includes('unidadpenal') ? stored : null),
+      saveSearch: async (_key, suggestions) => {
+        stored.splice(0, stored.length, ...suggestions);
+      },
+      lookupPlace: async (placeId) => (placeId === 'google:penal2' ? {
+        placeId,
+        lat: -24.82,
+        lng: -65.41,
+        formattedAddress: 'Av. Hipólito Yrigoyen, Salta',
+        title: 'Sitio de Memoria Unidad Penal de Villa Las Rosas',
+      } : null),
+    });
+    global.fetch = jest.fn();
+    const results = await autocompleteAddressSalta('unidadpenal', 5);
+    expect(results[0].lat).toBeCloseTo(-24.82, 2);
+    expect(results[0].lng).toBeCloseTo(-65.41, 2);
     expect(global.fetch).not.toHaveBeenCalled();
+    expect(stored[0].lat).toBeCloseTo(-24.82, 2);
   });
 });

@@ -4,7 +4,6 @@ import {
   PLACES_MONTHLY_CALL_LIMIT,
   cachedPoiMatches,
   foldPlaceText,
-  interpretPlacesConsume,
   placeQueryTokens,
   placesBillingPeriod,
 } from '../../shared/geo/placesBudget.js';
@@ -40,26 +39,20 @@ export async function readPlacesBudget() {
   return { period, calls, limit: PLACES_MONTHLY_CALL_LIMIT };
 }
 
-/** true solo si esta llamada entra en las 9000 del mes. Si la base falla, no se llama a Google. */
+/** Anota la llamada. El número no corta las búsquedas ni la ficha de un lugar. */
 export async function tryConsumePlacesCall() {
   const period = placesBillingPeriod();
-  if (memory.period === period && memory.count != null && memory.count >= PLACES_MONTHLY_CALL_LIMIT) {
-    return false;
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.rpc('consume_google_places_call', {
+      p_period: period,
+      p_limit: 2000000000,
+    });
+    const count = Number(data);
+    if (!error && Number.isFinite(count)) remember(period, count);
+  } catch {
+    // Si la base no responde, la búsqueda sigue.
   }
-
-  const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase.rpc('consume_google_places_call', {
-    p_period: period,
-    p_limit: PLACES_MONTHLY_CALL_LIMIT,
-  });
-  if (error) return false;
-
-  const result = interpretPlacesConsume(data, PLACES_MONTHLY_CALL_LIMIT);
-  if (!result.allowed) {
-    remember(period, PLACES_MONTHLY_CALL_LIMIT);
-    return false;
-  }
-  remember(period, result.count);
   return true;
 }
 

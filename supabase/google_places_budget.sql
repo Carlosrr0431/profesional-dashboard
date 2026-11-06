@@ -1,6 +1,6 @@
 -- Contador y caché de Places API (New).
 -- Cada búsqueda se guarda entera, y cada lugar de esa búsqueda también.
--- El contador no pasa de 9000 llamadas por mes (el recargo de Google empieza en 10000).
+-- El contador solo anota las llamadas. No corta la búsqueda ni la ficha de un lugar.
 -- Ejecutar una vez en el editor SQL de Supabase.
 
 CREATE TABLE IF NOT EXISTS public.google_places_usage (
@@ -39,7 +39,7 @@ ALTER TABLE public.google_places_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.google_places_search_cache ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.google_places_poi_cache ENABLE ROW LEVEL SECURITY;
 
--- Suma 1 solo si el mes todavía está bajo el tope. Si ya llegó, no cambia la fila y devuelve null.
+-- Suma 1 siempre. p_limit queda en la firma para no cambiar el llamado.
 CREATE OR REPLACE FUNCTION public.consume_google_places_call(p_period text, p_limit integer)
 RETURNS integer
 LANGUAGE plpgsql
@@ -49,12 +49,12 @@ AS $$
 DECLARE
   next_count integer;
 BEGIN
+  PERFORM p_limit;
   INSERT INTO public.google_places_usage (period, call_count)
   VALUES (p_period, 1)
   ON CONFLICT (period) DO UPDATE
     SET call_count = public.google_places_usage.call_count + 1,
         updated_at = now()
-    WHERE public.google_places_usage.call_count < p_limit
   RETURNING call_count INTO next_count;
 
   RETURN next_count;
