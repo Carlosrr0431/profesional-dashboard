@@ -1047,11 +1047,13 @@ function sameNumberedStreet(road, otherText, houseNumber) {
     const shorter = roadTokens.length <= otherTokens.length ? roadTokens : otherTokens;
     if (shorter.every((token) => shared.includes(token))) return true;
   }
-  // "Güemes" solo no alcanza: Paseo Güemes y Doctor A. Güemes no son la misma calle.
+  // Una sola calle con el mismo nombre: España tiene 6 letras y el padrón sí la tiene.
+  // Güemes no entra: Paseo, Doctor A. y Martín no son la misma calle.
   return roadTokens.length === 1
     && otherTokens.length === 1
     && shared.length === 1
-    && shared[0].length >= 7;
+    && shared[0].length >= 4
+    && shared[0] !== 'guemes';
 }
 
 function isBareStreetAddress(item, roadText) {

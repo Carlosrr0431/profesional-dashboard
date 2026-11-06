@@ -55,6 +55,9 @@ describe('la altura oficial no cae en la otra punta de la calle', () => {
     expect(sameNumberedStreet('Doctor Adolfo Güemes', 'Paseo Güemes 50', 50)).toBe(false);
     expect(sameNumberedStreet('Dr. A. Güemes', 'P.º Güemes 50', 50)).toBe(false);
     expect(sameNumberedStreet('Paseo Güemes', 'Paseo Güemes 50', 50)).toBe(true);
+    expect(sameNumberedStreet('ESPANA', 'España 111, Salta', 111)).toBe(true);
+    expect(sameNumberedStreet('REYES DE ESPANA', 'España 111', 111)).toBe(false);
+    expect(sameNumberedStreet('Güemes', 'guemes 150', 150)).toBe(false);
   });
 
   test('dos calles homónimas no se mezclan', () => {

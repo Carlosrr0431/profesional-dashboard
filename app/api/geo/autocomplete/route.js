@@ -144,7 +144,7 @@ export async function GET(request) {
       within(searchCachedPlaces(query, limit), 350, []),
       within(
         autocompleteAddressSalta(query, limit, { sessionToken, expand, near }),
-        intersection ? 280 : 1200,
+        intersection ? 280 : (pickPrimaryHouseNumber(query) != null ? 4500 : 1200),
         [],
       ),
     ]);
@@ -173,13 +173,21 @@ export async function GET(request) {
     }
     results = dedupeSamePoint(results);
     const googleQuery = intersection ? intersectionSearchLabel(intersection) : query;
-    const google = await searchGooglePlacesLastResort(googleQuery, limit, { sessionToken }).catch(() => []);
+    const wantedNumber = pickPrimaryHouseNumber(query);
+    const alreadyNumbered = wantedNumber != null && (results || []).some((item) => (
+      pickPrimaryHouseNumber(`${item?.title || ''} ${item?.subtitle || ''} ${item?.address || ''} ${item?.formattedAddress || ''}`) === wantedNumber
+    ));
+    const google = alreadyNumbered
+      ? []
+      : await searchGooglePlacesLastResort(googleQuery, limit, { sessionToken }).catch(() => []);
     const fresh = (google || []).filter((item) => (
       canOffer(item) && (!intersection || intersectionHitMatches(item, intersection.street1, intersection.street2))
     ));
-    if (fresh.length) {
-      results = preferSaltaCapitalFirst(fresh, query).slice(0, limit);
-    } else {
+    const numberedFresh = wantedNumber == null ? fresh : withRequestedHouseNumber(fresh, query);
+    const incoming = numberedFresh.length ? numberedFresh : (results.length ? [] : fresh);
+    if (incoming.length) {
+      results = preferSaltaCapitalFirst(incoming, query).slice(0, limit);
+    } else if (!fresh.length) {
       results.sort((a, b) => (
         queryOverlapScore(query, `${b?.title || ''} ${b?.subtitle || ''} ${b?.address || ''} ${b?.formattedAddress || ''}`)
         - queryOverlapScore(query, `${a?.title || ''} ${a?.subtitle || ''} ${a?.address || ''} ${a?.formattedAddress || ''}`)
