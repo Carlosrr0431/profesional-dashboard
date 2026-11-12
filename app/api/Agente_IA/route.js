@@ -42,7 +42,7 @@ import {
   CANCEL_CONFIRM_POLL_QUESTION,
   CANCEL_CONFIRM_POLL_OPTIONS,
 } from '../../../src/lib/passengerCancelIntent';
-import { buildApproachOnlyTripInsertPayload } from '../../../src/lib/approachOnlyTripPayload';
+import { buildApproachOnlyTripInsertPayload, buildApproachOnlyTripNotes } from '../../../src/lib/approachOnlyTripPayload';
 import {
   buildPoiAutocompleteQueries,
   getKnownPoiPollSeeds,
@@ -174,6 +174,7 @@ import {
   lastBotAskedForTripPrice,
   looksLikeExplicitVehicleDispatch,
   looksLikeFreshTripRequest,
+  isShortTripPriceConfirmText,
   tripAskNeedsStreetFirst,
   pickIntentClassificationText,
   looksLikeTripRequest as messageLooksLikeTripRequest,
@@ -6728,11 +6729,16 @@ async function activateTripAfterPriceConfirmation(tripId, priceCtx, passengerPho
   const originData = priceCtx?.origin || {};
   const destData = priceCtx?.destination || {};
   const finalDestJson = buildFinalDestJsonTag(destData);
-  const notes = [
-    '[APPROACH_ONLY]',
-    'En cola de espera. Retiro confirmado.',
-    finalDestJson,
-  ].filter(Boolean).join('\n');
+  const notes = buildApproachOnlyTripNotes({
+    source: 'whatsapp',
+    pickupLocation: originData.address
+      ? { formattedAddress: originData.address, lat: originData.lat, lng: originData.lng }
+      : null,
+    finalDestinationLocation: destData.address
+      ? { formattedAddress: destData.address, lat: destData.lat, lng: destData.lng }
+      : null,
+    finalDestJsonPrebuilt: finalDestJson,
+  });
 
   const updatePayload = {
     wa_context: buildTripWhatsmeowLineContext(priceCtx),
@@ -6781,17 +6787,24 @@ async function activateTripAfterPriceConfirmation(tripId, priceCtx, passengerPho
     }),
   );
 
-  if (SUPABASE_DISPATCH_ONLY) {
-    triggerDispatchWorker({ reason: 'price_confirmed', tripId });
-  } else {
-    await dispatchQueuedPassengers();
+  try {
+    if (SUPABASE_DISPATCH_ONLY) {
+      triggerDispatchWorker({ reason: 'price_confirmed', tripId });
+    } else {
+      await dispatchQueuedPassengers();
+    }
+  } catch (err) {
+    logWebhook('trip_price_confirm_dispatch_error', {
+      tripId,
+      error: err?.message || 'unknown',
+    });
   }
 
   logWebhook('trip_price_confirm_activated', { tripId, phone: maskPhone(passengerPhone) });
 }
 
 async function cancelTripAfterPriceDecline(tripId, passengerPhone, { reason = 'Pasajero canceló el viaje' } = {}) {
-  await getSupabase()
+  const { error } = await getSupabase()
     .from('trips')
     .update({
       status: 'cancelled',
@@ -6800,6 +6813,7 @@ async function cancelTripAfterPriceDecline(tripId, passengerPhone, { reason = 'P
       dispatch_status: 'cancelled',
     })
     .eq('id', tripId);
+  if (error) throw error;
   await sendWhatsAppText(
     passengerPhone,
     'Perfecto, cancelé el pedido. Avisame cuando necesites un móvil 👍'
@@ -6889,7 +6903,12 @@ async function requestTripPriceConfirmation({
     distance_km: passengerRouteFare.distance_km,
     duration_minutes: passengerRouteFare.duration_minutes,
     wa_context: priceWaCtx,
-    notes: ['[APPROACH_ONLY]', 'Esperando confirmación de precio.', finalDestJson].filter(Boolean).join('\n'),
+    notes: buildApproachOnlyTripNotes({
+      source: 'whatsapp',
+      pickupLocation,
+      finalDestinationLocation: finalDestinationGeo,
+      finalDestJsonPrebuilt: finalDestJson,
+    }),
   };
 
   let trip;
@@ -10003,7 +10022,7 @@ async function processClaimedConversation(batch) {
             tripExtracted: {
               ...(pendingPoll.extracted || {}),
               passenger_name: pendingPoll.extracted?.passenger_name || batch.push_name,
-              _conversationText: combinedText ? combinedText.slice(0, 500) : null,
+              _conversationText: votedText ? String(votedText).slice(0, 500) : null,
             },
             extracted: pendingPoll.extracted || {},
             existingTripId: pollTrip?.id || null,
@@ -10144,9 +10163,9 @@ async function processClaimedConversation(batch) {
 
     // ─ Confirmación de precio pendiente (consulta o viaje con retiro+destino) ──
     if (tripWaContext.price_inquiry || tripWaContext.pending_price_confirm) {
-      const confirmsTrip =
-        isTripPriceConfirmYesVote(fastText)
-        || /\b(s[ií]|si+|dale|ok|confirm[ao]|mand[aá]|quiero|va)\b/i.test(fastText);
+      const confirmsTrip = !looksLikeAddressText(fastText) && (
+        isTripPriceConfirmYesVote(fastText) || isShortTripPriceConfirmText(fastText)
+      );
       const deniesTrip =
         isTripPriceConfirmNoVote(fastText)
         || /\b(no|nah|solo\s+consult|era\s+consult|no\s+gracias)\b/i.test(fastText);
@@ -10156,6 +10175,10 @@ async function processClaimedConversation(batch) {
           await activateTripAfterPriceConfirmation(openTripByPhone.id, tripWaContext, batch.phone);
         } catch (err) {
           logWebhook('price_confirm_activate_error', { tripId: openTripByPhone.id, error: err?.message });
+          await sendWhatsAppText(
+            batch.phone,
+            'No pude confirmar el viaje. Respondé *sí* de nuevo y lo derivo',
+          ).catch(() => {});
         }
         logWebhook('price_inquiry_confirmed', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
         return {
@@ -10172,6 +10195,10 @@ async function processClaimedConversation(batch) {
           await cancelTripAfterPriceDecline(openTripByPhone.id, batch.phone, { reason: cancelReason });
         } catch (err) {
           logWebhook('price_confirm_decline_error', { tripId: openTripByPhone.id, error: err?.message });
+          await sendWhatsAppText(
+            batch.phone,
+            'No pude cancelar el pedido. Respondé *no* de nuevo',
+          ).catch(() => {});
         }
         logWebhook('price_inquiry_declined', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
         return {
@@ -10204,6 +10231,20 @@ async function processClaimedConversation(batch) {
           await applyWhatsAppPassengerCancel(openTripByPhone, batch.phone);
         } catch (err) {
           logWebhook('conversation_fast_path_cancel_error', { tripId: openTripByPhone.id, error: err?.message });
+          await sendWhatsAppText(
+            batch.phone,
+            'No pude cancelar el viaje. Respondé *sí, cancelar* de nuevo',
+          ).catch(() => {});
+          return {
+            handled: true,
+            updates: {
+              status: 'open',
+              context: {},
+              last_trip_id: openTripByPhone.id,
+              processing_started_at: null,
+              last_processed_at: new Date().toISOString(),
+            },
+          };
         }
         logWebhook('conversation_fast_path_cancel_confirmed', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
         return {
@@ -12373,6 +12414,12 @@ async function processConversationById(conversationId) {
         context: fallbackContext,
         last_processed_at: new Date().toISOString(),
       }).catch(() => {});
+      if (!trace.reply && batch?.phone) {
+        const fallback = trace.tripId
+          ? 'El viaje ya está derivado'
+          : 'No pude tomar el pedido. Mandame de nuevo la *calle y altura* o tu *ubicación* y lo derivo';
+        await sendWhatsAppText(batch.phone, fallback).catch(() => {});
+      }
       logWebhook('conversation_process_by_id_error', {
         conversationId,
         error: error?.message || 'unknown_error',

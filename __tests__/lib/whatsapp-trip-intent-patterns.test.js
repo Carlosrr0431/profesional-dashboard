@@ -3,6 +3,7 @@ import {
   classifyWhatsAppIncomingText,
   isAvailabilityAskWithoutRoute,
   isGreetingOnly,
+  isShortTripPriceConfirmText,
   looksLikeFreshTripRequest,
   tripAskNeedsStreetFirst,
   looksLikePriceInquiry,
@@ -14,6 +15,16 @@ import {
 } from '../../src/lib/whatsappTripIntentPatterns';
 
 describe('whatsappTripIntentPatterns', () => {
+  it('un sí corto confirma el precio y un pedido con calle no', () => {
+    expect(isShortTripPriceConfirmText('sí')).toBe(true);
+    expect(isShortTripPriceConfirmText('dale')).toBe(true);
+    expect(isShortTripPriceConfirmText('ok por favor')).toBe(true);
+    expect(isShortTripPriceConfirmText('mandame el movil')).toBe(true);
+    expect(isShortTripPriceConfirmText('mandame un movil a mitre 200')).toBe(false);
+    expect(isShortTripPriceConfirmText('ok mitre 200')).toBe(false);
+    expect(isShortTripPriceConfirmText('no')).toBe(false);
+  });
+
   it('detecta pedido explícito de remis', () => {
     const result = classifyWhatsAppIncomingText('necesito un remis para belgrano al 200');
     expect(result.intentHint).toBe('trip_request');

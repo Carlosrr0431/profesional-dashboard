@@ -68,6 +68,18 @@ export function looksLikeTripRequest(text) {
   );
 }
 
+const SHORT_PRICE_CONFIRM_RE = /^(?:si+|dale|ok|oka|okey|bueno|va|de una|obvio|confirmo|confirmar|confirmado|quiero|manda|mandame)(?:\s+(?:por favor|gracias|dale|nomas|noma|manda|mandame|el viaje|el movil|el auto))*$/;
+
+/** Sí corto a una cotización. Un pedido con calle y altura no confirma el precio anterior. */
+export function isShortTripPriceConfirmText(text) {
+  const norm = normalizeForMatch(text);
+  if (!norm || norm.length > 48) return false;
+  if (/\d/.test(norm)) return false;
+  if (/\b(?:no|cancel)/.test(norm)) return false;
+  if (looksLikeAddressText(norm)) return false;
+  return SHORT_PRICE_CONFIRM_RE.test(norm);
+}
+
 export function looksLikePriceInquiry(text) {
   const n = normalizeForMatch(text);
   if (!n) return false;
