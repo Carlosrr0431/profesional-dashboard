@@ -419,7 +419,7 @@ async function extractTripIntentWithDeepSeek({
       new Promise((_, reject) => {
         budgetTimer = setTimeout(() => {
           reject(Object.assign(new Error('intent_budget'), { status: 408 }));
-        }, 12000);
+        }, 7000);
       }),
     ]);
 

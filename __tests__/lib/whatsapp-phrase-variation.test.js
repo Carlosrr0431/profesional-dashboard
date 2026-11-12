@@ -37,6 +37,13 @@ describe('whatsappPhraseVariation', () => {
     expect(isCannedWhatsappSpam('Buenas tardes 👋\nSoy Betto, de Profesional Viajes\n\nContame de dónde te buscamos\n*Calle y altura* o tu *ubicación GPS*')).toBe(false);
   });
 
+  test('el aviso de viaje derivado sale al instante', async () => {
+    const notice = 'El viaje ya está derivado';
+    const out = await varyWhatsappPhrase(notice, { phone: '5493870000098' });
+    expect(out).toBe(notice);
+    expect(deepseekChatCompletion).not.toHaveBeenCalled();
+  });
+
   test('el link de seguimiento sale tal cual', async () => {
     const tracking = 'Tu viaje está confirmado. Seguí el móvil acá:\nhttps://www.profesionalviajes.com.ar/seguimiento/abc';
     const out = await varyWhatsappPhrase(tracking, { phone: '5493870000099' });

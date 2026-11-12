@@ -195,12 +195,12 @@ export const runtime = 'nodejs';
 
 function resolveAccumulationMs() {
   const raw = process.env.WHATSAPP_ACCUMULATION_MS;
-  if (raw == null || String(raw).trim() === '') return 3000;
+  if (raw == null || String(raw).trim() === '') return 1000;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return 3000;
+  if (!Number.isFinite(parsed) || parsed < 0) return 1000;
   if (parsed === 0) return 0;
-  // Tope: juntar burbujas, pero dejar margen para responder en menos de 25 s.
-  return Math.min(3000, parsed);
+  // Junta dos burbujas seguidas y arranca la respuesta al segundo.
+  return Math.min(1000, parsed);
 }
 
 const ACCUMULATION_MS = resolveAccumulationMs();

@@ -127,10 +127,11 @@ export function isCannedWhatsappSpam(text) {
   );
 }
 
-export async function varyWhatsappPhrase(text, { phone = '', timeoutMs = 4000 } = {}) {
+export async function varyWhatsappPhrase(text, { phone = '', timeoutMs = 1500 } = {}) {
   const source = String(text || '').trim();
   if (!source || isCannedWhatsappSpam(source)) return '';
   if (/https?:\/\//i.test(source) || /link de seguimiento/i.test(source)) return source;
+  if (/ya est[aá] derivado/i.test(source)) return source;
   if (source.length < 8 || !isDeepSeekConfigured()) return source;
 
   const avoid = [source, ...recentPhrases(phone)];

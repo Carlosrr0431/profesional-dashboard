@@ -141,7 +141,6 @@ export function buildTripTakenReply({
 } = {}) {
   const lines = [
     'El viaje ya está derivado',
-    'Apenas un chofer lo acepte te mando el link de seguimiento',
   ];
   if (followup) lines.push(String(followup).trim());
   const body = lines.filter(Boolean).join('\n');

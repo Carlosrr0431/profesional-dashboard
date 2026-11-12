@@ -35,11 +35,12 @@ describe('bettoWelcome', () => {
     expect(conversationalGreeting({ now: morning })).toBe('Buen día');
   });
 
-  it('al derivar el viaje avisa y deja el link para cuando acepten', () => {
+  it('al derivar el viaje avisa sin prometer el link', () => {
     const msg = buildTripTakenReply({ includeGreeting: true, now: morning });
     expect(msg.startsWith('Buen día')).toBe(true);
     expect(msg).toMatch(/ya está derivado/i);
-    expect(msg).toMatch(/link de seguimiento/i);
+    expect(msg).not.toMatch(/link de seguimiento/i);
+    expect(msg).not.toMatch(/chofer lo acepte/i);
     expect(msg).not.toMatch(/quer[eé]s que te mande/i);
     expect(buildTripTakenReply({ includeGreeting: false })).not.toMatch(/Buen día/);
   });
