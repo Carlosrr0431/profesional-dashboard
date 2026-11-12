@@ -16,6 +16,7 @@ import InstallAppButton from '../shared/InstallAppButton';
 import LocationBanner from '../shared/LocationBanner';
 import { initInstallPrompt, registerSpaServiceWorker } from '../shared/pwa';
 import { useDriverGps } from './useDriverGps';
+import { isPlausibleFleetGpsStep } from '../../lib/driverMapGps';
 import TripLiveSheet from '../shared/TripLiveSheet';
 import SpaWhatsAppThread, { isWhatsAppDriverTrip } from '../shared/SpaWhatsAppThread';
 import TripChatModal from '../shared/TripChatModal';
@@ -39,6 +40,7 @@ const DEFAULT_CENTER = { latitude: -24.78, longitude: -65.42 };
 export default function DriverApp() {
   const [booting, setBooting] = useState(true);
   const [driver, setDriver] = useState(null);
+  const lastFleetGpsRef = useRef(null);
   const [tab, setTab] = useState('inicio');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -155,16 +157,25 @@ export default function DriverApp() {
 
   const syncLocation = useCallback(async (coords, isOnline) => {
     if (!driver?.id || !coords) return;
+    const now = Date.now();
+    const prev = lastFleetGpsRef.current;
+    if (prev && now - prev.at < 1200) return;
+    if (prev && !isPlausibleFleetGpsStep(prev, coords, now - prev.at)) return;
     const supabase = getDriverSupabase();
     const lat = coords.lat;
     const lng = coords.lng;
+    const speed = Number(coords.speed);
+    const heading = Number(coords.heading);
+    lastFleetGpsRef.current = { lat, lng, at: now };
     await Promise.all([
       supabase.from('driver_locations').upsert({
         driver_id: driver.id,
         is_online: isOnline,
         lat,
         lng,
-        updated_at: new Date().toISOString(),
+        speed: Number.isFinite(speed) && speed > 0 ? speed : 0,
+        heading: Number.isFinite(heading) ? heading : 0,
+        updated_at: new Date(now).toISOString(),
       }, { onConflict: 'driver_id' }),
       supabase.from('drivers').update({
         current_lat: lat,

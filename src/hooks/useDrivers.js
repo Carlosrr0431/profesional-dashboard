@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveDriverIsOnline } from '../lib/driverPresence';
-import { applyDriverLocationRealtime, nextGpsFromDriverRow } from '../lib/driverMapGps';
+import { applyDriverLocationRealtime, gpsFromDriverTable } from '../lib/driverMapGps';
 import {
   applyTripRealtimeToDrivers,
   mergeDriversSnapshotWithTripRealtime,
@@ -155,7 +155,7 @@ export function useDrivers() {
             const coordsChangedInRow = oldRow
               ? (oldRow.current_lat !== row.current_lat || oldRow.current_lng !== row.current_lng)
               : true;
-            const gps = nextGpsFromDriverRow(prevDriver, row, coordsChangedInRow);
+            const gps = gpsFromDriverTable(prevDriver, row, coordsChangedInRow);
             const nextLat = gps.lat;
             const nextLng = gps.lng;
             const nextUpdatedAt = gps.updatedAt;

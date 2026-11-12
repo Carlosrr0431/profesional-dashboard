@@ -14,6 +14,7 @@ import {
   reverseWindowMeters,
   shouldAcceptForwardGpsStep,
   acceptDriverGpsFix,
+  gpsFromDriverTable,
   MAX_GPS_EXTRAPOLATE_MS,
   GPS_JUMP_RELOCATE_MS,
 } from '../../src/lib/driverMapGps';
@@ -604,6 +605,42 @@ describe('acceptDriverGpsFix', () => {
     const fix = acceptDriverGpsFix(here, { lat: -24.78274, lng: -65.40705 }, now);
     expect(fix.rejected).toBe(false);
     expect(fix.lng).toBe(-65.40705);
+  });
+
+  it('no dibuja un vuelo de 40 m en 200 ms', () => {
+    const fix = acceptDriverGpsFix(
+      { ...here, updatedAt: new Date(now - 200).toISOString() },
+      { lat: here.lat, lng: here.lng + 0.0004 },
+      now,
+    );
+    expect(fix.rejected).toBe(true);
+    expect(fix.lat).toBe(here.lat);
+    expect(fix.lng).toBe(here.lng);
+  });
+});
+
+describe('gpsFromDriverTable', () => {
+  it('el current_lat repetido no pisa el pin que ya mueve el heartbeat', () => {
+    const next = gpsFromDriverTable(
+      { lat: -24.8, lng: -65.4, updatedAt: '2026-11-12T21:00:00.000Z', speed: 4, heading: 90 },
+      { current_lat: -24.79, current_lng: -65.39, updated_at: '2026-11-12T21:00:01.000Z' },
+    );
+    expect(next.lat).toBe(-24.8);
+    expect(next.lng).toBe(-65.4);
+    expect(next.speed).toBe(4);
+  });
+
+  it('en simulación sí sigue current_lat', () => {
+    const next = gpsFromDriverTable(
+      { lat: -24.8, lng: -65.4, updatedAt: '2026-11-12T21:00:00.000Z', gpsSimulationActive: true },
+      {
+        current_lat: -24.801,
+        current_lng: -65.401,
+        updated_at: '2026-11-12T21:00:01.000Z',
+        gps_simulation_active: true,
+      },
+    );
+    expect(next.lat).toBe(-24.801);
   });
 });
 

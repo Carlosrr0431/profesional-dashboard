@@ -3,7 +3,6 @@ import {
   bearingDegrees,
   extrapolateGps,
   haversineMeters,
-  MAX_GPS_EXTRAPOLATE_MS,
   MIN_MOVE_SPEED_MPS,
   shouldAcceptForwardGpsStep,
 } from '../lib/driverMapGps';
@@ -84,8 +83,9 @@ export function useSmoothMapCoords(lat, lng, speedMps = 0, headingDeg = 0) {
       return undefined;
     }
 
-    // Salto grande (> 500 m, ej. reconexión inicial o teleport): posicionar directo
-    if (distM > 500) {
+    // Un tramo así de largo no es una calle: es un GPS que se reubicó.
+    // Posicionar directo, sin dibujar una recta por encima de las manzanas.
+    if (distM > 160) {
       cancelAnimationFrame(animRef.current);
       displayRef.current = target;
       setDisplay(target);
@@ -131,14 +131,18 @@ export function useSmoothMapCoords(lat, lng, speedMps = 0, headingDeg = 0) {
       let curLng = startLng + (target.lng - startLng) * progress;
       let keepGoing = progress < 1;
 
-      // Entre heartbeats el pin sigue andando a la velocidad del celular (como Uber).
-      if (progress >= 1 && speed > MIN_MOVE_SPEED_MPS) {
+      // Un poco después del último punto real, para que no se frene de golpe.
+      // Más que esto el pin sigue derecho y se sale de la calle en la curva.
+      if (progress >= 1 && speed > MIN_MOVE_SPEED_MPS && speed <= 36) {
         const extraMs = elapsed - duration;
-        if (extraMs < MAX_GPS_EXTRAPOLATE_MS) {
+        if (extraMs < 800) {
           const coast = extrapolateGps(target.lat, target.lng, speed, courseRef.current, extraMs);
-          curLat = coast.lat;
-          curLng = coast.lng;
-          keepGoing = true;
+          const coastM = haversineMeters(target.lat, target.lng, coast.lat, coast.lng);
+          if (coastM <= 14) {
+            curLat = coast.lat;
+            curLng = coast.lng;
+            keepGoing = true;
+          }
         }
       }
 

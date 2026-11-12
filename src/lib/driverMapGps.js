@@ -321,8 +321,12 @@ export function headingDeltaDegrees(fromDeg, toDeg) {
 export const GPS_REVERSE_MAX_M = 28;
 export const GPS_TELEPORT_M = 80;
 export const GPS_REVERSE_HEADING_DEG = 110;
-/** Por encima de esto, en poco tiempo, el punto no es un auto: son dos GPS peleando. */
-export const GPS_JUMP_MIN_M = 45;
+/**
+ * Por debajo de esto el paso es un avance normal de calle.
+ * Un salto más grande tiene que poder hacerlo un auto: si llega en
+ * una fracción de segundo, son dos GPS peleando y el pin no debe volar.
+ */
+export const GPS_JUMP_MIN_M = 12;
 export const GPS_MAX_PLAUSIBLE_MPS = 28;
 export const GPS_JUMP_RELOCATE_MS = 20000;
 
@@ -345,12 +349,11 @@ export function acceptDriverGpsFix(prev, next, now = Date.now()) {
 
   const dist = haversineMeters(fromLat, fromLng, toLat, toLng);
   const elapsed = Math.max(0, now - toTs(prev?.updatedAt));
-  // Un punto lejano que se repite enseguida no es que el auto se haya movido:
-  // son dos GPS peleando. Solo se acepta si el pin mostrado dejó de recibir
-  // puntos por un rato.
-  const plausible = dist < GPS_JUMP_MIN_M
-    || elapsed >= GPS_JUMP_RELOCATE_MS
-    || (elapsed >= 400 && dist / (elapsed / 1000) <= GPS_MAX_PLAUSIBLE_MPS);
+  const plausible = isPlausibleFleetGpsStep(
+    { lat: fromLat, lng: fromLng },
+    { lat: toLat, lng: toLng },
+    elapsed,
+  );
 
   if (plausible) {
     return { lat: toLat, lng: toLng, gpsRaw: null, rejected: false };
@@ -361,6 +364,21 @@ export function acceptDriverGpsFix(prev, next, now = Date.now()) {
     gpsRaw: { lat: toLat, lng: toLng, at: now },
     rejected: true,
   };
+}
+
+/** Un auto no cruza una manzana en una fracción de segundo. */
+export function isPlausibleFleetGpsStep(last, next, elapsedMs) {
+  const fromLat = Number(last?.lat);
+  const fromLng = Number(last?.lng);
+  const toLat = Number(next?.lat);
+  const toLng = Number(next?.lng);
+  if (!hasValidDriverCoords(fromLat, fromLng) || !hasValidDriverCoords(toLat, toLng)) return true;
+  const dist = haversineMeters(fromLat, fromLng, toLat, toLng);
+  if (dist < GPS_JUMP_MIN_M) return true;
+  const elapsed = Math.max(0, Number(elapsedMs) || 0);
+  if (elapsed >= GPS_JUMP_RELOCATE_MS) return true;
+  if (elapsed < 400) return false;
+  return dist / (elapsed / 1000) <= GPS_MAX_PLAUSIBLE_MPS;
 }
 
 export function reverseWindowMeters(speedMps = 0) {
@@ -413,7 +431,10 @@ export function inferPinMotion({
   const dist = haversineMeters(fromLat, fromLng, toLat, toLng);
   const reported = toSpeedMps(reportedSpeed, 0);
   const derivedSpeed = intervalMs > 80 ? dist / (intervalMs / 1000) : 0;
-  const speed = reported >= MIN_MOVE_SPEED_MPS ? reported : derivedSpeed;
+  const speed = Math.min(
+    GPS_MAX_PLAUSIBLE_MPS,
+    reported >= MIN_MOVE_SPEED_MPS ? reported : derivedSpeed,
+  );
   const heading = dist >= 1
     ? bearingDegrees(fromLat, fromLng, toLat, toLng)
     : toCoordNumber(reportedHeading, 0);
@@ -430,6 +451,26 @@ export function inferPinMotion({
  * o si no trae coordenadas válidas, se preservan las coordenadas vivas de telemetry
  * para evitar que el pin retroceda a un punto viejo.
  */
+/**
+ * El pin en vivo lo mueve driver_locations (tiene velocidad y rumbo).
+ * current_lat llega otra vez por el trigger de la base y, si se aplica,
+ * el móvil salta al punto anterior. En simulación sí manda current_lat.
+ */
+export function gpsFromDriverTable(prev, row, coordsChangedInRow = true) {
+  const simulating = Boolean(row?.gps_simulation_active || prev?.gpsSimulationActive);
+  if (!simulating && hasValidDriverCoords(prev?.lat, prev?.lng)) {
+    return {
+      lat: prev.lat,
+      lng: prev.lng,
+      updatedAt: prev.updatedAt,
+      speed: prev.speed,
+      heading: prev.heading,
+      gpsRaw: prev.gpsRaw || null,
+    };
+  }
+  return nextGpsFromDriverRow(prev, row, coordsChangedInRow);
+}
+
 export function nextGpsFromDriverRow(prev, row, coordsChangedInRow = true) {
   const hasRowCoords = hasValidDriverCoords(row?.current_lat, row?.current_lng);
   const hasPrevCoords = hasValidDriverCoords(prev?.lat, prev?.lng);
