@@ -452,22 +452,11 @@ export function inferPinMotion({
  * para evitar que el pin retroceda a un punto viejo.
  */
 /**
- * El pin en vivo lo mueve driver_locations (tiene velocidad y rumbo).
- * current_lat llega otra vez por el trigger de la base y, si se aplica,
- * el móvil salta al punto anterior. En simulación sí manda current_lat.
+ * El celular y el trigger escriben current_lat. Esa es la señal que el
+ * panel recibe en vivo. Un eco de la misma posición no mueve el pin, y un
+ * salto imposible en menos de medio segundo tampoco.
  */
 export function gpsFromDriverTable(prev, row, coordsChangedInRow = true) {
-  const simulating = Boolean(row?.gps_simulation_active || prev?.gpsSimulationActive);
-  if (!simulating && hasValidDriverCoords(prev?.lat, prev?.lng)) {
-    return {
-      lat: prev.lat,
-      lng: prev.lng,
-      updatedAt: prev.updatedAt,
-      speed: prev.speed,
-      heading: prev.heading,
-      gpsRaw: prev.gpsRaw || null,
-    };
-  }
   return nextGpsFromDriverRow(prev, row, coordsChangedInRow);
 }
 
@@ -506,7 +495,14 @@ export function nextGpsFromDriverRow(prev, row, coordsChangedInRow = true) {
     headingDeg: prev.heading,
     speedMps: prev.speed,
   })) {
-    return { lat: prev.lat, lng: prev.lng, updatedAt: prev.updatedAt, gpsRaw: prev.gpsRaw || null };
+    return {
+      lat: prev.lat,
+      lng: prev.lng,
+      updatedAt: prev.updatedAt,
+      speed: prev.speed,
+      heading: prev.heading,
+      gpsRaw: prev.gpsRaw || null,
+    };
   }
 
   const fix = acceptDriverGpsFix(
@@ -514,7 +510,14 @@ export function nextGpsFromDriverRow(prev, row, coordsChangedInRow = true) {
     { lat: nextLat, lng: nextLng, simulating },
   );
   if (fix.rejected) {
-    return { lat: prev.lat, lng: prev.lng, updatedAt: prev.updatedAt, gpsRaw: fix.gpsRaw };
+    return {
+      lat: prev.lat,
+      lng: prev.lng,
+      updatedAt: prev.updatedAt,
+      speed: prev.speed,
+      heading: prev.heading,
+      gpsRaw: fix.gpsRaw,
+    };
   }
 
   const intervalMs = Math.max(80, (Date.now() - toTs(prev.updatedAt)) || 800);

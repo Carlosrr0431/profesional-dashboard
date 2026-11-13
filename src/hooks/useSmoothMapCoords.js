@@ -69,8 +69,8 @@ export function useSmoothMapCoords(lat, lng, speedMps = 0, headingDeg = 0) {
       ? reportedHeading
       : courseRef.current;
 
-    // Punto hacia atrás respecto del pin YA DIBUJADO (a menudo adelantado por
-    // coasting): no animar atrás. Frenar el coast para que el GPS alcance.
+    // Punto hacia atrás respecto del pin YA DIBUJADO: no dibujar la línea
+    // de vuelta. Igual hay que mostrar el GPS real, si no el móvil queda quieto.
     if (!shouldAcceptForwardGpsStep({
       fromLat: start.lat,
       fromLng: start.lng,
@@ -80,6 +80,9 @@ export function useSmoothMapCoords(lat, lng, speedMps = 0, headingDeg = 0) {
       speedMps,
     })) {
       cancelAnimationFrame(animRef.current);
+      displayRef.current = target;
+      setDisplay(target);
+      lastTargetTimeRef.current = performance.now();
       return undefined;
     }
 

@@ -620,14 +620,22 @@ describe('acceptDriverGpsFix', () => {
 });
 
 describe('gpsFromDriverTable', () => {
-  it('el current_lat repetido no pisa el pin que ya mueve el heartbeat', () => {
+  it('un current_lat imposible un segundo después no pisa el pin', () => {
     const next = gpsFromDriverTable(
-      { lat: -24.8, lng: -65.4, updatedAt: '2026-11-12T21:00:00.000Z', speed: 4, heading: 90 },
-      { current_lat: -24.79, current_lng: -65.39, updated_at: '2026-11-12T21:00:01.000Z' },
+      { lat: -24.8, lng: -65.4, updatedAt: new Date(Date.now() - 1000).toISOString(), speed: 4, heading: 90 },
+      { current_lat: -24.79, current_lng: -65.39, updated_at: new Date().toISOString() },
     );
     expect(next.lat).toBe(-24.8);
     expect(next.lng).toBe(-65.4);
     expect(next.speed).toBe(4);
+  });
+
+  it('sigue el current_lat cuando el auto avanzó de verdad', () => {
+    const next = gpsFromDriverTable(
+      { lat: -24.785, lng: -65.41, updatedAt: new Date(Date.now() - 3000).toISOString(), speed: 8, heading: 90 },
+      { current_lat: -24.78505, current_lng: -65.4097, updated_at: new Date().toISOString() },
+    );
+    expect(next.lng).toBeCloseTo(-65.4097, 4);
   });
 
   it('en simulación sí sigue current_lat', () => {
