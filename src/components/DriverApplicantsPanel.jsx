@@ -219,7 +219,7 @@ export default function DriverApplicantsPanel({ focusId = null }) {
                 <Info label="Vehículo" value={vehicleLabel(selected)} />
               </div>
 
-              <div className="flex flex-col gap-3 pb-6">
+              <div className="grid grid-cols-1 gap-3 pb-6 lg:grid-cols-2">
                 {steps.map((step, stepIndex) => {
                   const files = selected.documents?.[step.key] || [];
                   const ready = files.length > 0;
@@ -237,7 +237,7 @@ export default function DriverApplicantsPanel({ focusId = null }) {
                       {files.length === 0 ? (
                         <p className="mt-3 pl-9 text-sm text-slate-400">Sin archivos</p>
                       ) : (
-                        <div className="mt-3 flex gap-3 overflow-x-auto pl-9">
+                        <div className="mt-3 grid grid-cols-2 gap-2">
                           {files.map((file, index) => (
                             file.url ? (
                               <a
@@ -245,9 +245,9 @@ export default function DriverApplicantsPanel({ focusId = null }) {
                                 href={file.url}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="w-44 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 transition hover:border-slate-300"
+                                className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 transition hover:border-slate-300"
                               >
-                                <img src={file.url} alt="" className="h-52 w-full bg-slate-100 object-contain" />
+                                <img src={file.url} alt="" className="h-40 w-full bg-slate-100 object-contain" />
                                 <span className="block px-2 py-1.5 text-xs font-medium text-slate-600">
                                   Foto {index + 1}
                                 </span>

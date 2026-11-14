@@ -312,7 +312,7 @@ export default function DriverManagement({ onBack, focusApplicantId = null }) {
             ) : null}
           </div>
 
-          <div className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-full bg-slate-100 p-1">
+          <div className="mt-1 flex w-full gap-1 overflow-x-auto rounded-2xl bg-slate-100 p-1.5">
             {[
               { key: 'drivers', label: 'Choferes' },
               { key: 'applicants', label: 'Aspirantes' },
@@ -322,10 +322,10 @@ export default function DriverManagement({ onBack, focusApplicantId = null }) {
                 key={view.key}
                 type="button"
                 onClick={() => handleMainViewChange(view.key)}
-                className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-semibold transition-all ${
+                className={`min-w-0 flex-1 whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-semibold transition-all ${
                   mainView === view.key
                     ? 'bg-navy-900 text-white shadow-[0_1px_3px_rgba(15,23,42,0.2)]'
-                    : 'text-slate-500 hover:bg-white hover:text-slate-900'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-900'
                 }`}
               >
                 {view.label}
@@ -336,7 +336,7 @@ export default function DriverManagement({ onBack, focusApplicantId = null }) {
           {mainView === 'drivers' ? (
           <>
           {/* Search + Filters */}
-          <div className="flex flex-col gap-3 lg:flex-row">
+          <div className="mt-4 flex flex-col gap-3 lg:flex-row">
             <div className="relative min-w-0 flex-1">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
