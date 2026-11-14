@@ -10809,6 +10809,20 @@ async function processClaimedConversation(batch) {
     });
   }
 
+  if (pickupLocation && !streetTokenAppearsInUserMessage(combinedText, pickupLocation)) {
+    const typedPickup = [heuristicPickupRaw, directPickupRaw].find((item) => (
+      item
+      && isSpecificStreetAddress(item)
+      && streetTokenAppearsInUserMessage(combinedText, item)
+    )) || null;
+    logWebhook('pickup_ai_rejected_not_in_message', {
+      conversationId: batch?.id || null,
+      aiPickup: pickupLocation,
+      chosenPickup: typedPickup,
+    });
+    pickupLocation = typedPickup;
+  }
+
   if (pendingScheduleInfo) {
     const scheduledPickup = extractScheduledPickupCandidate(combinedText);
     if (scheduledPickup) {
