@@ -654,6 +654,19 @@ function titleHasExpandedName(title, expanded) {
 }
 
 /** "alvear 700" no trae la calle; "Marcelo T. de Alvear 700" sí. Esa va primera. */
+function expansionWasChecked(list) {
+  return (list || []).some((item) => item && item._expanded === true && !item.placeId);
+}
+
+function withoutExpansionMark(list) {
+  return (list || []).filter((item) => !(item && item._expanded === true && !item.placeId));
+}
+
+/** La marca vive solo en la caché guardada. El pasajero no la ve. */
+function withExpansionMark(list) {
+  return [...withoutExpansionMark(list), { _expanded: true }];
+}
+
 async function withExpandedStreet(text, named, sessionToken) {
   const expanded = bareSurnameExpansion(text);
   const list = Array.isArray(named) ? named : [];
@@ -816,7 +829,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     const { items, filled } = await attachCachedCoordinates(list);
     if (filled && placesBudget?.saveSearch && !skipSavedSearch) {
       const stored = items.map(({ sessionToken: _token, ...rest }) => rest);
-      await placesBudget.saveSearch(cacheKey, stored).catch(() => {});
+      await placesBudget.saveSearch(cacheKey, withExpansionMark(stored)).catch(() => {});
       setCached(autocompleteCache, cacheKey, stored, AUTOCOMPLETE_TTL_MS);
     }
     return preferSaltaCapitalFirst(items, text)
@@ -833,12 +846,15 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     if (!skipSavedSearch && placesBudget?.getSearch) {
       const saved = await placesBudget.getSearch(cacheKey).catch(() => null);
       if (Array.isArray(saved) && saved.length) {
-        const clean = await withExpandedStreet(text, saved.map(omitUnusablePin), sessionToken);
+        const savedList = saved.map(omitUnusablePin);
+        const checked = expansionWasChecked(savedList);
+        const base = withoutExpansionMark(savedList);
+        const clean = checked
+          ? base
+          : await withExpandedStreet(text, base, sessionToken);
         setCached(autocompleteCache, cacheKey, clean, AUTOCOMPLETE_TTL_MS);
-        if (clean[0]?.placeId !== saved[0]?.placeId || clean.length !== saved.length) {
-          if (placesBudget?.saveSearch) {
-            await placesBudget.saveSearch(cacheKey, clean).catch(() => {});
-          }
+        if (!checked && placesBudget?.saveSearch) {
+          await placesBudget.saveSearch(cacheKey, withExpansionMark(clean)).catch(() => {});
         }
         return clean;
       }
@@ -894,7 +910,7 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     });
     setCached(autocompleteCache, cacheKey, snapshot, AUTOCOMPLETE_TTL_MS);
     if (placesBudget?.saveSearch) {
-      await placesBudget.saveSearch(cacheKey, snapshot).catch(() => {});
+      await placesBudget.saveSearch(cacheKey, withExpansionMark(snapshot)).catch(() => {});
     }
     return snapshot;
   })();
@@ -1156,12 +1172,25 @@ async function rememberGoogleResolution(queries, place) {
   };
   const keys = [...new Set(
     (Array.isArray(queries) ? queries : [queries])
-      .map((item) => normalizeQuery(item))
+      .map((item) => foldText(item))
       .filter((item) => item.length >= 3),
   )];
-  await Promise.all(keys.map((key) => (
-    placesBudget.saveSearch(`${key}::5`, [suggestion]).catch(() => {})
-  )));
+  if (!placesBudget.getSearch) return;
+  await Promise.all(keys.map(async (key) => {
+    const cacheKey = `c2::${key}`;
+    const existing = await placesBudget.getSearch(cacheKey).catch(() => null);
+    if (!Array.isArray(existing) || !existing.length) return;
+    const checked = expansionWasChecked(existing);
+    const base = withoutExpansionMark(existing);
+    const index = base.findIndex((item) => item?.placeId === placeId);
+    if (index < 0) return;
+    const next = base.slice();
+    next[index] = { ...next[index], ...suggestion };
+    await placesBudget.saveSearch(
+      cacheKey,
+      checked ? withExpansionMark(next) : next,
+    ).catch(() => {});
+  }));
 }
 
 /**

@@ -168,6 +168,42 @@ describe('búsqueda de Places con cupo y caché', () => {
     expect(global.fetch).toHaveBeenCalled();
   });
 
+  it('una calle ya guardada no vuelve a pedir la ampliación a Google', async () => {
+    const saved = new Map();
+    const seed = [{
+      placeId: 'google:alvear-short',
+      title: 'Alvear 700',
+      subtitle: 'Salta',
+    }];
+    setPlacesBudget({
+      tryConsume: async () => true,
+      getSearch: async (key) => (saved.has(key) ? saved.get(key) : seed),
+      saveSearch: async (key, suggestions) => {
+        saved.set(key, suggestions);
+      },
+    });
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({ suggestions: [] }),
+    }));
+
+    const first = await autocompleteAddressSalta('alvear 700', 5);
+    expect(first.some((item) => item._expanded)).toBe(false);
+    expect(first[0].placeId).toBe('google:alvear-short');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    const now = Date.now;
+    Date.now = () => now() + 120000;
+    try {
+      const second = await autocompleteAddressSalta('alvear 700', 5);
+      expect(second[0].placeId).toBe('google:alvear-short');
+      expect(second.some((item) => item._expanded)).toBe(false);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      Date.now = now;
+    }
+  });
+
   it('completa el punto guardado del lugar y no vuelve a llamar a Google', async () => {
     const stored = [{
       placeId: 'google:penal2',
