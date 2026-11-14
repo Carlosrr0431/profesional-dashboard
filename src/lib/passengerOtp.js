@@ -305,7 +305,8 @@ export async function createBypassPassengerSession(rawPhone) {
   return createPassengerSession(supabase, phone);
 }
 
-export async function verifyOtpAndCreateSession(rawPhone, rawCode) {
+/** Valida el SMS y lo marca como usado, sin abrir sesión de pasajero. */
+export async function consumePassengerOtp(rawPhone, rawCode) {
   const phone = normalizePassengerPhoneForDb(rawPhone);
   const code = String(rawCode || '').replace(/\D/g, '').padStart(4, '0').slice(-4);
 
@@ -317,8 +318,7 @@ export async function verifyOtpAndCreateSession(rawPhone, rawCode) {
   }
 
   if (isAppReviewDemoPhone(phone) && code === APP_REVIEW_DEMO_OTP) {
-    const supabase = getSupabaseAdmin();
-    return createPassengerSession(supabase, phone);
+    return { ok: true, phone };
   }
 
   const supabase = getSupabaseAdmin();
@@ -361,7 +361,13 @@ export async function verifyOtpAndCreateSession(rawPhone, rawCode) {
     .update({ verified_at: verifiedAt })
     .eq('id', otpRow.id);
 
-  return createPassengerSession(supabase, phone);
+  return { ok: true, phone };
+}
+
+export async function verifyOtpAndCreateSession(rawPhone, rawCode) {
+  const consumed = await consumePassengerOtp(rawPhone, rawCode);
+  if (!consumed.ok) return consumed;
+  return createPassengerSession(getSupabaseAdmin(), consumed.phone);
 }
 
 export async function validatePassengerSession(rawPhone, sessionToken) {

@@ -17,6 +17,7 @@ import { mapPickModeLabel } from './lib/mapPointPick';
 import AiAgentConfirmModal from './components/AiAgentConfirmModal';
 import WhatsAppSessionModal from './components/WhatsAppSessionModal';
 import DriverManagement from './components/DriverManagement';
+import ApplicantAlerts from './components/ApplicantAlerts';
 import { supabase } from './lib/supabase';
 import ZoneManagement from './components/ZoneManagement';
 import BroadcastVoiceChat from './components/BroadcastVoiceChat';
@@ -719,6 +720,7 @@ export default function App() {
 
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden bg-[linear-gradient(180deg,#f8f9fc_0%,#eef1f6_100%)]">
+      <ApplicantAlerts />
 
       {/* ══════════════════════════════════════════════════════════════════════
           SIDEBAR LATERAL (desktop — se pliega / despliega con hover)

@@ -15,6 +15,7 @@ import {
   isDriverDispatchBlocked,
   resolveCommissionOverdue,
 } from '../lib/driverBilling';
+import DriverApplicantsPanel from './DriverApplicantsPanel';
 import { DriverRatingChip } from './DriverRatingView';
 
 export default function DriverManagement({ onBack }) {
@@ -296,6 +297,7 @@ export default function DriverManagement({ onBack }) {
                 <p className="text-xs text-slate-400 font-medium mt-0.5">{drivers.length} choferes registrados</p>
               </div>
             </div>
+            {mainView === 'drivers' ? (
             <button
               onClick={handleNewDriver}
               className="flex w-full items-center justify-center gap-2 rounded-full bg-navy-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(15,23,42,0.22)] transition-all hover:bg-navy-900/90 hover:shadow-[0_2px_8px_rgba(15,23,42,0.28)] active:scale-[0.97] sm:w-auto"
@@ -303,11 +305,13 @@ export default function DriverManagement({ onBack }) {
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
               Nuevo Chofer
             </button>
+            ) : null}
           </div>
 
           <div className="mb-4 flex w-full gap-0.5 overflow-x-auto rounded-2xl bg-slate-100 p-1 scrollbar-none sm:w-fit">
             {[
               { key: 'drivers', label: 'Choferes' },
+              { key: 'applicants', label: 'Aspirantes' },
               { key: 'payments', label: 'Pagos de comisión' },
             ].map((view) => (
               <button
@@ -378,6 +382,8 @@ export default function DriverManagement({ onBack }) {
               }
             }}
           />
+        ) : mainView === 'applicants' ? (
+          <DriverApplicantsPanel />
         ) : (
         <div className="flex-1 overflow-auto p-3 sm:p-6">
           {filtered.length === 0 ? (
