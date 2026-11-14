@@ -7,9 +7,9 @@ export const dynamic = 'force-dynamic';
 const TEST_TO = 'carlos.facundo.rr@gmail.com';
 
 export async function POST(req) {
-  const secret = String(process.env.CRON_SECRET || '').trim();
-  const header = String(req.headers.get('authorization') || '');
-  if (!secret || header !== `Bearer ${secret}`) {
+  const secret = String(process.env.BREVO_PROBE_TOKEN || '').trim();
+  const header = String(req.headers.get('x-probe-token') || '');
+  if (!secret || header !== secret) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
