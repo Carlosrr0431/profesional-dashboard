@@ -9,6 +9,7 @@ import {
   isMissingApplicantTable,
   missingApplicantTableResponse,
   normalizeApplicantEmail,
+  rejectedApplicantBlock,
   upsertApplicantByPhone,
 } from '../../../../../src/lib/driverApplicants';
 
@@ -41,7 +42,7 @@ export async function POST(req) {
       const result = await createAndSendApplicantEmailOtp(email);
       if (!result.ok) {
         return NextResponse.json(
-          { ok: false, message: result.message },
+          { ok: false, message: result.message, rejected: Boolean(result.rejected) },
           { status: result.status || 400 },
         );
       }
@@ -53,6 +54,13 @@ export async function POST(req) {
       return NextResponse.json(
         { ok: false, message: 'Este teléfono ya es chofer. Ingresá con tu cuenta.' },
         { status: 409 },
+      );
+    }
+    const blocked = await rejectedApplicantBlock({ phone });
+    if (blocked) {
+      return NextResponse.json(
+        { ok: false, rejected: true, message: blocked.message },
+        { status: blocked.status },
       );
     }
 

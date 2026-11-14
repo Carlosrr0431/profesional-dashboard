@@ -169,6 +169,43 @@ export async function upsertApplicantByEmail(email) {
   return { ok: true, applicantId: data.id, status: data.status };
 }
 
+export const REJECTED_APPLICANT_MESSAGE = 'Esta solicitud fue rechazada. No podés empezar otra con este teléfono o este correo.';
+
+export async function rejectedApplicantBlock({ phone, email } = {}) {
+  const supabase = getSupabaseAdmin();
+  const mail = normalizeApplicantEmail(email);
+  if (mail) {
+    const { data, error } = await supabase
+      .from('driver_applicants')
+      .select('id, status')
+      .ilike('email', mail)
+      .limit(1);
+    if (error) {
+      if (isMissingApplicantTable(error)) return null;
+      throw error;
+    }
+    if (data?.[0]?.status === 'rejected') {
+      return { ok: false, status: 403, rejected: true, message: REJECTED_APPLICANT_MESSAGE };
+    }
+  }
+
+  const normalized = normalizePassengerPhoneForDb(phone);
+  if (!normalized) return null;
+  const { data, error } = await supabase
+    .from('driver_applicants')
+    .select('id, status')
+    .eq('phone', normalized)
+    .limit(1);
+  if (error) {
+    if (isMissingApplicantTable(error)) return null;
+    throw error;
+  }
+  if (data?.[0]?.status === 'rejected') {
+    return { ok: false, status: 403, rejected: true, message: REJECTED_APPLICANT_MESSAGE };
+  }
+  return null;
+}
+
 const EMAIL_OTP_TTL_MS = 10 * 60 * 1000;
 const EMAIL_OTP_MAX_ATTEMPTS = 5;
 
@@ -179,6 +216,8 @@ export async function createAndSendApplicantEmailOtp(email) {
   if (already) {
     return { ok: false, status: 409, message: 'Este correo ya es chofer. Ingresá con tu cuenta.' };
   }
+  const blocked = await rejectedApplicantBlock({ email: mail });
+  if (blocked) return blocked;
 
   const code = String(randomInt(1000, 10000));
   const supabase = getSupabaseAdmin();

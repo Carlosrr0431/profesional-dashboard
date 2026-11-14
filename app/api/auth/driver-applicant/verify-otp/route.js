@@ -7,6 +7,7 @@ import {
   findRegisteredDriverByPhone,
   isDriverApplicantClient,
   normalizeApplicantEmail,
+  rejectedApplicantBlock,
   upsertApplicantByEmail,
   upsertApplicantByPhone,
 } from '../../../../../src/lib/driverApplicants';
@@ -23,6 +24,13 @@ export async function POST(req) {
 
     const email = normalizeApplicantEmail(payload?.email);
     if (email) {
+      const blocked = await rejectedApplicantBlock({ email });
+      if (blocked) {
+        return NextResponse.json(
+          { ok: false, rejected: true, message: blocked.message },
+          { status: blocked.status },
+        );
+      }
       const consumed = await consumeApplicantEmailOtp(email, payload?.code);
       if (!consumed.ok) {
         return NextResponse.json(
@@ -50,6 +58,13 @@ export async function POST(req) {
     }
 
     const phone = normalizePassengerPhoneForDb(payload?.phone);
+    const blocked = await rejectedApplicantBlock({ phone });
+    if (blocked) {
+      return NextResponse.json(
+        { ok: false, rejected: true, message: blocked.message },
+        { status: blocked.status },
+      );
+    }
     const consumed = await consumePassengerOtp(payload?.phone, payload?.code);
     if (!consumed.ok) {
       return NextResponse.json(
