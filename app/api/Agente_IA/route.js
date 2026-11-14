@@ -175,6 +175,10 @@ import {
   looksLikeExplicitVehicleDispatch,
   looksLikeFreshTripRequest,
   isShortTripPriceConfirmText,
+  isSameBurstExtraPickup,
+  messageHasPickupStreet,
+  textKeepingFirstPickup,
+  SAME_BURST_PICKUP_MS,
   tripAskNeedsStreetFirst,
   pickIntentClassificationText,
   looksLikeTripRequest as messageLooksLikeTripRequest,
@@ -5262,7 +5266,7 @@ async function getLatestConversationByPhone(phone) {
 
   const { data, error } = await getSupabase()
     .from('whatsapp_conversations')
-    .select('id, phone, context, updated_at')
+    .select('id, phone, context, updated_at, is_collecting, pending_messages')
     .eq('phone', normalized)
     .order('updated_at', { ascending: false })
     .limit(1)
@@ -10160,6 +10164,30 @@ async function processClaimedConversation(batch) {
     !tripWaContext.pending_poll
   ) {
     const fastText = pendingMessages.map((m) => m?.contenido).filter(Boolean).join('\n');
+    const openTripAgeMs = Date.now() - new Date(openTripByPhone.created_at || 0).getTime();
+    if (
+      !tripWaContext.pending_price_confirm
+      && !tripWaContext.price_inquiry
+      && !tripWaContext.pending_cancel_confirm
+      && Boolean(tripWaContext.gps_pin)
+      && isSameBurstExtraPickup(fastText, openTripAgeMs)
+    ) {
+      logWebhook('conversation_same_burst_pickup_ignored', {
+        conversationId: batch?.id || null,
+        tripId: openTripByPhone.id,
+        ageMs: openTripAgeMs,
+      });
+      return {
+        handled: true,
+        updates: {
+          status: 'open',
+          context: {},
+          last_trip_id: openTripByPhone.id,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
+      };
+    }
 
     // ─ Confirmación de precio pendiente (consulta o viaje con retiro+destino) ──
     if (tripWaContext.price_inquiry || tripWaContext.pending_price_confirm) {
@@ -10389,10 +10417,9 @@ async function processClaimedConversation(batch) {
 
   // Clasificación AI: solo llega aquí si NO hay viaje activo/bloqueante (o si tiene
   // wa_context pendiente que requiere el flujo completo para resolver GPS o poll).
-  const combinedText = pendingMessages
-    .map((item) => item?.contenido)
-    .filter(Boolean)
-    .join('\n');
+  const combinedText = textKeepingFirstPickup(pendingMessages, (item, text) => (
+    item?.tipo === 'location' || Boolean(readGpsPinFromPassengerText(text))
+  ));
   logWebhook('chat_in', {
     conversationId: batch?.id || null,
     phone: maskPhone(batch?.phone || ''),
@@ -13383,6 +13410,51 @@ async function processWebhookBody(body, requestMeta = {}) {
         }
 
         const latestConversation = await getLatestConversationByPhone(phone).catch(() => null);
+        const pendingWhileCollecting = latestConversation?.is_collecting
+          ? safeJsonParse(latestConversation.pending_messages, [])
+          : [];
+        let streetAlreadyWaiting = !isGpsPlaceholderTrip && (pendingWhileCollecting || []).some((item) => (
+          messageHasPickupStreet(item?.contenido)
+        ));
+        if (!streetAlreadyWaiting && !isGpsPlaceholderTrip && latestConversation?.id) {
+          const since = new Date(Date.now() - SAME_BURST_PICKUP_MS).toISOString();
+          let recentIncoming = [];
+          try {
+            const recent = await getSupabase()
+              .from('whatsapp_messages')
+              .select('content, transcription, message_type')
+              .eq('conversation_id', latestConversation.id)
+              .eq('direction', 'incoming')
+              .gte('created_at', since)
+              .order('created_at', { ascending: false })
+              .limit(6);
+            recentIncoming = recent?.data || [];
+          } catch {
+            recentIncoming = [];
+          }
+          streetAlreadyWaiting = recentIncoming.some((row) => {
+            if (row?.message_type === 'location') return false;
+            const text = row?.transcription || row?.content || '';
+            if (readGpsPinFromPassengerText(text)) return false;
+            return messageHasPickupStreet(text);
+          });
+        }
+        if (streetAlreadyWaiting) {
+          logWebhook('location_ignored_street_already_waiting', {
+            phone: maskPhone(phone),
+            conversationId: latestConversation?.id || null,
+          });
+          return {
+            status: 200,
+            body: {
+              success: true,
+              gpsHandled: true,
+              ignored: true,
+              reason: 'street_arrived_first',
+            },
+          };
+        }
+
         const scheduleInfoFromGps = scheduleInfoFromWaContext(latestOpenTripContext);
 
         if (scheduleInfoFromGps) {

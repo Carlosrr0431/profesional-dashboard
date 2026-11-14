@@ -97,6 +97,42 @@ export function messageHasPickupStreet(text) {
   return hasStreetAndNumber || hasIntersection;
 }
 
+/** Calle y pin que llegan juntos: el primero es el retiro. */
+export const SAME_BURST_PICKUP_MS = 20000;
+
+export function asksForAnotherVehicle(text) {
+  const n = normalizeForMatch(text);
+  if (!n || !/\botro\b/.test(n)) return false;
+  return /\b(?:movil|viaje|auto|remis|taxi|coche)\b/.test(n);
+}
+
+/**
+ * Junta el turno y descarta el segundo retiro.
+ * isGpsLine(item, text) dice si ese mensaje es un pin.
+ */
+export function textKeepingFirstPickup(messages, isGpsLine) {
+  const kept = [];
+  let winner = null;
+  for (const item of messages || []) {
+    const text = String(item?.contenido || item?.text || '').trim();
+    if (!text) continue;
+    const gps = typeof isGpsLine === 'function' ? Boolean(isGpsLine(item, text)) : false;
+    const street = !gps && messageHasPickupStreet(text);
+    const kind = gps ? 'gps' : (street ? 'street' : null);
+    if (kind && winner && kind !== winner) continue;
+    if (kind && !winner) winner = kind;
+    kept.push(text);
+  }
+  return kept.join('\n');
+}
+
+/** La calle que llega justo después de un viaje recién derivado no abre otro. */
+export function isSameBurstExtraPickup(text, tripAgeMs) {
+  if (!Number.isFinite(tripAgeMs) || tripAgeMs < 0 || tripAgeMs > SAME_BURST_PICKUP_MS) return false;
+  if (asksForAnotherVehicle(text)) return false;
+  return messageHasPickupStreet(text);
+}
+
 /** Pedido de móvil sin calle y altura: no se despacha ni se encola. */
 export function tripAskNeedsStreetFirst(text) {
   const raw = String(text || '').trim();

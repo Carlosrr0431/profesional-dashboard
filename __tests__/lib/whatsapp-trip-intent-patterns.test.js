@@ -1,8 +1,10 @@
 import {
+  asksForAnotherVehicle,
   buildPatternTripExtraction,
   classifyWhatsAppIncomingText,
   isAvailabilityAskWithoutRoute,
   isGreetingOnly,
+  isSameBurstExtraPickup,
   isShortTripPriceConfirmText,
   looksLikeFreshTripRequest,
   tripAskNeedsStreetFirst,
@@ -12,6 +14,7 @@ import {
   pickIntentClassificationText,
   shouldPreservePriceQuoteAfterTripReset,
   shouldUsePatternExtraction,
+  textKeepingFirstPickup,
 } from '../../src/lib/whatsappTripIntentPatterns';
 
 describe('whatsappTripIntentPatterns', () => {
@@ -268,6 +271,30 @@ describe('whatsappTripIntentPatterns', () => {
     expect(tripAskNeedsStreetFirst('Me podes enviar un auto a la merced?')).toBe(true);
     expect(tripAskNeedsStreetFirst('Padre mujica 9')).toBe(false);
     expect(tripAskNeedsStreetFirst('mandame un movil a mitre 200')).toBe(false);
+  });
+
+  it('si llegan la calle y el pin juntos se queda el primero', () => {
+    const isGps = (_item, text) => /^-24\./.test(text) || text.includes('maps.google');
+    const streetThenPin = [
+      { contenido: 'Mitre 200' },
+      { contenido: '-24.7851, -65.4102' },
+    ];
+    const pinThenStreet = [
+      { contenido: 'https://maps.google.com/?q=-24.7851,-65.4102' },
+      { contenido: 'mandame un movil a España 111' },
+    ];
+    expect(textKeepingFirstPickup(streetThenPin, isGps)).toBe('Mitre 200');
+    expect(textKeepingFirstPickup(pinThenStreet, isGps)).toBe('https://maps.google.com/?q=-24.7851,-65.4102');
+    expect(textKeepingFirstPickup([{ contenido: 'hola' }, { contenido: 'Mitre 200' }], isGps)).toBe('hola\nMitre 200');
+  });
+
+  it('la calle que llega justo después del pin no abre otro viaje', () => {
+    expect(isSameBurstExtraPickup('Mitre 200', 2000)).toBe(true);
+    expect(isSameBurstExtraPickup('mandame un movil a España 111', 8000)).toBe(true);
+    expect(isSameBurstExtraPickup('mandame otro movil a España 111', 2000)).toBe(false);
+    expect(isSameBurstExtraPickup('Mitre 200', 60000)).toBe(false);
+    expect(isSameBurstExtraPickup('cuanto tarda', 2000)).toBe(false);
+    expect(asksForAnotherVehicle('otro viaje')).toBe(true);
   });
 
   it('no clasifica pedido de móvil como cancelación', () => {
