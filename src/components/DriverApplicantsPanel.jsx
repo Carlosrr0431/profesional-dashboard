@@ -16,7 +16,7 @@ function formatWhen(value) {
   return date.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
 }
 
-export default function DriverApplicantsPanel() {
+export default function DriverApplicantsPanel({ focusId = null }) {
   const [rows, setRows] = useState([]);
   const [steps, setSteps] = useState([]);
   const [unread, setUnread] = useState([]);
@@ -49,6 +49,17 @@ export default function DriverApplicantsPanel() {
       cancelled = true;
     };
   }, [load]);
+
+  useEffect(() => {
+    if (!focusId) return;
+    setOpenId(focusId);
+  }, [focusId]);
+
+  useEffect(() => {
+    if (!focusId || loading) return;
+    const node = document.getElementById(`aspirante-${focusId}`);
+    node?.scrollIntoView({ block: 'start' });
+  }, [focusId, loading, rows]);
 
   const openApplicant = async (row) => {
     setOpenId((current) => (current === row.id ? null : row.id));
@@ -87,7 +98,7 @@ export default function DriverApplicantsPanel() {
           const open = openId === row.id;
           const name = `${row.firstName} ${row.lastName}`.trim() || 'Sin nombre';
           return (
-            <article key={row.id} className="rounded-2xl border border-slate-200 bg-white">
+            <article key={row.id} id={`aspirante-${row.id}`} className={`rounded-2xl border bg-white ${open ? 'border-amber-300 shadow-sm' : 'border-slate-200'}`}>
               <button
                 type="button"
                 onClick={() => openApplicant(row)}

@@ -18,7 +18,7 @@ import {
 import DriverApplicantsPanel from './DriverApplicantsPanel';
 import { DriverRatingChip } from './DriverRatingView';
 
-export default function DriverManagement({ onBack }) {
+export default function DriverManagement({ onBack, focusApplicantId = null }) {
   const toast = useToast();
   const {
     drivers,
@@ -48,9 +48,13 @@ export default function DriverManagement({ onBack }) {
   const [error, setError] = useState('');
   const [confirmDriver, setConfirmDriver] = useState(null);
   const [confirmingPayment, setConfirmingPayment] = useState(false);
-  const [mainView, setMainView] = useState('drivers');
+  const [mainView, setMainView] = useState(focusApplicantId ? 'applicants' : 'drivers');
   const [pendingPartnerSave, setPendingPartnerSave] = useState(null);
   const [blockingDispatchId, setBlockingDispatchId] = useState(null);
+
+  useEffect(() => {
+    if (focusApplicantId) setMainView('applicants');
+  }, [focusApplicantId]);
 
   useEffect(() => {
     if (!detailDriver) return;
@@ -383,7 +387,7 @@ export default function DriverManagement({ onBack }) {
             }}
           />
         ) : mainView === 'applicants' ? (
-          <DriverApplicantsPanel />
+          <DriverApplicantsPanel focusId={focusApplicantId} />
         ) : (
         <div className="flex-1 overflow-auto p-3 sm:p-6">
           {filtered.length === 0 ? (
