@@ -6,14 +6,17 @@ import nodemailer from 'nodemailer';
  * Si no hay clave de API, usa el SMTP (usuario + BREVO_SMTP_KEY).
  * BREVO_SENDER_EMAIL tiene que ser un remitente verificado en Brevo.
  */
+const DEFAULT_SENDER_EMAIL = 'cuentas@profesionalviajes.com.ar';
+const DEFAULT_SENDER_NAME = 'Profesional Viajes';
+
 export function brevoSmtpConfig(env = process.env) {
   return {
     host: String(env.BREVO_SMTP_HOST || 'smtp-relay.brevo.com').trim(),
     port: Number(env.BREVO_SMTP_PORT || 587),
     user: String(env.BREVO_SMTP_USER || '').trim(),
     pass: String(env.BREVO_SMTP_KEY || '').trim(),
-    senderEmail: String(env.BREVO_SENDER_EMAIL || '').trim(),
-    senderName: String(env.BREVO_SENDER_NAME || 'Profesional').trim(),
+    senderEmail: String(env.BREVO_SENDER_EMAIL || DEFAULT_SENDER_EMAIL).trim(),
+    senderName: String(env.BREVO_SENDER_NAME || DEFAULT_SENDER_NAME).trim(),
   };
 }
 
@@ -38,8 +41,8 @@ export function brevoEmailPayload({ to, subject, text, senderEmail, senderName }
 
 export async function sendBrevoEmail({ to, subject, text }, env = process.env) {
   const apiKey = String(env.BREVO_API_KEY || '').trim();
-  const senderEmail = String(env.BREVO_SENDER_EMAIL || '').trim();
-  const senderName = String(env.BREVO_SENDER_NAME || 'Profesional').trim();
+  const senderEmail = String(env.BREVO_SENDER_EMAIL || DEFAULT_SENDER_EMAIL).trim();
+  const senderName = String(env.BREVO_SENDER_NAME || DEFAULT_SENDER_NAME).trim();
   if (apiKey) {
     if (!senderEmail) {
       return {
@@ -64,10 +67,12 @@ export async function sendBrevoEmail({ to, subject, text }, env = process.env) {
       })),
     });
     if (response.ok) return { ok: true };
-    console.error('[brevo]', response.status);
+    const body = await response.json().catch(() => ({}));
+    console.error('[brevo]', response.status, body?.message || body?.code || 'api');
     return {
       ok: false,
       status: 502,
+      detail: body?.message || body?.code || null,
       message: 'No pudimos enviar el código por correo. Intentá de nuevo.',
     };
   }
