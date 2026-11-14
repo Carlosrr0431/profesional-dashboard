@@ -144,7 +144,7 @@ export default function DriverApplicantsPanel({ focusId = null }) {
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden bg-slate-50">
-      <aside className={`${selected ? 'hidden lg:flex' : 'flex'} w-full shrink-0 flex-col overflow-auto border-r border-slate-200 bg-white lg:w-80`}>
+      <aside className={`${selected ? 'hidden lg:flex' : 'flex'} applicant-scroll w-full shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white lg:w-72`}>
         {rows.map((row) => {
           const active = row.id === openId;
           const name = `${row.firstName} ${row.lastName}`.trim() || 'Sin nombre';
@@ -170,21 +170,21 @@ export default function DriverApplicantsPanel({ focusId = null }) {
         })}
       </aside>
 
-      <section className={`${selected ? 'flex' : 'hidden lg:flex'} min-h-0 min-w-0 flex-1 flex-col overflow-auto`}>
+      <section className={`${selected ? 'flex' : 'hidden lg:flex'} min-h-0 min-w-0 flex-1 flex-col overflow-hidden`}>
         {selected ? (
-          <div className="flex min-h-full flex-col">
-            <div className="border-b border-slate-200 bg-white px-5 py-5 sm:px-8">
+          <>
+            <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-4 sm:px-6">
               <button
                 type="button"
                 onClick={() => setOpenId(null)}
-                className="mb-3 text-sm font-semibold text-slate-500 lg:hidden"
+                className="mb-2 text-sm font-semibold text-slate-500 lg:hidden"
               >
                 Volver al listado
               </button>
-              <div className="flex flex-wrap items-end justify-between gap-4">
-                <div>
-                  <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{selectedName}</h2>
-                  <p className="mt-1 text-base text-slate-600">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="truncate text-xl font-bold text-slate-900">{selectedName}</h2>
+                  <p className="mt-0.5 text-sm text-slate-500">
                     {STATUS_LABEL[selected.status] || selected.status}
                     {selected.submittedAt ? ` · ${formatWhen(selected.submittedAt)}` : ''}
                   </p>
@@ -194,71 +194,78 @@ export default function DriverApplicantsPanel({ focusId = null }) {
                     <button
                       type="button"
                       onClick={() => setPending({ row: selected, decision: 'accepted' })}
-                      className={`rounded-full px-5 py-2.5 text-sm font-bold ${selected.status === 'accepted' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'}`}
+                      className={`rounded-full px-4 py-2 text-sm font-semibold ${selected.status === 'accepted' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'}`}
                     >
                       Aceptar
                     </button>
                     <button
                       type="button"
                       onClick={() => setPending({ row: selected, decision: 'rejected' })}
-                      className={`rounded-full px-5 py-2.5 text-sm font-bold ${selected.status === 'rejected' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+                      className={`rounded-full px-4 py-2 text-sm font-semibold ${selected.status === 'rejected' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
                     >
                       Rechazar
                     </button>
                   </div>
                 ) : null}
               </div>
-              {notice ? <p className="mt-3 text-sm font-medium text-slate-700">{notice}</p> : null}
+              {notice ? <p className="mt-2 text-sm font-medium text-slate-700">{notice}</p> : null}
             </div>
 
-            <div className="grid gap-3 px-5 py-5 sm:grid-cols-2 sm:px-8 xl:grid-cols-4">
-              <Info label="Correo" value={selected.email || '—'} />
-              <Info label="Teléfono" value={formatPhone(selected.phone)} />
-              <Info label="DNI" value={selected.dni || '—'} />
-              <Info label="Vehículo" value={vehicleLabel(selected)} />
-            </div>
+            <div className="applicant-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6">
+              <div className="mb-4 flex flex-wrap gap-2">
+                <Info label="Correo" value={selected.email || '—'} />
+                <Info label="Teléfono" value={formatPhone(selected.phone)} />
+                <Info label="DNI" value={selected.dni || '—'} />
+                <Info label="Vehículo" value={vehicleLabel(selected)} />
+              </div>
 
-            <div className="grid gap-4 px-5 pb-8 sm:grid-cols-2 sm:px-8 xl:grid-cols-3">
-              {steps.map((step) => {
-                const files = selected.documents?.[step.key] || [];
-                return (
-                  <article key={step.key} className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <h3 className="text-base font-bold text-slate-900">
-                      {files.length > 0 ? '✓ ' : '○ '}
-                      {step.title}
-                    </h3>
-                    <p className="mt-1 text-sm text-slate-600">{step.hint}</p>
-                    {files.length === 0 ? (
-                      <p className="mt-3 text-sm text-slate-400">Sin archivos</p>
-                    ) : (
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        {files.map((file, index) => (
-                          file.url ? (
-                            <a
-                              key={file.id}
-                              href={file.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
-                            >
-                              <img src={file.url} alt="" className="h-28 w-full object-cover" />
-                              <span className="block truncate px-2 py-1.5 text-xs font-medium text-slate-700">
-                                Foto {index + 1}
-                              </span>
-                            </a>
-                          ) : (
-                            <span key={file.id} className="rounded-xl bg-slate-100 px-2 py-3 text-xs text-slate-500">
-                              {file.file_name || 'Archivo'}
-                            </span>
-                          )
-                        ))}
+              <div className="flex flex-col gap-3 pb-6">
+                {steps.map((step, stepIndex) => {
+                  const files = selected.documents?.[step.key] || [];
+                  const ready = files.length > 0;
+                  return (
+                    <article key={step.key} className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <div className="flex items-start gap-3">
+                        <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                          {ready ? '✓' : stepIndex + 1}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-[15px] font-semibold text-slate-900">{step.title}</h3>
+                          <p className="mt-0.5 text-sm leading-5 text-slate-500">{step.hint}</p>
+                        </div>
                       </div>
-                    )}
-                  </article>
-                );
-              })}
+                      {files.length === 0 ? (
+                        <p className="mt-3 pl-9 text-sm text-slate-400">Sin archivos</p>
+                      ) : (
+                        <div className="mt-3 flex gap-3 overflow-x-auto pl-9">
+                          {files.map((file, index) => (
+                            file.url ? (
+                              <a
+                                key={file.id}
+                                href={file.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="w-44 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 transition hover:border-slate-300"
+                              >
+                                <img src={file.url} alt="" className="h-52 w-full bg-slate-100 object-contain" />
+                                <span className="block px-2 py-1.5 text-xs font-medium text-slate-600">
+                                  Foto {index + 1}
+                                </span>
+                              </a>
+                            ) : (
+                              <span key={file.id} className="rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-500">
+                                {file.file_name || 'Archivo'}
+                              </span>
+                            )
+                          ))}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          </>
         ) : (
           <div className="flex flex-1 items-center justify-center p-8 text-base text-slate-500">
             Elegí un aspirante para ver la documentación.
@@ -304,9 +311,9 @@ export default function DriverApplicantsPanel({ focusId = null }) {
 
 function Info({ label, value }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="mt-1 break-all text-base font-semibold text-slate-900">{value}</p>
+    <div className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</span>
+      <span className="ml-2 text-sm font-semibold text-slate-900">{value}</span>
     </div>
   );
 }

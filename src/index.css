@@ -39,6 +39,31 @@ body {
   border-radius: 999px;
 }
 
+.applicant-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
+}
+
+.applicant-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.applicant-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.applicant-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.applicant-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+  background-clip: padding-box;
+}
+
 /* Slide-in animation for DriverPanel */
 @keyframes slideIn {
   from { transform: translateX(100%); opacity: 0; }

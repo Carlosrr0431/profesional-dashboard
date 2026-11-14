@@ -291,7 +291,7 @@ export default function DriverManagement({ onBack, focusApplicantId = null }) {
       <div className={`min-h-0 flex flex-col overflow-hidden ${mainView === 'payments' ? 'flex-1 w-full' : 'flex-1'}`}>
         {/* Header */}
         <div className="bg-white border-b border-slate-200/70 px-4 py-3.5 lg:px-6 lg:py-4">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3 min-w-0">
               <button onClick={onBack} className="w-9 h-9 shrink-0 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:text-accent hover:bg-accent/8 transition-all">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
@@ -312,7 +312,7 @@ export default function DriverManagement({ onBack, focusApplicantId = null }) {
             ) : null}
           </div>
 
-          <div className="mb-2 flex w-full gap-2 overflow-x-auto rounded-2xl bg-slate-100 p-1.5">
+          <div className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-full bg-slate-100 p-1">
             {[
               { key: 'drivers', label: 'Choferes' },
               { key: 'applicants', label: 'Aspirantes' },
@@ -322,10 +322,10 @@ export default function DriverManagement({ onBack, focusApplicantId = null }) {
                 key={view.key}
                 type="button"
                 onClick={() => handleMainViewChange(view.key)}
-                className={`min-w-[9.5rem] flex-1 rounded-xl px-5 py-3 text-sm font-bold transition-all sm:text-base ${
+                className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-semibold transition-all ${
                   mainView === view.key
-                    ? 'bg-navy-900 text-white shadow-[0_2px_8px_rgba(15,23,42,0.22)]'
-                    : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                    ? 'bg-navy-900 text-white shadow-[0_1px_3px_rgba(15,23,42,0.2)]'
+                    : 'text-slate-500 hover:bg-white hover:text-slate-900'
                 }`}
               >
                 {view.label}
