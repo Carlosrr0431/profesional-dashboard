@@ -174,6 +174,8 @@ export const REJECTED_APPLICANT_MESSAGE = 'Esta solicitud fue rechazada. No podÃ
 export async function rejectedApplicantBlock({ phone, email } = {}) {
   const supabase = getSupabaseAdmin();
   const mail = normalizeApplicantEmail(email);
+  const local = extractLocalArMobileDigits(phone);
+
   if (mail) {
     const { data, error } = await supabase
       .from('driver_applicants')
@@ -189,18 +191,18 @@ export async function rejectedApplicantBlock({ phone, email } = {}) {
     }
   }
 
-  const normalized = normalizePassengerPhoneForDb(phone);
-  if (!normalized) return null;
+  if (!local) return null;
   const { data, error } = await supabase
     .from('driver_applicants')
-    .select('id, status')
-    .eq('phone', normalized)
-    .limit(1);
+    .select('id, status, phone')
+    .ilike('phone', `%${local}%`)
+    .limit(8);
   if (error) {
     if (isMissingApplicantTable(error)) return null;
     throw error;
   }
-  if (data?.[0]?.status === 'rejected') {
+  const match = (data || []).find((row) => extractLocalArMobileDigits(row.phone) === local);
+  if (match?.status === 'rejected') {
     return { ok: false, status: 403, rejected: true, message: REJECTED_APPLICANT_MESSAGE };
   }
   return null;
