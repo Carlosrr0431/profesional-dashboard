@@ -2,11 +2,13 @@ import { NextResponse } from 'next/server';
 import { createAndSendOtp } from '../../../../../../src/lib/passengerOtp';
 import { isLikelyAutomatedScannerIp } from '../../../../../../src/lib/passengerClientGate';
 import {
+  createAndSendApplicantEmailOtp,
   createApplicantSession,
   findRegisteredDriverByPhone,
   isDriverApplicantClient,
   isMissingApplicantTable,
   missingApplicantTableResponse,
+  normalizeApplicantEmail,
   upsertApplicantByPhone,
 } from '../../../../../../src/lib/driverApplicants';
 
@@ -26,12 +28,24 @@ export async function POST(req) {
     if (!isDriverApplicantClient(req, payload)) {
       return NextResponse.json({ ok: false, message: 'Cliente no autorizado.' }, { status: 403 });
     }
+    const email = normalizeApplicantEmail(payload?.email);
     const phone = String(payload?.phone || '').trim();
-    if (!phone) {
-      return NextResponse.json({ ok: false, message: 'Ingresá tu número de teléfono.' }, { status: 400 });
+    if (!email && !phone) {
+      return NextResponse.json({ ok: false, message: 'Ingresá tu teléfono o tu correo.' }, { status: 400 });
     }
     if (isLikelyAutomatedScannerIp(clientIp(req))) {
       return NextResponse.json({ ok: false, message: 'Cliente no autorizado.' }, { status: 403 });
+    }
+
+    if (email) {
+      const result = await createAndSendApplicantEmailOtp(email);
+      if (!result.ok) {
+        return NextResponse.json(
+          { ok: false, message: result.message },
+          { status: result.status || 400 },
+        );
+      }
+      return NextResponse.json(result);
     }
 
     const already = await findRegisteredDriverByPhone(phone);

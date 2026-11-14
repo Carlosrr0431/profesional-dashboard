@@ -2,9 +2,12 @@ import { NextResponse } from 'next/server';
 import { consumePassengerOtp } from '../../../../../../src/lib/passengerOtp';
 import { normalizePassengerPhoneForDb } from '../../../../../../src/lib/passengerAuthPhone';
 import {
+  consumeApplicantEmailOtp,
   createApplicantSession,
   findRegisteredDriverByPhone,
   isDriverApplicantClient,
+  normalizeApplicantEmail,
+  upsertApplicantByEmail,
   upsertApplicantByPhone,
 } from '../../../../../../src/lib/driverApplicants';
 
@@ -16,6 +19,34 @@ export async function POST(req) {
     const payload = await req.json().catch(() => null);
     if (!isDriverApplicantClient(req, payload)) {
       return NextResponse.json({ ok: false, message: 'Cliente no autorizado.' }, { status: 403 });
+    }
+
+    const email = normalizeApplicantEmail(payload?.email);
+    if (email) {
+      const consumed = await consumeApplicantEmailOtp(email, payload?.code);
+      if (!consumed.ok) {
+        return NextResponse.json(
+          { ok: false, message: consumed.message },
+          { status: consumed.status || 400 },
+        );
+      }
+      const applicant = await upsertApplicantByEmail(consumed.email);
+      if (!applicant.ok) {
+        return NextResponse.json({ ok: false, message: applicant.message }, { status: applicant.status || 400 });
+      }
+      const session = await createApplicantSession(applicant.applicantId);
+      if (!session.ok) {
+        return NextResponse.json({ ok: false, message: session.message }, { status: session.status || 400 });
+      }
+      return NextResponse.json({
+        ok: true,
+        email: consumed.email,
+        channel: 'email',
+        token: session.token,
+        expiresAt: session.expiresAt,
+        status: applicant.status,
+        alreadySubmitted: applicant.status === 'submitted',
+      });
     }
 
     const phone = normalizePassengerPhoneForDb(payload?.phone);

@@ -22,9 +22,9 @@ export async function POST(req) {
     if (auth.applicant.status === 'submitted') {
       return NextResponse.json({ ok: true, alreadySubmitted: true });
     }
-    if (!auth.applicant.first_name || !auth.applicant.dni) {
+    if (!auth.applicant.first_name || !auth.applicant.dni || !auth.applicant.phone || !auth.applicant.email) {
       return NextResponse.json(
-        { ok: false, message: 'Primero completá nombre, apellido, correo y DNI.' },
+        { ok: false, message: 'Primero completá nombre, apellido, correo, teléfono y DNI.' },
         { status: 400 },
       );
     }

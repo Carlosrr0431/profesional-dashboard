@@ -1,6 +1,7 @@
-import { randomUUID } from 'crypto';
+import { randomInt, randomUUID } from 'crypto';
 import { getSupabaseAdmin } from './supabaseAdmin';
-import { extractLocalArMobileDigits } from './passengerAuthPhone';
+import { extractLocalArMobileDigits, normalizePassengerPhoneForDb } from './passengerAuthPhone';
+import { sendBrevoEmail } from './brevoMail';
 
 export const APPLICANT_BUCKET = 'driver-applicant-docs';
 export const APPLICANT_SESSION_MS = 14 * 24 * 60 * 60 * 1000;
@@ -64,7 +65,7 @@ export function isApplicantDocKey(value) {
 export function isMissingApplicantTable(error) {
   const code = String(error?.code || '');
   const message = String(error?.message || '');
-  return code === '42P01' || code === 'PGRST205' || message.includes('driver_applicants');
+  return code === '42P01' || code === 'PGRST205' || message.includes('driver_applicant');
 }
 
 export function missingApplicantTableResponse() {
@@ -125,6 +126,125 @@ export async function upsertApplicantByPhone(phone) {
   return { ok: true, applicantId: data.id, status: data.status };
 }
 
+export async function findRegisteredDriverByEmail(email) {
+  const mail = normalizeApplicantEmail(email);
+  if (!mail) return null;
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('drivers')
+    .select('id')
+    .ilike('login_email', mail)
+    .limit(1);
+  if (error) throw error;
+  return data?.[0] || null;
+}
+
+export async function upsertApplicantByEmail(email) {
+  const mail = normalizeApplicantEmail(email);
+  if (!mail) return { ok: false, status: 400, message: 'Ingresá un correo válido.' };
+  const supabase = getSupabaseAdmin();
+  const { data: existing, error: readError } = await supabase
+    .from('driver_applicants')
+    .select('id, status')
+    .ilike('email', mail)
+    .limit(1);
+  if (readError) {
+    if (isMissingApplicantTable(readError)) return missingApplicantTableResponse();
+    throw readError;
+  }
+  if (existing?.[0]?.id) {
+    return { ok: true, applicantId: existing[0].id, status: existing[0].status };
+  }
+
+  const { data, error } = await supabase
+    .from('driver_applicants')
+    .insert({ email: mail, status: 'phone_verified' })
+    .select('id, status')
+    .single();
+  if (error) {
+    if (isMissingApplicantTable(error)) return missingApplicantTableResponse();
+    throw error;
+  }
+  return { ok: true, applicantId: data.id, status: data.status };
+}
+
+const EMAIL_OTP_TTL_MS = 10 * 60 * 1000;
+const EMAIL_OTP_MAX_ATTEMPTS = 5;
+
+export async function createAndSendApplicantEmailOtp(email) {
+  const mail = normalizeApplicantEmail(email);
+  if (!mail) return { ok: false, status: 400, message: 'Ingresá un correo válido.' };
+  const already = await findRegisteredDriverByEmail(mail);
+  if (already) {
+    return { ok: false, status: 409, message: 'Este correo ya es chofer. Ingresá con tu cuenta.' };
+  }
+
+  const code = String(randomInt(1000, 10000));
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.from('driver_applicant_email_codes').insert({
+    email: mail,
+    code,
+    expires_at: new Date(Date.now() + EMAIL_OTP_TTL_MS).toISOString(),
+  });
+  if (error) {
+    if (isMissingApplicantTable(error)) return missingApplicantTableResponse();
+    throw error;
+  }
+
+  const sent = await sendBrevoEmail({
+    to: mail,
+    subject: 'Tu código de Profesional Conductor',
+    text: `Tu código para sumarte como chofer es ${code}. Vence en 10 minutos.`,
+  });
+  if (!sent.ok) return sent;
+  return {
+    ok: true,
+    email: mail,
+    expiresInSeconds: 600,
+    channel: 'email',
+    message: 'Te enviamos un código por correo.',
+  };
+}
+
+export async function consumeApplicantEmailOtp(email, rawCode) {
+  const mail = normalizeApplicantEmail(email);
+  const code = String(rawCode || '').replace(/\D/g, '');
+  if (!mail) return { ok: false, status: 400, message: 'Ingresá un correo válido.' };
+  if (code.length !== 4) return { ok: false, status: 400, message: 'El código tiene 4 números.' };
+
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('driver_applicant_email_codes')
+    .select('id, code, attempts, expires_at, verified_at')
+    .eq('email', mail)
+    .is('verified_at', null)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) {
+    if (isMissingApplicantTable(error)) return missingApplicantTableResponse();
+    throw error;
+  }
+  const row = data?.[0];
+  if (!row || new Date(row.expires_at).getTime() <= Date.now()) {
+    return { ok: false, status: 400, message: 'El código venció. Pedí uno nuevo.' };
+  }
+  if (row.attempts >= EMAIL_OTP_MAX_ATTEMPTS) {
+    return { ok: false, status: 400, message: 'Demasiados intentos. Pedí un código nuevo.' };
+  }
+  if (row.code !== code) {
+    await supabase
+      .from('driver_applicant_email_codes')
+      .update({ attempts: row.attempts + 1 })
+      .eq('id', row.id);
+    return { ok: false, status: 400, message: 'El código no coincide.' };
+  }
+  await supabase
+    .from('driver_applicant_email_codes')
+    .update({ verified_at: new Date().toISOString() })
+    .eq('id', row.id);
+  return { ok: true, email: mail };
+}
+
 export async function createApplicantSession(applicantId) {
   const supabase = getSupabaseAdmin();
   const token = randomUUID();
@@ -169,16 +289,31 @@ export async function requireApplicant(token) {
   return { ok: true, supabase, applicant };
 }
 
-export function validateApplicantProfile({ firstName, lastName, email, dni }) {
-  const name = String(firstName || '').trim();
-  const surname = String(lastName || '').trim();
-  const mail = String(email || '').trim().toLowerCase();
-  const document = String(dni || '').replace(/\D/g, '');
+export function normalizeApplicantEmail(value) {
+  const mail = String(value || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return '';
+  if (mail.endsWith('@profesional.test')) return '';
+  return mail;
+}
+
+export function validateApplicantProfile(payload = {}, applicant = {}) {
+  const name = String(payload.firstName || '').trim();
+  const surname = String(payload.lastName || '').trim();
+  const mail = normalizeApplicantEmail(applicant.email) || normalizeApplicantEmail(payload.email);
+  const document = String(payload.dni || '').replace(/\D/g, '');
   if (name.length < 2) return { ok: false, message: 'Ingresá el nombre.' };
   if (surname.length < 2) return { ok: false, message: 'Ingresá el apellido.' };
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return { ok: false, message: 'Ingresá un correo válido.' };
+  if (!mail) return { ok: false, message: 'Ingresá un correo válido.' };
   if (document.length < 7 || document.length > 8) return { ok: false, message: 'El DNI tiene que tener 7 u 8 números.' };
-  return { ok: true, name, surname, mail, document };
+
+  let phone = applicant.phone || null;
+  if (!phone) {
+    phone = normalizePassengerPhoneForDb(payload.phone);
+    if (!phone || phone.length !== 12) {
+      return { ok: false, message: 'Ingresá tu celular con 10 números, sin 0 ni 15.' };
+    }
+  }
+  return { ok: true, name, surname, mail, document, phone };
 }
 
 export function inspectApplicantFile(file) {

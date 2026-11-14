@@ -1,4 +1,5 @@
-import { missingApplicantDocs, vehicleRequirementError } from '../../src/lib/driverApplicants';
+import { missingApplicantDocs, normalizeApplicantEmail, validateApplicantProfile, vehicleRequirementError } from '../../src/lib/driverApplicants';
+import { brevoEmailPayload } from '../../src/lib/brevoMail';
 
 describe('alta de chofer', () => {
   it('pide los ocho documentos y acepta un auto de 15 años', () => {
@@ -22,5 +23,34 @@ describe('alta de chofer', () => {
       kind: 'car',
       year: 2010,
     }, new Date('2026-11-14'))).toMatch(/15 años/);
+  });
+
+  it('si ya verificó el correo, pide el celular y no cambia el correo', () => {
+    const profile = validateApplicantProfile({
+      firstName: 'Ana',
+      lastName: 'Paz',
+      email: 'otro@gmail.com',
+      phone: '3875345465',
+      dni: '30111222',
+    }, { email: 'ana@gmail.com', phone: null });
+    expect(profile.ok).toBe(true);
+    expect(profile.mail).toBe('ana@gmail.com');
+    expect(profile.phone).toBe('543875345465');
+    expect(normalizeApplicantEmail('no-es-correo')).toBe('');
+  });
+
+  it('arma el correo de Brevo con el remitente configurado', () => {
+    expect(brevoEmailPayload({
+      to: 'ana@gmail.com',
+      subject: 'Código',
+      text: '1234',
+      senderEmail: 'avisos@profesional.ar',
+      senderName: 'Profesional',
+    })).toEqual({
+      sender: { name: 'Profesional', email: 'avisos@profesional.ar' },
+      to: [{ email: 'ana@gmail.com' }],
+      subject: 'Código',
+      textContent: '1234',
+    });
   });
 });

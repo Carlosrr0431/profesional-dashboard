@@ -3,7 +3,7 @@
 
 create table if not exists public.driver_applicants (
   id uuid primary key default gen_random_uuid(),
-  phone text not null unique,
+  phone text unique,
   first_name text,
   last_name text,
   email text,
@@ -59,6 +59,22 @@ alter table public.driver_applicants enable row level security;
 alter table public.driver_applicant_sessions enable row level security;
 alter table public.driver_applicant_documents enable row level security;
 alter table public.driver_applicant_notifications enable row level security;
+
+create unique index if not exists driver_applicants_email_lower_uidx
+  on public.driver_applicants (lower(email))
+  where email is not null and btrim(email) <> '';
+
+create table if not exists public.driver_applicant_email_codes (
+  id uuid primary key default gen_random_uuid(),
+  email text not null,
+  code text not null,
+  attempts integer not null default 0,
+  expires_at timestamptz not null,
+  verified_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+alter table public.driver_applicant_email_codes enable row level security;
 
 insert into storage.buckets (id, name, public)
 values ('driver-applicant-docs', 'driver-applicant-docs', false)

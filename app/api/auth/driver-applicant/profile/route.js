@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import {
+  findRegisteredDriverByEmail,
+  findRegisteredDriverByPhone,
   isDriverApplicantClient,
   requireApplicant,
   validateApplicantProfile,
@@ -25,9 +27,27 @@ export async function POST(req) {
       );
     }
 
-    const profile = validateApplicantProfile(payload || {});
+    const profile = validateApplicantProfile(payload || {}, auth.applicant);
     if (!profile.ok) {
       return NextResponse.json({ ok: false, message: profile.message }, { status: 400 });
+    }
+    if (!auth.applicant.phone) {
+      const taken = await findRegisteredDriverByPhone(profile.phone);
+      if (taken) {
+        return NextResponse.json(
+          { ok: false, message: 'Ese teléfono ya es chofer. Ingresá con tu cuenta.' },
+          { status: 409 },
+        );
+      }
+    }
+    if (!auth.applicant.email) {
+      const takenMail = await findRegisteredDriverByEmail(profile.mail);
+      if (takenMail) {
+        return NextResponse.json(
+          { ok: false, message: 'Ese correo ya es chofer. Ingresá con tu cuenta.' },
+          { status: 409 },
+        );
+      }
     }
 
     const { error } = await auth.supabase
@@ -36,6 +56,7 @@ export async function POST(req) {
         first_name: profile.name,
         last_name: profile.surname,
         email: profile.mail,
+        phone: profile.phone,
         dni: profile.document,
         status: 'profile',
         updated_at: new Date().toISOString(),
