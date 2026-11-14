@@ -286,9 +286,8 @@ export default function DriverManagement({ onBack, focusApplicantId = null }) {
   }
 
   return (
-    <div className="h-full min-h-0 flex overflow-hidden bg-slate-50">
-      {/* Main content — ancho completo en vista global de pagos */}
-      <div className={`min-h-0 flex flex-col overflow-hidden ${mainView === 'payments' ? 'flex-1 w-full' : 'flex-1'}`}>
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden bg-slate-50">
+      <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
         {/* Header */}
         <div className="bg-white border-b border-slate-200/70 px-4 py-3.5 lg:px-6 lg:py-4">
           <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

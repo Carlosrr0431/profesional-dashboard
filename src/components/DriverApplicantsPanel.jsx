@@ -143,7 +143,7 @@ export default function DriverApplicantsPanel({ focusId = null }) {
   const canDecide = selected && ['submitted', 'accepted', 'rejected'].includes(selected.status);
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden bg-slate-50">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden bg-slate-50">
       <aside className={`${selected ? 'hidden lg:flex' : 'flex'} applicant-scroll w-full shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white lg:w-72`}>
         {rows.map((row) => {
           const active = row.id === openId;
