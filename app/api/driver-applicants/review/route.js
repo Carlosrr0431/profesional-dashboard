@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdminUser } from '../../../../src/lib/adminAuthServer';
 import { applicantDecisionEmail, sendBrevoEmail } from '../../../../src/lib/brevoMail';
-import { normalizeApplicantEmail } from '../../../../src/lib/driverApplicants';
+import { ensureDriverForAcceptedApplicant, normalizeApplicantEmail } from '../../../../src/lib/driverApplicants';
 import { getSupabaseAdmin } from '../../../../src/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
@@ -28,11 +28,26 @@ export async function POST(request) {
   const supabase = getSupabaseAdmin();
   const { data: applicant, error: readError } = await supabase
     .from('driver_applicants')
-    .select('id, first_name, last_name, email, status')
+    .select('id, first_name, last_name, email, phone, vehicle_kind, status')
     .eq('id', applicantId)
     .maybeSingle();
   if (readError || !applicant?.id) {
     return NextResponse.json({ ok: false, message: 'No encontramos al aspirante.' }, { status: 404 });
+  }
+
+  let driverCreated = false;
+  let driverNumber = null;
+  if (decision === 'accepted') {
+    try {
+      const driver = await ensureDriverForAcceptedApplicant(applicant);
+      driverCreated = driver.created;
+      driverNumber = driver.driverNumber ?? null;
+    } catch {
+      return NextResponse.json({
+        ok: false,
+        message: 'No pudimos crear el chofer. La solicitud sigue sin aceptar.',
+      }, { status: 500 });
+    }
   }
 
   const now = new Date().toISOString();
@@ -56,7 +71,11 @@ export async function POST(request) {
   let emailMessage = '';
   if (mail) {
     const name = [applicant.first_name, applicant.last_name].filter(Boolean).join(' ');
-    const letter = applicantDecisionEmail({ name, accepted: decision === 'accepted' });
+    const letter = applicantDecisionEmail({
+      name,
+      email: mail,
+      accepted: decision === 'accepted',
+    });
     const sent = await sendBrevoEmail({ to: mail, ...letter });
     emailSent = Boolean(sent.ok);
     if (!sent.ok) emailMessage = sent.message || 'No pudimos enviar el correo.';
@@ -69,5 +88,7 @@ export async function POST(request) {
     status: decision,
     emailSent,
     emailMessage,
+    driverCreated,
+    driverNumber,
   });
 }

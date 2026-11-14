@@ -1,4 +1,4 @@
-import { missingApplicantDocs, normalizeApplicantEmail, applicantDraftPatch, validateApplicantProfile, vehicleRequirementError } from '../../src/lib/driverApplicants';
+import { missingApplicantDocs, normalizeApplicantEmail, applicantDraftPatch, validateApplicantProfile, vehicleRequirementError, buildAcceptedDriverInsert } from '../../src/lib/driverApplicants';
 import { applicantDecisionEmail, applicantOtpEmail, brevoApiPayload, brevoEmailPayload, brevoSmtpConfig } from '../../src/lib/brevoMail';
 
 describe('alta de chofer', () => {
@@ -121,5 +121,25 @@ describe('alta de chofer', () => {
     expect(accepted.html).toContain('logo.png');
     expect(rejected.subject).not.toMatch(/aceptada/);
     expect(rejected.text).toMatch(/no podemos sumarte/);
+    expect(accepted.text).toMatch(/Profesional Conductor/);
+    expect(accepted.html).toContain('Aceptada');
+    expect(rejected.html).toContain('Rechazada');
+  });
+
+  it('arma el chofer listo para entrar con el teléfono y el correo', () => {
+    const row = buildAcceptedDriverInsert({
+      first_name: 'Charly',
+      last_name: 'Brown',
+      email: 'giu40150135@gmail.com',
+      phone: '543878630173',
+      vehicle_kind: 'car',
+    }, 61);
+    expect(row.full_name).toBe('Charly Brown');
+    expect(row.login_email).toBe('giu40150135@gmail.com');
+    expect(row.phone_normalized).toBe('5493878630173');
+    expect(row.driver_number).toBe(61);
+    expect(row.vehicle_type).toBe('auto');
+    expect(row.email_password_initialized).toBe(false);
+    expect(row.password_initialized).toBe(false);
   });
 });

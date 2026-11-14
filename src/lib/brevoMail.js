@@ -99,12 +99,28 @@ export function applicantOtpEmail(code) {
   };
 }
 
-export function applicantDecisionEmail({ name, accepted }) {
-  const who = String(name || 'Hola').trim() || 'Hola';
-  const title = accepted ? 'Aceptamos tu solicitud' : 'Sobre tu solicitud';
-  const body = accepted
-    ? 'Revisamos tu documentación y quedó aprobada. Te vamos a contactar para coordinar el alta como chofer.'
-    : 'Revisamos tu documentación y en este momento no podemos sumarte como chofer. Si querés consultar, respondé este correo.';
+function escapeMail(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+export function applicantDecisionEmail({ name, accepted, email }) {
+  const who = String(name || '').trim();
+  const greeting = who ? `${who},` : 'Hola,';
+  const safeGreeting = escapeMail(greeting);
+  const safeEmail = escapeMail(email);
+  const title = accepted ? 'Ya podés manejar con Profesional' : 'No pudimos aceptar tu solicitud';
+  const lead = accepted
+    ? 'Revisamos tu documentación y quedó aprobada. Ya estás dado de alta como chofer.'
+    : 'Revisamos tu documentación y en este momento no podemos sumarte como chofer.';
+  const detail = accepted
+    ? `Abrí la app Profesional Conductor e ingresá con ${safeEmail || 'tu correo'} o con tu teléfono. La primera vez vas a crear tu clave y después ya podés trabajar.`
+    : 'Si querés consultar el motivo, respondé este correo.';
+  const badgeBg = accepted ? '#e7f8ef' : '#fdecec';
+  const badgeColor = accepted ? '#0f7a45' : '#b42318';
+  const badge = accepted ? 'Aceptada' : 'Rechazada';
   const html = `<!DOCTYPE html>
 <html lang="es">
 <body style="margin:0;padding:0;background:#eef1f8;">
@@ -118,13 +134,23 @@ export function applicantDecisionEmail({ name, accepted }) {
             </td>
           </tr>
           <tr>
-            <td align="center" style="padding:20px 32px 0;font-family:Arial,Helvetica,sans-serif;font-size:22px;line-height:28px;font-weight:700;color:#282e69;">
+            <td align="center" style="padding:18px 32px 0;">
+              <span style="display:inline-block;padding:6px 14px;border-radius:999px;background:${badgeBg};font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;letter-spacing:0.4px;color:${badgeColor};">${badge}</span>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:16px 32px 0;font-family:Arial,Helvetica,sans-serif;font-size:22px;line-height:28px;font-weight:700;color:#282e69;">
               ${title}
             </td>
           </tr>
           <tr>
-            <td style="padding:16px 36px 36px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:24px;color:#2c3348;">
-              ${who}, ${body}
+            <td style="padding:16px 36px 0;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:24px;color:#2c3348;">
+              ${safeGreeting} ${lead}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:12px 36px 36px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:23px;color:#5c6578;">
+              ${detail}
             </td>
           </tr>
         </table>
@@ -133,9 +159,12 @@ export function applicantDecisionEmail({ name, accepted }) {
   </table>
 </body>
 </html>`;
+  const text = accepted
+    ? `${greeting} ${lead} Abrí Profesional Conductor e ingresá con tu correo o tu teléfono. La primera vez vas a crear tu clave.`
+    : `${greeting} ${lead} Si querés consultar, respondé este correo.`;
   return {
     subject: accepted ? 'Tu solicitud en Profesional fue aceptada' : 'Tu solicitud en Profesional',
-    text: `${who}, ${body}`,
+    text,
     html,
   };
 }

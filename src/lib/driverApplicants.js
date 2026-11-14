@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from 'crypto';
 import { getSupabaseAdmin } from './supabaseAdmin';
 import { extractLocalArMobileDigits, normalizePassengerPhoneForDb } from './passengerAuthPhone';
+import { normalizeDriverPhone } from './driverRoles';
 import { sendBrevoEmail, applicantOtpEmail } from './brevoMail';
 
 export const APPLICANT_BUCKET = 'driver-applicant-docs';
@@ -287,6 +288,65 @@ export async function requireApplicant(token) {
     return { ok: false, status: 401, message: 'La verificación venció. Confirmá el teléfono de nuevo.' };
   }
   return { ok: true, supabase, applicant };
+}
+
+export function buildAcceptedDriverInsert(applicant, driverNumber) {
+  const email = normalizeApplicantEmail(applicant?.email);
+  const phoneNormalized = normalizeDriverPhone(applicant?.phone) || null;
+  const fullName = [applicant?.first_name, applicant?.last_name].filter(Boolean).join(' ').trim() || 'Chofer';
+  return {
+    user_id: null,
+    email_user_id: null,
+    email_password_initialized: false,
+    password_initialized: false,
+    is_assigned_driver: false,
+    full_name: fullName,
+    phone: phoneNormalized,
+    phone_normalized: phoneNormalized,
+    login_email: email || null,
+    driver_number: driverNumber,
+    vehicle_type: applicant?.vehicle_kind === 'moto' ? 'moto' : 'auto',
+    billing_mode: 'commission_current',
+  };
+}
+
+export async function ensureDriverForAcceptedApplicant(applicant) {
+  const supabase = getSupabaseAdmin();
+  const email = normalizeApplicantEmail(applicant?.email);
+  if (email) {
+    const { data, error } = await supabase
+      .from('drivers')
+      .select('id, driver_number')
+      .ilike('login_email', email)
+      .limit(1);
+    if (error) throw error;
+    if (data?.[0]?.id) {
+      return { id: data[0].id, driverNumber: data[0].driver_number, created: false };
+    }
+  }
+
+  if (applicant?.phone) {
+    const existingPhone = await findRegisteredDriverByPhone(applicant.phone);
+    if (existingPhone?.id) {
+      return { id: existingPhone.id, driverNumber: null, created: false };
+    }
+  }
+
+  const { data: top, error: numberError } = await supabase
+    .from('drivers')
+    .select('driver_number')
+    .not('driver_number', 'is', null)
+    .order('driver_number', { ascending: false })
+    .limit(1);
+  if (numberError) throw numberError;
+  const driverNumber = (Number(top?.[0]?.driver_number) || 0) + 1;
+  const { data: created, error } = await supabase
+    .from('drivers')
+    .insert(buildAcceptedDriverInsert(applicant, driverNumber))
+    .select('id, driver_number')
+    .single();
+  if (error) throw error;
+  return { id: created.id, driverNumber: created.driver_number, created: true };
 }
 
 export function normalizeApplicantEmail(value) {

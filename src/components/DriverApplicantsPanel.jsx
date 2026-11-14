@@ -117,7 +117,9 @@ export default function DriverApplicantsPanel({ focusId = null }) {
       item.id === pending.row.id ? { ...item, status: payload.status } : item
     )));
     setNotice(payload.emailSent
-      ? 'Listo. Le avisamos por correo.'
+      ? (payload.driverCreated
+        ? `Quedó como chofer${payload.driverNumber ? ` #${payload.driverNumber}` : ''}. Le avisamos por correo.`
+        : 'Listo. Le avisamos por correo.')
       : (payload.emailMessage || 'La decisión quedó guardada.'));
     setPending(null);
   };
@@ -141,6 +143,8 @@ export default function DriverApplicantsPanel({ focusId = null }) {
     ? (`${selected.firstName} ${selected.lastName}`.trim() || 'Sin nombre')
     : '';
   const canDecide = selected && ['submitted', 'accepted', 'rejected'].includes(selected.status);
+  const rejected = selected?.status === 'rejected';
+  const accepted = selected?.status === 'accepted';
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden bg-slate-50">
@@ -154,15 +158,29 @@ export default function DriverApplicantsPanel({ focusId = null }) {
               id={`aspirante-${row.id}`}
               type="button"
               onClick={() => openApplicant(row)}
-              className={`border-b border-slate-100 px-4 py-4 text-left transition ${active ? 'bg-slate-50' : 'hover:bg-slate-50'}`}
+              className={`border-b border-l-4 px-4 py-4 text-left transition ${
+                row.status === 'rejected'
+                  ? 'border-l-red-500 bg-red-50'
+                  : row.status === 'accepted'
+                    ? 'border-l-emerald-500 bg-emerald-50'
+                    : active
+                      ? 'border-l-slate-900 bg-slate-50'
+                      : 'border-l-transparent hover:bg-slate-50'
+              }`}
             >
-              <span className="flex items-center gap-2">
-                <span className="text-base font-bold text-slate-900">{name}</span>
+              <span className="flex items-center justify-between gap-2">
+                <span className={`text-base font-bold ${row.status === 'rejected' ? 'text-red-900' : 'text-slate-900'}`}>{name}</span>
                 {row.unread ? (
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800">Nuevo</span>
                 ) : null}
               </span>
-              <span className="mt-1 block text-sm text-slate-600">
+              <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                row.status === 'rejected'
+                  ? 'bg-red-100 text-red-700'
+                  : row.status === 'accepted'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'text-slate-600'
+              }`}>
                 {STATUS_LABEL[row.status] || row.status}
               </span>
             </button>
@@ -173,7 +191,9 @@ export default function DriverApplicantsPanel({ focusId = null }) {
       <section className={`${selected ? 'flex' : 'hidden lg:flex'} min-h-0 min-w-0 flex-1 flex-col overflow-hidden`}>
         {selected ? (
           <>
-            <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-4 sm:px-6">
+            <div className={`shrink-0 border-b px-5 py-4 sm:px-6 ${
+              rejected ? 'border-red-200 bg-red-50' : accepted ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'
+            }`}>
               <button
                 type="button"
                 onClick={() => setOpenId(null)}
@@ -183,10 +203,24 @@ export default function DriverApplicantsPanel({ focusId = null }) {
               </button>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <h2 className="truncate text-xl font-bold text-slate-900">{selectedName}</h2>
-                  <p className="mt-0.5 text-sm text-slate-500">
-                    {STATUS_LABEL[selected.status] || selected.status}
-                    {selected.submittedAt ? ` · ${formatWhen(selected.submittedAt)}` : ''}
+                  <div className="flex items-center gap-2">
+                    <h2 className={`truncate text-xl font-bold ${rejected ? 'text-red-950' : 'text-slate-900'}`}>{selectedName}</h2>
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                      rejected
+                        ? 'bg-red-600 text-white'
+                        : accepted
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {STATUS_LABEL[selected.status] || selected.status}
+                    </span>
+                  </div>
+                  <p className={`mt-1 text-sm ${rejected ? 'text-red-800' : accepted ? 'text-emerald-800' : 'text-slate-500'}`}>
+                    {rejected
+                      ? 'Solicitud rechazada. No puede entrar como chofer.'
+                      : accepted
+                        ? 'Aceptado. Ya figura en Choferes y puede entrar a la app con su correo o su teléfono.'
+                        : (selected.submittedAt ? `Documentación enviada el ${formatWhen(selected.submittedAt)}` : 'Todavía no envió la documentación.')}
                   </p>
                 </div>
                 {canDecide ? (
@@ -281,8 +315,8 @@ export default function DriverApplicantsPanel({ focusId = null }) {
             </h3>
             <p className="mt-2 text-base leading-6 text-slate-600">
               {pending.decision === 'accepted'
-                ? `¿Confirmás aceptar a ${selectedName}? Le avisamos por correo a ${pending.row.email || 'la dirección que cargó'}.`
-                : `¿Confirmás rechazar a ${selectedName}? Le avisamos por correo a ${pending.row.email || 'la dirección que cargó'}.`}
+                ? `¿Confirmás aceptar a ${selectedName}? Va a quedar como chofer para usar la app, y le avisamos por correo a ${pending.row.email || 'la dirección que cargó'}.`
+                : `¿Confirmás rechazar a ${selectedName}? La ficha queda en rojo y le avisamos por correo a ${pending.row.email || 'la dirección que cargó'}.`}
             </p>
             <div className="mt-6 flex justify-end gap-2">
               <button
