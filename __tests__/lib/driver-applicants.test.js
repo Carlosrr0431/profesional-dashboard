@@ -1,5 +1,5 @@
 import { missingApplicantDocs, normalizeApplicantEmail, validateApplicantProfile, vehicleRequirementError } from '../../src/lib/driverApplicants';
-import { brevoEmailPayload, brevoSmtpConfig } from '../../src/lib/brevoMail';
+import { brevoApiPayload, brevoEmailPayload, brevoSmtpConfig } from '../../src/lib/brevoMail';
 
 describe('alta de chofer', () => {
   it('pide los ocho documentos y acepta un auto de 15 años', () => {
@@ -51,6 +51,18 @@ describe('alta de chofer', () => {
       port: 587,
       user: 'usuario@smtp-brevo.com',
       senderEmail: 'avisos@profesional.ar',
+    });
+    expect(brevoApiPayload({
+      to: 'ana@gmail.com',
+      subject: 'Código',
+      text: '1234',
+      senderEmail: 'avisos@profesional.ar',
+      senderName: 'Profesional',
+    })).toEqual({
+      sender: { name: 'Profesional', email: 'avisos@profesional.ar' },
+      to: [{ email: 'ana@gmail.com' }],
+      subject: 'Código',
+      textContent: '1234',
     });
     expect(brevoEmailPayload({
       to: 'ana@gmail.com',
