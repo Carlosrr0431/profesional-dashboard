@@ -1,4 +1,4 @@
-import { missingApplicantDocs, normalizeApplicantEmail, validateApplicantProfile, vehicleRequirementError } from '../../src/lib/driverApplicants';
+import { missingApplicantDocs, normalizeApplicantEmail, applicantDraftPatch, validateApplicantProfile, vehicleRequirementError } from '../../src/lib/driverApplicants';
 import { applicantOtpEmail, brevoApiPayload, brevoEmailPayload, brevoSmtpConfig } from '../../src/lib/brevoMail';
 
 describe('alta de chofer', () => {
@@ -37,6 +37,26 @@ describe('alta de chofer', () => {
     expect(profile.mail).toBe('ana@gmail.com');
     expect(profile.phone).toBe('543875345465');
     expect(normalizeApplicantEmail('no-es-correo')).toBe('');
+  });
+
+  it('guarda un borrador parcial sin pisar el correo ya verificado', () => {
+    const patch = applicantDraftPatch({
+      firstName: 'Ana',
+      lastName: 'Paz',
+      email: 'otro@gmail.com',
+      phone: '3875345465',
+      dni: '12',
+      vehicleKind: 'car',
+      vehicleYear: '2018',
+    }, { email: 'ana@gmail.com', phone: null });
+    expect(patch).toEqual({
+      first_name: 'Ana',
+      last_name: 'Paz',
+      phone: '543875345465',
+      vehicle_kind: 'car',
+      vehicle_year: 2018,
+      vehicle_cc: null,
+    });
   });
 
   it('arma el correo de Brevo con el remitente configurado', () => {

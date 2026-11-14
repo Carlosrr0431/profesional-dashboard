@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import {
+  applicantDraftPatch,
   findRegisteredDriverByEmail,
   findRegisteredDriverByPhone,
   isDriverApplicantClient,
@@ -25,6 +26,40 @@ export async function POST(req) {
         { ok: false, message: 'La documentación ya fue enviada.' },
         { status: 409 },
       );
+    }
+
+    if (payload?.draft) {
+      const patch = applicantDraftPatch(payload, auth.applicant);
+      if (Object.keys(patch).length === 0) return NextResponse.json({ ok: true });
+      if (patch.phone) {
+        const taken = await findRegisteredDriverByPhone(patch.phone);
+        if (taken) {
+          return NextResponse.json(
+            { ok: false, message: 'Ese teléfono ya es chofer. Ingresá con tu cuenta.' },
+            { status: 409 },
+          );
+        }
+      }
+      if (patch.email) {
+        const takenMail = await findRegisteredDriverByEmail(patch.email);
+        if (takenMail) {
+          return NextResponse.json(
+            { ok: false, message: 'Ese correo ya es chofer. Ingresá con tu cuenta.' },
+            { status: 409 },
+          );
+        }
+      }
+      const personal = ['first_name', 'last_name', 'email', 'phone', 'dni'].some((key) => key in patch);
+      const { error } = await auth.supabase
+        .from('driver_applicants')
+        .update({
+          ...patch,
+          status: auth.applicant.status === 'phone_verified' && personal ? 'profile' : auth.applicant.status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', auth.applicant.id);
+      if (error) throw error;
+      return NextResponse.json({ ok: true });
     }
 
     const profile = validateApplicantProfile(payload || {}, auth.applicant);

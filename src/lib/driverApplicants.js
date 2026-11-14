@@ -191,12 +191,10 @@ export async function createAndSendApplicantEmailOtp(email) {
     throw error;
   }
 
-  const message = applicantOtpEmail(code);
   const sent = await sendBrevoEmail({
     to: mail,
-    subject: message.subject,
-    text: message.text,
-    html: message.html,
+    subject: 'Tu código de Profesional Conductor',
+    text: `Tu código para sumarte como chofer es ${code}. Vence en 10 minutos.`,
   });
   if (!sent.ok) return sent;
   return {
@@ -316,6 +314,35 @@ export function validateApplicantProfile(payload = {}, applicant = {}) {
     }
   }
   return { ok: true, name, surname, mail, document, phone };
+}
+
+export function applicantDraftPatch(payload = {}, applicant = {}) {
+  const patch = {};
+  const name = String(payload.firstName || '').trim();
+  const surname = String(payload.lastName || '').trim();
+  if (name.length >= 2) patch.first_name = name;
+  if (surname.length >= 2) patch.last_name = surname;
+  if (!normalizeApplicantEmail(applicant.email)) {
+    const mail = normalizeApplicantEmail(payload.email);
+    if (mail) patch.email = mail;
+  }
+  if (!applicant.phone) {
+    const phone = normalizePassengerPhoneForDb(payload.phone);
+    if (phone && phone.length === 12) patch.phone = phone;
+  }
+  const document = String(payload.dni || '').replace(/\D/g, '');
+  if (document.length >= 7 && document.length <= 8) patch.dni = document;
+  const kind = payload.vehicleKind === 'car' || payload.vehicleKind === 'moto' ? payload.vehicleKind : '';
+  if (kind) patch.vehicle_kind = kind;
+  const year = Number(payload.vehicleYear);
+  const current = new Date().getFullYear();
+  if (Number.isInteger(year) && year >= 1980 && year <= current) patch.vehicle_year = year;
+  const cc = Number(payload.vehicleCc);
+  if ((kind || applicant.vehicle_kind) === 'moto' && Number.isInteger(cc) && cc >= 110) {
+    patch.vehicle_cc = cc;
+  }
+  if (kind === 'car') patch.vehicle_cc = null;
+  return patch;
 }
 
 export function inspectApplicantFile(file) {
