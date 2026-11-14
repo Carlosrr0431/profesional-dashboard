@@ -1,5 +1,5 @@
 import { missingApplicantDocs, normalizeApplicantEmail, validateApplicantProfile, vehicleRequirementError } from '../../src/lib/driverApplicants';
-import { brevoEmailPayload } from '../../src/lib/brevoMail';
+import { brevoEmailPayload, brevoSmtpConfig } from '../../src/lib/brevoMail';
 
 describe('alta de chofer', () => {
   it('pide los ocho documentos y acepta un auto de 15 años', () => {
@@ -40,6 +40,18 @@ describe('alta de chofer', () => {
   });
 
   it('arma el correo de Brevo con el remitente configurado', () => {
+    expect(brevoSmtpConfig({
+      BREVO_SMTP_HOST: 'smtp-relay.brevo.com',
+      BREVO_SMTP_PORT: '587',
+      BREVO_SMTP_USER: 'usuario@smtp-brevo.com',
+      BREVO_SMTP_KEY: 'clave',
+      BREVO_SENDER_EMAIL: 'avisos@profesional.ar',
+    })).toMatchObject({
+      host: 'smtp-relay.brevo.com',
+      port: 587,
+      user: 'usuario@smtp-brevo.com',
+      senderEmail: 'avisos@profesional.ar',
+    });
     expect(brevoEmailPayload({
       to: 'ana@gmail.com',
       subject: 'Código',
@@ -47,10 +59,10 @@ describe('alta de chofer', () => {
       senderEmail: 'avisos@profesional.ar',
       senderName: 'Profesional',
     })).toEqual({
-      sender: { name: 'Profesional', email: 'avisos@profesional.ar' },
-      to: [{ email: 'ana@gmail.com' }],
+      from: '"Profesional" <avisos@profesional.ar>',
+      to: 'ana@gmail.com',
       subject: 'Código',
-      textContent: '1234',
+      text: '1234',
     });
   });
 });

@@ -1,24 +1,35 @@
+import nodemailer from 'nodemailer';
+
 /**
- * Correo transaccional con Brevo.
- * Requiere BREVO_API_KEY y BREVO_SENDER_EMAIL en el servidor.
+ * Correo por el relay SMTP de Brevo (smtp-relay.brevo.com:587).
+ * BREVO_SMTP_USER es el usuario de la pantalla SMTP.
+ * BREVO_SMTP_KEY es la clave SMTP, no el usuario.
+ * BREVO_SENDER_EMAIL tiene que ser un remitente verificado en Brevo.
  */
-export function brevoEmailPayload({ to, subject, text, senderEmail, senderName }) {
+export function brevoSmtpConfig(env = process.env) {
   return {
-    sender: {
-      name: senderName || 'Profesional',
-      email: senderEmail,
-    },
-    to: [{ email: to }],
+    host: String(env.BREVO_SMTP_HOST || 'smtp-relay.brevo.com').trim(),
+    port: Number(env.BREVO_SMTP_PORT || 587),
+    user: String(env.BREVO_SMTP_USER || '').trim(),
+    pass: String(env.BREVO_SMTP_KEY || '').trim(),
+    senderEmail: String(env.BREVO_SENDER_EMAIL || '').trim(),
+    senderName: String(env.BREVO_SENDER_NAME || 'Profesional').trim(),
+  };
+}
+
+export function brevoEmailPayload({ to, subject, text, senderEmail, senderName }) {
+  const name = senderName || 'Profesional';
+  return {
+    from: `"${name.replace(/"/g, '')}" <${senderEmail}>`,
+    to,
     subject,
-    textContent: text,
+    text,
   };
 }
 
 export async function sendBrevoEmail({ to, subject, text }, env = process.env) {
-  const apiKey = String(env.BREVO_API_KEY || '').trim();
-  const senderEmail = String(env.BREVO_SENDER_EMAIL || '').trim();
-  const senderName = String(env.BREVO_SENDER_NAME || 'Profesional').trim();
-  if (!apiKey || !senderEmail) {
+  const config = brevoSmtpConfig(env);
+  if (!config.user || !config.pass || !config.senderEmail) {
     return {
       ok: false,
       status: 503,
@@ -26,26 +37,28 @@ export async function sendBrevoEmail({ to, subject, text }, env = process.env) {
     };
   }
 
-  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
-    headers: {
-      accept: 'application/json',
-      'content-type': 'application/json',
-      'api-key': apiKey,
-    },
-    body: JSON.stringify(brevoEmailPayload({
+  const transport = nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.port === 465,
+    auth: { user: config.user, pass: config.pass },
+  });
+
+  try {
+    await transport.sendMail(brevoEmailPayload({
       to,
       subject,
       text,
-      senderEmail,
-      senderName,
-    })),
-  });
-
-  if (response.ok) return { ok: true };
-  return {
-    ok: false,
-    status: 502,
-    message: 'No pudimos enviar el código por correo. Intentá de nuevo.',
-  };
+      senderEmail: config.senderEmail,
+      senderName: config.senderName,
+    }));
+    return { ok: true };
+  } catch (error) {
+    console.error('[brevo]', error?.message || 'smtp');
+    return {
+      ok: false,
+      status: 502,
+      message: 'No pudimos enviar el código por correo. Intentá de nuevo.',
+    };
+  }
 }
