@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createAndSendOtp } from '../../../../../../src/lib/passengerOtp';
-import { isLikelyAutomatedScannerIp } from '../../../../../../src/lib/passengerClientGate';
+import { createAndSendOtp } from '../../../../../src/lib/passengerOtp';
+import { isLikelyAutomatedScannerIp } from '../../../../../src/lib/passengerClientGate';
 import {
   createAndSendApplicantEmailOtp,
   createApplicantSession,
@@ -10,7 +10,7 @@ import {
   missingApplicantTableResponse,
   normalizeApplicantEmail,
   upsertApplicantByPhone,
-} from '../../../../../../src/lib/driverApplicants';
+} from '../../../../../src/lib/driverApplicants';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

@@ -4,7 +4,7 @@ import {
   missingApplicantDocs,
   requireApplicant,
   vehicleRequirementError,
-} from '../../../../../../src/lib/driverApplicants';
+} from '../../../../../src/lib/driverApplicants';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

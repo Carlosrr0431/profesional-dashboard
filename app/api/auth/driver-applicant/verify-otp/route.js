@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { consumePassengerOtp } from '../../../../../../src/lib/passengerOtp';
-import { normalizePassengerPhoneForDb } from '../../../../../../src/lib/passengerAuthPhone';
+import { consumePassengerOtp } from '../../../../../src/lib/passengerOtp';
+import { normalizePassengerPhoneForDb } from '../../../../../src/lib/passengerAuthPhone';
 import {
   consumeApplicantEmailOtp,
   createApplicantSession,
@@ -9,7 +9,7 @@ import {
   normalizeApplicantEmail,
   upsertApplicantByEmail,
   upsertApplicantByPhone,
-} from '../../../../../../src/lib/driverApplicants';
+} from '../../../../../src/lib/driverApplicants';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
