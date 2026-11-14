@@ -1,5 +1,5 @@
 import { missingApplicantDocs, normalizeApplicantEmail, validateApplicantProfile, vehicleRequirementError } from '../../src/lib/driverApplicants';
-import { brevoApiPayload, brevoEmailPayload, brevoSmtpConfig } from '../../src/lib/brevoMail';
+import { applicantOtpEmail, brevoApiPayload, brevoEmailPayload, brevoSmtpConfig } from '../../src/lib/brevoMail';
 
 describe('alta de chofer', () => {
   it('pide los ocho documentos y acepta un auto de 15 años', () => {
@@ -76,5 +76,20 @@ describe('alta de chofer', () => {
       subject: 'Código',
       text: '1234',
     });
+    const otp = applicantOtpEmail('2580');
+    expect(otp.html).toContain('https://www.profesionalviajes.com.ar/logo.png');
+    expect(otp.html).toContain('>2<');
+    expect(otp.html).toContain('>5<');
+    expect(otp.html).toContain('>8<');
+    expect(otp.html).toContain('>0<');
+    expect(otp.text).toContain('2580');
+    expect(brevoApiPayload({
+      to: 'ana@gmail.com',
+      subject: otp.subject,
+      text: otp.text,
+      html: otp.html,
+      senderEmail: 'avisos@profesional.ar',
+      senderName: 'Profesional',
+    }).htmlContent).toContain('logo.png');
   });
 });

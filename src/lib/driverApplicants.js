@@ -1,7 +1,7 @@
 import { randomInt, randomUUID } from 'crypto';
 import { getSupabaseAdmin } from './supabaseAdmin';
 import { extractLocalArMobileDigits, normalizePassengerPhoneForDb } from './passengerAuthPhone';
-import { sendBrevoEmail } from './brevoMail';
+import { sendBrevoEmail, applicantOtpEmail } from './brevoMail';
 
 export const APPLICANT_BUCKET = 'driver-applicant-docs';
 export const APPLICANT_SESSION_MS = 14 * 24 * 60 * 60 * 1000;
@@ -191,10 +191,12 @@ export async function createAndSendApplicantEmailOtp(email) {
     throw error;
   }
 
+  const message = applicantOtpEmail(code);
   const sent = await sendBrevoEmail({
     to: mail,
-    subject: 'Tu código de Profesional Conductor',
-    text: `Tu código para sumarte como chofer es ${code}. Vence en 10 minutos.`,
+    subject: message.subject,
+    text: message.text,
+    html: message.html,
   });
   if (!sent.ok) return sent;
   return {
