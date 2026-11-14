@@ -1,5 +1,5 @@
 import { missingApplicantDocs, normalizeApplicantEmail, applicantDraftPatch, validateApplicantProfile, vehicleRequirementError } from '../../src/lib/driverApplicants';
-import { applicantOtpEmail, brevoApiPayload, brevoEmailPayload, brevoSmtpConfig } from '../../src/lib/brevoMail';
+import { applicantDecisionEmail, applicantOtpEmail, brevoApiPayload, brevoEmailPayload, brevoSmtpConfig } from '../../src/lib/brevoMail';
 
 describe('alta de chofer', () => {
   it('pide los ocho documentos y acepta un auto de 15 años', () => {
@@ -111,5 +111,15 @@ describe('alta de chofer', () => {
       senderEmail: 'avisos@profesional.ar',
       senderName: 'Profesional',
     }).htmlContent).toContain('logo.png');
+  });
+
+  it('avisa por correo si la solicitud fue aceptada o rechazada', () => {
+    const accepted = applicantDecisionEmail({ name: 'Ana Paz', accepted: true });
+    const rejected = applicantDecisionEmail({ name: 'Ana Paz', accepted: false });
+    expect(accepted.subject).toMatch(/aceptada/);
+    expect(accepted.text).toContain('Ana Paz');
+    expect(accepted.html).toContain('logo.png');
+    expect(rejected.subject).not.toMatch(/aceptada/);
+    expect(rejected.text).toMatch(/no podemos sumarte/);
   });
 });

@@ -16,7 +16,7 @@ create table if not exists public.driver_applicants (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint driver_applicants_status_check check (
-    status in ('phone_verified', 'profile', 'documents', 'submitted')
+    status in ('phone_verified', 'profile', 'documents', 'submitted', 'accepted', 'rejected')
   ),
   constraint driver_applicants_vehicle_kind_check check (
     vehicle_kind is null or vehicle_kind in ('car', 'moto')

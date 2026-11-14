@@ -99,6 +99,47 @@ export function applicantOtpEmail(code) {
   };
 }
 
+export function applicantDecisionEmail({ name, accepted }) {
+  const who = String(name || 'Hola').trim() || 'Hola';
+  const title = accepted ? 'Aceptamos tu solicitud' : 'Sobre tu solicitud';
+  const body = accepted
+    ? 'Revisamos tu documentación y quedó aprobada. Te vamos a contactar para coordinar el alta como chofer.'
+    : 'Revisamos tu documentación y en este momento no podemos sumarte como chofer. Si querés consultar, respondé este correo.';
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<body style="margin:0;padding:0;background:#eef1f8;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef1f8;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:24px;">
+          <tr>
+            <td align="center" style="padding:40px 32px 8px;">
+              <img src="${LOGO_URL}" width="220" alt="Profesional" style="display:block;width:220px;max-width:220px;height:auto;border:0;">
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:20px 32px 0;font-family:Arial,Helvetica,sans-serif;font-size:22px;line-height:28px;font-weight:700;color:#282e69;">
+              ${title}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 36px 36px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:24px;color:#2c3348;">
+              ${who}, ${body}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+  return {
+    subject: accepted ? 'Tu solicitud en Profesional fue aceptada' : 'Tu solicitud en Profesional',
+    text: `${who}, ${body}`,
+    html,
+  };
+}
+
 export async function sendBrevoEmail({ to, subject, text, html }, env = process.env) {
   const apiKey = String(env.BREVO_API_KEY || '').trim();
   const senderEmail = String(env.BREVO_SENDER_EMAIL || DEFAULT_SENDER_EMAIL).trim();

@@ -19,7 +19,7 @@ export async function POST(req) {
     if (!auth.ok) {
       return NextResponse.json({ ok: false, message: auth.message }, { status: auth.status || 401 });
     }
-    if (auth.applicant.status === 'submitted') {
+    if (auth.applicant.status === 'submitted' || auth.applicant.status === 'accepted' || auth.applicant.status === 'rejected') {
       return NextResponse.json({ ok: true, alreadySubmitted: true });
     }
     if (!auth.applicant.first_name || !auth.applicant.dni || !auth.applicant.phone || !auth.applicant.email) {

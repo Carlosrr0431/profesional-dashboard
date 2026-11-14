@@ -23,7 +23,7 @@ export async function POST(req) {
     if (!auth.ok) {
       return NextResponse.json({ ok: false, message: auth.message }, { status: auth.status || 401 });
     }
-    if (auth.applicant.status === 'submitted') {
+    if (['submitted', 'accepted', 'rejected'].includes(auth.applicant.status)) {
       return NextResponse.json(
         { ok: false, message: 'La documentación ya fue enviada.' },
         { status: 409 },

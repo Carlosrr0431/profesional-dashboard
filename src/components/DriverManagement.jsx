@@ -312,7 +312,7 @@ export default function DriverManagement({ onBack, focusApplicantId = null }) {
             ) : null}
           </div>
 
-          <div className="mb-4 flex w-full gap-0.5 overflow-x-auto rounded-2xl bg-slate-100 p-1 scrollbar-none sm:w-fit">
+          <div className="mb-2 flex w-full gap-2 overflow-x-auto rounded-2xl bg-slate-100 p-1.5">
             {[
               { key: 'drivers', label: 'Choferes' },
               { key: 'applicants', label: 'Aspirantes' },
@@ -322,10 +322,10 @@ export default function DriverManagement({ onBack, focusApplicantId = null }) {
                 key={view.key}
                 type="button"
                 onClick={() => handleMainViewChange(view.key)}
-                className={`px-4 py-1.5 text-xs font-semibold rounded-xl transition-all ${
+                className={`min-w-[9.5rem] flex-1 rounded-xl px-5 py-3 text-sm font-bold transition-all sm:text-base ${
                   mainView === view.key
-                    ? 'bg-navy-900 text-white shadow-[0_1px_3px_rgba(15,23,42,0.2)]'
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-white/70'
+                    ? 'bg-navy-900 text-white shadow-[0_2px_8px_rgba(15,23,42,0.22)]'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-900'
                 }`}
               >
                 {view.label}
