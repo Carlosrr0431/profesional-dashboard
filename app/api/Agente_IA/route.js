@@ -34,6 +34,7 @@ import {
   messageConfirmsTripCancel,
   messageDeniesTripCancel,
   messageRequestsTripCancel,
+  resolveOpenTripCancelAction,
   isCancelConfirmationPollYesVote,
   isCancelConfirmationPollNoVote,
   isCancelConfirmationPollVote,
@@ -10195,6 +10196,7 @@ async function processClaimedConversation(batch) {
       );
       const deniesTrip =
         isTripPriceConfirmNoVote(fastText)
+        || messageRequestsTripCancel(fastText)
         || /\b(no|nah|solo\s+consult|era\s+consult|no\s+gracias)\b/i.test(fastText);
 
       if (confirmsTrip && !deniesTrip) {
@@ -10247,13 +10249,9 @@ async function processClaimedConversation(batch) {
 
     // ─ Confirmación de cancelación pendiente ─────────────────────────────────
     if (tripWaContext.pending_cancel_confirm) {
-      const confirmsCancel =
-        isCancelConfirmationPollYesVote(fastText)
-        || (messageConfirmsTripCancel(fastText) && !messageRequestsTripCancel(fastText));
-      const deniesCancel =
-        isCancelConfirmationPollNoVote(fastText) || messageDeniesTripCancel(fastText);
+      const cancelAction = resolveOpenTripCancelAction(fastText, { pendingCancelConfirm: true });
 
-      if (confirmsCancel) {
+      if (cancelAction === 'confirm_cancel') {
         try {
           await applyWhatsAppPassengerCancel(openTripByPhone, batch.phone);
         } catch (err) {
@@ -10286,7 +10284,7 @@ async function processClaimedConversation(batch) {
         };
       }
 
-      if (deniesCancel) {
+      if (cancelAction === 'deny_cancel') {
         await denyWhatsAppPassengerCancel(openTripByPhone, batch.phone, tripWaContext);
         logWebhook('conversation_fast_path_cancel_denied', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
         return {
@@ -10308,7 +10306,7 @@ async function processClaimedConversation(batch) {
 
     // ─ Detección liviana de intent de cancelación ─────────────────────────────
     const fastIntentText = pickIntentClassificationText(fastText);
-    if (messageRequestsTripCancel(fastIntentText) && !looksLikeFreshTripRequest(fastIntentText)) {
+    if (resolveOpenTripCancelAction(fastIntentText) === 'ask_confirm') {
       await sendCancelConfirmationPoll(batch.phone, openTripByPhone);
       logWebhook('conversation_fast_path_cancel_requested', { conversationId: batch?.id || null, tripId: openTripByPhone.id });
       return {
@@ -12942,6 +12940,14 @@ async function processWebhookBody(body, requestMeta = {}) {
             await applyWhatsAppPassengerCancel(pollTripRow, pollPassengerPhone);
           } catch (err) {
             logWebhook('poll_results_cancel_confirm_error', { tripId: pollTripRow.id, error: err?.message });
+            await sendWhatsAppText(
+              pollPassengerPhone,
+              'No pude cancelar el viaje. Respondé *sí, cancelar* de nuevo',
+            ).catch(() => {});
+            return {
+              status: 200,
+              body: { success: true, event: 'poll.results', tripId: pollTripRow.id, cancelConfirmed: false, cancelFailed: true },
+            };
           }
           if (pollConv?.id) {
             try {

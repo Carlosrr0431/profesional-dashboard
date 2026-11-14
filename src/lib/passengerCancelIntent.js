@@ -69,6 +69,12 @@ const CANCEL_PHRASE_PATTERNS = [
   /\b(dale )?cancel(ar|a|alo|ala|ame|emos)\b/,
   /\banular (el |la |mi )?(viaje|pedido|reserva)\b/,
   /\b(sacame|sacar) (el |la |mi )?(viaje|pedido|reserva)\b/,
+  /\bno me mandes\b/,
+  /\bque no venga\b/,
+  /\bno vengas\b/,
+  /\bme arrepenti\b/,
+  /\b(borralo|eliminalo)\b/,
+  /\b(borra|borrar|elimina|eliminar) (el |la |mi )?(viaje|pedido|reserva)\b/,
 ];
 
 const AFFIRMATIVE_CANCEL_PATTERNS = [
@@ -172,6 +178,25 @@ export function messageDeniesTripCancel(text) {
   if (/^no$/.test(norm) || /\bno\s*$/i.test(String(text || '').trim())) return true;
 
   return false;
+}
+
+/**
+ * Con un viaje abierto: pedir confirmación, cancelar, mantener, o no es una cancelación.
+ * La segunda vez que dice "cancelar" ya confirma.
+ */
+export function resolveOpenTripCancelAction(text, { pendingCancelConfirm = false } = {}) {
+  const denies = messageDeniesTripCancel(text)
+    || (isCancelConfirmationPollNoVote(text) && !messageRequestsTripCancel(text));
+  const confirms = !denies && (
+    isCancelConfirmationPollYesVote(text) || messageConfirmsTripCancel(text)
+  );
+  if (pendingCancelConfirm) {
+    if (confirms) return 'confirm_cancel';
+    if (denies) return 'deny_cancel';
+    return 'unclear_confirm';
+  }
+  if (!denies && messageRequestsTripCancel(text)) return 'ask_confirm';
+  return 'not_cancel';
 }
 
 export const CANCEL_CONFIRM_POLL_QUESTION = '¿Confirmás la cancelación de tu viaje?';

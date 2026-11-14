@@ -1,3 +1,4 @@
+const { buildWhatsAppCancelledTripUpdate, WHATSAPP_CANCEL_REASON } = require('../../src/lib/passengerTripCancel');
 const {
   normalizePassengerMessage,
   isCancelarLikeToken,
@@ -10,6 +11,7 @@ const {
   isCancelConfirmationPollVote,
   lastBotAlreadyConfirmedCancel,
   wasRecentlyCancelled,
+  resolveOpenTripCancelAction,
   shouldIgnoreCancelWithoutOpenTrip,
   stampCancelledConversationContext,
   CANCEL_CONFIRM_POLL_QUESTION,
@@ -158,6 +160,78 @@ describe('passengerCancelIntent', () => {
         now,
       })).toBe(true);
       expect(wasRecentlyCancelled(context, now + RECENT_CANCEL_WINDOW_MS + 1)).toBe(false);
+    });
+
+    it('simula pedidos reales de cancelar y el cierre del viaje', () => {
+      const wantCancel = [
+        'cancelar',
+        'Cancelá',
+        'cancela',
+        'cancelame el viaje',
+        'quiero cancelar el viaje',
+        'canselar',
+        'ya no lo quiero',
+        'ya no lo necesito',
+        'no quiero el remis',
+        'anular el pedido',
+        'anula el viaje',
+        'sacame el viaje',
+        'olvidalo',
+        'pará el remis',
+        'no me mandes el auto',
+        'que no venga',
+        'no vengas',
+        'me arrepentí',
+        'borra el viaje',
+        'borralo',
+        'elimina el pedido',
+        'che cancelá',
+        'dale cancelá',
+      ];
+      const notCancel = [
+        'hola',
+        'Mitre 200',
+        'mandame un movil a mitre 200',
+        'donde esta el chofer',
+        'cuanto sale de mitre a españa',
+        'cuanto sale cancelar un viaje',
+        'no cancelar',
+        'gracias',
+        'para mañana a las 8',
+        'necesito un remis para el hospital',
+      ];
+
+      for (const text of wantCancel) {
+        expect({ text, action: resolveOpenTripCancelAction(text) }).toEqual({ text, action: 'ask_confirm' });
+      }
+      for (const text of notCancel) {
+        expect({ text, action: resolveOpenTripCancelAction(text) }).toEqual({ text, action: 'not_cancel' });
+      }
+
+      const confirmations = ['sí', 'si', 'SÍ', 'dale', 'ok', 'confirmo', 'cancelar', 'Sí, cancelar', 'si, cancelar'];
+      for (const text of confirmations) {
+        expect(resolveOpenTripCancelAction(text, { pendingCancelConfirm: true })).toBe('confirm_cancel');
+      }
+      for (const text of ['no', 'no cancelar', 'No, mantener el viaje', 'dejalo asi']) {
+        expect(resolveOpenTripCancelAction(text, { pendingCancelConfirm: true })).toBe('deny_cancel');
+      }
+      expect(resolveOpenTripCancelAction('a qué hora llega', { pendingCancelConfirm: true })).toBe('unclear_confirm');
+
+      const openTrip = { status: 'queued', driver_id: null, id: 'trip-sim' };
+      expect(resolveOpenTripCancelAction('cancelar')).toBe('ask_confirm');
+      expect(openTrip.status).toBe('queued');
+
+      for (const status of ['queued', 'pending', 'accepted', 'going_to_pickup', 'in_progress', 'scheduled']) {
+        const payload = buildWhatsAppCancelledTripUpdate({
+          status,
+          driver_id: status === 'queued' ? null : 'driver-1',
+        });
+        expect(payload.status).toBe('cancelled');
+        expect(payload.dispatch_status).toBe('cancelled');
+        expect(payload.cancel_reason).toBe(WHATSAPP_CANCEL_REASON);
+        expect(payload.wa_context).toBeNull();
+        expect(payload.next_dispatch_at).toBeNull();
+      }
     });
 
     it('no silencia un cancelar suelto sin viaje ni contexto reciente', () => {
