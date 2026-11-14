@@ -1,4 +1,5 @@
 const {
+  anotherTripBlockedReply,
   isReplaceableOpenTrip,
   shouldStartNewTrip,
   startFreshTripContext,
@@ -32,7 +33,7 @@ describe('tripSession (estilo Multicarnes)', () => {
     )).toBe(false);
   });
 
-  it('resetea un queued/scheduled si el pasajero pide otro móvil', () => {
+  it('no abre otro viaje mientras el actual sigue abierto', () => {
     expect(isReplaceableOpenTrip({ status: 'queued' })).toBe(true);
     expect(isReplaceableOpenTrip({ status: 'scheduled' })).toBe(true);
     expect(isReplaceableOpenTrip({ status: 'accepted' })).toBe(false);
@@ -41,13 +42,26 @@ describe('tripSession (estilo Multicarnes)', () => {
       'queued',
       {},
       { hasOpenTrip: true, replaceableOpenTrip: true, looksLikeFreshTripRequest: true },
-    )).toBe(true);
+    )).toBe(false);
+    expect(shouldStartNewTrip(
+      { intent: 'trip_request', new_trip: true },
+      'queued',
+      {},
+      { hasOpenTrip: true, looksLikeFreshTripRequest: true },
+    )).toBe(false);
     expect(shouldStartNewTrip(
       { intent: 'trip_request' },
       'accepted',
       {},
       { hasOpenTrip: true, replaceableOpenTrip: false, looksLikeFreshTripRequest: true },
     )).toBe(false);
+    expect(shouldStartNewTrip(
+      { intent: 'trip_request' },
+      'completed',
+      {},
+      { hasOpenTrip: false, looksLikeFreshTripRequest: true },
+    )).toBe(true);
+    expect(anotherTripBlockedReply()).toMatch(/cancelalo|se complete/i);
     expect(shouldStartNewTrip(
       { intent: 'trip_request' },
       null,

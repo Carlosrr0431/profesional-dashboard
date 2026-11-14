@@ -56,20 +56,16 @@ export function startFreshTripContext(prev = {}) {
 export function shouldStartNewTrip(classified = {}, lastTripStatus = null, context = {}, opts = {}) {
   const intent = String(classified?.intent || '');
   if (FOLLOWUP_INTENTS.has(intent)) return false;
-  if (isExactTrue(classified.new_trip)) return true;
-
-  const isTripIntent = intent === 'trip_request' || intent === 'schedule_trip';
+  const isTripIntent = intent === 'trip_request' || intent === 'schedule_trip' || isExactTrue(classified.new_trip);
   if (!isTripIntent) return false;
 
-  const freshAsk = Boolean(opts.looksLikeFreshTripRequest);
-  const replaceable = Boolean(opts.replaceableOpenTrip);
+  const freshAsk = Boolean(opts.looksLikeFreshTripRequest) || isExactTrue(classified.new_trip);
 
   // Completar altura/GPS del pedido actual no es un viaje nuevo.
   if ((context.awaiting_pickup_number || context.awaiting_gps) && !freshAsk) return false;
 
-  if (opts.hasOpenTrip) {
-    return replaceable && freshAsk;
-  }
+  // Con un viaje abierto no se deriva otro: hay que cancelarlo o completarlo.
+  if (opts.hasOpenTrip) return false;
 
   return true;
 }
@@ -95,6 +91,10 @@ export function messagesToIntentHistory(rows = [], { pendingContents = [], limit
       content: row.content,
       transcription: row.transcription,
     }));
+}
+
+export function anotherTripBlockedReply() {
+  return 'Ya tenés un viaje derivado. Para pedir otro, primero cancelalo o esperá a que se complete.';
 }
 
 export function statusQueryReplyForTrip(trip, extractedReply = null) {

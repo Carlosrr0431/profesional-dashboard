@@ -172,6 +172,7 @@ import {
   isPriceInquiryCollecting,
   isShortAck,
   lastBotAskedForTripPrice,
+  asksForAnotherVehicle,
   looksLikeExplicitVehicleDispatch,
   looksLikeFreshTripRequest,
   isShortTripPriceConfirmText,
@@ -186,6 +187,7 @@ import {
   shouldPreservePriceQuoteAfterTripReset,
 } from '../../../src/lib/whatsappTripIntentPatterns';
 import {
+  anotherTripBlockedReply,
   isReplaceableOpenTrip,
   messagesToIntentHistory,
   pickTripForStatus,
@@ -5177,21 +5179,18 @@ function isStaleQueuedTrip(trip) {
 }
 
 function shouldBlockForOpenTrip(trip) {
-  if (!trip) return false;
-  // Placeholders huérfanos (hold sin coordenadas) no deben bloquear nuevos pedidos.
-  // Se reutilizarán automáticamente si el pasajero inicia un viaje nuevo.
-  if (
-    String(trip.dispatch_status || '').toLowerCase() === 'hold' &&
-    !trip.destination_lat
-  ) {
-    return false;
-  }
+  if (!trip || !isOpenTripStatus(trip.status)) return false;
+  // Todavía no hay retiro: se completa este pedido, no es otro viaje.
+  const holdWithoutPoint = String(trip.dispatch_status || '').toLowerCase() === 'hold'
+    && !trip.destination_lat
+    && !trip.origin_lat;
+  if (holdWithoutPoint) return false;
   const status = String(trip.status || '').toLowerCase();
-  if (status === 'queued' && isStaleQueuedTrip(trip)) return false;
-  if (status !== 'pending') return true;
-  const ageMinutes = getTripAgeMinutes(trip);
-  if (ageMinutes == null) return true;
-  return ageMinutes <= PENDING_GUARD_MAX_AGE_MINUTES;
+  if (status === 'queued' && !tripHasDispatchPickup(trip)) {
+    const reserved = Boolean(trip.scheduled_for) || String(trip.notes || '').includes('[SCHEDULED_FOR]');
+    if (!reserved) return false;
+  }
+  return true;
 }
 
 async function getOpenTripById(tripId) {
@@ -5210,7 +5209,7 @@ async function getTripById(tripId) {
   if (!tripId) return null;
   const { data, error } = await getSupabase()
     .from('trips')
-    .select('id, status, passenger_phone, destination_address, created_at, completed_at, wa_context')
+    .select('id, status, passenger_phone, destination_address, destination_lat, destination_lng, origin_address, origin_lat, origin_lng, driver_id, dispatch_status, notes, scheduled_for, created_at, completed_at, wa_context')
     .eq('id', tripId)
     .maybeSingle();
   if (error) throw error;
@@ -10379,16 +10378,23 @@ async function processClaimedConversation(batch) {
         conversationId: batch?.id || null,
         tripId: openTripByPhone.id,
       });
-    } else if (
-      looksLikeFreshTripRequest(fastText)
-      && isReplaceableOpenTrip(openTripByPhone)
-    ) {
-      skipOpenTripFastPath = true;
-      logWebhook('conversation_fast_path_skipped_new_trip', {
+    } else if (looksLikeFreshTripRequest(fastText) || asksForAnotherVehicle(fastText)) {
+      await sendWhatsAppText(batch.phone, anotherTripBlockedReply());
+      logWebhook('conversation_second_trip_blocked', {
         conversationId: batch?.id || null,
         tripId: openTripByPhone.id,
         tripStatus: openTripByPhone.status,
       });
+      return {
+        handled: true,
+        updates: {
+          status: 'open',
+          context: {},
+          last_trip_id: openTripByPhone.id,
+          processing_started_at: null,
+          last_processed_at: new Date().toISOString(),
+        },
+      };
     } else {
       const openStatus = String(openTripByPhone.status || '').toLowerCase();
       const fastStatusMsg = ['accepted', 'going_to_pickup', 'in_progress'].includes(openStatus)
@@ -10725,9 +10731,20 @@ async function processClaimedConversation(batch) {
       passenger_name: passengerName,
       last_trip_id: batch.last_trip_id || lastClosedTrip?.id || null,
     });
-    if (isReplaceableOpenTrip(openTripByPhone) && openTripByPhone?.id) {
+    if (isReplaceableOpenTrip(openTripByPhone) && openTripByPhone?.id && !tripHasDispatchPickup(openTripByPhone)) {
       reuseOpenTripId = openTripByPhone.id;
     }
+  }
+  if (
+    !reuseOpenTripId
+    && openTripByPhone?.id
+    && (
+      tripWaContext.awaiting_gps
+      || tripWaContext.awaiting_pickup_number
+      || (isReplaceableOpenTrip(openTripByPhone) && !tripHasDispatchPickup(openTripByPhone))
+    )
+  ) {
+    reuseOpenTripId = openTripByPhone.id;
   }
 
   let pendingScheduleInfo = null;
@@ -12336,6 +12353,31 @@ async function processClaimedConversation(batch) {
           ? collectingCtx
           : { ...collectingCtx, ...stampBettoGreeted() },
         last_trip_id: batch.last_trip_id || null,
+        processing_started_at: null,
+        last_processed_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  if (
+    openTripByPhone
+    && shouldBlockForOpenTrip(openTripByPhone)
+    && tripHasDispatchPickup(openTripByPhone)
+    && !tripWaContext.awaiting_gps
+    && !tripWaContext.awaiting_pickup_number
+  ) {
+    await sendWhatsAppText(batch.phone, anotherTripBlockedReply());
+    logWebhook('conversation_second_trip_blocked', {
+      conversationId: batch?.id || null,
+      tripId: openTripByPhone.id,
+      tripStatus: openTripByPhone.status,
+    });
+    return {
+      handled: true,
+      updates: {
+        status: 'open',
+        context: {},
+        last_trip_id: openTripByPhone.id,
         processing_started_at: null,
         last_processed_at: new Date().toISOString(),
       },
