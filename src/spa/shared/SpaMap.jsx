@@ -8,32 +8,25 @@ import { polylineHeading, remainingPolyline, snapToPolyline, smoothAngle, offset
 import { chromeToMapPadding, paddingKey, routeBounds } from './mapFit';
 import { haptic } from './ui';
 
-const OVERVIEW_ROUTE_BORDER = {
+const ROUTE_SHADOW = {
+  id: 'spa-route-shadow',
+  type: 'line',
+  layout: { 'line-cap': 'round', 'line-join': 'round' },
+  paint: { 'line-color': '#0A2E7A', 'line-width': 14, 'line-opacity': 0.28 },
+};
+
+const ROUTE_BORDER = {
   id: 'spa-route-border',
   type: 'line',
   layout: { 'line-cap': 'round', 'line-join': 'round' },
-  paint: { 'line-color': '#FFFFFF', 'line-width': 8, 'line-opacity': 0.95 },
+  paint: { 'line-color': '#FFFFFF', 'line-width': 10, 'line-opacity': 0.96 },
 };
 
-const OVERVIEW_ROUTE_LINE = {
+const ROUTE_LINE = {
   id: 'spa-route-line',
   type: 'line',
   layout: { 'line-cap': 'round', 'line-join': 'round' },
-  paint: { 'line-color': '#245f8d', 'line-width': 4, 'line-opacity': 1 },
-};
-
-const NAV_ROUTE_BORDER = {
-  id: 'spa-route-border',
-  type: 'line',
-  layout: { 'line-cap': 'round', 'line-join': 'round' },
-  paint: { 'line-color': '#FFFFFF', 'line-width': 14, 'line-opacity': 0.95 },
-};
-
-const NAV_ROUTE_LINE = {
-  id: 'spa-route-line',
-  type: 'line',
-  layout: { 'line-cap': 'round', 'line-join': 'round' },
-  paint: { 'line-color': '#4285F4', 'line-width': 10, 'line-opacity': 0.94 },
+  paint: { 'line-color': '#1C6EF2', 'line-width': 6, 'line-opacity': 1 },
 };
 
 const NAV_PITCH = 52;
@@ -80,6 +73,7 @@ export default function SpaMap({
   showMapControls = false,
   fitToRoute = false,
   fitPadding = null,
+  mapStyle = MAP_STYLE,
 }) {
   const mapRef = useRef(null);
   const navReadyRef = useRef(false);
@@ -266,7 +260,7 @@ export default function SpaMap({
     <div className="spa-map-wrap">
     <Map
       ref={mapRef}
-      mapStyle={MAP_STYLE}
+      mapStyle={mapStyle}
       initialViewState={{
         longitude: view.longitude ?? view.lng ?? DEFAULT_MAP_VIEW.longitude,
         latitude: view.latitude ?? view.lat ?? DEFAULT_MAP_VIEW.latitude,
@@ -286,8 +280,9 @@ export default function SpaMap({
     >
       {routeGeo ? (
         <Source id="spa-route" type="geojson" data={routeGeo}>
-          <Layer {...(navigationMode || followDriver ? NAV_ROUTE_BORDER : OVERVIEW_ROUTE_BORDER)} />
-          <Layer {...(navigationMode || followDriver ? NAV_ROUTE_LINE : OVERVIEW_ROUTE_LINE)} />
+          <Layer {...ROUTE_SHADOW} />
+          <Layer {...ROUTE_BORDER} />
+          <Layer {...ROUTE_LINE} />
         </Source>
       ) : null}
 

@@ -16,7 +16,8 @@ import {
 import { calculateTripPrice, formatArs, resolvePassengerTariff } from '../shared/money';
 import { normalizePassengerPhone } from '../shared/phone';
 import { clearPassengerSession, readPassengerSession, writePassengerSession, readPassengerCredentialCache, writePassengerCredentialCache } from '../shared/storage';
-import { isLiveNavTrip, isOpenTripStatus, passengerStatusMeta } from '../shared/tripStatus';
+import { formatPassengerEta, isLiveNavTrip, isOpenTripStatus, passengerStatusMeta } from '../shared/tripStatus';
+import { DRIVER_MAP_STYLE } from '../../lib/mapLibre';
 import { isWaitTimerActive } from '../shared/waitFee';
 import { tripDropoffPoint, tripNavTarget, tripPickupPoint } from '../shared/tripPoints';
 import { PICKUP_OUTSIDE_COVERAGE_MESSAGE } from '../shared/coverage';
@@ -72,6 +73,7 @@ export default function PassengerApp() {
   const [destination, setDestination] = useState(null);
   const [quote, setQuote] = useState(null);
   const [routeCoords, setRouteCoords] = useState(null);
+  const [liveEtaMinutes, setLiveEtaMinutes] = useState(null);
   const [active, setActive] = useState(null);
   const [driver, setDriver] = useState(null);
   const [history, setHistory] = useState([]);
@@ -241,6 +243,7 @@ export default function PassengerApp() {
         setDriver(null);
         driverRef.current = null;
         setRouteCoords(null);
+        setLiveEtaMinutes(null);
         setDestination(null);
         setDestText('');
         setQuote(null);
@@ -271,21 +274,36 @@ export default function PassengerApp() {
 
   useEffect(() => {
     const trip = active;
-    if (!trip?.id || !isLiveNavTrip(trip.status)) return undefined;
+    if (!trip?.id || !isLiveNavTrip(trip.status)) {
+      setLiveEtaMinutes(null);
+      return undefined;
+    }
 
     let cancelled = false;
     const load = async () => {
       const loc = driverRef.current;
-      const origin = loc?.lat != null && loc?.lng != null
+      const hasDriver = loc?.lat != null && loc?.lng != null;
+      const origin = hasDriver
         ? { lat: loc.lat, lng: loc.lng }
         : tripPickupPoint(trip);
       const target = tripNavTarget(trip);
       if (!origin || !target) return;
-      const line = await fetchRouteLine(
-        { lat: origin.lat, lng: origin.lng },
-        { lat: target.lat, lng: target.lng },
-      );
-      if (!cancelled && line) setRouteCoords(line);
+      const [line, metrics] = await Promise.all([
+        fetchRouteLine(
+          { lat: origin.lat, lng: origin.lng },
+          { lat: target.lat, lng: target.lng },
+        ),
+        hasDriver
+          ? fetchRouteMetrics(
+            { lat: origin.lat, lng: origin.lng },
+            { lat: target.lat, lng: target.lng },
+          )
+          : Promise.resolve(null),
+      ]);
+      if (cancelled) return;
+      if (line) setRouteCoords(line);
+      const minutes = Number(metrics?.durationMinutes);
+      setLiveEtaMinutes(Number.isFinite(minutes) ? minutes : null);
     };
 
     load();
@@ -517,6 +535,7 @@ export default function PassengerApp() {
     setDriver(null);
     driverRef.current = null;
     setRouteCoords(null);
+    setLiveEtaMinutes(null);
     setDestination(null);
     setDestText('');
     setQuote(null);
@@ -736,6 +755,7 @@ export default function PassengerApp() {
           followDriver={Boolean(driver?.lat && liveNav)}
           fitToRoute={reviewing || (liveTrip && !liveNav)}
           fitPadding={chromeInsets}
+          mapStyle={DRIVER_MAP_STYLE}
         />
       )}
       header={searching ? null : (
@@ -768,6 +788,7 @@ export default function PassengerApp() {
                 pickup={active.origin_address}
                 destination={active.destination_address}
                 priceLabel={active.price ? formatArs(active.price) : null}
+                etaLabel={liveNav ? formatPassengerEta({ minutes: liveEtaMinutes, status: active.status }) : null}
                 canCancel={status.canCancel}
                 cancelLabel={active.status === 'queued' || active.status === 'pending' ? 'Cancelar solicitud' : 'Cancelar viaje'}
                 chatAvailable={chatReady}

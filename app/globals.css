@@ -1150,6 +1150,15 @@ div[style*="background-color: rgb(255, 255, 255)"][style*="z-index"][style*="pos
   color: #64748b;
 }
 
+.spa-live-head .spa-eta {
+  margin: 6px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: #1c6ef2;
+}
+
 .spa-wait {
   display: grid;
   justify-items: center;

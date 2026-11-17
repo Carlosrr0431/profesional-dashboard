@@ -1,6 +1,7 @@
 /** Config de mapa para componentes cliente (sin imports de Node). */
 
 const googleMapsLikeStyle = require('./map-styles/googleMapsLike.json');
+const { buildHybridMapStyle } = require('../../shared/geo/hybridMapStyle');
 
 /**
  * Estilo vectorial personalizado (paleta tipo Google Maps) sobre tiles OpenFreeMap.
@@ -47,6 +48,9 @@ const envStyleUrl = typeof process !== 'undefined'
  * Una URL en NEXT_PUBLIC_MAP_STYLE_URL sigue teniendo prioridad.
  */
 export const MAP_STYLE = envStyleUrl || GOOGLE_ROADMAP_STYLE;
+
+/** Mismo mapa que driver-app: calles OSM y flechas de sentido único. */
+export const DRIVER_MAP_STYLE = buildHybridMapStyle({ maxZoom: 18, emphasizeOneway: true });
 
 /** @deprecated Usar MAP_STYLE — alias para compatibilidad. */
 export const MAP_STYLE_URL = MAP_STYLE;

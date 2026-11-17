@@ -81,6 +81,7 @@ export default function TripLiveSheet({
   pickup,
   destination,
   priceLabel,
+  etaLabel = null,
   canCancel = false,
   cancelLabel = 'Cancelar',
   chatAvailable = false,
@@ -112,6 +113,7 @@ export default function TripLiveSheet({
         <div className="min-w-0 flex-1">
           <SpaKicker live>{statusLabel}</SpaKicker>
           <h2>{statusDesc}</h2>
+          {etaLabel ? <p className="spa-eta">{etaLabel}</p> : null}
         </div>
         {priceLabel ? <p className="shrink-0 text-[15px] font-semibold text-navy-900">{priceLabel}</p> : null}
       </div>

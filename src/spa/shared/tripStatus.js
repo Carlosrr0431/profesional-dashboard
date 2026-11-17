@@ -69,6 +69,23 @@ export function isLiveNavTrip(status) {
   return key === 'accepted' || key === 'going_to_pickup' || key === 'in_progress';
 }
 
+export function formatPassengerEta({ minutes, status, now = new Date() } = {}) {
+  if (minutes == null || minutes === '') return null;
+  const value = Number(minutes);
+  if (!Number.isFinite(value) || value < 0) return null;
+  const soon = value < 1;
+  const rounded = soon ? 0 : Math.max(1, Math.round(value));
+  const arrival = new Date(now.getTime() + rounded * 60000);
+  const clock = arrival.toLocaleTimeString('es-AR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const verb = String(status || '').toLowerCase() === 'in_progress' ? 'Llegás' : 'Llega';
+  const time = soon ? 'menos de 1 min' : `${rounded} min`;
+  return `${verb} en ${time} · ${clock}`;
+}
+
 export function passengerStatusMeta(status) {
   const key = String(status || '').toLowerCase();
   return PASSENGER_STATUS[key] || {
