@@ -1,4 +1,4 @@
-const { parseGoogleMapsPoint, queryOverlapScore, savedAddressMatches } = require('../../shared/savedAddressMatch');
+const { parseGoogleMapsPoint, queryOverlapScore, savedAddressMatches, savedDoorMatches } = require('../../shared/savedAddressMatch');
 const { autocompleteAddressSalta } = require('../../shared/geo/nominatim');
 
 describe('punto de Google Maps y dirección guardada', () => {
@@ -46,6 +46,10 @@ describe('punto de Google Maps y dirección guardada', () => {
       'Santa Rita 2, La Isla, Manzana 20, Casa 5',
       'santa rita 2 la isla manzana 20 casa 5',
     )).toBe(true);
+    expect(savedDoorMatches('Av. Independencia 392', 'avenida independencia 392')).toBe(true);
+    expect(savedDoorMatches('Av. Independencia 392', 'avenida independencia 220')).toBe(false);
+    expect(savedDoorMatches('Av. Independencia 392', 'avenida independencia 550')).toBe(false);
+    expect(savedDoorMatches('Santa Ana 1, Pasaje 20, Casa 1421', 'santa 1 pasaje 20')).toBe(true);
     expect(queryOverlapScore('santa 1 pasaje 20', title))
       .toBeGreaterThan(queryOverlapScore('santa 1 pasaje 20', 'santa victoria & pasaje anta'));
   });

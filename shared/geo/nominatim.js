@@ -482,6 +482,29 @@ function toAutocompleteSuggestion(item, query, bonusScore = 0, titleOverride = n
   };
 }
 
+/**
+ * Punto de Google para una calle con altura. La caché de Places responde sola;
+ * si no está, una sesión de Autocomplete y como máximo un Place Details Essentials.
+ */
+async function lookupGoogleHousePoint(query, options = {}) {
+  const text = String(query || '').trim();
+  if (pickPrimaryHouseNumber(text) == null || !isGoogleConfigured()) return null;
+  if (findPinnedAddress(text)) return null;
+  const googleHouse = await geocodeAddressGoogleGap(text, options);
+  if (!googleHouse || !Number.isFinite(Number(googleHouse.lat)) || !Number.isFinite(Number(googleHouse.lng))) {
+    return null;
+  }
+  return {
+    lat: Number(googleHouse.lat),
+    lng: Number(googleHouse.lng),
+    formattedAddress: googleHouse.formattedAddress,
+    placeId: googleHouse.placeId || null,
+    title: googleHouse.title || null,
+    subtitle: googleHouse.subtitle || null,
+    geocodeSource: googleHouse.geocodeSource || 'google_place_details_essentials',
+  };
+}
+
 async function geocodeAddressGoogleViaAutocomplete(query, options = {}) {
   const { createSessionToken } = require('./googlePlaces');
   const sessionToken = options.sessionToken || createSessionToken();
@@ -627,6 +650,9 @@ async function geocodeAddress(address, options = {}) {
       geocodeSource: 'pinned',
     };
   }
+
+  const googleHouse = await lookupGoogleHousePoint(query, options);
+  if (googleHouse) return googleHouse;
 
   if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
     const official = await findOfficialHouseNumber(query);
@@ -1530,6 +1556,7 @@ async function getPlaceDetails(placeId, options = {}) {
 
 module.exports = {
   geocodeAddress,
+  lookupGoogleHousePoint,
   geocodeAddressMultiple,
   reverseGeocode,
   reverseGeocodeForPin,

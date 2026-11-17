@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { autocompleteAddressSalta, keepLocatableSuggestions, searchGooglePlacesLastResort } from '../../../../src/lib/geo/index.js';
+import { autocompleteAddressSalta, keepLocatableSuggestions, lookupGoogleHousePoint, searchGooglePlacesLastResort } from '../../../../src/lib/geo/index.js';
 import { loadFrequentPlaces } from '../../../../src/lib/frequentTripCatalog';
 import { mergePlaceSuggestions, searchFrequentPlaces } from '../../../../src/lib/frequentPickups';
 import { searchCachedPlaces } from '../../../../src/lib/googlePlacesBudgetStore';
@@ -196,6 +196,22 @@ export async function GET(request) {
     }
     if (pickPrimaryHouseNumber(query) != null) {
       results = alignStreetNumberPins(results, query);
+    }
+    const house = pickPrimaryHouseNumber(query);
+    if (house != null && house >= 10) {
+      const googleHouse = await lookupGoogleHousePoint(query).catch(() => null);
+      if (googleHouse) {
+        results = [{
+          title: googleHouse.title || query,
+          subtitle: googleHouse.subtitle || 'Salta',
+          address: googleHouse.formattedAddress,
+          formattedAddress: googleHouse.formattedAddress,
+          lat: googleHouse.lat,
+          lng: googleHouse.lng,
+          placeId: googleHouse.placeId || null,
+          geocodeSource: googleHouse.geocodeSource || 'google_place_details_essentials',
+        }];
+      }
     }
     results = (results || []).map(omitUnusablePin);
     if (results.length) setCached(cacheKey, results);

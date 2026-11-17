@@ -33,6 +33,7 @@ export const {
 
 export const {
   geocodeAddress,
+  lookupGoogleHousePoint,
   geocodeAddressMultiple,
   reverseGeocode,
   reverseGeocodeForPin,

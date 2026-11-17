@@ -249,7 +249,9 @@ export default function AddressAutocomplete({
     setSuggestions([]);
 
     const hasCoords = hasUsableGeoPoint(item.lat, item.lng);
-    if (hasCoords) {
+    const placeKey = String(item.placeId || '');
+    const roughPin = placeKey.startsWith('georef:') || placeKey.startsWith('street:');
+    if (hasCoords && !roughPin) {
       sessionTokenRef.current = null;
       onSelect?.({
         formattedAddress: labelText,
@@ -262,19 +264,22 @@ export default function AddressAutocomplete({
       return;
     }
 
-    if (!item.placeId) {
+    if (!item.placeId && !roughPin) {
       onSelect?.({ formattedAddress: labelText, lat: null, lng: null, placeId: null });
       return;
     }
 
     try {
       const token = item.sessionToken || sessionTokenRef.current;
-      const qs = new URLSearchParams({
-        placeId: String(item.placeId),
-        formattedAddress: labelText,
-      });
-      if (item.title) qs.set('title', item.title);
-      if (item.subtitle) qs.set('subtitle', item.subtitle);
+      const qs = new URLSearchParams();
+      if (roughPin) {
+        qs.set('address', labelText);
+      } else {
+        qs.set('placeId', String(item.placeId));
+        qs.set('formattedAddress', labelText);
+        if (item.title) qs.set('title', item.title);
+        if (item.subtitle) qs.set('subtitle', item.subtitle);
+      }
       if (token) qs.set('sessionToken', token);
       const res = await fetch(`/api/geo/geocode?${qs.toString()}`);
       const payload = await res.json();
@@ -293,7 +298,7 @@ export default function AddressAutocomplete({
         formattedAddress: selectedLabel,
         lat: payload.data?.lat,
         lng: payload.data?.lng,
-        placeId: item.placeId,
+        placeId: payload.data?.placeId || item.placeId,
         title: resolvedTitle,
         subtitle: payload.data?.subtitle || item.subtitle || null,
         fullFormattedAddress: payload.data?.formattedAddress || null,

@@ -118,9 +118,22 @@ function parseGoogleMapsPoint(input) {
   return { lat, lng };
 }
 
+/** La puerta guardada solo vale para esa altura. Independencia 392 no es la 220. */
+function savedDoorMatches(title, query) {
+  const nums = (value) => {
+    const found = String(value || '').match(/\b\d{1,5}\b/g) || [];
+    const door = found.map(Number).find((n) => n >= 1 && n <= 9999);
+    return door == null ? null : door;
+  };
+  const titleNumber = nums(title);
+  if (titleNumber == null) return true;
+  return nums(query) === titleNumber;
+}
+
 module.exports = {
   foldPinnedQuery,
   savedAddressMatches,
+  savedDoorMatches,
   queryOverlapScore,
   parseGoogleMapsPoint,
 };

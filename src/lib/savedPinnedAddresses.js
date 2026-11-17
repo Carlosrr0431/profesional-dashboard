@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from './supabaseAdmin';
-import { foldPinnedQuery, savedAddressMatches } from '../../shared/savedAddressMatch';
+import { foldPinnedQuery, savedAddressMatches, savedDoorMatches } from '../../shared/savedAddressMatch';
 import { PINNED_ADDRESSES } from '../../shared/pinned-addresses';
 
 let cache = { at: 0, rows: [] };
@@ -108,6 +108,6 @@ export function suggestionFromSavedAddress(row) {
 export async function findSavedPinnedAddresses(query) {
   const rows = await listSavedPinnedAddresses();
   return rows
-    .filter((row) => savedAddressMatches(row.title, query))
+    .filter((row) => savedAddressMatches(row.title, query) && savedDoorMatches(row.title, query))
     .map(suggestionFromSavedAddress);
 }

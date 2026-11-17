@@ -5,6 +5,7 @@
 import {
   autocompleteAddressSalta,
   getPlaceDetails,
+  lookupGoogleHousePoint,
   searchGooglePlacesLastResort,
   SALTA_CENTER_LAT,
   SALTA_CENTER_LNG,
@@ -356,6 +357,21 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
       placeId: best.placeId || null,
       geocodeSource: 'cache',
     };
+  }
+
+  if (pickPrimaryHouseNumber(text) != null) {
+    const googleHouse = await lookupGoogleHousePoint(text, { sessionToken: options.sessionToken }).catch(() => null);
+    if (googleHouse) {
+      return {
+        formattedAddress: googleHouse.formattedAddress,
+        lat: googleHouse.lat,
+        lng: googleHouse.lng,
+        placeId: googleHouse.placeId || null,
+        title: googleHouse.title || null,
+        subtitle: googleHouse.subtitle || null,
+        geocodeSource: googleHouse.geocodeSource || 'google_place_details_essentials',
+      };
+    }
   }
 
   const sessionToken = options.sessionToken || createSessionToken();
