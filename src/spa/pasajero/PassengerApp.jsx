@@ -330,7 +330,7 @@ export default function PassengerApp() {
     setInfo('');
     const phone = normalizePassengerPhone(loginPhone);
     if (!phone) {
-      setError('Ingresá un teléfono de Argentina con código de área. Ejemplo: 387 123 4567.');
+      setError('Ingresá el celular con código de área, de cualquier provincia. Ejemplo: 351 123 4567 o 11 1234 5678.');
       return;
     }
     setBusy(true);
@@ -641,7 +641,7 @@ export default function PassengerApp() {
                   autoComplete="tel"
                   name="tel"
                   className={spaFieldClass}
-                  placeholder="387 123 4567"
+                  placeholder="351 123 4567"
                 />
               </label>
               {otpStep === 'code' ? (

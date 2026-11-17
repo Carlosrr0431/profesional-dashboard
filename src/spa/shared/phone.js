@@ -3,38 +3,56 @@
  * Canónico: 54 + 10 dígitos (ej. 543871234567).
  */
 
+function isImplausibleArMobileLocal(local) {
+  const digits = String(local || '');
+  if (!/^\d{10}$/.test(digits)) return true;
+  if (/^(\d)\1{9}$/.test(digits)) return true;
+  if (/^(\d{2})\1{4}$/.test(digits)) return true;
+  if (/^(\d{3})\1{2}\d$/.test(digits)) return true;
+  if (/^(0123456789|1234567890|0987654321|9876543210)$/.test(digits)) return true;
+  if (new Set(digits).size <= 2) return true;
+  return false;
+}
+
+function stripArMobile15(digits) {
+  const value = String(digits || '');
+  if (value.length <= 10) return value;
+  for (const len of [4, 3, 2]) {
+    if (value.length < len + 2) continue;
+    if (len === 2 && value.slice(0, 2) !== '11') continue;
+    if (value.slice(len, len + 2) !== '15') continue;
+    const local = `${value.slice(0, len)}${value.slice(len + 2)}`;
+    if (local.length === 10) return local;
+  }
+  return value;
+}
+
 export function extractLocalArMobileDigits(phone) {
   let digits = String(phone || '').replace(/\D/g, '');
   if (!digits) return '';
   if (digits.startsWith('00')) digits = digits.slice(2);
   while (digits.startsWith('0')) digits = digits.slice(1);
 
-  let local = '';
+  let national = '';
   if (digits.startsWith('549')) {
     if (digits.length < 13) return '';
-    local = digits.slice(3);
+    national = digits.slice(3);
   } else if (digits.startsWith('54')) {
     if (digits.length < 12) return '';
-    let rest = digits.slice(2);
-    if (rest.startsWith('9') && rest.length >= 11) rest = rest.slice(1);
-    local = rest;
-  } else if (digits.startsWith('9') && digits.length === 11) {
-    local = digits.slice(1);
-  } else if (digits.length === 10) {
-    local = digits;
+    national = digits.slice(2);
+    if (national.startsWith('9') && national.length >= 11) national = national.slice(1);
+  } else if (digits.startsWith('9') && digits.length >= 11 && digits.length <= 15) {
+    national = digits.slice(1);
   } else {
-    return '';
+    national = digits;
   }
 
-  if (/^\d{3}15\d{6,}$/.test(local)) {
-    local = `${local.slice(0, 3)}${local.slice(5)}`;
-  }
-
-  local = local.slice(0, 10);
-  if (!/^\d{10}$/.test(local)) return '';
-  if (local.startsWith('54')) return '';
-  if (local.startsWith('9') || local.startsWith('59')) return '';
-  return local;
+  national = stripArMobile15(national);
+  if (!/^\d{10}$/.test(national)) return '';
+  if (national.startsWith('54') || national.startsWith('9')) return '';
+  if (!(national.startsWith('11') || national.startsWith('2') || national.startsWith('3'))) return '';
+  if (isImplausibleArMobileLocal(national)) return '';
+  return national;
 }
 
 export function normalizePassengerPhone(phone) {

@@ -39,7 +39,35 @@ export function isImplausibleArMobileLocal(local) {
 }
 
 /**
- * Extrae los 10 dígitos locales del móvil AR (área + número).
+ * Saca el "15" de móvil que va después del código de área.
+ * 11 (Buenos Aires), 351 (Córdoba) o 3541 (área de 4) quedan en 10 dígitos.
+ * No toca un número que ya tiene 10: 3515123456 es área 351, no un 15.
+ */
+export function stripArMobile15(digits) {
+  const value = String(digits || '');
+  if (value.length <= 10) return value;
+  for (const len of [4, 3, 2]) {
+    if (value.length < len + 2) continue;
+    if (len === 2 && value.slice(0, 2) !== '11') continue;
+    if (value.slice(len, len + 2) !== '15') continue;
+    const local = `${value.slice(0, len)}${value.slice(len + 2)}`;
+    if (local.length === 10) return local;
+  }
+  return value;
+}
+
+/** Área argentina: 11, o un código que empieza con 2 o 3. Cualquier provincia. */
+export function isAcceptableArLocal(local) {
+  if (!/^\d{10}$/.test(local)) return false;
+  if (local.startsWith('54') || local.startsWith('9')) return false;
+  const okArea = local.startsWith('11') || local.startsWith('2') || local.startsWith('3');
+  if (!okArea) return false;
+  if (isImplausibleArMobileLocal(local)) return false;
+  return true;
+}
+
+/**
+ * Extrae los 10 dígitos locales del móvil AR (área + número), de cualquier provincia.
  * Devuelve '' si no se puede resolver con confianza.
  */
 export function extractLocalArMobileDigits(value) {
@@ -50,45 +78,28 @@ export function extractLocalArMobileDigits(value) {
     digits = digits.slice(1);
   }
 
-  let local = '';
+  let national = '';
 
   if (digits.startsWith('549')) {
     // 549 + 10 locales = 13. Menos = internacional incompleto (no tragar el 9).
     if (digits.length < 13) return '';
-    local = digits.slice(3);
+    national = digits.slice(3);
   } else if (digits.startsWith('54')) {
     // 54 + 10 locales = 12, o 54 + 9 + 10 = 13.
     if (digits.length < 12) return '';
-    let rest = digits.slice(2);
-    if (rest.startsWith('9') && rest.length >= 11) {
-      rest = rest.slice(1);
+    national = digits.slice(2);
+    if (national.startsWith('9') && national.length >= 11) {
+      national = national.slice(1);
     }
-    local = rest;
-  } else if (digits.startsWith('9') && digits.length === 11) {
-    local = digits.slice(1);
-  } else if (digits.length === 10) {
-    local = digits;
+  } else if (digits.startsWith('9') && digits.length >= 11 && digits.length <= 15) {
+    national = digits.slice(1);
   } else {
-    return '';
+    national = digits;
   }
 
-  // Formato viejo con "15" tras el área (ej. 38715xxxxxx → 387xxxxxx).
-  // Aplicar antes de truncar a 10 para no cortar dígitos útiles.
-  if (/^\d{3}15\d{6,}$/.test(local)) {
-    local = `${local.slice(0, 3)}${local.slice(5)}`;
-  }
-
-  local = local.slice(0, 10);
-  if (!/^\d{10}$/.test(local)) return '';
-
-  // Pegar "54…" truncado a 10 dígitos no es un móvil local válido.
-  if (local.startsWith('54')) return '';
-  // El "9" de móvil AR solo va en E.164 (549…), nunca como primer dígito local.
-  // "59…" suele ser basura tipo 5+9+número truncado (ej. 5938786301 → JID inexistente).
-  if (local.startsWith('9') || local.startsWith('59')) return '';
-  if (isImplausibleArMobileLocal(local)) return '';
-
-  return local;
+  national = stripArMobile15(national);
+  if (!isAcceptableArLocal(national)) return '';
+  return national;
 }
 
 /** Canónico para DB / OTP / sesiones: 54 + 10 locales. */

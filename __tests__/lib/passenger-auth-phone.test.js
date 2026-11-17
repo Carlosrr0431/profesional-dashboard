@@ -67,6 +67,17 @@ describe('passengerAuthPhone', () => {
     expect(normalizePassengerPhoneForDb('549387158630173')).toBe('543878630173');
   });
 
+  it('acepta celulares de otras provincias, con 0 o con 15', () => {
+    expect(extractLocalArMobileDigits('3511234567')).toBe('3511234567');
+    expect(extractLocalArMobileDigits('0351151234567')).toBe('3511234567');
+    expect(extractLocalArMobileDigits('+54 9 351 123-4567')).toBe('3511234567');
+    expect(normalizePassengerPhoneForDb('351151234567')).toBe('543511234567');
+    expect(extractLocalArMobileDigits('1112345678')).toBe('1112345678');
+    expect(extractLocalArMobileDigits('0111512345678')).toBe('1112345678');
+    expect(extractLocalArMobileDigits('0354115123456')).toBe('3541123456');
+    expect(extractLocalArMobileDigits('2211234567')).toBe('2211234567');
+  });
+
   it('rechaza números de prueba / patrón que Meta ve como scraping', () => {
     expect(extractLocalArMobileDigits('1231231231')).toBe('');
     expect(normalizePhoneForWhatsApp('541231231231')).toBe('');

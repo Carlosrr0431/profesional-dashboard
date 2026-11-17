@@ -80,7 +80,7 @@ function smsDeliveryFailure(sendResult) {
       status: 422,
       reason,
       retryAfterSeconds: 0,
-      message: 'Ese número no es válido. Usá los 10 dígitos locales (ej. 387…), sin 0, 9 ni 54.',
+      message: 'Ese número no es válido. Ingresá el celular con código de área, de cualquier provincia.',
     };
   }
   if (reason === 'missing_sms_gateway_config') {
