@@ -31,14 +31,52 @@ const PINNED_ADDRESSES = [
     lat: -24.782338,
     lng: -65.4369189,
   },
+  {
+    id: 'ing-abel-cornejo-751',
+    title: 'Ing. Abel Cornejo 751',
+    subtitle: 'Salta',
+    lat: -24.7973297,
+    lng: -65.4363874,
+    number: '751',
+    aliases: [
+      'Marcelino Cornejo 751',
+      'Cap Marcelino Cornejo 751',
+      'Ing Abel Cornejo 751',
+      'Ingeniero Abel Cornejo 751',
+    ],
+  },
+  {
+    id: 'av-independencia-392',
+    title: 'Av. Independencia 392',
+    subtitle: 'Salta',
+    lat: -24.8083069,
+    lng: -65.4104266,
+    number: '392',
+    aliases: [
+      'Avenida Independencia 392',
+      'Independencia 392',
+    ],
+  },
 ];
 
-const { savedAddressMatches, queryOverlapScore } = require('./savedAddressMatch');
+const { savedAddressMatches, queryOverlapScore, foldPinnedQuery } = require('./savedAddressMatch');
+
+function pinLabels(item) {
+  return [item.title, ...(item.aliases || [])];
+}
+
+function pinNumberMatches(item, query) {
+  if (!item.number) return true;
+  return foldPinnedQuery(query).split(' ').includes(String(item.number));
+}
 
 function findPinnedAddresses(query) {
   return PINNED_ADDRESSES
-    .filter((item) => savedAddressMatches(item.title, query))
-    .sort((a, b) => queryOverlapScore(query, b.title) - queryOverlapScore(query, a.title));
+    .filter((item) => pinNumberMatches(item, query) && pinLabels(item).some((label) => savedAddressMatches(label, query)))
+    .sort((a, b) => {
+      const best = (item) => Math.max(...pinLabels(item).map((label) => queryOverlapScore(query, label)));
+      return best(b) - best(a);
+    });
 }
 
 function findPinnedAddress(query) {

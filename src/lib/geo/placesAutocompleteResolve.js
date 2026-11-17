@@ -304,7 +304,14 @@ export async function geocodeAddressViaPlaces(query, options = {}) {
   const pinned = findPinnedAddress(text);
   if (pinned) {
     const suggestion = pinnedAddressSuggestion(pinned);
-    if (labelIsExactPlace(text, suggestion)) {
+    const probes = [
+      suggestion,
+      ...(pinned.aliases || []).map((alias) => ({
+        title: alias,
+        formattedAddress: `${alias}, Salta`,
+      })),
+    ];
+    if (probes.some((item) => labelIsExactPlace(text, item))) {
       return {
         formattedAddress: suggestion.formattedAddress,
         lat: suggestion.lat,

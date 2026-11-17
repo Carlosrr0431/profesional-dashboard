@@ -19,4 +19,18 @@ describe('Santa Ana pasaje 20 casa 1421', () => {
     expect(geo.lng).toBeCloseTo(-65.4731354, 6);
     expect(global.fetch).not.toHaveBeenCalled();
   });
+
+  it('ubica Marcelino Cornejo 751 en Ing. Abel Cornejo y Independencia 392 en su casa', () => {
+    const cornejo = findPinnedAddress('marcelino cornejo 751');
+    expect(cornejo.title).toBe('Ing. Abel Cornejo 751');
+    expect(cornejo.lat).toBeCloseTo(-24.7973297, 6);
+    expect(cornejo.lng).toBeCloseTo(-65.4363874, 6);
+    expect(findPinnedAddress('marcelino cornejo 200')).toBeNull();
+
+    const independencia = findPinnedAddress('avenida independencia 392');
+    expect(independencia.title).toBe('Av. Independencia 392');
+    expect(independencia.lat).toBeCloseTo(-24.8083069, 6);
+    expect(independencia.lng).toBeCloseTo(-65.4104266, 6);
+    expect(findPinnedAddress('avenida independencia 100')).toBeNull();
+  });
 });
