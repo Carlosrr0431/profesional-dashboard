@@ -27,7 +27,7 @@ import { firstNameFromFullName, unreadVoiceCountForDriver } from './lib/voiceMes
 import ViajesPanel from './components/ViajesPanel';
 import ScheduledTripsPanel from './components/ScheduledTripsPanel';
 import MapDockPopovers, { isMapListPopover, listActiveDockTrips } from './components/MapDockPopovers';
-import { loadFrequentPickups } from './components/ExpressDispatchPopover';
+import ExpressDispatchPopover, { loadFrequentPickups } from './components/ExpressDispatchPopover';
 import DemandMapControls from './components/DemandMapControls';
 import { useDemandMap } from './hooks/useDemandMap';
 import StatisticsPanel from './components/StatisticsPanel';
@@ -1136,6 +1136,9 @@ export default function App() {
                   onOpenTrips={() => { setMapPopover(null); setTripsDate(toLocalDateInputValue()); goTo(VIEWS.trips); }}
                   onOpenScheduled={() => { setMapPopover(null); goTo(VIEWS.scheduled); }}
                 />
+                {mapPopover === 'express' ? (
+                  <ExpressDispatchPopover onDispatched={() => { closePopover(); refetchTripSurfaces(); }} />
+                ) : null}
                 {demandMode ? (
                   <DemandMapControls
                     summary={demandMap.summary}
@@ -1246,6 +1249,35 @@ export default function App() {
                     </svg>
                     Demanda
                   </button>
+                  <button
+                    type="button"
+                    title={pickupMode ? 'Volver a los choferes' : 'Mapa Pro'}
+                    aria-label={pickupMode ? 'Volver a los choferes' : 'Mapa Pro'}
+                    aria-pressed={pickupMode}
+                    onPointerEnter={() => { loadFrequentPickups().catch(() => {}); }}
+                    onClick={() => {
+                      setMapPopover(null);
+                      setPickupMode((on) => {
+                        if (!on) setDemandMode(false);
+                        return !on;
+                      });
+                    }}
+                    className={`flex shrink-0 items-center rounded-full font-bold shadow-xl active:scale-[0.97] transition-all ${
+                      mapFullscreen
+                        ? 'h-12 gap-2 px-4 text-[14px] sm:h-14 sm:px-5 sm:text-[15px]'
+                        : 'h-10 gap-1.5 px-3 text-[12px] sm:h-11 sm:px-3.5 sm:text-[12.5px]'
+                    } ${
+                      pickupMode
+                        ? 'bg-emerald-600 text-white shadow-emerald-600/40'
+                        : 'bg-white border border-slate-200/80 text-slate-700 backdrop-blur-sm hover:bg-slate-50 hover:shadow-2xl'
+                    }`}
+                  >
+                    <svg className={mapFullscreen ? 'h-5 w-5' : 'h-4 w-4'} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 21s-6-5.33-6-11a6 6 0 1112 0c0 5.67-6 11-6 11z" />
+                      <circle cx="12" cy="10" r="2.1" strokeWidth={2} />
+                    </svg>
+                    {pickupMode ? 'Flota' : 'Mapa Pro'}
+                  </button>
                   {incomingDriverVoice[0] ? (
                     <button
                       type="button"
@@ -1334,6 +1366,27 @@ export default function App() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10m16 0V8a1 1 0 00-1-1h-3.5M6 8h2" />
                     </svg>
                     {activeTripCount} {activeTripCount === 1 ? 'viaje' : 'viajes'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMapPopover(mapPopover === 'express' ? null : 'express')}
+                    onPointerEnter={() => { loadFrequentPickups().catch(() => {}); }}
+                    className={`flex items-center rounded-full font-bold shadow-xl active:scale-[0.97] transition-all ${
+                      mapFullscreen
+                        ? 'h-12 gap-2 px-4 text-[14px] sm:h-14 sm:gap-2.5 sm:px-5 sm:text-[15px]'
+                        : 'h-10 gap-1.5 px-3 text-[12px] sm:h-11 sm:gap-2 sm:px-4 sm:text-[12.5px]'
+                    } ${
+                      mapPopover === 'express'
+                        ? 'bg-emerald-600 text-white shadow-emerald-600/40 scale-[1.02]'
+                        : 'bg-emerald-500 text-white shadow-emerald-500/35 hover:bg-emerald-400 hover:shadow-emerald-400/50 hover:scale-[1.02]'
+                    }`}
+                    title="Express: derivar un retiro frecuente con un toque"
+                    aria-label="Express"
+                  >
+                    <svg className={`${mapFullscreen ? 'h-5 w-5' : 'h-4 w-4'} flex-shrink-0`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <span className="hidden sm:inline">Express</span>
                   </button>
                   <button
                     type="button"
