@@ -204,6 +204,49 @@ describe('búsqueda de Places con cupo y caché', () => {
     }
   });
 
+  it('una escuela o un shopping ya guardados no vuelven a llamar a Google', async () => {
+    setPlacesBudget({
+      tryConsume: async () => true,
+      getSearch: async () => null,
+      findPlaces: async () => [{
+        placeId: 'google:alto-noa',
+        title: 'Alto NOA Shopping',
+        subtitle: 'Avenida Bicentenario, Salta',
+        formattedAddress: 'Alto NOA Shopping, Avenida Bicentenario, Salta',
+        lat: -24.782,
+        lng: -65.412,
+      }],
+      saveSearch: async () => {},
+    });
+    global.fetch = jest.fn();
+    const results = await autocompleteAddressSalta('alto noa', 5);
+    expect(results[0].placeId).toBe('google:alto-noa');
+    expect(results[0].lat).toBeCloseTo(-24.782, 3);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('la palabra escuela sola sigue buscando en Google', async () => {
+    setPlacesBudget({
+      tryConsume: async () => true,
+      getSearch: async () => null,
+      findPlaces: async () => [{
+        placeId: 'google:normal',
+        title: 'Escuela Normal',
+        subtitle: 'Salta',
+        formattedAddress: 'Escuela Normal, Salta',
+        lat: -24.78,
+        lng: -65.41,
+      }],
+      saveSearch: async () => {},
+    });
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({ suggestions: [suggestion] }),
+    }));
+    await autocompleteAddressSalta('escuela', 5);
+    expect(global.fetch).toHaveBeenCalled();
+  });
+
   it('completa el punto guardado del lugar y no vuelve a llamar a Google', async () => {
     const stored = [{
       placeId: 'google:penal2',

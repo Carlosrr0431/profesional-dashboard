@@ -44,6 +44,8 @@ const {
   SALTA_CENTER_LNG,
 } = require('./mapConfig');
 
+const { cachedPoiMatches, placeQueryTokens } = require('./placesBudget');
+
 const {
   parseStreetIntersection,
   intersectionHitMatches,
@@ -862,6 +864,8 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
     const known = !options?.skipKnownPlaces && placesBudget?.findPlaces
       ? await placesBudget.findPlaces(text, normalizedLimit).catch(() => [])
       : [];
+    const answered = !expand ? cachedPlacesAnswerQuery(known, text) : null;
+    if (answered) return answered.map(omitUnusablePin);
     const suggestions = await placesAutocompleteRequest(
       text,
       sessionToken,
@@ -921,6 +925,24 @@ async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   } finally {
     inFlightAutocomplete.delete(flightKey);
   }
+}
+
+const GENERIC_PLACE_WORDS = new Set([
+  'escuela', 'colegio', 'shopping', 'shoping', 'shoppings', 'hospital',
+  'farmacia', 'supermercado', 'banco', 'hotel', 'club', 'instituto', 'universidad',
+]);
+
+/** Lugares ya guardados que cubren el nombre pedido, con coordenadas. Una palabra suelta no alcanza. */
+function cachedPlacesAnswerQuery(places, query) {
+  if (pickPrimaryHouseNumber(query) != null) return null;
+  const tokens = placeQueryTokens(query);
+  const specific = tokens.filter((token) => !GENERIC_PLACE_WORDS.has(token));
+  if (!specific.length) return null;
+  const exact = (places || []).filter((item) => (
+    hasUsableGeoPoint(item?.lat, item?.lng)
+    && cachedPoiMatches(`${item.title || ''} ${item.subtitle || ''} ${item.formattedAddress || ''} ${item.address || ''}`, query)
+  ));
+  return exact.length ? exact : null;
 }
 
 const searchPoiSalta = autocompleteAddressSalta;
