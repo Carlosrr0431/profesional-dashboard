@@ -48,13 +48,12 @@ export function buildDriverMarkerIconSpec(driver, isSelected, isMultiSelected) {
   const width = Math.round(50 * scale);
   const height = Math.round(62 * scale);
 
+  const rawNumber = driver.driverNumber ?? driver.driver_number;
   let badgeText = '';
   if (isMultiSelected) {
     badgeText = '✓';
-  } else if (driver.driverNumber != null && String(driver.driverNumber).trim() !== '') {
-    badgeText = String(driver.driverNumber);
-  } else if (driver.isAssignedDriver) {
-    badgeText = 'A';
+  } else if (rawNumber != null && String(rawNumber).trim() !== '') {
+    badgeText = String(rawNumber);
   }
 
   const fontSize = badgeFontSize(badgeText);

@@ -61,9 +61,9 @@ export default function DemandMapLayer({ summary, layers, onSelectScheduled }) {
           }}
         />
       )) : null}
-      {layers.done ? summary.todayZones.map((zone) => (
+      {layers.done ? summary.todayZones.map((zone, index) => (
         <CircleMarker
-          key={`hoy-${zone.lat.toFixed(4)}-${zone.lng.toFixed(4)}`}
+          key={`hoy-${index}-${zone.lat.toFixed(4)}-${zone.lng.toFixed(4)}`}
           center={[zone.lat, zone.lng]}
           radius={zoneRadius(zone.score) + 8}
           interactive={false}
@@ -83,25 +83,25 @@ export default function DemandMapLayer({ summary, layers, onSelectScheduled }) {
           icon={scoreIcon(zone.score, ZONE_COLOR[zone.level], zone.level === 'baja')}
         />
       )) : null}
-      {layers.done ? summary.todayZones.map((zone) => (
+      {layers.done ? summary.todayZones.map((zone, index) => (
         <Marker
-          key={`hoy-score-${zone.lat.toFixed(4)}-${zone.lng.toFixed(4)}`}
+          key={`hoy-score-${index}-${zone.lat.toFixed(4)}-${zone.lng.toFixed(4)}`}
           position={[zone.lat, zone.lng]}
           interactive={false}
           icon={scoreIcon(zone.score, '#15803D', false)}
         />
       )) : null}
-      {layers.scheduled ? summary.scheduled.map((trip) => (
+      {layers.scheduled ? summary.scheduled.map((trip, index) => (
         <Marker
-          key={`prog-${trip.lat.toFixed(5)}-${trip.lng.toFixed(5)}-${trip.at}`}
+          key={`prog-${index}-${trip.at}`}
           position={[trip.lat, trip.lng]}
           icon={scheduledIcon(trip.label)}
           eventHandlers={{ click: () => onSelectScheduled?.(trip) }}
         />
       )) : null}
-      {layers.queued ? summary.queued.map((trip) => (
+      {layers.queued ? summary.queued.map((trip, index) => (
         <Marker
-          key={`cola-${trip.lat.toFixed(5)}-${trip.lng.toFixed(5)}-${trip.at}`}
+          key={`cola-${index}-${trip.at}`}
           position={[trip.lat, trip.lng]}
           interactive={false}
           icon={queueIcon}

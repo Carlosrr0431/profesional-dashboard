@@ -486,6 +486,32 @@ function toAutocompleteSuggestion(item, query, bonusScore = 0, titleOverride = n
  * Punto de Google para una calle con altura. La caché de Places responde sola;
  * si no está, una sesión de Autocomplete y como máximo un Place Details Essentials.
  */
+/** Si el punto guardado o de Google cayó en otra calle, manda la altura oficial. */
+const OFF_STREET_HOUSE_METERS = 180;
+
+function officialHouseSuggestion(query, official) {
+  const label = formatNominatimLabelForQuery(official, query);
+  return {
+    lat: Number(official.lat),
+    lng: Number(official.lng),
+    formattedAddress: label.full || official.formattedAddress,
+    placeId: official.placeId || null,
+    title: label.title || null,
+    subtitle: label.subtitle || null,
+    geocodeSource: 'georef',
+  };
+}
+
+async function keepHousePointOnOfficialStreet(query, point) {
+  if (!point || pickPrimaryHouseNumber(query) == null) return point;
+  const official = await findOfficialHouseNumber(query, point).catch(() => null);
+  if (!official || !Number.isFinite(Number(official.lat)) || !Number.isFinite(Number(official.lng))) {
+    return point;
+  }
+  if (metersBetween(point, official) <= OFF_STREET_HOUSE_METERS) return point;
+  return officialHouseSuggestion(query, official);
+}
+
 async function lookupGoogleHousePoint(query, options = {}) {
   const text = String(query || '').trim();
   if (pickPrimaryHouseNumber(text) == null || !isGoogleConfigured()) return null;
@@ -494,7 +520,7 @@ async function lookupGoogleHousePoint(query, options = {}) {
   if (!googleHouse || !Number.isFinite(Number(googleHouse.lat)) || !Number.isFinite(Number(googleHouse.lng))) {
     return null;
   }
-  return {
+  return keepHousePointOnOfficialStreet(text, {
     lat: Number(googleHouse.lat),
     lng: Number(googleHouse.lng),
     formattedAddress: googleHouse.formattedAddress,
@@ -502,7 +528,7 @@ async function lookupGoogleHousePoint(query, options = {}) {
     title: googleHouse.title || null,
     subtitle: googleHouse.subtitle || null,
     geocodeSource: googleHouse.geocodeSource || 'google_place_details_essentials',
-  };
+  });
 }
 
 async function geocodeAddressGoogleViaAutocomplete(query, options = {}) {
@@ -651,6 +677,14 @@ async function geocodeAddress(address, options = {}) {
     };
   }
 
+  const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
+  if (hasHouseNumber && !looksLikeSaltaKnownPoi(query)) {
+    const official = await findOfficialHouseNumber(query);
+    if (official) {
+      return officialHouseSuggestion(query, official);
+    }
+  }
+
   const googleHouse = await lookupGoogleHousePoint(query, options);
   if (googleHouse) return googleHouse;
 
@@ -686,7 +720,6 @@ async function geocodeAddress(address, options = {}) {
     };
   };
 
-  const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
   if (hasHouseNumber) {
     const { ranked, missingLabel } = await locatedOfficialHouseHits(query);
     const pack = { missingLabel };

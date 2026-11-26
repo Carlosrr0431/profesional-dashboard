@@ -49,7 +49,7 @@ const envStyleUrl = typeof process !== 'undefined'
  */
 export const MAP_STYLE = envStyleUrl || GOOGLE_ROADMAP_STYLE;
 
-/** Mismo mapa que driver-app: calles OSM y flechas de sentido único. */
+/** Mismo mapa que driver-app: calles con estética de Google, sin SDK, y flechas de sentido único. */
 export const DRIVER_MAP_STYLE = buildHybridMapStyle({ maxZoom: 18, emphasizeOneway: true });
 
 /** @deprecated Usar MAP_STYLE — alias para compatibilidad. */

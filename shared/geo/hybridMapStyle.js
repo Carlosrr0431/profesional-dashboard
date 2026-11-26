@@ -10,6 +10,17 @@ const OPENFREEMAP_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{ran
 
 const OSM_RASTER_SUBDOMAINS = ['a', 'b', 'c'];
 const OSM_RASTER_ATTRIBUTION = '© OpenStreetMap contributors';
+const GOOGLE_MAPS_ATTRIBUTION = '© Google Maps';
+
+/** Misma base que driver-app: teselas de calles, sin el SDK de Google. */
+function googleMapsTiles() {
+  return [
+    'https://mt0.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+    'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+    'https://mt2.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+    'https://mt3.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+  ];
+}
 
 function osmRasterTiles() {
   return OSM_RASTER_SUBDOMAINS.map(
@@ -177,7 +188,7 @@ function buildOsmRasterStyle(options = {}) {
 }
 
 /**
- * Raster OSM + flechas OSM (OpenFreeMap vector).
+ * Raster con estética de Google Maps (sin SDK) + flechas OSM (OpenFreeMap vector).
  * @param {{ maxZoom?: number }} [options]
  */
 function buildHybridMapStyle(options = {}) {
@@ -191,11 +202,12 @@ function buildHybridMapStyle(options = {}) {
     sources: {
       'osm-raster': {
         type: 'raster',
-        tiles: osmRasterTiles(),
+        tiles: googleMapsTiles(),
         tileSize: 256,
         scheme: 'xyz',
-        attribution: OSM_RASTER_ATTRIBUTION,
+        attribution: GOOGLE_MAPS_ATTRIBUTION,
         maxzoom: maxZoom,
+        minzoom: 0,
       },
       openmaptiles: {
         type: 'vector',

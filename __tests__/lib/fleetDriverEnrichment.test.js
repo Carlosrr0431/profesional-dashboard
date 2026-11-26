@@ -34,4 +34,16 @@ describe('fleetDriverEnrichment', () => {
     expect(map['owner-1']).toEqual(owner);
     expect(map.a1).toBeUndefined();
   });
+
+  it('el asignado hereda el número 1 del titular', () => {
+    const titular = { ...owner, id: 'titular-1', owner_id: 'grupo', driver_number: 1 };
+    const assigned = {
+      id: 'a1',
+      owner_id: 'titular-1',
+      is_assigned_driver: true,
+      driver_number: null,
+    };
+    const map = buildFleetOwnersById([titular, assigned]);
+    expect(mergeAssignedDriverWithOwner(assigned, map['titular-1']).driver_number).toBe(1);
+  });
 });

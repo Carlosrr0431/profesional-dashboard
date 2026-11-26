@@ -22,7 +22,7 @@ export function mergeAssignedDriverWithOwner(driver, owner) {
 export function buildFleetOwnersById(driverRows) {
   const map = {};
   for (const row of driverRows || []) {
-    if (row?.id && !row.is_assigned_driver && !row.owner_id) {
+    if (row?.id && row.is_assigned_driver !== true) {
       map[row.id] = row;
     }
   }
