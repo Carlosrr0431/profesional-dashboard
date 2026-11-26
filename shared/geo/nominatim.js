@@ -514,8 +514,14 @@ async function keepHousePointOnOfficialStreet(query, point) {
 
 async function lookupGoogleHousePoint(query, options = {}) {
   const text = String(query || '').trim();
-  if (pickPrimaryHouseNumber(text) == null || !isGoogleConfigured()) return null;
+  if (pickPrimaryHouseNumber(text) == null) return null;
   if (findPinnedAddress(text)) return null;
+  // La altura oficial no se paga. Google queda solo si Georef no tiene ese número.
+  if (!looksLikeSaltaKnownPoi(text)) {
+    const official = await findOfficialHouseNumber(text).catch(() => null);
+    if (official) return officialHouseSuggestion(text, official);
+  }
+  if (options.officialOnly || !isGoogleConfigured()) return null;
   const googleHouse = await geocodeAddressGoogleGap(text, options);
   if (!googleHouse || !Number.isFinite(Number(googleHouse.lat)) || !Number.isFinite(Number(googleHouse.lng))) {
     return null;

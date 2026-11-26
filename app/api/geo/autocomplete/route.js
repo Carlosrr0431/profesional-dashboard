@@ -136,6 +136,27 @@ export async function GET(request) {
     }
 
     const intersection = parseStreetIntersection(query);
+    const house = pickPrimaryHouseNumber(query);
+    // Calle y altura: Georef (o la caché interna) antes de Autocomplete. No se llama a Google si ya hay punto.
+    if (!intersection && house != null && house >= 10) {
+      const point = await lookupGoogleHousePoint(query, { sessionToken, officialOnly: true }).catch(() => null);
+      if (point && hasUsableGeoPoint(point.lat, point.lng)) {
+        const exact = [{
+          title: point.title || query,
+          subtitle: point.subtitle || 'Salta',
+          address: point.formattedAddress,
+          formattedAddress: point.formattedAddress,
+          lat: point.lat,
+          lng: point.lng,
+          placeId: point.placeId || null,
+          geocodeSource: point.geocodeSource || 'georef',
+          ...(sessionToken ? { sessionToken } : {}),
+        }];
+        setCached(cacheKey, exact.map(({ sessionToken: _token, ...rest }) => rest));
+        return NextResponse.json({ ok: true, data: exact });
+      }
+    }
+
     const frequentPromise = loadFrequentPlaces()
       .then((list) => ({ ok: true, items: searchFrequentPlaces(list, query, limit) }))
       .catch(() => ({ ok: false, items: [] }));
@@ -196,22 +217,6 @@ export async function GET(request) {
     }
     if (pickPrimaryHouseNumber(query) != null) {
       results = alignStreetNumberPins(results, query);
-    }
-    const house = pickPrimaryHouseNumber(query);
-    if (house != null && house >= 10) {
-      const googleHouse = await lookupGoogleHousePoint(query).catch(() => null);
-      if (googleHouse) {
-        results = [{
-          title: googleHouse.title || query,
-          subtitle: googleHouse.subtitle || 'Salta',
-          address: googleHouse.formattedAddress,
-          formattedAddress: googleHouse.formattedAddress,
-          lat: googleHouse.lat,
-          lng: googleHouse.lng,
-          placeId: googleHouse.placeId || null,
-          geocodeSource: googleHouse.geocodeSource || 'google_place_details_essentials',
-        }];
-      }
     }
     results = (results || []).map(omitUnusablePin);
     if (results.length) setCached(cacheKey, results);
