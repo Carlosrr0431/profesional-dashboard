@@ -109,7 +109,8 @@ export function isCannedWhatsappSpam(text) {
   if (!n.trim()) return false;
   if (n.includes('http://') || n.includes('https://')) return false;
   const bare = n.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-  const asksPickup = n.includes('calle y altura') && (n.includes('ubicacion gps') || /\bgps\b/.test(n));
+  const asksPickup = (n.includes('calle y altura') || n.includes('donde te buscamos'))
+    && (n.includes('ubicacion gps') || /\bgps\b/.test(n));
   if (asksPickup && !n.includes('te mando un movil') && !n.includes('ya te mando')) return false;
   if (/^(buen dia|buenos dias|buenas tardes|buenas noches|hola|hola pasajero)$/.test(bare)) {
     return true;

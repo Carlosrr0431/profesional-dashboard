@@ -14,7 +14,7 @@ export { isAvailabilityAskWithoutRoute };
 
 export const BETTO_INTRO = 'Hola, soy el Chat Bot Betto 👋';
 export const ASK_PICKUP_STREET_OR_GPS =
-  'Cuando quieras, pasame *calle y altura* (por ejemplo Mitre 200) o tu *ubicación GPS* desde WhatsApp';
+  '¿Dónde te buscamos? O compartí tu *ubicación GPS* desde WhatsApp';
 
 const SALTA_TZ = 'America/Argentina/Salta';
 const HOLA_PREFIX_RE =
@@ -65,6 +65,9 @@ export function rewriteVaguePickupAsk(text) {
   const raw = String(text || '').trim();
   if (!raw) return raw;
   if (isPickupAskWithoutGps(raw)) return ASK_PICKUP_STREET_OR_GPS;
+  if (/calle y altura/i.test(raw) && HAS_GPS_ASK_RE.test(raw) && !/altura de\s+\*?[a-záéíóúñ]/i.test(raw)) {
+    return ASK_PICKUP_STREET_OR_GPS;
+  }
   return stripLeadingHolaGreeting(raw)
     .replace(/\bcalle y(?:\s+el)?\s+n[uú]meros?(?:\s+exactos?)?/gi, 'calle y altura')
     .replace(/\bubicaci[oó]n actual\b/gi, 'ubicación GPS');
@@ -109,8 +112,8 @@ export function buildBettoWelcomeMessage({ now } = {}) {
     `${hi} 👋`,
     'Soy Betto, de Profesional Viajes',
     '',
-    'Contame de dónde te buscamos',
-    '*Calle y altura* (por ejemplo Mitre 200) o tu *ubicación GPS*',
+    '¿Dónde te buscamos?',
+    'O compartí tu *ubicación GPS*',
   ].join('\n');
 }
 

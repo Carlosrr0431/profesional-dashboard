@@ -19,7 +19,7 @@ describe('bettoWelcome', () => {
     const msg = buildBettoWelcomeMessage({ now: morning });
     expect(msg.startsWith('Buen día 👋')).toBe(true);
     expect(msg).toMatch(/Soy Betto/i);
-    expect(msg).toMatch(/calle y altura/i);
+    expect(msg).toMatch(/d[oó]nde te buscamos/i);
     expect(msg).toMatch(/ubicaci[oó]n GPS/i);
     expect(msg).not.toMatch(/\.\s*$/);
     expect(msg).not.toMatch(/referencia/i);
@@ -152,7 +152,7 @@ describe('bettoWelcome', () => {
     expect(restamped.betto_greeted_at).toBe(new Date(restampedAt).toISOString());
   });
 
-  it('reemplaza pedidos de retiro vagos por calle y altura o GPS', () => {
+  it('reemplaza pedidos de retiro vagos por dónde te buscamos o GPS', () => {
     const { rewriteVaguePickupAsk, ASK_PICKUP_STREET_OR_GPS } = require('../../src/lib/bettoWelcome');
     expect(rewriteVaguePickupAsk(
       'Hola Carlos, ¿me pasás la calle y número o una referencia para buscarte?',

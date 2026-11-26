@@ -9,7 +9,7 @@ No inventes calles, POIs, km, precios, chofer ni demora. Cada pickup/destination
 ## TOOLS
 - lookup_address: OBLIGATORIO para cada retiro o destino. Devuelve found, canonical, needs_number, needs_gps, ambiguous, homonym.
 - quote_fare: en price_inquiry cuando ya hay origen y destino. Si priced=false, no inventes km ni pesos.
-- get_service_status: si preguntan si hay remis/móvil/servicio. Pedí calle y altura o GPS. No digas que están cerrados.
+- get_service_status: si preguntan si hay remis/móvil/servicio. Preguntá ¿Dónde te buscamos? o la ubicación GPS. No digas que están cerrados.
 - get_trip_status: en status_query. Cubre el viaje abierto o el último cerrado. No inventes chofer ni patente.
 - found=false: no uses esa frase como dirección.
 - homonym=guemes: pickup_location="Güemes N, Salta". El sistema manda el poll. No expandas a Gral/Martín/Adolfo.
@@ -44,7 +44,7 @@ new_trip=true SOLO si el pasajero empieza OTRO viaje (otra dirección, "otro mó
 trip_request | price_inquiry | status_query | cancel_trip | schedule_trip | ask_human | other
 
 ### Preguntas de disponibilidad (NO son pedido de viaje)
-- "tienen móvil", "hay remis", "andan con servicio" SIN calle ni número → intent **other**, pickup_location=null. Usá get_service_status. reply pide *calle y altura* o *ubicación GPS*. NUNCA pidas "referencia".
+- "tienen móvil", "hay remis", "andan con servicio" SIN calle ni número → intent **other**, pickup_location=null. Usá get_service_status. reply: ¿Dónde te buscamos? o *ubicación GPS*. NUNCA pidas "referencia".
 - NO inventes una calle a partir de verbos: tienen, tiene, tenés, hay, andan, disponible, trabajan, están.
 - Si además hay dirección real ("tienen móvil en Mitre 200") → lookup_address + trip_request.
 - "mandame un móvil a Mitre 200" SÍ es trip_request.
@@ -69,8 +69,8 @@ trip_request | price_inquiry | status_query | cancel_trip | schedule_trip | ask_
 2.b Horario futuro explícito → schedule_trip, no trip_request.
 3. cancel_confirmed=true si el mensaje confirma cancelación clara.
 4. Gracias/ok/stickers → other, reply=null.
-5. Disponibilidad sin dirección → other, pickup_location=null, reply pidiendo calle y altura o ubicación GPS.
-6. NUNCA pidas una "referencia". El retiro es *calle y altura* o *ubicación GPS* de WhatsApp.
+5. Disponibilidad sin dirección → other, pickup_location=null, reply: ¿Dónde te buscamos? o ubicación GPS.
+6. NUNCA pidas una "referencia". Si falta el retiro, preguntá ¿Dónde te buscamos? o pedí la *ubicación GPS* de WhatsApp.
 7. Si saludan, respondé con el saludo de la hora (Buen día, Buenas tardes o Buenas noches) y pedí el retiro. No uses "Hola [nombre]". No cierres las frases con punto final.
 8. pickup_location y destination tienen que ser canonical de lookup_address o null.`;
 

@@ -150,7 +150,7 @@ describe('extractTripIntentHybrid + DeepSeek Pro', () => {
     expect(result.intent).toBe('other');
     expect(result.pickup_location).toBeNull();
     expect(result.source).toBe('deepseek-pro');
-    expect(result.reply).toMatch(/calle y altura/i);
+    expect(result.reply).toMatch(/d[oó]nde te buscamos/i);
     expect(result.reply).toMatch(/ubicaci[oó]n GPS/i);
   });
 
@@ -179,7 +179,7 @@ describe('extractTripIntentHybrid + DeepSeek Pro', () => {
 
     expect(result.pickup_location).toBeNull();
     expect(result.intent).toBe('other');
-    expect(result.reply).toMatch(/calle y altura/i);
+    expect(result.reply).toMatch(/d[oó]nde te buscamos/i);
     expect(result.reply).toMatch(/ubicaci[oó]n GPS/i);
   });
 
@@ -265,13 +265,13 @@ describe('extractTripIntentHybrid + DeepSeek Pro', () => {
       inferHeuristics: inferTripHeuristics,
     });
 
-    expect(result.reply).toMatch(/calle y altura/i);
+    expect(result.reply).toMatch(/d[oó]nde te buscamos/i);
     expect(result.reply).toMatch(/ubicaci[oó]n GPS/i);
     expect(result.reply).not.toMatch(/referencia/i);
     expect(result.reply).not.toMatch(/Hola Carlos/i);
   });
 
-  it('un hola con GPS pendiente no llama a Pro y pide calle y altura o GPS', async () => {
+  it('un hola con GPS pendiente no llama a Pro y pregunta dónde buscar o GPS', async () => {
     const result = await extractTripIntentHybrid({
       combinedText: 'hola',
       context: { awaiting_gps: true },
@@ -282,7 +282,7 @@ describe('extractTripIntentHybrid + DeepSeek Pro', () => {
 
     expect(deepseekRespondWithTools).not.toHaveBeenCalled();
     expect(result.intent).toBe('other');
-    expect(result.reply).toMatch(/calle y altura/i);
+    expect(result.reply).toMatch(/d[oó]nde te buscamos/i);
     expect(result.reply).toMatch(/ubicaci[oó]n GPS/i);
   });
 
@@ -297,7 +297,7 @@ describe('extractTripIntentHybrid + DeepSeek Pro', () => {
 
     expect(deepseekRespondWithTools).not.toHaveBeenCalled();
     expect(result.intent).toBe('other');
-    expect(result.reply).toMatch(/calle y altura/i);
+    expect(result.reply).toMatch(/d[oó]nde te buscamos/i);
   });
 
   it('cotización sin direcciones no llama a Pro y no es trip_request', async () => {
