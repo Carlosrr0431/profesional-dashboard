@@ -177,10 +177,12 @@ export function lookupAddress(rawQuery) {
     : matchCatalogStreetPhrase(tokens);
   const preferStreetNumber = Boolean(street && house);
   const barrio = matchBarrio(query);
+  // normalizeAddressPhrase ya convirtió "barrio tres cerritos" en el hospital: se mira lo que dijo el pasajero.
+  const saidBarrio = /\bbarrio\b/i.test(original);
 
-  if (barrio && !/\d/.test(query) && /\bbarrio\b/i.test(query)) {
+  if (barrio && !/\d/.test(query) && (saidBarrio || /\bbarrio\b/i.test(query))) {
     return {
-      query,
+      query: saidBarrio ? original : query,
       found: true,
       kind: 'barrio',
       canonical: barrio,

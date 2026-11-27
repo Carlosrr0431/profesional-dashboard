@@ -1,3 +1,10 @@
+// El geocodificador externo (Google/Nominatim) no es parte de esta prueba: con el simulador genérico
+// devolvía "Cherin 200" para cualquier lugar y pisaba la dirección que dijo el pasajero.
+jest.mock('../../shared/geo/nominatim', () => ({
+  ...jest.requireActual('../../shared/geo/nominatim'),
+  autocompleteAddressSalta: jest.fn(async () => []),
+}));
+
 const fs = require('fs');
 const path = require('path');
 const {
@@ -72,7 +79,10 @@ function expectedPickupTokens(text) {
   if (/\bzuviria\b/.test(pickupSpan) || /\bzzuviria\b/.test(pickupSpan)) tokens.push('zuviria');
 
   const namedPoi = tokens.length > 0;
-  if (!/\bbarrio\b/.test(pickupSpan) && !namedPoi) {
+  // Con calle y altura ("Balcarce 1478", "Los Fresnos 427 en Tres cerritos") o "sobre <calle>" el
+  // retiro es esa calle: un lugar con el mismo nombre (Paseo Balcarce, hospital) no es el pedido.
+  const streetWithHouse = /\b\d{3,5}\b/.test(pickupSpan) || /\bsobre\b/.test(pickupSpan);
+  if (!/\bbarrio\b/.test(pickupSpan) && !namedPoi && !streetWithHouse) {
     const poi = resolveSaltaKnownPoi(pickupSpan);
     if (poi?.label && !/\b(estacion|terminal|aeropuerto|tren)\b/.test(fold(poi.label))) {
       const labelBits = fold(poi.label)
@@ -126,6 +136,10 @@ function pickupCoversTokens(pickupFolded, expected) {
     }
     if (token.includes('suarez') && (token.includes('cnel') || token.includes('coronel'))) {
       return /(?:cnel|coronel)/.test(pickupFolded) && /suarez/.test(pickupFolded);
+    }
+    if (token === 'monoblock') {
+      // La grafía "monoblok" la corrige la búsqueda en el mapa (fixCommonPoiTypos), que esta prueba aísla.
+      return /monoblo(?:ck|k|q)/.test(pickupFolded);
     }
     if (token === '20 de febrero') {
       return /20/.test(pickupFolded) && /febrero/.test(pickupFolded);

@@ -119,6 +119,10 @@ export function pickTripIntentReasoningEffort({ text, context } = {}) {
     .toLowerCase();
   if (/\bguemes\b/.test(t) && !/\b(adolfo|luis|domingo|juan\s+manuel)\b/.test(t)) return 'low';
   if (/(?:es\s+para\s+ir|me\s+voy\s+para|\bhasta\b|\bhacia\b|\bde\s+.+\s+a\s+)/i.test(t)) return 'low';
+  // Pedido de móvil sin altura ("al monoblock sobre Sarmiento"): hay que consultar bien la dirección.
+  const asksVehicle = /\b(?:movil(?:es)?|remis|taxi|auto|coche)\b/.test(t)
+    && /\b(?:mand\w+|envi\w+|necesit\w+|quiero|pido|pedir|pedime|busc\w+|traeme)\b/.test(t);
+  if (asksVehicle && !/\d/.test(t)) return 'low';
   return 'none';
 }
 

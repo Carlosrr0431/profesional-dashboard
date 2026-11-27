@@ -8,6 +8,7 @@ import {
   messageRequestsTripCancel,
   normalizePassengerMessage,
 } from './passengerCancelIntent';
+import { matchCatalogStreetPhrase } from '../../shared/salta-street-lookup.js';
 
 export const PATTERN_CONFIDENCE_THRESHOLD = 0.72;
 
@@ -15,12 +16,28 @@ export function normalizeForMatch(value) {
   return normalizePassengerMessage(value);
 }
 
+const INTERSECTION_MARKER_RE = /\s+(?:c\/|esq\.?|esquina|casi)\s+/i;
+const STREET_SIDE_SKIP = new Set(['calle', 'av', 'avenida', 'avda', 'de', 'del', 'la', 'el']);
+
+function namesCatalogStreet(side) {
+  const tokens = normalizeForMatch(side)
+    .split(' ')
+    .filter((token) => token.length >= 2 && !STREET_SIDE_SKIP.has(token));
+  return tokens.length > 0 && Boolean(matchCatalogStreetPhrase(tokens));
+}
+
+/** "España c/ Alvarado", "Caseros casi Mitre": solo si las dos puntas son calles (así "ya casi llego" no cuenta). */
+function hasCatalogIntersection(value) {
+  const sides = String(value).split(INTERSECTION_MARKER_RE);
+  return sides.length === 2 && namesCatalogStreet(sides[0]) && namesCatalogStreet(sides[1]);
+}
+
 export function looksLikeAddressText(value) {
   if (!value || value.length < 4) return false;
   const hasStreetAndNumber = /[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]*\s\d{1,5}(?:\s*[a-zA-Z]\d?)?/i.test(value);
   const hasIntersection = /\b[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]*\s+y\s+[a-zA-ZÀ-ÿ]{2,}[\w\s.'-]*/i.test(value);
   const hasStreetKeyword = /\b(calle|av\.?|avenida|pasaje|pje\.?|barrio|esquina|callej[oó]n|manzana|mz\.?|lote)\b/i.test(value);
-  if (hasStreetAndNumber || hasIntersection) return true;
+  if (hasStreetAndNumber || hasIntersection || hasCatalogIntersection(value)) return true;
   if (hasStreetKeyword && value.length >= 8) return true;
   return false;
 }
