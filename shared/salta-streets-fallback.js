@@ -1016,7 +1016,7 @@ const SALTA_STREETS_FALLBACK = [
   'Pasaje Manuel Antonio Castro',
   'Calle Manuel Castilla',
   'Calle Manuel s Sola',
-  'Calle Manuela Gonzalez de Tood',
+  'Calle Manuela Gonzalez de Todd',
   'Calle Manuela Martinez de Tineo',
   'Calle Mar Adriatico',
   'Calle Mar Antartico',

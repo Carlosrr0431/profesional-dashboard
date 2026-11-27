@@ -163,7 +163,29 @@ function matchCatalogStreetClosestToEnd(tokens) {
     }
   }
 
-  return matchLastTokenStreet(compact[compact.length - 1]) || matchCatalogStreetPhrase(compact);
+  return matchStreetSharingLastToken(compact)
+    || matchLastTokenStreet(compact[compact.length - 1])
+    || matchCatalogStreetPhrase(compact);
+}
+
+/**
+ * Varias calles terminan igual (Manuela Gonzalez de Todd / Jose Maria Todd):
+ * gana la que contiene las palabras que escribió el pasajero, solo si es una sola.
+ */
+function matchStreetSharingLastToken(compact) {
+  if (compact.length < 2) return null;
+  const streets = STREET_INDEX.byLastToken.get(compact[compact.length - 1]) || [];
+  if (streets.length < 2) return null;
+  const typed = new Set(compact.slice(0, -1));
+  const scored = streets.map((street) => ({
+    street,
+    overlap: street.tokens.filter((token) => typed.has(token)).length,
+  }));
+  const best = Math.max(...scored.map((item) => item.overlap));
+  const winners = scored.filter((item) => item.overlap === best);
+  if (best === 0 || winners.length !== 1) return null;
+  const { street } = winners[0];
+  return { name: street.name, nameKey: street.nameKey, ambiguous: false };
 }
 
 function isExactCatalogStreetNameKey(value) {

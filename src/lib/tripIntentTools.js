@@ -311,6 +311,31 @@ function leftoverPlaceTokens(query, local) {
   return tokens.filter((token) => token.length >= 3 && !skip.has(token));
 }
 
+/** Datos de la puerta que acompañan a la calle: no son parte de su nombre. */
+const UNIT_WORDS = new Set([
+  'dpto', 'depto', 'departamento', 'piso', 'casa', 'local', 'oficina', 'timbre',
+  'lote', 'manzana', 'block', 'fondo', 'frente',
+]);
+
+/**
+ * Palabras del nombre de la calle que escribió el pasajero (antes del número)
+ * y que la calle del catálogo no tiene. Con dos o más, el catálogo pudo elegir otra calle.
+ */
+function unmatchedStreetNameWords(rawQuery, local) {
+  const house = extractHouseNumber(rawQuery);
+  if (!house) return [];
+  const beforeNumber = googlePlaceQuery(rawQuery).split(new RegExp(`\\b${house}\\b`))[0] || '';
+  const matched = new Set(
+    fold(local?.canonical || local?.street_key || '')
+      .replace(/\b(salta|capital)\b/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean),
+  );
+  return streetTokens(beforeNumber, null).filter((token) => (
+    token.length >= 4 && !matched.has(token) && !UNIT_WORDS.has(token)
+  ));
+}
+
 function shouldTryGooglePlaces(local, rawQuery) {
   if (!isGoogleConfigured()) return false;
   if (!local) return false;
@@ -321,9 +346,10 @@ function shouldTryGooglePlaces(local, rawQuery) {
   if (local.kind && local.kind !== 'street') return false;
   if (!local.found) return googlePlaceQuery(rawQuery).length >= 3;
   if (local.found && local.kind === 'street' && !local.needs_number) {
-    return leftoverPlaceTokens(rawQuery, local).some((token) => (
+    const placeLeftover = leftoverPlaceTokens(rawQuery, local).some((token) => (
       /monoblo|edificio|torre|shopping|hospital|hotel|escuela|colegio/.test(token)
     ));
+    return placeLeftover || unmatchedStreetNameWords(rawQuery, local).length >= 2;
   }
   return leftoverPlaceTokens(rawQuery, local).length > 0;
 }

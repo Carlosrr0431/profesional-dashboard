@@ -1371,7 +1371,7 @@ const SALTA_STREETS_FALLBACK = [
   'Pasaje Manuel Antonio Castro',
   'Calle Manuel Castilla',
   'Calle Manuel s Sola',
-  'Calle Manuela Gonzalez de Tood',
+  'Calle Manuela Gonzalez de Todd',
   'Calle Manuela Martinez de Tineo',
   'Calle Mar Adriatico',
   'Calle Mar Antartico',
@@ -2949,7 +2949,8 @@ function normalizeStreetType(value) {
 }
 
 function parseSaltaStreetCatalogEntry(label) {
-  const cleanLabel = sanitizeAddressInput(decodeHtmlEntities(label));
+  // La fuente oficial escribe "Manuela Gonzalez de Tood": con ese error "Todd" nunca coincide.
+  const cleanLabel = String(sanitizeAddressInput(decodeHtmlEntities(label)) || '').replace(/\bTood\b/g, 'Todd');
   if (!cleanLabel) return null;
 
   const match = cleanLabel.match(/^(calle|avenida|avda|av\.?|pasaje|pje\.?|diagonal|ruta|camino|paseo)\s+(.+)$/i);
