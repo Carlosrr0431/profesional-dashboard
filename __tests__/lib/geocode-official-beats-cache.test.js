@@ -71,7 +71,22 @@ describe('una calle con altura no usa el pin de Google de la otra punta', () => 
     expect(point.geocodeSource).toBe('georef');
     expect(point.lat).toBeCloseTo(OFFICIAL.lat, 5);
     expect(point.lng).toBeCloseTo(OFFICIAL.lng, 5);
-    expect(googleSearch).not.toHaveBeenCalled();
+    // Google se consulta primero (es el punto exacto), pero su pin a 1,1 km de la cuadra oficial se descarta.
+    expect(googleSearch).toHaveBeenCalled();
+  });
+
+  test('un pin de Google a pocos metros del padrón se respeta (Independencia, Georef corrido 360 m)', async () => {
+    googleSearch.mockResolvedValue([{
+      placeId: 'google:rooftop',
+      title: 'J. M. Leguizamon 1455',
+      address: 'J. M. Leguizamon 1455, Salta',
+      formattedAddress: 'J. M. Leguizamon 1455, A4400 Salta, Argentina',
+      lat: OFFICIAL.lat + 0.0032,
+      lng: OFFICIAL.lng,
+    }]);
+    const point = await geocodeAddress('J. M. Leguizamon 1455');
+    expect(point.geocodeSource).not.toBe('georef');
+    expect(point.lat).toBeCloseTo(OFFICIAL.lat + 0.0032, 5);
   });
 
   test('elegir el lugar de Google igual reemplaza el pin por la altura oficial', async () => {

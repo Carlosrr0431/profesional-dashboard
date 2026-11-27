@@ -68,6 +68,25 @@ function numberedStreetAgrees(query, blob) {
   )));
 }
 
+function sameStreetWord(a, b) {
+  return a === b || a.startsWith(b) || b.startsWith(a);
+}
+
+/**
+ * El lugar nombra la calle que se pidió. "Jose Maria Todd 300" no es "Manuela Gonzalez de Todd 300":
+ * comparten el apellido y el número, pero el resto del nombre es otro.
+ * Con un solo apellido ("Belgrano 500") alcanza, Google trae el nombre completo. Con dos o más palabras,
+ * al menos la mitad tiene que estar en el lugar.
+ */
+function streetNameAgrees(query, blob) {
+  const wanted = significantStreetTokens(query);
+  if (wanted.length < 2) return true;
+  const found = significantStreetTokens(blob);
+  if (!found.length) return true;
+  const matched = wanted.filter((word) => found.some((other) => sameStreetWord(word, other))).length;
+  return matched * 2 >= wanted.length;
+}
+
 /** El número que devuelve la base es el total DESPUÉS de sumar esta llamada. */
 function interpretPlacesConsume(data, limit = PLACES_MONTHLY_CALL_LIMIT) {
   if (data == null || data === '') return { allowed: false, count: null };
@@ -84,4 +103,5 @@ module.exports = {
   placeQueryTokens,
   cachedPoiMatches,
   numberedStreetAgrees,
+  streetNameAgrees,
 };

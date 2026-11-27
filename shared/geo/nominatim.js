@@ -37,6 +37,7 @@ const {
   normalizePoiText,
 } = require('../salta-known-pois');
 const { searchGeorefAddress, lookupGeorefHouseNumbers, resolveGeorefPlaceId, fetchGeorefCalles } = require('./georef');
+const { streetNameAgrees } = require('./placesBudget');
 const { fuzzySearch: tomtomFuzzySearch, reverseGeocodeCoords: tomtomReverseGeocode } = require('./tomtomClient');
 
 const PUBLIC_NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
@@ -486,8 +487,12 @@ function toAutocompleteSuggestion(item, query, bonusScore = 0, titleOverride = n
  * Punto de Google para una calle con altura. La caché de Places responde sola;
  * si no está, una sesión de Autocomplete y como máximo un Place Details Essentials.
  */
-/** Si el punto guardado o de Google cayó en otra calle, manda la altura oficial. */
-const OFF_STREET_HOUSE_METERS = 180;
+/**
+ * Google es el punto exacto. Georef casi siempre coincide (mediana 23 m, el 91 % a menos de 100 m)
+ * pero en avenidas largas como Independencia se corre 240–360 m. Un punto de Google más lejos que
+ * esto del padrón oficial no es "otra cuadra": cayó en otra calle (Leguizamón 600 a 2,5 km), y manda el padrón.
+ */
+const OFF_STREET_HOUSE_METERS = 700;
 
 function officialHouseSuggestion(query, official) {
   const label = formatNominatimLabelForQuery(official, query);
@@ -502,26 +507,25 @@ function officialHouseSuggestion(query, official) {
   };
 }
 
-async function keepHousePointOnOfficialStreet(query, point) {
-  if (!point || pickPrimaryHouseNumber(query) == null) return point;
+/** Punto oficial de la altura, solo si el punto dado cayó lejos de él (otra calle). */
+async function officialPointWhenOffStreet(query, point) {
+  if (!point || pickPrimaryHouseNumber(query) == null) return null;
   const official = await findOfficialHouseNumber(query, point).catch(() => null);
   if (!official || !Number.isFinite(Number(official.lat)) || !Number.isFinite(Number(official.lng))) {
-    return point;
+    return null;
   }
-  if (metersBetween(point, official) <= OFF_STREET_HOUSE_METERS) return point;
-  return officialHouseSuggestion(query, official);
+  return metersBetween(point, official) > OFF_STREET_HOUSE_METERS ? official : null;
+}
+
+async function keepHousePointOnOfficialStreet(query, point) {
+  const official = await officialPointWhenOffStreet(query, point);
+  return official ? officialHouseSuggestion(query, official) : point;
 }
 
 async function lookupGoogleHousePoint(query, options = {}) {
   const text = String(query || '').trim();
-  if (pickPrimaryHouseNumber(text) == null) return null;
+  if (pickPrimaryHouseNumber(text) == null || !isGoogleConfigured()) return null;
   if (findPinnedAddress(text)) return null;
-  // La altura oficial no se paga. Google queda solo si Georef no tiene ese número.
-  if (!looksLikeSaltaKnownPoi(text)) {
-    const official = await findOfficialHouseNumber(text).catch(() => null);
-    if (official) return officialHouseSuggestion(text, official);
-  }
-  if (options.officialOnly || !isGoogleConfigured()) return null;
   const googleHouse = await geocodeAddressGoogleGap(text, options);
   if (!googleHouse || !Number.isFinite(Number(googleHouse.lat)) || !Number.isFinite(Number(googleHouse.lng))) {
     return null;
@@ -602,6 +606,10 @@ async function geocodeAddressGoogleGap(query, options = {}) {
           `${hit.title || ''} ${hit.address || ''} ${hit.formattedAddress || ''}`,
         );
         if (number != null && hitNumber !== number) continue;
+        // Mismo número pero otra calle (Google trae "Manuela Gonzalez de Todd" para "Jose Maria Todd"):
+        // se descarta antes de gastar un Place Details.
+        const hitBlob = `${hit.title || ''} ${hit.subtitle || ''} ${hit.address || ''} ${hit.formattedAddress || ''}`;
+        if (number != null && !streetNameAgrees(query, hitBlob)) continue;
         const cachedLat = Number(hit.lat);
         const cachedLng = Number(hit.lng);
         if (Number.isFinite(cachedLat) && Number.isFinite(cachedLng)) {
@@ -683,14 +691,6 @@ async function geocodeAddress(address, options = {}) {
     };
   }
 
-  const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
-  if (hasHouseNumber && !looksLikeSaltaKnownPoi(query)) {
-    const official = await findOfficialHouseNumber(query);
-    if (official) {
-      return officialHouseSuggestion(query, official);
-    }
-  }
-
   const googleHouse = await lookupGoogleHousePoint(query, options);
   if (googleHouse) return googleHouse;
 
@@ -726,6 +726,7 @@ async function geocodeAddress(address, options = {}) {
     };
   };
 
+  const hasHouseNumber = pickPrimaryHouseNumber(query) != null;
   if (hasHouseNumber) {
     const { ranked, missingLabel } = await locatedOfficialHouseHits(query);
     const pack = { missingLabel };
@@ -1519,14 +1520,19 @@ async function getPlaceDetails(placeId, options = {}) {
   }
 
   if (isGooglePlaceId(id)) {
-    // El punto de Google es el de ese lugar. No se reemplaza por otra altura
-    // del padrón: "Güemes 150" también existe en Paseo Güemes, a 400 m.
-    return getGooglePlaceDetails(id, {
+    const details = await getGooglePlaceDetails(id, {
       sessionToken: options?.sessionToken,
       formattedAddress: options?.formattedAddress,
       title: options?.title,
       subtitle: options?.subtitle,
     });
+    // El punto de Google es el de ese lugar: solo se cambia si cayó en otra calle (lejos de la
+    // altura oficial). Las homónimas cercanas ("Güemes 150" y Paseo Güemes, a 400 m) se respetan.
+    const streetQuery = streetHouseQueryFromPlace(options);
+    const official = streetQuery ? await officialPointWhenOffStreet(streetQuery, details) : null;
+    return official
+      ? { ...details, lat: Number(official.lat), lng: Number(official.lng), geocodeSource: 'georef' }
+      : details;
   }
 
   if (id.startsWith('georef:')) {
