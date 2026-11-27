@@ -13,6 +13,9 @@ export default function CancelTripButton({
   className = '',
   passengerName = '',
   address = '',
+  label = 'Cancelar',
+  title = '¿Cancelar este viaje?',
+  note = 'Revisá que sea el correcto. Esta acción no se puede deshacer.',
 }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -68,10 +71,10 @@ export default function CancelTripButton({
           onClick={(event) => event.stopPropagation()}
         >
           <p id="cancel-trip-title" className="text-[17px] font-bold tracking-tight text-slate-900">
-            ¿Cancelar este viaje?
+            {title}
           </p>
           <p className="mt-1 text-[13px] leading-snug text-slate-500">
-            Revisá que sea el correcto. Esta acción no se puede deshacer.
+            {note}
           </p>
           {passengerName || address ? (
             <div className="mt-4 rounded-2xl bg-slate-50 px-3.5 py-3">
@@ -123,7 +126,7 @@ export default function CancelTripButton({
             ? 'flex h-11 w-full items-center justify-center rounded-2xl border border-rose-200 bg-white text-[13px] font-bold text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-50'
             : 'flex h-10 items-center justify-center rounded-xl border border-rose-200 bg-white px-4 text-[13px] font-bold text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-50'}
       >
-        Cancelar
+        {label}
       </button>
       {dialog}
     </div>

@@ -16,6 +16,7 @@ export const OPERATOR_CANCEL_TRIP_SELECT = [
   'notes',
   'wa_context',
   'dispatch_status',
+  'next_after_trip_id',
 ].join(', ');
 
 function operatorCancelError(message, code) {

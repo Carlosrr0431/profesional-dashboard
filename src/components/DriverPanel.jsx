@@ -4,7 +4,9 @@ import { formatPrice, formatKm, formatDuration, formatTime, formatDateTime, getT
 import VoiceChat from './VoiceChat';
 import { useToast } from '../context/ToastContext';
 import DriverAvatar from './DriverAvatar';
+import CancelTripButton from './CancelTripButton';
 import { dashboardDriverAvailability } from '../lib/assignExistingTrip';
+import { canOperatorCancelTrip } from '../lib/passengerTripCancel';
 
 export default function DriverPanel({
   driver,
@@ -225,6 +227,18 @@ export default function DriverPanel({
           <p className="mt-0.5 truncate text-[11px] text-violet-200/80">
             → {driver.reservedNextTrip.destination_address || 'Sin destino'}
           </p>
+          {canOperatorCancelTrip(driver.reservedNextTrip) ? (
+            <CancelTripButton
+              row
+              className="mt-2.5"
+              label="Cancelar siguiente viaje"
+              title="¿Cancelar el siguiente viaje?"
+              note="Se cancela el viaje del pasajero y se le avisa al chofer. El móvil sigue con el viaje que tiene en curso."
+              tripId={driver.reservedNextTrip.id}
+              passengerName={driver.reservedNextTrip.passenger_name}
+              address={driver.reservedNextTrip.destination_address}
+            />
+          ) : null}
         </div>
       ) : null}
 

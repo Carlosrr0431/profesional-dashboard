@@ -2,7 +2,9 @@ import { timeAgo, formatSpeed, formatPrice, getTripStatus } from '../lib/utils';
 import DriverAvatar from './DriverAvatar';
 import { DriverRatingChip } from './DriverRatingView';
 import TripNotesEditor from './TripNotesEditor';
+import CancelTripButton from './CancelTripButton';
 import { dashboardDriverAvailability } from '../lib/assignExistingTrip';
+import { canOperatorCancelTrip } from '../lib/passengerTripCancel';
 
 function getDriverStatusInfo(driver) {
   const availability = dashboardDriverAvailability(driver);
@@ -175,6 +177,19 @@ export default function DriverInfoWindow({ driver, onAssignTrip, onSendAudio, on
           <p className="mt-0.5 truncate text-[13px] font-semibold text-slate-800">
             {driver.reservedNextTrip.destination_address || 'Sin destino'}
           </p>
+          {canOperatorCancelTrip(driver.reservedNextTrip) ? (
+            <CancelTripButton
+              row
+              className="mt-2.5"
+              label="Cancelar siguiente viaje"
+              title="¿Cancelar el siguiente viaje?"
+              note="Se cancela el viaje del pasajero y se le avisa al chofer. El móvil sigue con el viaje que tiene en curso."
+              tripId={driver.reservedNextTrip.id}
+              passengerName={driver.reservedNextTrip.passenger_name}
+              address={driver.reservedNextTrip.destination_address}
+              onCancelled={() => onClose?.()}
+            />
+          ) : null}
         </div>
       ) : null}
 

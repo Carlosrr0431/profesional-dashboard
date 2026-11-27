@@ -36,12 +36,16 @@ async function notifyDriverOfOperatorCancel(supabase, trip) {
     tripId: trip.id,
   };
   const collapseTag = buildAndroidNotificationTag(data);
+  // Si era el siguiente viaje, el chofer sigue con uno en curso: que no crea que cancelaron ese.
+  const wasNextTrip = Boolean(String(trip?.next_after_trip_id || '').trim());
   try {
     await getFirebaseMessagingClient().send({
       token,
       notification: {
-        title: 'Viaje cancelado',
-        body: 'La central canceló el viaje.',
+        title: wasNextTrip ? 'Siguiente viaje cancelado' : 'Viaje cancelado',
+        body: wasNextTrip
+          ? 'La central canceló tu siguiente viaje. Seguí con el viaje actual.'
+          : 'La central canceló el viaje.',
       },
       data: normalizeFcmDataPayload(data),
       android: {

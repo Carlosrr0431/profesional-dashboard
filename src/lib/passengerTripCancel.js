@@ -1,4 +1,5 @@
 import { isStreetHailTrip, STREET_HAIL_PASSENGER_NAME } from '../../shared/trip-contract.js';
+import { isReservedNextTrip } from '../../shared/next-trip.js';
 
 export const PASSENGER_CANCEL_REASON = '[PASSENGER_APP] Cancelado por el pasajero';
 export const WHATSAPP_CANCEL_REASON = 'Pasajero canceló por WhatsApp';
@@ -95,6 +96,10 @@ export function isStreetHailOperatorTrip(trip) {
 export function getOperatorCancellableStatuses(trip) {
   if (isStreetHailOperatorTrip(trip)) {
     return [...OPERATOR_CANCELLABLE_STATUSES, ...OPERATOR_STREET_HAIL_LIVE_STATUSES];
+  }
+  // Siguiente viaje que un móvil ocupado ya aceptó: la central puede quitárselo.
+  if (isReservedNextTrip(trip)) {
+    return [...OPERATOR_CANCELLABLE_STATUSES, 'accepted'];
   }
   return OPERATOR_CANCELLABLE_STATUSES;
 }
