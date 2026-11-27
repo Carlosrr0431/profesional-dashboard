@@ -141,7 +141,9 @@ describe('whatsapp-trip-conversation-types.json', () => {
       status_after_completed: 'status_query',
       new_trip_after_completed: 'trip_request',
       cancel_open_trip: 'cancel_trip',
-      scheduled_trip: 'schedule_trip',
+      // Un pedido de móvil "para mañana a las 8" se clasifica como pedido; la reserva la fuerza
+      // Agente_IA/route.js con parseScheduledDateTime (ver agente-ia/scheduled-intent-override.test.js).
+      scheduled_trip: 'trip_request',
       availability_without_address: 'other',
       ack_keep_context: 'other',
       gps_pin: 'other',

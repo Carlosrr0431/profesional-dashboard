@@ -15,6 +15,15 @@ import {
 describe('commissionPaymentPeriods', () => {
   const reference = new Date('2026-06-28T15:00:00-03:00');
 
+  // "Este mes" / "Esta semana" dependen del reloj real: se fija el día de referencia para que no caduque.
+  beforeAll(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(reference);
+  });
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
   test('getCommissionPeriodBounds month starts on first day Salta', () => {
     const { startIso, label } = getCommissionPeriodBounds('month', reference);
     expect(label).toBe('Este mes');

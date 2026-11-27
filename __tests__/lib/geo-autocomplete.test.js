@@ -1,5 +1,6 @@
 const { installGeoFetchMock } = require('../helpers/geo-fetch-mock');
 const { autocompleteAddressSalta, geocodeAddress, getPlaceDetails, keepLocatableSuggestions } = require('../../shared/geo/nominatim');
+const { setPlacesBudget } = require('../../shared/geo/googlePlaces');
 
 const FORBIDDEN_GOOGLE_URL_PATTERNS = [
   /textsearch/i,
@@ -62,9 +63,19 @@ function assertAllowedGooglePlacesSkus(fetchMock) {
   expect(autocompleteCalls.length + placeDetailsCalls.length).toBe(googleCalls.length);
 }
 
+// En la app el contador de Places lo registra src/lib/geo/index.js; sin él Google no se consulta.
+// Por defecto queda apagado (las pruebas de Georef); lo prenden solo las que usan Place Details.
+function conGooglePlaces() {
+  setPlacesBudget({ tryConsume: async () => true });
+}
+
 describe('geo autocomplete', () => {
   beforeEach(() => {
     installGeoFetchMock();
+  });
+
+  afterEach(() => {
+    setPlacesBudget(null);
   });
 
   it('resuelve POIs como Unsa sin Places Autocomplete', async () => {
@@ -102,6 +113,7 @@ describe('geo autocomplete', () => {
   });
 
   it('obtiene coords vía Place Details Essentials sin Nominatim', async () => {
+    conGooglePlaces();
     const details = await getPlaceDetails('google:google-unsa', {
       sessionToken: 'test-session-4',
       formattedAddress: 'Universidad Nacional de Salta, Av. Bolivia, Salta, Argentina',
@@ -124,6 +136,7 @@ describe('geo autocomplete', () => {
   });
 
   it('para jaraba conserva el nombre del POI desde Google Places', async () => {
+    conGooglePlaces();
     const details = await getPlaceDetails('google:google-jaraba-poi', {
       sessionToken: 'test-session-jaraba',
       formattedAddress: 'Imagenes Jaraba, Pueyrredón, Salta',
@@ -153,6 +166,7 @@ describe('geo autocomplete', () => {
   });
 
   it('para plaza ceferino no geocodifica en plaza 9 de julio', async () => {
+    conGooglePlaces();
     const details = await getPlaceDetails('google:google-plaza-ceferino', {
       sessionToken: 'test-session-plaza-ceferino',
       formattedAddress: 'Plaza Ceferino, Barrio Don Ceferino, Salta',
@@ -167,6 +181,7 @@ describe('geo autocomplete', () => {
   });
 
   it('para el punto shopping geocodifica en Finca Yerba Buena San Lorenzo, no Alto NOA', async () => {
+    conGooglePlaces();
     const details = await getPlaceDetails('google:google-punto-shopping', {
       sessionToken: 'test-session-punto-shopping',
       formattedAddress: 'El Punto Shopping, Av. Finca Yerba Buena 4401, San Lorenzo, Salta',
@@ -182,6 +197,7 @@ describe('geo autocomplete', () => {
   });
 
   it('para la fransisca geocodifica vía Place Details Essentials sin TomTom', async () => {
+    conGooglePlaces();
     const details = await getPlaceDetails('google:google-francisca-arenales', {
       sessionToken: 'test-session-francisca',
       formattedAddress: 'La Fransisca, Arenales, Salta',
@@ -198,6 +214,7 @@ describe('geo autocomplete', () => {
   });
 
   it('para hiper libertad geocodifica sucursales vía Place Details Essentials', async () => {
+    conGooglePlaces();
     const balcon = await getPlaceDetails('google:google-el-balcon-paseo', {
       sessionToken: 'test-session-hiper-libertad',
       formattedAddress: 'El Balcón - Paseo Libertad Salta, Avenida Ex Combatientes de Malvinas, Salta',
@@ -236,6 +253,7 @@ describe('geo autocomplete', () => {
   });
 
   it('para axion y ypf geocodifica sucursales vía Place Details Essentials', async () => {
+    conGooglePlaces();
     const axionRural = await getPlaceDetails('google:google-axion-rural', {
       sessionToken: 'test-session-axion',
       formattedAddress: 'AXION energy - Octano Srl (La Rural), Avenida Paraguay, Salta',
@@ -269,6 +287,7 @@ describe('geo autocomplete', () => {
   });
 
   it('para intersección Juan Galvez y Domingo Marimon geocodifica vía Place Details Essentials', async () => {
+    conGooglePlaces();
     const details = await getPlaceDetails('google:google-intersection-galvez-marimon', {
       sessionToken: 'test-session-intersection',
       formattedAddress: 'Juan Galvez y Domingo Marimon, Salta',
@@ -282,6 +301,7 @@ describe('geo autocomplete', () => {
   });
 
   it('geocodifica Escuela de Emprendedores vía Place Details Essentials', async () => {
+    conGooglePlaces();
     const details = await getPlaceDetails('google:google-escuela-emprendedores', {
       sessionToken: 'test-session-emprendedores',
       formattedAddress: 'Escuela de Emprendedores Salta, Avenida Independencia, Salta',
@@ -299,6 +319,7 @@ describe('geo autocomplete', () => {
   });
 
   it('geocodifica Escuela Normal de Maestras vía Place Details Essentials', async () => {
+    conGooglePlaces();
     const details = await getPlaceDetails('google:ChIJXeY5zbjDG5QRsstuzg8yVow', {
       sessionToken: 'test-session-escuela-normal',
       formattedAddress: 'Escuela Normal de Maestras General Manuel Belgrano, Bartolomé Mitre, Salta',
@@ -312,6 +333,7 @@ describe('geo autocomplete', () => {
   });
 
   it('geocodifica Espacio INCAA Hogar Escuela vía Place Details Essentials', async () => {
+    conGooglePlaces();
     const details = await getPlaceDetails('google:ChIJU-J5iy7DG5QRces48wzsYl8', {
       sessionToken: 'test-session-incaa-hogar',
       formattedAddress: 'Espacio INCAA Hogar Escuela, Avenida Hipólito Yrigoyen, Salta',
@@ -325,10 +347,11 @@ describe('geo autocomplete', () => {
   });
 
   it('devuelve calles con altura vía Georef sin Places Autocomplete', async () => {
-    const results = await autocompleteAddressSalta('guemes 200', 5, { sessionToken: 'test-guemes-200' });
+    // Güemes ya no sirve acá: hay varias calles con ese nombre y no se elige una (ver el caso de abajo).
+    const results = await autocompleteAddressSalta('bolivia 200', 5, { sessionToken: 'test-bolivia-200' });
     expect(results.length).toBeGreaterThan(0);
     expect(results.every((item) => !String(item.placeId).startsWith('google:'))).toBe(true);
-    expect(results.some((item) => /guemes/i.test(item.title))).toBe(true);
+    expect(results.some((item) => /bolivia/i.test(item.title))).toBe(true);
 
     const georefCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('georef'));
     const autocompleteCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
@@ -336,15 +359,15 @@ describe('geo autocomplete', () => {
     expect(autocompleteCalls.length).toBe(0);
   });
 
-  it('restringe guemes 700 a Salta Capital (sin Jujuy, Vaqueros ni Cerrillos)', async () => {
+  it('guemes 700 no se resuelve a una sola calle homónima ni a otra localidad (sin Jujuy, Vaqueros ni Cerrillos)', async () => {
     const results = await autocompleteAddressSalta('guemes 700', 8, { sessionToken: 'test-guemes-700' });
-    expect(results.length).toBeGreaterThan(0);
+    // Güemes es ambiguo (Paseo, Doctor A., Martín...): no se toma una fila oficial de Georef.
+    expect(results.every((item) => !String(item.placeId).startsWith('georef:'))).toBe(true);
 
     const subtitles = results.map((item) => item.subtitle || '').join(' | ');
     expect(subtitles).not.toMatch(/jujuy/i);
     expect(subtitles).not.toMatch(/vaqueros/i);
     expect(subtitles).not.toMatch(/cerrillos/i);
-    expect(results.some((item) => /guemes/i.test(item.title))).toBe(true);
     const autocompleteCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('places:autocomplete'));
     expect(autocompleteCalls.length).toBe(0);
   });
