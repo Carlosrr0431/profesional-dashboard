@@ -77,7 +77,7 @@ export function resolveFinalDestinationFromClient(payload) {
   };
 }
 
-export async function resolveTripLocation({ address, lat, lng, placeId }) {
+export async function resolveTripLocation({ address, lat, lng, placeId, trustClientCoords = false }) {
   const parsedLat = Number(lat);
   const parsedLng = Number(lng);
   const cleanAddress = sanitizeText(address);
@@ -88,11 +88,13 @@ export async function resolveTripLocation({ address, lat, lng, placeId }) {
     && cleanAddress
     && isWithinServiceArea(parsedLat, parsedLng)
   ) {
-    return freshGoogleLocation({
+    const chosen = {
       formattedAddress: cleanAddress,
       lat: parsedLat,
       lng: parsedLng,
-    }, placeId);
+    };
+    if (trustClientCoords) return chosen;
+    return freshGoogleLocation(chosen, placeId);
   }
 
   try {
@@ -204,9 +206,13 @@ export async function resolvePassengerRouteFare(
 }
 
 /** Intenta obtener destino final por geocode o por ruta OSRM entre direcciones. */
-export async function resolveFinalDestination(pickupLocation, payload) {
+export async function resolveFinalDestination(pickupLocation, payload, { trustClientCoords = false } = {}) {
   const fromClient = resolveFinalDestinationFromClient(payload);
-  if (fromClient) return freshGoogleLocation(fromClient, payload?.destinationPlaceId);
+  if (fromClient) {
+    return trustClientCoords
+      ? fromClient
+      : freshGoogleLocation(fromClient, payload?.destinationPlaceId);
+  }
 
   const address = sanitizeText(payload?.destinationAddress || payload?.destinationHint);
   if (!address) return null;
@@ -302,6 +308,26 @@ export function buildPassengerQueuedTripPayload({
     scheduledFor,
     scheduledDisplay,
   });
+}
+
+/** Precio que el panel ya calculó, con comisión, sin volver a pedir la ruta. */
+export async function resolveDashboardQuotedFare(supabase, clientFare, { source, at } = {}) {
+  if (!clientFare) return null;
+  try {
+    const { settingsMap, windows } = await loadTariffContext(supabase);
+    const tariff = resolveChannelTariff({
+      settingsMap,
+      windows,
+      channel: channelFromTripSource(source),
+      at: at || new Date(),
+    });
+    return {
+      ...clientFare,
+      commission_amount: commissionFromPrice(clientFare.price, tariff.commissionPercent),
+    };
+  } catch {
+    return clientFare;
+  }
 }
 
 export function fareFromClientPayload(payload) {

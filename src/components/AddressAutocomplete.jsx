@@ -232,7 +232,7 @@ export default function AddressAutocomplete({
     setQuery(text);
     onChange?.(text);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fetchSuggestions(text), 450);
+    debounceRef.current = setTimeout(() => fetchSuggestions(text), 80);
   };
 
   const handlePick = async (item) => {

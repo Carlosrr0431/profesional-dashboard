@@ -11,6 +11,7 @@ import {
   buildPassengerQueuedTripPayload,
   fareFromClientPayload,
   mergePassengerRouteFare,
+  resolveDashboardQuotedFare,
   resolveQueuedTripSource,
   hasFiniteLatLng,
 } from '../../../../src/lib/passengerTripQueued';
@@ -37,6 +38,16 @@ function getSupabaseAdmin() {
 
 function sanitizeText(value, maxLen = 280) {
   return String(value || '').trim().slice(0, maxLen);
+}
+
+function withinMs(promise, ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      () => { clearTimeout(timer); resolve(null); },
+    );
+  });
 }
 
 function normalizePhone(value) {
@@ -119,11 +130,13 @@ export async function POST(req) {
       return NextResponse.json({ ok: true, trip });
     }
 
+    const trustClientCoords = source === 'dashboard';
     const pickupLocation = await resolveTripLocation({
       address: pickupAddress,
       lat: payload?.pickupLat,
       lng: payload?.pickupLng,
       placeId: payload?.placeId,
+      trustClientCoords,
     });
 
     if (!pickupAddress) {
@@ -156,7 +169,7 @@ export async function POST(req) {
     }
 
     const finalDestinationLocation = wantsDestination
-      ? await resolveFinalDestination(pickupLocation, normalizedPayload)
+      ? await resolveFinalDestination(pickupLocation, normalizedPayload, { trustClientCoords })
       : null;
 
     if (wantsDestination && !finalDestinationLocation) {
@@ -216,17 +229,22 @@ export async function POST(req) {
         .in('status', ['queued', 'pending']);
     }
 
-    const serverFare = await resolvePassengerRouteFare(
-      supabase,
-      pickupLocation,
-      finalDestinationLocation,
-      resolvedWaypoints || [],
-      {
-        source,
-        at: isScheduled ? scheduledForDate : new Date(),
-      },
-    );
-    const fare = mergePassengerRouteFare(serverFare, fareFromClientPayload(normalizedPayload));
+    const quotedFare = fareFromClientPayload(normalizedPayload);
+    const fareAt = isScheduled ? scheduledForDate : new Date();
+    let fare;
+    if (trustClientCoords && quotedFare) {
+      fare = await resolveDashboardQuotedFare(supabase, quotedFare, { source, at: fareAt });
+    } else {
+      const routeFare = resolvePassengerRouteFare(
+        supabase,
+        pickupLocation,
+        finalDestinationLocation,
+        resolvedWaypoints || [],
+        { source, at: fareAt },
+      );
+      const serverFare = trustClientCoords ? await withinMs(routeFare, 700) : await routeFare;
+      fare = mergePassengerRouteFare(serverFare, quotedFare);
+    }
 
     const tripPayload = buildPassengerQueuedTripPayload({
       pickupLocation,

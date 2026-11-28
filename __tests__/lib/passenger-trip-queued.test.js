@@ -1,6 +1,8 @@
 const {
   buildFinalDestJsonTag,
   resolveFinalDestinationFromClient,
+  resolveFinalDestination,
+  resolveTripLocation,
   buildPassengerQueuedTripPayload,
   fareFromClientPayload,
   mergePassengerRouteFare,
@@ -52,6 +54,30 @@ describe('passengerTripQueued', () => {
       destinationLng: finalDest.lng,
     });
     expect(resolved).toEqual(finalDest);
+  });
+
+  it('el panel encola con las coordenadas ya elegidas, sin volver a geocodificar', async () => {
+    const origin = await resolveTripLocation({
+      address: 'Juan Gálvez 210, Salta',
+      lat: -24.7895,
+      lng: -65.4102,
+      placeId: 'google:abc',
+      trustClientCoords: true,
+    });
+    expect(origin).toEqual({
+      formattedAddress: 'Juan Gálvez 210, Salta',
+      lat: -24.7895,
+      lng: -65.4102,
+    });
+
+    const destination = await resolveFinalDestination(origin, {
+      destinationHint: 'Mitre 200, Salta',
+      destinationLat: -24.791,
+      destinationLng: -65.375,
+      destinationPlaceId: 'google:def',
+    }, { trustClientCoords: true });
+    expect(destination.lat).toBe(-24.791);
+    expect(destination.lng).toBe(-65.375);
   });
 
   it('resolveFinalDestinationFromClient acepta destLat/destLng del panel', () => {

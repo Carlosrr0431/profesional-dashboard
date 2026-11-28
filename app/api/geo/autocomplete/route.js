@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { autocompleteAddressSalta, keepLocatableSuggestions, lookupGoogleHousePoint, searchGooglePlacesLastResort } from '../../../../src/lib/geo/index.js';
+import { autocompleteAddressSalta, keepLocatableSuggestions, searchGooglePlacesLastResort } from '../../../../src/lib/geo/index.js';
 import { loadFrequentPlaces } from '../../../../src/lib/frequentTripCatalog';
 import { mergePlaceSuggestions, searchFrequentPlaces } from '../../../../src/lib/frequentPickups';
 import { searchCachedPlaces } from '../../../../src/lib/googlePlacesBudgetStore';
@@ -136,17 +136,24 @@ export async function GET(request) {
     }
 
     const intersection = parseStreetIntersection(query);
+    const googleQuery = intersection ? intersectionSearchLabel(intersection) : query;
     const frequentPromise = loadFrequentPlaces()
       .then((list) => ({ ok: true, items: searchFrequentPlaces(list, query, limit) }))
       .catch(() => ({ ok: false, items: [] }));
-    const [frequent, cachedPlaces, geo] = await Promise.all([
-      within(frequentPromise, 350, { ok: false, items: [] }),
-      within(searchCachedPlaces(query, limit), 350, []),
+    const [frequent, cachedPlaces, geo, googleFast, saved] = await Promise.all([
+      within(frequentPromise, 160, { ok: false, items: [] }),
+      within(searchCachedPlaces(query, limit), 160, []),
       within(
         autocompleteAddressSalta(query, limit, { sessionToken, expand, near }),
-        intersection ? 280 : (pickPrimaryHouseNumber(query) != null ? 4500 : 1200),
+        280,
         [],
       ),
+      within(
+        searchGooglePlacesLastResort(googleQuery, limit, { sessionToken }).catch(() => []),
+        550,
+        [],
+      ),
+      within(findSavedPinnedAddresses(query).catch(() => []), 160, []),
     ]);
     let results;
     const remembered = withRequestedHouseNumber(
@@ -162,25 +169,12 @@ export async function GET(request) {
     } else {
       results = mergePlaceSuggestions(remembered, localGeo, limit);
     }
-    results = await within(
-      keepLocatableSuggestions(results),
-      900,
-      (results || []).filter(hasPin),
-    );
-    const saved = await findSavedPinnedAddresses(query).catch(() => []);
     if (saved.length) {
       results = mergePlaceSuggestions(withRequestedHouseNumber(saved, query), results, limit);
     }
     results = dedupeSamePoint(results);
-    const googleQuery = intersection ? intersectionSearchLabel(intersection) : query;
     const wantedNumber = pickPrimaryHouseNumber(query);
-    const alreadyNumbered = wantedNumber != null && (results || []).some((item) => (
-      pickPrimaryHouseNumber(`${item?.title || ''} ${item?.subtitle || ''} ${item?.address || ''} ${item?.formattedAddress || ''}`) === wantedNumber
-    ));
-    const google = alreadyNumbered
-      ? []
-      : await searchGooglePlacesLastResort(googleQuery, limit, { sessionToken }).catch(() => []);
-    const fresh = (google || []).filter((item) => (
+    const fresh = (googleFast || []).filter((item) => (
       canOffer(item) && (!intersection || intersectionHitMatches(item, intersection.street1, intersection.street2))
     ));
     const numberedFresh = wantedNumber == null ? fresh : withRequestedHouseNumber(fresh, query);
@@ -194,24 +188,16 @@ export async function GET(request) {
       ));
       results = preferSaltaCapitalFirst(results, query);
     }
+    const hasGoogleList = fresh.length > 0 && results.some((item) => String(item?.placeId || '').startsWith('google:'));
+    if (!hasGoogleList) {
+      results = await within(
+        keepLocatableSuggestions(results),
+        180,
+        (results || []).filter((item) => hasPin(item) || String(item?.placeId || '').startsWith('google:')),
+      );
+    }
     if (pickPrimaryHouseNumber(query) != null) {
       results = alignStreetNumberPins(results, query);
-    }
-    const house = pickPrimaryHouseNumber(query);
-    if (house != null && house >= 10) {
-      const googleHouse = await lookupGoogleHousePoint(query).catch(() => null);
-      if (googleHouse) {
-        results = [{
-          title: googleHouse.title || query,
-          subtitle: googleHouse.subtitle || 'Salta',
-          address: googleHouse.formattedAddress,
-          formattedAddress: googleHouse.formattedAddress,
-          lat: googleHouse.lat,
-          lng: googleHouse.lng,
-          placeId: googleHouse.placeId || null,
-          geocodeSource: googleHouse.geocodeSource || 'google_place_details_essentials',
-        }];
-      }
     }
     results = (results || []).map(omitUnusablePin);
     if (results.length) setCached(cacheKey, results);
