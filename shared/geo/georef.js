@@ -342,11 +342,23 @@ async function anchorsForStreet(streetId, streetName) {
  * Georef nombra la calle y la altura en zona sur o Grand Bourg, pero deja
  * lat/lon en null fuera de un tramo corto. Sin esto, 800 y 2000 caen al mismo punto.
  */
+function streetHeightInRange(height, altura) {
+  const range = streetRangeEdges(altura);
+  if (!range) return true;
+  const value = Number(height);
+  if (!Number.isFinite(value)) return false;
+  return value >= range.start && value <= range.end;
+}
+
 async function estimateMissingGeorefPin(item) {
   const height = Number(item?.altura?.valor);
   const streetId = item?.calle?.id;
   const streetName = item?.calle?.nombre;
   if (!streetId || !Number.isFinite(height) || height <= 0) return null;
+
+  const calle = await fetchGeorefCalleById(streetId);
+  // 2545 en una calle que termina en 2500 no se proyecta: cae fuera de la calzada.
+  if (calle && !streetHeightInRange(height, calle.altura)) return null;
 
   const anchors = await anchorsForStreet(streetId, streetName);
   const point = projectHeightOnAnchors(height, anchors);
@@ -435,6 +447,7 @@ module.exports = {
   mapGeorefDireccion,
   probeHeightsForRange,
   projectHeightOnAnchors,
+  streetHeightInRange,
   fetchGeorefCalles,
   fetchGeorefDirecciones,
   searchGeorefAddress,

@@ -1294,6 +1294,19 @@ function housePinKey(query) {
 /** Altura oficial de Georef, cacheada. No llama a Google. */
 async function officialHousePin(query) {
   const text = String(query || '').trim();
+  const pinned = findPinnedAddress(text);
+  if (pinned) {
+    const suggestion = pinnedAddressSuggestion(pinned);
+    return {
+      lat: suggestion.lat,
+      lng: suggestion.lng,
+      formattedAddress: suggestion.formattedAddress,
+      placeId: suggestion.placeId,
+      title: suggestion.title,
+      subtitle: suggestion.subtitle,
+      geocodeSource: 'pinned',
+    };
+  }
   if (pickPrimaryHouseNumber(text) == null) return null;
   const key = housePinKey(text);
   if (!key) return null;

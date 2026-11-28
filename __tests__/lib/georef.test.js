@@ -1,4 +1,4 @@
-const { mapGeorefDireccion, probeHeightsForRange, projectHeightOnAnchors } = require('../../shared/geo/georef');
+const { mapGeorefDireccion, probeHeightsForRange, projectHeightOnAnchors, streetHeightInRange } = require('../../shared/geo/georef');
 
 const CHILE_ANCHORS = [
   { height: 1400, lat: -24.806299109, lng: -65.417550881 },
@@ -61,6 +61,16 @@ describe('georef', () => {
     expect(eightHundred.lat).toBeGreaterThan(CHILE_ANCHORS[0].lat);
     expect(twoThousand.lat).toBeLessThan(CHILE_ANCHORS[1].lat);
     expect(Math.abs(eightHundred.lat - twoThousand.lat)).toBeGreaterThan(0.01);
+  });
+
+  it('Caseros 2545 queda fuera del padrón, que termina en 2500', () => {
+    const altura = {
+      fin: { derecha: 2500, izquierda: 2499 },
+      inicio: { derecha: 2, izquierda: 1 },
+    };
+    expect(streetHeightInRange(2545, altura)).toBe(false);
+    expect(streetHeightInRange(2500, altura)).toBe(true);
+    expect(streetHeightInRange(2100, altura)).toBe(true);
   });
 
   it('no extrapola una altura de Grand Bourg que queda a más de 1,6 km', () => {

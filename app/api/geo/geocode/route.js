@@ -45,11 +45,6 @@ export async function GET(request) {
       const official = await officialHousePin(address).catch(() => null);
       if (official && coordsAllowedForQuery(official.lat, official.lng, address)) {
         result = official;
-      } else {
-        return NextResponse.json(
-          { ok: false, error: 'No se pudo ubicar la dirección' },
-          { status: 422 },
-        );
       }
     }
     if (!result && !placeId && address) {
