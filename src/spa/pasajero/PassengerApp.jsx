@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import AddressSearch from '../shared/AddressSearch';
 import { spaJson, passengerHeaders, PASSENGER_CLIENT } from '../shared/api';
 import {
-  geocodePlace,
+  resolveSuggestionPoint,
   reverseGeocode,
   fetchRouteMetrics,
   fetchRouteLine,
@@ -402,14 +402,7 @@ export default function PassengerApp() {
     setError('');
     setPickupText(suggestionLabel(hit));
     try {
-      const point = hit.lat != null
-        ? {
-          address: hit.formattedAddress || hit.title,
-          lat: Number(hit.lat),
-          lng: Number(hit.lng),
-          placeId: hit.placeId || null,
-        }
-        : await geocodePlace({ ...hit, sessionToken: sessionTokenPlaces.current });
+      const point = await resolveSuggestionPoint(hit, sessionTokenPlaces.current);
       setPickup(point);
       setPickupText(point.address);
       if (destination) setEditingRoute(false);
@@ -422,14 +415,7 @@ export default function PassengerApp() {
     setError('');
     setDestText(suggestionLabel(hit));
     try {
-      const point = hit.lat != null
-        ? {
-          address: hit.formattedAddress || hit.title,
-          lat: Number(hit.lat),
-          lng: Number(hit.lng),
-          placeId: hit.placeId || null,
-        }
-        : await geocodePlace({ ...hit, sessionToken: sessionTokenPlaces.current });
+      const point = await resolveSuggestionPoint(hit, sessionTokenPlaces.current);
       setDestination(point);
       setDestText(point.address);
       setOriginOpen(false);

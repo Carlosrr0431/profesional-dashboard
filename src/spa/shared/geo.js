@@ -15,12 +15,28 @@ export async function fetchAutocomplete(query, sessionToken) {
   return Array.isArray(data.data) ? data.data : [];
 }
 
+function hasUsableGeoPoint(lat, lng) {
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) return false;
+  if (Math.abs(parsedLat) < 0.0001 && Math.abs(parsedLng) < 0.0001) return false;
+  return true;
+}
+
+function suggestionAddress(hit) {
+  return String(hit?.formattedAddress || hit?.address || hit?.title || '').trim();
+}
+
 export async function geocodePlace(hit) {
   const params = new URLSearchParams();
-  if (hit?.placeId) params.set('placeId', hit.placeId);
-  if (hit?.formattedAddress || hit?.address) {
-    params.set('formattedAddress', hit.formattedAddress || hit.address);
-    params.set('address', hit.formattedAddress || hit.address);
+  const placeId = String(hit?.placeId || '');
+  // street: es el catálogo, no un lugar de Google. Sin placeId el servidor
+  // usa el padrón y, si no hay coordenada, Google guardado en caché.
+  if (placeId && !placeId.startsWith('street:')) params.set('placeId', placeId);
+  const label = suggestionAddress(hit);
+  if (label) {
+    params.set('formattedAddress', hit?.formattedAddress || hit?.address || label);
+    params.set('address', hit?.address || hit?.formattedAddress || hit?.title || label);
   }
   if (hit?.title) params.set('title', hit.title);
   if (hit?.subtitle) params.set('subtitle', hit.subtitle);
@@ -34,8 +50,22 @@ export async function geocodePlace(hit) {
     address: data.data.formattedAddress || hit.title || hit.formattedAddress,
     lat: Number(data.data.lat),
     lng: Number(data.data.lng),
-    placeId: data.data.placeId || hit.placeId || null,
+    placeId: data.data.placeId || (placeId.startsWith('street:') ? null : hit.placeId) || null,
   };
+}
+
+/** Misma resolución que el panel: pin usable salvo catálogo de calle, que se geocodifica. */
+export async function resolveSuggestionPoint(hit, sessionToken) {
+  const placeKey = String(hit?.placeId || '');
+  if (hasUsableGeoPoint(hit?.lat, hit?.lng) && !placeKey.startsWith('street:')) {
+    return {
+      address: suggestionAddress(hit) || hit?.title || '',
+      lat: Number(hit.lat),
+      lng: Number(hit.lng),
+      placeId: hit.placeId || null,
+    };
+  }
+  return geocodePlace({ ...hit, sessionToken: sessionToken || hit?.sessionToken });
 }
 
 export async function reverseGeocode(lat, lng) {

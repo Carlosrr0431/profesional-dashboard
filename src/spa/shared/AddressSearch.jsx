@@ -4,6 +4,19 @@ import { useEffect, useRef, useState } from 'react';
 import { fetchAutocomplete, suggestionLabel, suggestionSub } from './geo';
 import { spaFieldClass } from './ui';
 
+const DEBOUNCE_MS = 80;
+
+function filterSuggestionsByQuery(items, normalizedQuery) {
+  const q = String(normalizedQuery || '').trim();
+  if (!q) return [];
+  const street = q.replace(/\b\d{1,5}[a-z]?\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  const needle = (street.length >= 3 ? street : q).toLowerCase();
+  return items.filter((item) => {
+    const blob = `${item?.title || ''} ${item?.subtitle || ''} ${item?.address || ''}`.toLowerCase();
+    return blob.includes(needle);
+  });
+}
+
 export default function AddressSearch({
   label,
   placeholder,
@@ -24,6 +37,8 @@ export default function AddressSearch({
   const wrapRef = useRef(null);
   const lastTypedRef = useRef(value);
   const skipInitialRef = useRef(String(value || '').trim().length >= 2);
+  const cacheRef = useRef(new Map());
+  const seqRef = useRef(0);
 
   const visible = open && hits.length > 0;
 
@@ -69,13 +84,38 @@ export default function AddressSearch({
       setLoading(false);
       return undefined;
     }
+    const normalized = query.toLowerCase().replace(/\s+/g, ' ').trim();
+    const cached = cacheRef.current.get(normalized);
+    if (cached) {
+      setHits(cached);
+      setOpen(cached.length > 0);
+      setLoading(false);
+      return undefined;
+    }
+    const prefix = Array.from(cacheRef.current.entries())
+      .filter(([key]) => key.length >= 2 && normalized.startsWith(key))
+      .sort((a, b) => b[0].length - a[0].length)[0];
+    if (prefix) {
+      const optimistic = filterSuggestionsByQuery(prefix[1], normalized).slice(0, 8);
+      if (optimistic.length > 0) {
+        setHits(optimistic);
+        setOpen(true);
+      }
+    }
     setLoading(true);
+    const seq = ++seqRef.current;
     timerRef.current = setTimeout(async () => {
       const results = await fetchAutocomplete(query, sessionToken);
+      if (seq !== seqRef.current) return;
+      cacheRef.current.set(normalized, results);
+      if (cacheRef.current.size > 80) {
+        const first = cacheRef.current.keys().next().value;
+        if (first) cacheRef.current.delete(first);
+      }
       setHits(results);
       setOpen(results.length > 0);
       setLoading(false);
-    }, 450);
+    }, DEBOUNCE_MS);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
