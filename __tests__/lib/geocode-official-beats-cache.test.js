@@ -51,7 +51,7 @@ jest.mock('../../shared/geo/georef', () => {
   };
 });
 
-const { geocodeAddress, getPlaceDetails } = require('../../shared/geo/nominatim');
+const { geocodeAddress, getPlaceDetails, officialHousePin } = require('../../shared/geo/nominatim');
 
 describe('una calle con altura no usa el pin de Google de la otra punta', () => {
   beforeEach(() => {
@@ -64,6 +64,14 @@ describe('una calle con altura no usa el pin de Google de la otra punta', () => 
       lat: -24.7820515,
       lng: -65.433262,
     }]);
+  });
+
+  test('la altura oficial sale de Georef sin esperar a Google', async () => {
+    const pin = await officialHousePin('Leguizamon 1455');
+    expect(pin.geocodeSource).toBe('georef');
+    expect(pin.lat).toBeCloseTo(OFFICIAL.lat, 5);
+    expect(pin.lng).toBeCloseTo(OFFICIAL.lng, 5);
+    expect(googleSearch).not.toHaveBeenCalled();
   });
 
   test('J. M. Leguizamon 1455 queda en la cuadra oficial', async () => {

@@ -1135,6 +1135,9 @@ function collectGeorefCandidates(items, query, merged, seenPlaceIds, seenCoords)
 }
 
 const streetPointCache = new Map();
+const housePinCache = new Map();
+const housePinFlight = new Map();
+const HOUSE_PIN_TTL_MS = 30 * 60 * 1000;
 const streetMissUntil = new Map();
 const STREET_MISS_MS = 10 * 60 * 1000;
 
@@ -1246,6 +1249,80 @@ function suggestionsForStreetCatalog(query, limit) {
   return searchStreetCatalog(query, limit).map((street) => (
     streetSuggestion(street, streetPointCache.get(streetCacheKey(street)) || null)
   ));
+}
+
+function housePinKey(query) {
+  return String(query || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\b(salta|argentina|capital)\b/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Altura oficial de Georef, cacheada. No llama a Google. */
+async function officialHousePin(query) {
+  const text = String(query || '').trim();
+  if (pickPrimaryHouseNumber(text) == null) return null;
+  const key = housePinKey(text);
+  if (!key) return null;
+  const cached = housePinCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.pin;
+  if (housePinFlight.has(key)) return housePinFlight.get(key);
+
+  const job = (async () => {
+    const { ranked } = await locatedOfficialHouseHits(text);
+    const best = pickOfficialHouseNumber(ranked);
+    if (!best || !Number.isFinite(Number(best.lat)) || !Number.isFinite(Number(best.lng))) return null;
+    const label = formatNominatimLabelForQuery(best, text);
+    const formattedAddress = concreteAddress(text, label.full || best.formattedAddress);
+    if (!formattedAddress) return null;
+    const pin = {
+      lat: Number(best.lat),
+      lng: Number(best.lng),
+      formattedAddress,
+      placeId: best.placeId || null,
+      title: label.title || text,
+      subtitle: label.subtitle || 'Salta',
+      geocodeSource: 'georef',
+    };
+    housePinCache.set(key, { pin, expires: Date.now() + HOUSE_PIN_TTL_MS });
+    return pin;
+  })().finally(() => {
+    housePinFlight.delete(key);
+  });
+
+  housePinFlight.set(key, job);
+  return job;
+}
+
+/** Pone lat/lng oficial en las calles que todavía no tienen punto. */
+async function attachOfficialHousePins(items) {
+  const list = Array.isArray(items) ? items : [];
+  return Promise.all(list.map(async (item) => {
+    if (!item) return item;
+    const lat = Number(item.lat);
+    const lng = Number(item.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && !(Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001)) {
+      return item;
+    }
+    const label = String(item.title || item.address || '').trim();
+    if (pickPrimaryHouseNumber(label) == null) return item;
+    const pin = await officialHousePin(label).catch(() => null);
+    if (!pin) return item;
+    return {
+      ...item,
+      lat: pin.lat,
+      lng: pin.lng,
+      placeId: pin.placeId || item.placeId,
+      address: pin.formattedAddress || item.address,
+      title: item.title || pin.title,
+      subtitle: pin.subtitle || item.subtitle,
+      geocodeSource: 'georef',
+    };
+  }));
 }
 
 /** Lista la calle con la altura escrita, sin red. "san juan 300" → Calle San Juan 300. */
@@ -1665,6 +1742,8 @@ module.exports = {
   reverseHitIsPrecise,
   autocompleteAddressSalta,
   instantStreetSuggestions,
+  officialHousePin,
+  attachOfficialHousePins,
   getPlaceDetails,
   keepLocatableSuggestions,
   pickOfficialHouseNumber,

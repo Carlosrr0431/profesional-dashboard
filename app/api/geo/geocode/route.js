@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { geocodeAddress, getPlaceDetails } from '../../../../src/lib/geo/index.js';
+import { geocodeAddress, getPlaceDetails, officialHousePin } from '../../../../src/lib/geo/index.js';
 import { searchCachedPlaces } from '../../../../src/lib/googlePlacesBudgetStore';
 import { findSavedPinnedAddresses } from '../../../../src/lib/savedPinnedAddresses';
 import { isWithinServiceArea } from '../../../../src/lib/constants';
@@ -40,6 +40,12 @@ export async function GET(request) {
       const saved = await findSavedPinnedAddresses(address).catch(() => []);
       const savedHit = saved.find((item) => coordsAllowedForQuery(item.lat, item.lng, address));
       if (savedHit) result = savedHit;
+    }
+    if (!result && !placeId && address && pickPrimaryHouseNumber(address) != null) {
+      const official = await officialHousePin(address).catch(() => null);
+      if (official && coordsAllowedForQuery(official.lat, official.lng, address)) {
+        result = official;
+      }
     }
     if (!result && !placeId && address && pickPrimaryHouseNumber(address) != null) {
       result = await geocodeAddress(address, { sessionToken });

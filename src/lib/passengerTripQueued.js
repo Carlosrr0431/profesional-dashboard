@@ -14,10 +14,12 @@ import {
   pickPassengerFareRoute,
   sumOsrmRouteMetrics,
 } from '../../shared/salta-route.js';
+import { pickPrimaryHouseNumber } from '../../shared/salta-address.js';
 import {
   geocodeAddress,
   geocodeAddressMultiple,
   getPlaceDetails,
+  officialHousePin,
   getRouteMetrics as getOsrmRouteMetrics,
   getRouteAlternatives,
 } from './geo/index.js';
@@ -123,6 +125,23 @@ export async function resolveTripLocation({ address, lat, lng, placeId, trustCli
             formattedAddress,
             lat: details.lat,
             lng: details.lng,
+          };
+        }
+      }
+    }
+
+    if (cleanAddress && pickPrimaryHouseNumber(cleanAddress) != null) {
+      const official = await officialHousePin(cleanAddress).catch(() => null);
+      if (official && isWithinServiceArea(official.lat, official.lng)) {
+        const formattedAddress = addressForQueuedPickup(
+          cleanAddress,
+          official.formattedAddress || cleanAddress,
+        );
+        if (formattedAddress) {
+          return {
+            formattedAddress,
+            lat: official.lat,
+            lng: official.lng,
           };
         }
       }

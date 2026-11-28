@@ -99,6 +99,10 @@ export default function NewTripModal({
   const mapPickBusyRef = useRef(false);
   const pickupRefreshRef = useRef(0);
   const destRefreshRef = useRef(0);
+  const pickupPointRef = useRef(null);
+  const destPointRef = useRef(null);
+  const pickupPinWaitRef = useRef(Promise.resolve());
+  const destPinWaitRef = useRef(Promise.resolve());
 
   /* Opcionales */
   const [notes, setNotes] = useState('');
@@ -253,6 +257,7 @@ export default function NewTripModal({
     const lng = place?.lng == null ? NaN : Number(place.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       setError('No se pudo ubicar la dirección de origen. Elegila de nuevo de la lista.');
+      pickupPointRef.current = null;
       setPickupLat(null); setPickupLng(null); setPlaceId(''); setPickupLabel('');
       setPickupTitle(''); setPickupSubtitle(''); setPickupGeocodeSource(null);
       return;
@@ -263,6 +268,12 @@ export default function NewTripModal({
       setPickupTitle(''); setPickupSubtitle(''); setPickupGeocodeSource(null);
       return;
     }
+    pickupPointRef.current = {
+      lat,
+      lng,
+      placeId: place.placeId || '',
+      label: place.formattedAddress || '',
+    };
     setPickupLabel(place.formattedAddress || '');
     setPickupTitle(place.title || '');
     setPickupSubtitle(place.subtitle || '');
@@ -278,6 +289,7 @@ export default function NewTripModal({
     const lng = place?.lng == null ? NaN : Number(place.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       setError('No se pudo ubicar el destino. Elegilo de nuevo de la lista.');
+      destPointRef.current = null;
       setDestLabel(''); setDestLat(null); setDestLng(null); setDestGeocodeSource(null); setDestPlaceId('');
       return;
     }
@@ -286,6 +298,12 @@ export default function NewTripModal({
       setDestLabel(''); setDestLat(null); setDestLng(null); setDestGeocodeSource(null); setDestPlaceId('');
       return;
     }
+    destPointRef.current = {
+      lat,
+      lng,
+      placeId: place.placeId || '',
+      label: place.formattedAddress || '',
+    };
     setDestLabel(place.formattedAddress || '');
     setDestLat(lat);
     setDestLng(lng);
@@ -544,26 +562,36 @@ export default function NewTripModal({
 
     setLoading(true);
     try {
+      await pickupPinWaitRef.current;
+      await destPinWaitRef.current;
+      const originPoint = pickupPointRef.current;
+      const destPoint = destPointRef.current;
+      const originLat = Number.isFinite(Number(originPoint?.lat)) ? Number(originPoint.lat) : pickupLat;
+      const originLng = Number.isFinite(Number(originPoint?.lng)) ? Number(originPoint.lng) : pickupLng;
+      const originPlaceId = originPoint?.placeId || placeId || null;
+      const destinationLat = Number.isFinite(Number(destPoint?.lat)) ? Number(destPoint.lat) : destLat;
+      const destinationLng = Number.isFinite(Number(destPoint?.lng)) ? Number(destPoint.lng) : destLng;
       const response = await fetch('/api/trips/create-queued', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           source: 'dashboard',
-          pickupAddress: currentPickupText,
-          pickupLat,
-          pickupLng,
-          placeId: placeId || null,
+          pickupAddress: originPoint?.label || currentPickupText,
+          pickupLat: originLat,
+          pickupLng: originLng,
+          placeId: originPlaceId,
           destinationPlaceId: destPlaceId || null,
           passengerName: null,
           passengerPhone: null,
           ...(destLabel.trim() ? { destinationHint: destLabel.trim() } : {}),
-          ...(destLat != null && destLng != null
-            && Number.isFinite(Number(destLat)) && Number.isFinite(Number(destLng))
+          ...(destinationLat != null && destinationLng != null
+            && Number.isFinite(Number(destinationLat)) && Number.isFinite(Number(destinationLng))
             ? {
-              destinationLat: destLat,
-              destinationLng: destLng,
-              destLat,
-              destLng,
+              destinationLat,
+              destinationLng,
+              destLat: destinationLat,
+              destLng: destinationLng,
+              destinationPlaceId: destPoint?.placeId || destPlaceId || null,
             }
             : {}),
           notes: notes.trim() || null,
@@ -807,6 +835,7 @@ export default function NewTripModal({
                   />
                 )}
                 onChange={(text) => {
+                  pickupPointRef.current = null;
                   setPickupLabel(text);
                   setPickupLat(null);
                   setPickupLng(null);
@@ -815,6 +844,7 @@ export default function NewTripModal({
                   setPickupSubtitle('');
                   setPickupGeocodeSource(null);
                 }}
+                onPendingPin={(job) => { pickupPinWaitRef.current = job; }}
                 onSelect={onPickupSelect}
               />
             </div>
@@ -849,12 +879,14 @@ export default function NewTripModal({
                   />
                 )}
                 onChange={(text) => {
+                  destPointRef.current = null;
                   setDestLabel(text);
                   setDestLat(null);
                   setDestLng(null);
                   setDestGeocodeSource(null);
                   setDestPlaceId('');
                 }}
+                onPendingPin={(job) => { destPinWaitRef.current = job; }}
                 onSelect={onDestSelect}
               />
             </div>

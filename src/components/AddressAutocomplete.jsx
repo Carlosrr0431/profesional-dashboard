@@ -83,6 +83,7 @@ export default function AddressAutocomplete({
   accentColor = '#DC2626',
   acceptMapLink = false,
   dense = false,
+  onPendingPin = null,
 }) {
   const [query, setQuery] = useState(value || '');
   const [suggestions, setSuggestions] = useState([]);
@@ -96,6 +97,8 @@ export default function AddressAutocomplete({
   const requestSeqRef = useRef(0);
   const suggestionsCacheRef = useRef(new Map());
   const sessionTokenRef = useRef(null);
+  const pinFlightRef = useRef(new Map());
+  const pickSeqRef = useRef(0);
 
   const beginSession = useCallback(() => {
     sessionTokenRef.current = typeof crypto !== 'undefined' && crypto.randomUUID
@@ -118,6 +121,33 @@ export default function AddressAutocomplete({
   useEffect(() => () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (abortRef.current) abortRef.current.abort();
+  }, []);
+
+  const ensurePin = useCallback((item) => {
+    if (hasUsableGeoPoint(item?.lat, item?.lng)) return Promise.resolve(item);
+    const label = String(item?.title || item?.address || '').trim();
+    if (!label) return Promise.resolve(item);
+    const key = `${item?.placeId || ''}|${label.toLowerCase()}`;
+    const existing = pinFlightRef.current.get(key);
+    if (existing) return existing;
+    const job = (async () => {
+      const qs = new URLSearchParams({ address: label });
+      const res = await fetch(`/api/geo/geocode?${qs.toString()}`);
+      const payload = await res.json().catch(() => null);
+      if (!payload?.ok || !hasUsableGeoPoint(payload.data?.lat, payload.data?.lng)) return item;
+      return {
+        ...item,
+        lat: payload.data.lat,
+        lng: payload.data.lng,
+        placeId: payload.data.placeId || item.placeId,
+        title: payload.data.title || item.title,
+        subtitle: payload.data.subtitle || item.subtitle,
+        address: payload.data.formattedAddress || item.address,
+        geocodeSource: payload.data.geocodeSource || null,
+      };
+    })().catch(() => item);
+    pinFlightRef.current.set(key, job);
+    return job;
   }, []);
 
   const fetchSuggestions = useCallback(async (text) => {
@@ -166,6 +196,23 @@ export default function AddressAutocomplete({
       const nextSuggestions = payload?.ok ? payload.data : [];
       setSuggestions(nextSuggestions);
       suggestionsCacheRef.current.set(normalized, nextSuggestions);
+      nextSuggestions.forEach((item) => {
+        if (hasUsableGeoPoint(item?.lat, item?.lng)) return;
+        if (!String(item?.placeId || '').startsWith('street:')) return;
+        ensurePin(item).then((pinned) => {
+          if (requestId !== requestSeqRef.current) return;
+          if (!hasUsableGeoPoint(pinned?.lat, pinned?.lng)) return;
+          setSuggestions((prev) => prev.map((row) => (
+            row.placeId === item.placeId && row.title === item.title ? { ...row, ...pinned } : row
+          )));
+          const stored = suggestionsCacheRef.current.get(normalized);
+          if (stored) {
+            suggestionsCacheRef.current.set(normalized, stored.map((row) => (
+              row.placeId === item.placeId && row.title === item.title ? { ...row, ...pinned } : row
+            )));
+          }
+        });
+      });
       if (suggestionsCacheRef.current.size > 80) {
         const firstKey = suggestionsCacheRef.current.keys().next().value;
         if (firstKey) suggestionsCacheRef.current.delete(firstKey);
@@ -178,7 +225,7 @@ export default function AddressAutocomplete({
     } finally {
       if (requestId === requestSeqRef.current) setLoading(false);
     }
-  }, [beginSession]);
+  }, [beginSession, ensurePin]);
 
   const applyMapLink = useCallback(async (text) => {
     const point = readMapLinkPoint(text);
@@ -224,6 +271,7 @@ export default function AddressAutocomplete({
   }, [onChange, onSelect]);
 
   const handleInput = (e) => {
+    pickSeqRef.current += 1;
     const text = e.target.value;
     if (acceptMapLink && readMapLinkPoint(text)) {
       void applyMapLink(text);
@@ -235,7 +283,8 @@ export default function AddressAutocomplete({
     debounceRef.current = setTimeout(() => fetchSuggestions(text), 80);
   };
 
-  const handlePick = async (item) => {
+  const resolvePick = async (item) => {
+    const seq = ++pickSeqRef.current;
     const baseTitle = item.title || String(item.address || '').split(',')[0];
     const baseLine = firstAddressLine(item.subtitle || item.address);
     const labelText = buildSelectedAddressLabel({
@@ -248,65 +297,63 @@ export default function AddressAutocomplete({
     setOpen(false);
     setSuggestions([]);
 
-    const hasCoords = hasUsableGeoPoint(item.lat, item.lng);
     const placeKey = String(item.placeId || '');
-    const roughPin = placeKey.startsWith('georef:') || placeKey.startsWith('street:');
-    if (hasCoords && !roughPin) {
-      sessionTokenRef.current = null;
-      onSelect?.({
-        formattedAddress: labelText,
-        lat: item.lat,
-        lng: item.lng,
-        placeId: item.placeId || null,
-        title: item.title || null,
-        subtitle: item.subtitle || null,
-      });
-      return;
-    }
-
-    if (!item.placeId && !roughPin) {
-      onSelect?.({ formattedAddress: labelText, lat: null, lng: null, placeId: null });
-      return;
-    }
-
-    try {
-      const token = item.sessionToken || sessionTokenRef.current;
-      const qs = new URLSearchParams();
-      if (roughPin) {
-        qs.set('address', labelText);
-      } else {
-        qs.set('placeId', String(item.placeId));
-        qs.set('formattedAddress', labelText);
-        if (item.title) qs.set('title', item.title);
-        if (item.subtitle) qs.set('subtitle', item.subtitle);
+    let chosen = item;
+    if (!hasUsableGeoPoint(item.lat, item.lng)) {
+      setLoading(true);
+      try {
+        if (placeKey.startsWith('google:')) {
+          const token = item.sessionToken || sessionTokenRef.current;
+          const qs = new URLSearchParams();
+          qs.set('placeId', placeKey);
+          qs.set('formattedAddress', labelText);
+          if (item.title) qs.set('title', item.title);
+          if (item.subtitle) qs.set('subtitle', item.subtitle);
+          if (token) qs.set('sessionToken', token);
+          const res = await fetch(`/api/geo/geocode?${qs.toString()}`);
+          const payload = await res.json();
+          if (payload?.ok && hasUsableGeoPoint(payload.data?.lat, payload.data?.lng)) {
+            chosen = {
+              ...item,
+              lat: payload.data.lat,
+              lng: payload.data.lng,
+              placeId: payload.data.placeId || item.placeId,
+              title: payload.data.title || item.title,
+              subtitle: payload.data.subtitle || item.subtitle,
+              geocodeSource: payload.data.geocodeSource || null,
+            };
+          }
+        } else {
+          chosen = await ensurePin(item);
+        }
+      } catch {
+        chosen = item;
+      } finally {
+        if (seq === pickSeqRef.current) setLoading(false);
       }
-      if (token) qs.set('sessionToken', token);
-      const res = await fetch(`/api/geo/geocode?${qs.toString()}`);
-      const payload = await res.json();
-      if (!payload?.ok) throw new Error(payload?.error || 'No se pudo obtener la ubicación');
-      const resolvedTitle = payload.data?.title || item.title || null;
-      const resolvedLine = firstAddressLine(payload.data?.formattedAddress || item.subtitle || item.address || '');
-      const selectedLabel = buildSelectedAddressLabel({
-        title: resolvedTitle,
-        line: resolvedLine,
-        fallback: payload.data?.formattedAddress || labelText,
-      });
-      setQuery(selectedLabel);
-      onChange?.(selectedLabel);
-      sessionTokenRef.current = null;
-      onSelect?.({
-        formattedAddress: selectedLabel,
-        lat: payload.data?.lat,
-        lng: payload.data?.lng,
-        placeId: payload.data?.placeId || item.placeId,
-        title: resolvedTitle,
-        subtitle: payload.data?.subtitle || item.subtitle || null,
-        fullFormattedAddress: payload.data?.formattedAddress || null,
-        geocodeSource: payload.data?.geocodeSource || null,
-      });
-    } catch {
-      onSelect?.({ formattedAddress: labelText, lat: null, lng: null, placeId: item.placeId || null });
     }
+
+    if (seq !== pickSeqRef.current) return;
+    sessionTokenRef.current = null;
+    if (!hasUsableGeoPoint(chosen.lat, chosen.lng)) {
+      onSelect?.({ formattedAddress: labelText, lat: null, lng: null, placeId: chosen.placeId || null });
+      return;
+    }
+    onSelect?.({
+      formattedAddress: labelText,
+      lat: chosen.lat,
+      lng: chosen.lng,
+      placeId: chosen.placeId || null,
+      title: chosen.title || null,
+      subtitle: chosen.subtitle || null,
+      geocodeSource: chosen.geocodeSource || null,
+    });
+  };
+
+  const handlePick = (item) => {
+    const job = resolvePick(item).catch(() => null);
+    onPendingPin?.(job);
+    return job;
   };
 
   const lit = focused || emphasized;

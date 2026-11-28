@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { autocompleteAddressSalta, instantStreetSuggestions, keepLocatableSuggestions, searchGooglePlacesLastResort } from '../../../../src/lib/geo/index.js';
+import { attachOfficialHousePins, autocompleteAddressSalta, instantStreetSuggestions, keepLocatableSuggestions, searchGooglePlacesLastResort } from '../../../../src/lib/geo/index.js';
 import { loadFrequentPlaces } from '../../../../src/lib/frequentTripCatalog';
 import { mergePlaceSuggestions, searchFrequentPlaces } from '../../../../src/lib/frequentPickups';
 import { searchCachedPlaces } from '../../../../src/lib/googlePlacesBudgetStore';
@@ -143,16 +143,17 @@ export async function GET(request) {
       const frequentPromise = loadFrequentPlaces()
         .then((list) => ({ ok: true, items: searchFrequentPlaces(list, query, limit) }))
         .catch(() => ({ ok: false, items: [] }));
-      const [frequent, cachedPlaces, saved] = await Promise.all([
+      const [frequent, cachedPlaces, saved, pinnedStreets] = await Promise.all([
         within(frequentPromise, 80, { ok: false, items: [] }),
         within(searchCachedPlaces(query, limit), 80, []),
         within(findSavedPinnedAddresses(query).catch(() => []), 80, []),
+        within(attachOfficialHousePins(streets), 700, streets),
       ]);
       const remembered = withRequestedHouseNumber(
         rankNamedGoogleFirst([...(cachedPlaces || []), ...(frequent?.items || [])], query),
         query,
       );
-      let results = mergePlaceSuggestions(streets, remembered, limit);
+      let results = mergePlaceSuggestions(pinnedStreets || streets, remembered, limit);
       if (saved.length) {
         results = mergePlaceSuggestions(results, withRequestedHouseNumber(saved, query), limit);
       }
