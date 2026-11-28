@@ -358,7 +358,7 @@ export default function AddressAutocomplete({
   const shadowColor = lit ? `${accentColor}22` : 'transparent';
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
+    <div ref={wrapRef} style={{ position: 'relative', zIndex: open ? 80 : 'auto' }}>
       <style>{STYLES}</style>
 
       {label && (
