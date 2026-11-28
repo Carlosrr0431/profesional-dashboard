@@ -37,6 +37,7 @@ import EmulatorGpsSimulator from './components/EmulatorGpsSimulator';
 import AdminUsersPanel from './components/admin/AdminUsersPanel';
 import BulkSmsPanel from './components/BulkSmsPanel';
 import PinnedAddressesPanel from './components/PinnedAddressesPanel';
+import ChatsPanel from './components/ChatsPanel';
 import DashboardBrand from './components/DashboardBrand';
 import DashboardLoadingScreen from './components/DashboardLoadingScreen';
 import { useTripStatistics } from './hooks/useTripStatistics';
@@ -58,6 +59,7 @@ const VIEWS = {
   adminUsers: 'adminUsers',
   sms: 'sms',
   addresses: 'addresses',
+  chats: 'chats',
 };
 
 const DASHBOARD_BASE = '/admin/dashboard';
@@ -75,6 +77,7 @@ const VIEW_SLUG = {
   [VIEWS.geocodeErrors]: 'geocode',
   [VIEWS.sms]: 'masivos',
   [VIEWS.addresses]: 'direcciones',
+  [VIEWS.chats]: 'chats',
 };
 
 const SLUG_VIEW = {
@@ -612,6 +615,20 @@ export default function App() {
 
       <NavTab
         compact={compact}
+        active={currentView === VIEWS.chats}
+        onClick={() => goTo(currentView === VIEWS.chats ? VIEWS.map : VIEWS.chats)}
+        icon={
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8-1.05 0-2.05-.17-2.96-.48L3 21l1.64-4.37C3.61 15.4 3 13.76 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+        }
+      >
+        Chats
+      </NavTab>
+
+      <NavTab
+        compact={compact}
         active={currentView === VIEWS.sms}
         onClick={() => goTo(currentView === VIEWS.sms ? VIEWS.map : VIEWS.sms)}
         icon={
@@ -701,6 +718,10 @@ export default function App() {
         onClick={() => goTo(currentView === VIEWS.addresses ? VIEWS.map : VIEWS.addresses)}
         icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
         label="Direcciones" />
+      <SideNavItem active={currentView === VIEWS.chats}
+        onClick={() => goTo(currentView === VIEWS.chats ? VIEWS.map : VIEWS.chats)}
+        icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8-1.05 0-2.05-.17-2.96-.48L3 21l1.64-4.37C3.61 15.4 3 13.76 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>}
+        label="Chats" />
       <SideNavItem active={currentView === VIEWS.sms}
         onClick={() => goTo(currentView === VIEWS.sms ? VIEWS.map : VIEWS.sms)}
         icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8-1.05 0-2.05-.17-2.96-.48L3 21l1.64-4.37C3.61 15.4 3 13.76 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>}
@@ -937,6 +958,10 @@ export default function App() {
         ) : currentView === VIEWS.geocodeErrors ? (
           <div className="flex-1 min-h-0 flex">
             <GeocodeErrorsPanel onBack={() => goTo(VIEWS.map)} />
+          </div>
+        ) : currentView === VIEWS.chats ? (
+          <div className="flex-1 min-h-0 flex w-full">
+            <ChatsPanel />
           </div>
         ) : currentView === VIEWS.sms ? (
           <div className="flex-1 min-h-0 flex">

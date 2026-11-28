@@ -148,6 +148,7 @@ import {
   sendWhatsmeowPoll,
   sendWhatsmeowText,
 } from '../../../src/lib/whatsmeowClient';
+import { recordWhatsAppChatMessage } from '../../../src/lib/cloudflareChats';
 import { isNoiseWhatsAppWebhookEvent, normalizeWhatsmeowWebhookBody } from '../../../src/lib/whatsmeowWebhook';
 import {
   ASK_PICKUP_STREET_OR_GPS,
@@ -4734,6 +4735,17 @@ async function appendIncomingMessage({
     });
   }
 
+  void recordWhatsAppChatMessage({
+    linePhone: getActiveWasenderLinePhone(),
+    peerPhone: phone,
+    peerName: pushName,
+    messageId,
+    direction: 'incoming',
+    messageType,
+    content,
+    transcription,
+  });
+
   return result;
 }
 
@@ -4774,11 +4786,15 @@ async function runWithPassengerWasenderLine(phone, tripWaContext, fn) {
 }
 
 async function insertOutgoingMessage({ phone, messageId, content, rawPayload = null }) {
-  // Registro de mensajes salientes omitido en arquitectura trips-only.
-  // Los mensajes se envían vía WaSender; el log local en whatsapp_messages
-  // ya no es necesario porque el estado del flujo vive en la tabla trips.
-  // Dejar la función para no romper los callers; simplemente no hace nada.
-  void phone; void messageId; void content; void rawPayload;
+  void rawPayload;
+  void recordWhatsAppChatMessage({
+    linePhone: getActiveWasenderLinePhone(),
+    peerPhone: phone,
+    messageId,
+    direction: 'outgoing',
+    messageType: 'text',
+    content,
+  });
 }
 
 async function sendWhatsAppText(phone, text) {
