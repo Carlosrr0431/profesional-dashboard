@@ -1049,11 +1049,55 @@ function sameNumberedStreet(road, otherText, houseNumber) {
   }
   // Una sola calle con el mismo nombre: España tiene 6 letras y el padrón sí la tiene.
   // Güemes no entra: Paseo, Doctor A. y Martín no son la misma calle.
-  return roadTokens.length === 1
+  if (
+    roadTokens.length === 1
     && otherTokens.length === 1
     && shared.length === 1
     && shared[0].length >= 4
-    && shared[0] !== 'guemes';
+    && shared[0] !== 'guemes'
+  ) {
+    const queryType = leadingStreetType(otherText);
+    const roadType = leadingStreetType(road);
+    if (queryType && roadType && queryType !== roadType) return false;
+    return true;
+  }
+  // "Avenida San Martín" es "AV GRL JOSE DE SAN MARTIN". No es Cerro ni Pasaje San Martín.
+  return officialLongNameCovers(road, otherText);
+}
+
+function leadingStreetType(text) {
+  const match = normalizeForMatch(text).match(/^(avenida|av|avda|pasaje|pje|psje|calle|paseo|diagonal)\b/);
+  if (!match) return null;
+  if (match[1] === 'av' || match[1] === 'avda') return 'avenida';
+  if (match[1] === 'pje' || match[1] === 'psje') return 'pasaje';
+  return match[1];
+}
+
+function streetNameCore(text) {
+  return normalizeForMatch(text)
+    .replace(/^(avenida|av|avda|pasaje|pje|psje|calle|paseo|diagonal)\s+/, '')
+    .replace(/\b(gral|general|grl|dr|dra|doctor|don|dna|cnel|coronel|tte|teniente|cap|capitan|ing|lic|prof)\b/g, ' ')
+    .replace(/\b(salta|capital|argentina)\b/g, ' ')
+    .replace(/\b\d{1,5}\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** El padrón alarga el nombre con un grado y un nombre de pila. El tipo de vía tiene que coincidir. */
+function officialLongNameCovers(road, otherText) {
+  const queryType = leadingStreetType(otherText);
+  const roadType = leadingStreetType(road);
+  if (!queryType || queryType !== roadType) return false;
+  if (!/\b(gral|general|grl|dr|doctor|don|cnel|coronel|ing|lic|prof)\b/.test(normalizeForMatch(road))) {
+    return false;
+  }
+  const queryCore = streetNameCore(otherText);
+  const roadCore = streetNameCore(road);
+  const queryWords = queryCore.split(' ').filter(Boolean);
+  if (queryWords.length < 2 || !roadCore.endsWith(queryCore)) return false;
+  const extra = roadCore.slice(0, roadCore.length - queryCore.length).trim();
+  const extraWords = extra.split(' ').filter((token) => token && !['de', 'del', 'la', 'el', 'los', 'las'].includes(token));
+  return extraWords.length <= 1;
 }
 
 function isBareStreetAddress(item, roadText) {

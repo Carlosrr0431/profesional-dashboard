@@ -1138,7 +1138,7 @@ const streetPointCache = new Map();
 const housePinCache = new Map();
 const housePinFlight = new Map();
 const HOUSE_PIN_TTL_MS = 30 * 60 * 1000;
-const OFFICIAL_PIN_TIMEOUT_MS = 2000;
+const OFFICIAL_PIN_TIMEOUT_MS = 5000;
 
 function stripStreetTypePrefix(value) {
   return String(value || '')
@@ -1162,7 +1162,10 @@ function officialPinCandidates(text) {
     add(item);
   }
   ordered.sort((a, b) => a.length - b.length);
-  return ordered.slice(0, 2);
+  const picked = ordered.slice(0, 2);
+  const typed = ordered.find((item) => /^(?:avenida|av|avda|pasaje|pje|psje|calle|paseo|diagonal)\b/i.test(item));
+  if (typed && !picked.some((item) => item.toLowerCase() === typed.toLowerCase())) picked.push(typed);
+  return picked;
 }
 const streetMissUntil = new Map();
 const STREET_MISS_MS = 10 * 60 * 1000;

@@ -363,8 +363,8 @@ async function materializeGeorefDirecciones(items) {
 }
 
 /**
- * Punto oficial de Georef, o el nombre normalizado si la altura no tiene coordenadas.
- * Sin lat/lon no se inventa un punto: esa dirección se resuelve con el lugar exacto de Google.
+ * Punto oficial de Georef. Si la altura no trae lat/lon, se proyecta sobre
+ * la misma calle con alturas vecinas que sí tienen punto.
  */
 async function lookupGeorefHouseNumbers(query, max = 3) {
   const trimmed = String(query || '').trim();
@@ -376,7 +376,7 @@ async function lookupGeorefHouseNumbers(query, max = 3) {
   const located = [];
   let missingLabel = null;
   for (const item of hits) {
-    const mapped = mapGeorefDireccion(item);
+    const mapped = mapGeorefDireccion(item) || await estimateMissingGeorefPin(item);
     if (mapped) {
       located.push(mapped);
       continue;

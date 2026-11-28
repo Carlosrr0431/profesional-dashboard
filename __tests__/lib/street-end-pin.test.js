@@ -58,6 +58,10 @@ describe('la altura oficial no cae en la otra punta de la calle', () => {
     expect(sameNumberedStreet('ESPANA', 'España 111, Salta', 111)).toBe(true);
     expect(sameNumberedStreet('REYES DE ESPANA', 'España 111', 111)).toBe(false);
     expect(sameNumberedStreet('Güemes', 'guemes 150', 150)).toBe(false);
+    expect(sameNumberedStreet('AV GRL JOSE DE SAN MARTIN', 'Avenida San Martin 821, Salta', 821)).toBe(true);
+    expect(sameNumberedStreet('CERRO SAN MARTIN', 'Avenida San Martin 821', 821)).toBe(false);
+    expect(sameNumberedStreet('PJE SAN MARTIN', 'Avenida San Martin 821', 821)).toBe(false);
+    expect(sameNumberedStreet('CASEROS', 'Calle Caseros 2545, Salta', 2545)).toBe(true);
   });
 
   test('dos calles homónimas no se mezclan', () => {
