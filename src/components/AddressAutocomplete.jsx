@@ -335,10 +335,7 @@ export default function AddressAutocomplete({
 
     if (seq !== pickSeqRef.current) return;
     sessionTokenRef.current = null;
-    if (!hasUsableGeoPoint(chosen.lat, chosen.lng)) {
-      onSelect?.({ formattedAddress: labelText, lat: null, lng: null, placeId: chosen.placeId || null });
-      return;
-    }
+    if (!hasUsableGeoPoint(chosen.lat, chosen.lng)) return;
     onSelect?.({
       formattedAddress: labelText,
       lat: chosen.lat,

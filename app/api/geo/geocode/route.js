@@ -45,10 +45,12 @@ export async function GET(request) {
       const official = await officialHousePin(address).catch(() => null);
       if (official && coordsAllowedForQuery(official.lat, official.lng, address)) {
         result = official;
+      } else {
+        return NextResponse.json(
+          { ok: false, error: 'No se pudo ubicar la dirección' },
+          { status: 422 },
+        );
       }
-    }
-    if (!result && !placeId && address && pickPrimaryHouseNumber(address) != null) {
-      result = await geocodeAddress(address, { sessionToken });
     }
     if (!result && !placeId && address) {
       const cached = await searchCachedPlaces(address, 5).catch(() => []);

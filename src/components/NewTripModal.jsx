@@ -562,8 +562,6 @@ export default function NewTripModal({
 
     setLoading(true);
     try {
-      await pickupPinWaitRef.current;
-      await destPinWaitRef.current;
       const originPoint = pickupPointRef.current;
       const destPoint = destPointRef.current;
       const originLat = Number.isFinite(Number(originPoint?.lat)) ? Number(originPoint.lat) : pickupLat;

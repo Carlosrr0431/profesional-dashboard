@@ -112,6 +112,26 @@ export async function resolveTripLocation({ address, lat, lng, placeId, trustCli
     }
   }
 
+  if (trustClientCoords) {
+    if (cleanAddress && pickPrimaryHouseNumber(cleanAddress) != null) {
+      const official = await officialHousePin(cleanAddress).catch(() => null);
+      if (official && isWithinServiceArea(official.lat, official.lng)) {
+        const formattedAddress = addressForQueuedPickup(
+          cleanAddress,
+          official.formattedAddress || cleanAddress,
+        );
+        if (formattedAddress) {
+          return {
+            formattedAddress,
+            lat: official.lat,
+            lng: official.lng,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
   try {
     if (sanitizeText(placeId)) {
       const details = await getPlaceDetails(sanitizeText(placeId, 200));

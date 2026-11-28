@@ -1273,7 +1273,18 @@ async function officialHousePin(query) {
   if (housePinFlight.has(key)) return housePinFlight.get(key);
 
   const job = (async () => {
-    const { ranked } = await locatedOfficialHouseHits(text);
+    const candidate = expandAbbreviatedStreetQueries(text)[0] || text;
+    const pack = await withTimeout(
+      lookupGeorefHouseNumbers(candidate, 2).catch(() => ({ located: [] })),
+      700,
+      { located: [] },
+    );
+    const ranked = preferSpecificRoad(
+      candidate,
+      (pack.located || []).filter((hit) => (
+        georefHitMatchesStreetQuery(hit, candidate) || georefHitMatchesStreetQuery(hit, text)
+      )),
+    );
     const best = pickOfficialHouseNumber(ranked);
     if (!best || !Number.isFinite(Number(best.lat)) || !Number.isFinite(Number(best.lng))) return null;
     const label = formatNominatimLabelForQuery(best, text);
