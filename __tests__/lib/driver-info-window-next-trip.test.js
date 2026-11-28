@@ -44,7 +44,7 @@ describe('ventana del chofer: siguiente viaje', () => {
       },
     });
     expect(html).toContain('Siguiente viaje');
-    expect(html).toContain('Cancelar siguiente viaje');
+    expect(html).toContain('Devolver a la cola');
   });
 
   it('lo muestra también mientras el siguiente está en confirmación', () => {
@@ -59,11 +59,11 @@ describe('ventana del chofer: siguiente viaje', () => {
       },
     });
     expect(html).toContain('Siguiente en confirmación');
-    expect(html).toContain('Cancelar siguiente viaje');
+    expect(html).toContain('Devolver a la cola');
   });
 
   it('sin siguiente viaje no aparece el botón', () => {
     const html = render({ ...baseDriver, reservedNextTrip: null });
-    expect(html).not.toContain('Cancelar siguiente viaje');
+    expect(html).not.toContain('Devolver a la cola');
   });
 });

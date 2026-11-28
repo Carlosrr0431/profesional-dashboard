@@ -31,6 +31,13 @@ export function isNotifyFailDispatchExclusionReason(reason) {
   return String(reason || '').toLowerCase().startsWith('notify_fail');
 }
 
+/** La central sacó un viaje paralelo: ese chofer no vuelve a recibirlo. */
+export const OPERATOR_RELEASED_NEXT_TRIP_REASON = 'operator_released_next_trip';
+
+export function isOperatorReleasedNextTripReason(reason) {
+  return String(reason || '') === OPERATOR_RELEASED_NEXT_TRIP_REASON;
+}
+
 export function getTripDispatchExcludedDriverIds(waContext) {
   const context = safeJsonParse(waContext, {});
   const excluded = Array.isArray(context?.dispatch_excluded_driver_ids)
@@ -206,7 +213,12 @@ export function buildWaContextWithExcludedDriver(waContext, driverId, reason = '
   const nowMs = now instanceof Date ? now.getTime() : (Date.parse(now) || Date.now());
   const cooldown = { ...getDriverRejectCooldownMap(context, nowMs) };
 
-  if (isTimeoutDispatchExclusionReason(reason)) {
+  if (isOperatorReleasedNextTripReason(reason)) {
+    roundExcluded = roundExcluded.filter((id) => id !== normalizedDriverId);
+    permanentExcluded = permanentExcluded.filter((id) => id !== normalizedDriverId);
+    permanentExcluded.push(normalizedDriverId);
+    delete cooldown[normalizedDriverId];
+  } else if (isTimeoutDispatchExclusionReason(reason)) {
     const nextOfferCount = (offerCounts[normalizedDriverId] || 0) + 1;
     offerCounts[normalizedDriverId] = nextOfferCount;
     roundExcluded = roundExcluded.filter((id) => id !== normalizedDriverId);

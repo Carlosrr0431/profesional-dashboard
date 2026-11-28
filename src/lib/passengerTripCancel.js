@@ -85,6 +85,15 @@ function getWaContextSource(trip) {
   }
 }
 
+export function isParallelTrip(trip) {
+  const nextId = trip?.next_after_trip_id || trip?.nextAfterTripId;
+  if (nextId == null || String(nextId).trim() === '') return false;
+  const status = String(trip?.status || '').toLowerCase();
+  return status === 'pending' || status === 'accepted';
+}
+
+export const PARALLEL_TRIP_RELEASE_NOTE = 'El viaje vuelve a la cola para otro chofer. Este móvil no lo vuelve a recibir y sigue con el viaje que tiene en curso.';
+
 export function isStreetHailOperatorTrip(trip) {
   if (!trip) return false;
   if (isStreetHailTrip(trip)) return true;

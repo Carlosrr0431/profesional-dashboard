@@ -85,19 +85,27 @@ describe('cancelTripAsOperator con un siguiente viaje reservado', () => {
     return { supabase, calls };
   }
 
-  it('lo cancela, lo saca de la cola y conserva al chofer para que le llegue el aviso', async () => {
-    const updated = { ...RESERVED_NEXT, status: 'cancelled', cancel_reason: OPERATOR_CANCEL_REASON };
+  it('lo devuelve a la cola y no se lo vuelve a ofrecer a ese chofer', async () => {
+    const updated = {
+      ...RESERVED_NEXT,
+      status: 'queued',
+      driver_id: null,
+      next_after_trip_id: null,
+    };
     const { supabase, calls } = makeSupabase(RESERVED_NEXT, updated);
 
     const result = await cancelTripAsOperator(supabase, 'next-1');
 
     expect(result.alreadyCancelled).toBe(false);
-    expect(result.trip.status).toBe('cancelled');
-    expect(calls.update.status).toBe('cancelled');
-    expect(calls.update.cancel_reason).toBe(OPERATOR_CANCEL_REASON);
-    expect(calls.update.driver_id).toBeUndefined();
+    expect(result.releasedToQueue).toBe(true);
+    expect(result.trip.status).toBe('queued');
+    expect(calls.update.status).toBe('queued');
+    expect(calls.update.driver_id).toBeNull();
+    expect(calls.update.next_after_trip_id).toBeNull();
+    expect(calls.update.cancel_reason).toBeNull();
+    expect(calls.update.wa_context.dispatch_permanent_excluded_driver_ids).toContain('driver-busy');
     expect(calls.inStatuses).toContain('accepted');
-    expect(calls.deleted).toBe(true);
+    expect(calls.deleted).toBe(false);
   });
 
   it('un viaje aceptado común se rechaza igual que antes', async () => {

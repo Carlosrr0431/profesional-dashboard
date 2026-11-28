@@ -12,6 +12,10 @@
 const LIVE_NEXT_STATUSES = ['accepted', 'going_to_pickup', 'in_progress'];
 /** Siguiente viaje solo si el pasajero ya subió. En pickup el chofer demora demasiado. */
 const PARALLEL_TRIP_STATUSES = ['in_progress'];
+/** Como Uber: el siguiente se ofrece cuando el chofer ya está por dejar al pasajero. */
+const NEAR_DROPOFF_KM = 1;
+/** El nuevo retiro tiene que quedar a un salto corto de ese destino, no del otro lado de la ciudad. */
+const NEXT_PICKUP_FROM_DROPOFF_KM = 2;
 const RESERVED_NEXT_STATUSES = ['pending', 'accepted'];
 
 function toFiniteNumber(value) {
@@ -133,18 +137,19 @@ function canOfferNextTripToBusyDriver({
   return true;
 }
 
-function resolveBusyAnchorCoords(currentTrip, driver) {
+function resolveBusyAnchorCoords(currentTrip) {
   const destLat = toFiniteNumber(currentTrip?.destination_lat);
   const destLng = toFiniteNumber(currentTrip?.destination_lng);
-  if (destLat != null && destLng != null) {
-    return { lat: destLat, lng: destLng, source: 'dropoff' };
-  }
-  const gpsLat = toFiniteNumber(driver?.current_lat);
-  const gpsLng = toFiniteNumber(driver?.current_lng);
-  if (gpsLat != null && gpsLng != null) {
-    return { lat: gpsLat, lng: gpsLng, source: 'gps' };
-  }
-  return null;
+  if (destLat == null || destLng == null) return null;
+  return { lat: destLat, lng: destLng, source: 'dropoff' };
+}
+
+function isDriverNearDefinedDropoff(driver, dropoff, maxKm = NEAR_DROPOFF_KM) {
+  if (!dropoff) return false;
+  const lat = toFiniteNumber(driver?.current_lat);
+  const lng = toFiniteNumber(driver?.current_lng);
+  if (lat == null || lng == null) return false;
+  return haversineKm(lat, lng, dropoff.lat, dropoff.lng) <= maxKm;
 }
 
 function pickBusyNextTripCandidate({
@@ -191,10 +196,12 @@ function pickBusyNextTripCandidate({
       reservedNextDriverIds: reserved,
     })) continue;
 
-    const anchor = resolveBusyAnchorCoords(currentTrip, driver);
+    const anchor = resolveBusyAnchorCoords(currentTrip);
     if (!anchor) continue;
+    if (!isDriverNearDefinedDropoff(driver, anchor)) continue;
 
     const distanceKm = haversineKm(anchor.lat, anchor.lng, pickupLatN, pickupLngN);
+    if (distanceKm > NEXT_PICKUP_FROM_DROPOFF_KM) continue;
     scored.push({
       driver,
       currentTrip,
@@ -324,6 +331,8 @@ function mergeDriversById(...lists) {
 module.exports = {
   LIVE_NEXT_STATUSES,
   PARALLEL_TRIP_STATUSES,
+  NEAR_DROPOFF_KM,
+  NEXT_PICKUP_FROM_DROPOFF_KM,
   RESERVED_NEXT_STATUSES,
   haversineKm,
   getNextAfterTripId,

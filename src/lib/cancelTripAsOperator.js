@@ -2,7 +2,13 @@ import {
   canOperatorCancelTrip,
   getOperatorCancellableStatuses,
   buildOperatorCancelledTripUpdate,
+  isParallelTrip,
 } from './passengerTripCancel';
+import { buildPendingToQueuedUpdate } from './tripRequeue';
+import {
+  buildWaContextWithExcludedDriver,
+  OPERATOR_RELEASED_NEXT_TRIP_REASON,
+} from './dispatchExclusions';
 
 export const OPERATOR_CANCEL_TRIP_SELECT = [
   'id',
@@ -17,6 +23,10 @@ export const OPERATOR_CANCEL_TRIP_SELECT = [
   'wa_context',
   'dispatch_status',
   'next_after_trip_id',
+  'origin_lat',
+  'origin_lng',
+  'destination_lat',
+  'destination_lng',
 ].join(', ');
 
 function operatorCancelError(message, code) {
@@ -54,9 +64,22 @@ export async function cancelTripAsOperator(supabase, tripId) {
     );
   }
 
+  const releaseParallel = Boolean(isParallelTrip(existing) && existing.driver_id);
+  const updatePayload = releaseParallel
+    ? buildPendingToQueuedUpdate(existing, {
+      next_dispatch_at: new Date().toISOString(),
+      cancel_reason: null,
+      wa_context: buildWaContextWithExcludedDriver(
+        existing.wa_context,
+        existing.driver_id,
+        OPERATOR_RELEASED_NEXT_TRIP_REASON,
+      ),
+    })
+    : buildOperatorCancelledTripUpdate(existing);
+
   const { data: trip, error: updateError } = await supabase
     .from('trips')
-    .update(buildOperatorCancelledTripUpdate(existing))
+    .update(updatePayload)
     .eq('id', id)
     .in('status', getOperatorCancellableStatuses(existing))
     .select(OPERATOR_CANCEL_TRIP_SELECT)
@@ -81,14 +104,21 @@ export async function cancelTripAsOperator(supabase, tripId) {
     );
   }
 
-  const { error: queueError } = await supabase
-    .from('dispatch_queue')
-    .delete()
-    .eq('trip_id', id);
+  if (!releaseParallel) {
+    const { error: queueError } = await supabase
+      .from('dispatch_queue')
+      .delete()
+      .eq('trip_id', id);
 
-  if (queueError) {
-    console.error('[cancelTripAsOperator] dispatch_queue', queueError);
+    if (queueError) {
+      console.error('[cancelTripAsOperator] dispatch_queue', queueError);
+    }
   }
 
-  return { trip, alreadyCancelled: false };
+  return {
+    trip,
+    alreadyCancelled: false,
+    releasedToQueue: releaseParallel,
+    previousTrip: releaseParallel ? existing : null,
+  };
 }

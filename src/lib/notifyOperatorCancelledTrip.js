@@ -64,7 +64,7 @@ async function notifyDriverOfOperatorCancel(supabase, trip) {
   }
 }
 
-export async function notifyOperatorCancelledTrip(supabase, trip) {
+export async function notifyOperatorCancelledTrip(supabase, trip, { skipPassenger = false } = {}) {
   if (!trip?.id) return { driver: null, passenger: null };
 
   let driver = null;
@@ -78,7 +78,9 @@ export async function notifyOperatorCancelledTrip(supabase, trip) {
   }
 
   try {
-    if (isPassengerAppTrip(trip)) {
+    if (skipPassenger) {
+      passenger = { ok: true, reason: 'requeued' };
+    } else if (isPassengerAppTrip(trip)) {
       passenger = await trySendPassengerAppTripPush(supabase, trip);
     } else {
       passenger = { ok: true, reason: 'whatsapp_disabled' };

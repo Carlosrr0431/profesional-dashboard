@@ -16,6 +16,7 @@ export default function CancelTripButton({
   label = 'Cancelar',
   title = '¿Cancelar este viaje?',
   note = 'Revisá que sea el correcto. Esta acción no se puede deshacer.',
+  successMessage = 'Viaje cancelado',
 }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -46,7 +47,7 @@ export default function CancelTripButton({
     setBusy(true);
     try {
       await cancelTripAsOperator(tripId);
-      toast.success('Viaje cancelado');
+      toast.success(successMessage);
       setOpen(false);
       onCancelled?.();
     } catch (err) {

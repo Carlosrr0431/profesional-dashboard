@@ -44,7 +44,11 @@ export async function POST(request) {
 
     if (!result.alreadyCancelled) {
       try {
-        await notifyOperatorCancelledTrip(supabase, result.trip);
+        await notifyOperatorCancelledTrip(
+          supabase,
+          result.releasedToQueue ? result.previousTrip : result.trip,
+          { skipPassenger: Boolean(result.releasedToQueue) },
+        );
       } catch (notifyError) {
         console.error('[trips/cancel-operator] notify', notifyError);
       }

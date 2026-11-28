@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useToast } from '../context/ToastContext';
 import { toLocalDateInputValue } from '../hooks/useLiveTrips';
-import { canOperatorCancelTrip } from '../lib/passengerTripCancel';
+import { canOperatorCancelTrip, isParallelTrip, PARALLEL_TRIP_RELEASE_NOTE } from '../lib/passengerTripCancel';
 import {
   resolveTripsViewRange,
   shiftTripsAnchor,
@@ -89,7 +89,7 @@ function tripStatusInfo(status, trip) {
     return { label: 'Siguiente viaje', color: 'bg-violet-50 text-violet-700 border-violet-200', bar: 'bg-violet-500' };
   }
   if (nextId && status === 'accepted') {
-    return { label: 'Siguiente reservado', color: 'bg-violet-50 text-violet-700 border-violet-200', bar: 'bg-violet-500' };
+    return { label: 'Viaje paralelo', color: 'bg-violet-50 text-violet-700 border-violet-200', bar: 'bg-violet-500' };
   }
   switch (status) {
     case 'queued':
@@ -257,6 +257,10 @@ function TripCard({ trip, onCancelled }) {
         <p className="mt-2.5 pl-1 text-[11px] font-medium text-violet-700">
           Queda como siguiente. Arranca cuando termine el viaje actual.
         </p>
+      ) : trip.status === 'accepted' && trip.nextAfterTripId ? (
+        <p className="mt-2.5 pl-1 text-[11px] font-medium text-violet-700">
+          El chofer lo aceptó ocupado. Sigue con el viaje actual hasta terminarlo.
+        </p>
       ) : null}
 
       <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1 pl-1 text-[10px] text-slate-400">
@@ -286,6 +290,10 @@ function TripCard({ trip, onCancelled }) {
           passengerName={trip.passengerName}
           address={trip.pickupAddress}
           onCancelled={onCancelled}
+          label={isParallelTrip(trip) ? 'Devolver a la cola' : 'Cancelar'}
+          title={isParallelTrip(trip) ? '¿Devolver este viaje paralelo a la cola?' : '¿Cancelar este viaje?'}
+          note={isParallelTrip(trip) ? PARALLEL_TRIP_RELEASE_NOTE : 'Revisá que sea el correcto. Esta acción no se puede deshacer.'}
+          successMessage={isParallelTrip(trip) ? 'El viaje volvió a la cola' : 'Viaje cancelado'}
         />
       ) : null}
     </article>

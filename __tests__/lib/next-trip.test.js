@@ -110,14 +110,17 @@ describe('next-trip dispatch', () => {
     })).toBe(false);
   });
 
-  it('elige al ocupado cuyo destino queda más cerca del nuevo retiro', () => {
+  it('elige al ocupado que ya está en su destino y ese destino queda cerca del nuevo retiro', () => {
     const nearDropoff = { lat: -24.79, lng: -65.41 };
     const farDropoff = { lat: -24.90, lng: -65.55 };
     const selected = pickBusyNextTripCandidate({
       pickupLat: PICKUP.lat,
       pickupLng: PICKUP.lng,
       allowedRadiiKm: [1, 2, 3, 6],
-      busyDrivers: [makeBusyDriver('far'), makeBusyDriver('near')],
+      busyDrivers: [
+        makeBusyDriver('far', farDropoff),
+        makeBusyDriver('near', nearDropoff),
+      ],
       currentTripByDriverId: {
         far: makeLiveTrip('live-far', 'far', farDropoff),
         near: makeLiveTrip('live-near', 'near', nearDropoff),
@@ -127,6 +130,53 @@ describe('next-trip dispatch', () => {
     expect(selected.nextTrip).toBe(true);
     expect(selected.currentTripId).toBe('live-near');
     expect(selected.anchorSource).toBe('dropoff');
+  });
+
+  it('no deriva si el viaje actual no tiene destino', () => {
+    const selected = pickBusyNextTripCandidate({
+      pickupLat: PICKUP.lat,
+      pickupLng: PICKUP.lng,
+      allowedRadiiKm: [2],
+      busyDrivers: [makeBusyDriver('d1', PICKUP)],
+      currentTripByDriverId: {
+        d1: {
+          id: 'live-1',
+          driver_id: 'd1',
+          status: 'in_progress',
+          destination_lat: null,
+          destination_lng: null,
+        },
+      },
+    });
+    expect(selected).toBeNull();
+  });
+
+  it('no deriva si el chofer todavía está lejos del destino', () => {
+    const dropoff = { lat: -24.80, lng: -65.42 };
+    const selected = pickBusyNextTripCandidate({
+      pickupLat: dropoff.lat,
+      pickupLng: dropoff.lng,
+      allowedRadiiKm: [2],
+      busyDrivers: [makeBusyDriver('d1', PICKUP)],
+      currentTripByDriverId: {
+        d1: makeLiveTrip('live-1', 'd1', dropoff),
+      },
+    });
+    expect(selected).toBeNull();
+  });
+
+  it('no deriva si el pasajero a buscar queda lejos del destino actual', () => {
+    const dropoff = { lat: -24.90, lng: -65.55 };
+    const selected = pickBusyNextTripCandidate({
+      pickupLat: PICKUP.lat,
+      pickupLng: PICKUP.lng,
+      allowedRadiiKm: [2, 8],
+      busyDrivers: [makeBusyDriver('d1', dropoff)],
+      currentTripByDriverId: {
+        d1: makeLiveTrip('live-1', 'd1', dropoff),
+      },
+    });
+    expect(selected).toBeNull();
   });
 
   it('con asignación manual solo ofrece al chofer preferido ocupado', () => {

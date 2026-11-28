@@ -4,7 +4,7 @@ import AssignFreeDriverPicker from './AssignFreeDriverPicker';
 import CancelTripButton from './CancelTripButton';
 import { DriverMobileCorner, TripRouteLines } from './TripCardBits';
 import TripNotesEditor from './TripNotesEditor';
-import { canOperatorCancelTrip } from '../lib/passengerTripCancel';
+import { canOperatorCancelTrip, isParallelTrip, PARALLEL_TRIP_RELEASE_NOTE } from '../lib/passengerTripCancel';
 import { DEFAULT_SCHEDULED_DISPATCH_AHEAD_MS } from '../lib/promoteDueScheduledTrips';
 import {
   resolveAssignedDriver,
@@ -21,8 +21,14 @@ export function isMapListPopover(kind) {
   return LIST_KINDS.has(kind);
 }
 
+export function isAcceptedParallelTrip(trip) {
+  return trip?.status === 'accepted' && isParallelTrip(trip);
+}
+
 export function listActiveDockTrips(trips = []) {
-  return trips.filter((trip) => trip.isActive && !trip.isQueued);
+  return trips
+    .filter((trip) => trip.isActive && !trip.isQueued)
+    .sort((a, b) => Number(isAcceptedParallelTrip(b)) - Number(isAcceptedParallelTrip(a)));
 }
 
 export function formatWaitLabel(minutes) {
@@ -39,7 +45,8 @@ function maskPhone(phone) {
   return value;
 }
 
-function tripStatusMeta(status) {
+function tripStatusMeta(status, trip) {
+  if (isAcceptedParallelTrip(trip)) return { label: 'Viaje paralelo', cls: 'bg-violet-50 text-violet-700' };
   if (status === 'in_progress') return { label: 'En curso', cls: 'bg-emerald-50 text-emerald-700' };
   if (status === 'going_to_pickup') return { label: 'En camino', cls: 'bg-sky-50 text-sky-700' };
   if (status === 'accepted') return { label: 'Asignado', cls: 'bg-sky-50 text-sky-700' };
@@ -201,7 +208,8 @@ function QueueCard({ item, index, drivers, onAssigned, onCancelled }) {
 }
 
 function LiveTripCard({ trip, drivers, onCancelled }) {
-  const meta = tripStatusMeta(trip.status);
+  const parallel = isAcceptedParallelTrip(trip);
+  const meta = tripStatusMeta(trip.status, trip);
   const canCancel = canOperatorCancelTrip(trip);
   const createdFrom = tripCreatedFromLabel(trip);
   const passengerName = tripDisplayPassengerName(trip);
@@ -211,7 +219,7 @@ function LiveTripCard({ trip, drivers, onCancelled }) {
   const note = cleanTripNotesForDriverDisplay(trip.notes) || '';
 
   return (
-    <article className="mb-1.5 rounded-2xl border border-slate-100 bg-slate-50/90 px-3 py-2.5 last:mb-0">
+    <article className={`mb-1.5 rounded-2xl border px-3 py-2.5 last:mb-0 ${parallel ? 'border-violet-200 bg-violet-50/80' : 'border-slate-100 bg-slate-50/90'}`}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-[15px] font-bold leading-tight text-navy-900">{createdFrom}</p>
@@ -226,6 +234,11 @@ function LiveTripCard({ trip, drivers, onCancelled }) {
       <TripRouteLines pickup={pickup} dest={dest} />
       {note ? (
         <p className="mt-1 truncate text-[13px] font-bold text-navy-800">{note}</p>
+      ) : null}
+      {parallel ? (
+        <p className="mt-1 text-[12px] font-semibold text-violet-700">
+          El chofer lo aceptó ocupado. Sigue con el viaje actual.
+        </p>
       ) : null}
       <div className="mt-2.5 flex flex-wrap items-stretch gap-2">
         <TripNotesEditor
@@ -242,6 +255,10 @@ function LiveTripCard({ trip, drivers, onCancelled }) {
             passengerName={passengerName || createdFrom}
             address={address}
             onCancelled={onCancelled}
+            label={parallel ? 'Devolver a la cola' : 'Cancelar'}
+            title={parallel ? '¿Devolver este viaje paralelo a la cola?' : '¿Cancelar este viaje?'}
+            note={parallel ? PARALLEL_TRIP_RELEASE_NOTE : 'Revisá que sea el correcto. Esta acción no se puede deshacer.'}
+            successMessage={parallel ? 'El viaje volvió a la cola' : 'Viaje cancelado'}
           />
         ) : null}
       </div>
@@ -340,12 +357,16 @@ export default function MapDockPopovers({
 
   if (kind === 'trips') {
     const list = listActiveDockTrips(liveTripsData.allTrips);
-    const activeCount = list.length;
+    const parallelCount = list.filter((trip) => isAcceptedParallelTrip(trip)).length;
+    const liveCount = list.length - parallelCount;
+    const meta = parallelCount
+      ? `${liveCount} en curso · ${parallelCount} paralelo${parallelCount === 1 ? '' : 's'}`
+      : `${list.length} en curso`;
     return (
       <DockCard
         tone="navy"
         title="Viajes activos"
-        meta={`${activeCount} en curso`}
+        meta={meta}
         footer={<DockFooter onClick={onOpenTrips}>Ver panel completo →</DockFooter>}
       >
         {list.length === 0 ? (

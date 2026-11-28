@@ -28,4 +28,12 @@ describe('MapDockPopovers helpers', () => {
     ]);
     expect(list.map((trip) => trip.id)).toEqual(['1', '3']);
   });
+
+  it('el viaje paralelo aceptado queda primero para poder verlo y devolverlo', () => {
+    const list = listActiveDockTrips([
+      { id: 'live', isActive: true, isQueued: false, status: 'in_progress' },
+      { id: 'next', isActive: true, isQueued: false, status: 'accepted', nextAfterTripId: 'live' },
+    ]);
+    expect(list.map((trip) => trip.id)).toEqual(['next', 'live']);
+  });
 });

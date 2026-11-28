@@ -231,9 +231,10 @@ export default function DriverPanel({
             <CancelTripButton
               row
               className="mt-2.5"
-              label="Cancelar siguiente viaje"
-              title="¿Cancelar el siguiente viaje?"
-              note="Se cancela el viaje del pasajero y se le avisa al chofer. El móvil sigue con el viaje que tiene en curso."
+              label="Devolver a la cola"
+              title="¿Devolver este viaje paralelo a la cola?"
+              note="El viaje vuelve a la cola para otro chofer. Este móvil no lo vuelve a recibir y sigue con el viaje que tiene en curso."
+              successMessage="El viaje volvió a la cola"
               tripId={driver.reservedNextTrip.id}
               passengerName={driver.reservedNextTrip.passenger_name}
               address={driver.reservedNextTrip.destination_address}
