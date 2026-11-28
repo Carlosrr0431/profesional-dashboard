@@ -4674,6 +4674,7 @@ async function transcribeAudioFromUrl(audioUrl) {
 async function appendIncomingMessage({
   phone,
   pushName,
+  fullName = null,
   messageId,
   messageType,
   content,
@@ -4739,6 +4740,7 @@ async function appendIncomingMessage({
     linePhone: getActiveWasenderLinePhone(),
     peerPhone: phone,
     peerName: pushName,
+    savedName: fullName,
     messageId,
     direction: 'incoming',
     messageType,
@@ -13431,6 +13433,9 @@ async function processWebhookBody(body, requestMeta = {}) {
 
     const messageType = detectMessageType(messageData.message);
     const pushName = messageData.pushName || messageData.key.pushName || null;
+    const fullName = String(
+      messageData.fullName || messageData.full_name || messageData.key?.fullName || messageData.key?.full_name || '',
+    ).trim() || null;
     const messageId = messageData.key.id;
     let content = extractMessageText(messageData);
     let transcription = null;
@@ -13664,6 +13669,7 @@ async function processWebhookBody(body, requestMeta = {}) {
     const appendResult = await appendIncomingMessage({
       phone,
       pushName,
+      fullName,
       messageId,
       messageType,
       content: content || `[${messageType}]`,

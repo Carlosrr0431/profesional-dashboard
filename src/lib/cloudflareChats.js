@@ -1,3 +1,5 @@
+import { getPassengerWhatsmeowLine } from './whatsmeowLines';
+import { getWhatsmeowApiBase } from './whatsmeowClient';
 import {
   CHATS_LINE_PHONE,
   chatMessagePreview,
@@ -7,6 +9,7 @@ import {
 
 export {
   CHATS_LINE_PHONE,
+  chatDisplayName,
   chatMessagePreview,
   digitsOnly,
   formatArMobile,
@@ -62,6 +65,7 @@ export async function recordWhatsAppChatMessage(input = {}) {
         linePhone: CHATS_LINE_PHONE,
         peerPhone,
         peerName: String(input.peerName || '').trim() || null,
+        savedName: String(input.savedName || '').trim() || null,
         messageId,
         direction: input.direction === 'outgoing' ? 'outgoing' : 'incoming',
         messageType: String(input.messageType || 'text').slice(0, 32),
@@ -75,8 +79,46 @@ export async function recordWhatsAppChatMessage(input = {}) {
   }
 }
 
-export function listStoredChats() {
-  return chatsFetch('/chats');
+let contactCache = { at: 0, map: new Map() };
+
+function agendaName(contact) {
+  const full = String(contact?.full_name || '').replace(/\s+/g, ' ').trim();
+  if (full) return full;
+  return String(contact?.first_name || '').replace(/\s+/g, ' ').trim();
+}
+
+/** Nombre con el que el celular de la línea tiene agendado al contacto. */
+async function savedContactNames() {
+  if (Date.now() - contactCache.at < 45000) return contactCache.map;
+  const line = getPassengerWhatsmeowLine();
+  if (!line?.agentCode || !line.apiKey) return contactCache.map;
+  const response = await fetch(
+    `${getWhatsmeowApiBase()}/api/contacts?agent_code=${encodeURIComponent(line.agentCode)}`,
+    {
+      headers: { 'X-API-Key': line.apiKey, Accept: 'application/json' },
+      cache: 'no-store',
+    },
+  );
+  const payload = await response.json().catch(() => null);
+  const list = payload?.data?.contacts || payload?.contacts || [];
+  const map = new Map();
+  for (const contact of list) {
+    const phone = digitsOnly(contact?.phone);
+    const name = agendaName(contact);
+    if (phone.length >= 8 && name) map.set(phone, name);
+  }
+  contactCache = { at: Date.now(), map };
+  return map;
+}
+
+export async function listStoredChats() {
+  const data = await chatsFetch('/chats');
+  const names = await savedContactNames().catch(() => contactCache.map);
+  const chats = (data.chats || []).map((chat) => {
+    const saved = names.get(digitsOnly(chat.peer_phone)) || String(chat.saved_name || '').trim();
+    return { ...chat, saved_name: saved || null };
+  });
+  return { ...data, chats };
 }
 
 export function listStoredMessages(chatId, before) {

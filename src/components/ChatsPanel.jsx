@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CHATS_LINE_PHONE, formatArMobile } from '../lib/chatDisplay';
+import { CHATS_LINE_PHONE, chatDisplayName, chatShortName, formatArMobile } from '../lib/chatDisplay';
 
 const timeFormatter = new Intl.DateTimeFormat('es-AR', {
   hour: '2-digit',
@@ -30,9 +30,31 @@ function whenLabel(sentAt) {
 }
 
 function chatTitle(chat) {
-  const name = String(chat?.peer_name || '').trim();
-  if (name) return name;
-  return formatArMobile(chat?.peer_phone) || 'Contacto';
+  return chatDisplayName(chat);
+}
+
+function chatSubtitle(chat) {
+  const title = chatTitle(chat);
+  const shortName = chatShortName(chat);
+  const phone = formatArMobile(chat?.peer_phone);
+  if (shortName && shortName.toLowerCase() !== title.toLowerCase()) return shortName;
+  return phone;
+}
+
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase();
+}
+
+const AVATAR_COLORS = ['#00a884', '#02735e', '#1f6f8b', '#7c4dff', '#c4516c', '#b86e00'];
+
+function avatarColor(id) {
+  const text = String(id || '');
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) hash = (hash + text.charCodeAt(i)) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[hash];
 }
 
 function mergeMessages(current, incoming) {
@@ -159,44 +181,57 @@ export default function ChatsPanel() {
     stickToBottomRef.current = distance < 80;
   };
 
+  const selectedTitle = selected ? chatTitle(selected) : '';
+
   return (
-    <div className="flex h-full min-h-0 w-full bg-[#f0f2f5] text-slate-800">
-      <aside className={`w-full max-w-[380px] shrink-0 border-r border-slate-200 bg-white ${selectedId ? 'hidden md:flex' : 'flex'} min-h-0 flex-col`}>
-        <header className="border-b border-slate-200 px-4 py-3">
-          <p className="text-[15px] font-semibold text-slate-900">Chats</p>
-          <p className="text-[12px] text-slate-500">{formatArMobile(CHATS_LINE_PHONE)}</p>
+    <div className="flex h-full min-h-0 w-full bg-[#efeae2] text-[#111b21]">
+      <aside className={`w-full max-w-[400px] shrink-0 border-r border-[#e9edef] bg-white ${selectedId ? 'hidden md:flex' : 'flex'} min-h-0 flex-col`}>
+        <header className="bg-[#f0f2f5] px-4 pb-3 pt-4">
+          <div className="flex items-center justify-between">
+            <p className="text-[20px] font-semibold tracking-tight">Chats</p>
+            <p className="text-[12px] font-medium text-[#54656f]">{formatArMobile(CHATS_LINE_PHONE)}</p>
+          </div>
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar un chat"
-            className="mt-3 h-9 w-full rounded-lg bg-[#f0f2f5] px-3 text-[13px] outline-none"
+            placeholder="Buscar o empezar un chat"
+            className="mt-3 h-9 w-full rounded-lg border-0 bg-white px-3 text-[13px] outline-none ring-1 ring-transparent placeholder:text-[#667781] focus:ring-[#00a884]"
           />
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {visibleChats.length === 0 ? (
-            <p className="px-4 py-8 text-center text-[13px] text-slate-500">
+            <p className="px-6 py-10 text-center text-[13px] leading-5 text-[#667781]">
               {error || 'Todavía no hay mensajes. Cuando alguien escriba a esta línea, el chat aparece acá.'}
             </p>
           ) : visibleChats.map((chat) => {
             const active = chat.id === selectedId;
             const unread = Number(chat.unread) || 0;
+            const title = chatTitle(chat);
+            const preview = chat.last_direction === 'outgoing'
+              ? `Vos: ${chat.last_body || 'Mensaje'}`
+              : (chat.last_body || 'Mensaje');
             return (
               <button
                 key={chat.id}
                 type="button"
                 onClick={() => openChat(chat)}
-                className={`flex w-full items-start gap-3 border-b border-slate-100 px-4 py-3 text-left ${active ? 'bg-[#f0f2f5]' : 'hover:bg-slate-50'}`}
+                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left ${active ? 'bg-[#f0f2f5]' : 'hover:bg-[#f5f6f6]'}`}
               >
-                <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-[14px] font-semibold text-white">
-                  {chatTitle(chat).slice(0, 1).toUpperCase()}
+                <span
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold text-white"
+                  style={{ backgroundColor: avatarColor(chat.id) }}
+                >
+                  {initials(title)}
                 </span>
-                <span className="min-w-0 flex-1">
+                <span className="min-w-0 flex-1 border-b border-[#e9edef] py-1">
                   <span className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-[14px] font-semibold">{chatTitle(chat)}</span>
-                    <span className="shrink-0 text-[11px] text-slate-400">{whenLabel(chat.last_at)}</span>
+                    <span className="truncate text-[16px]">{title}</span>
+                    <span className={`shrink-0 text-[12px] ${unread > 0 ? 'font-medium text-[#02735e]' : 'text-[#667781]'}`}>
+                      {whenLabel(chat.last_at)}
+                    </span>
                   </span>
                   <span className="mt-0.5 flex items-center justify-between gap-2">
-                    <span className="truncate text-[13px] text-slate-500">{chat.last_body || 'Mensaje'}</span>
+                    <span className="truncate text-[13px] text-[#667781]">{preview}</span>
                     {unread > 0 ? (
                       <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#00a884] px-1.5 text-[11px] font-semibold text-white">
                         {unread}
@@ -213,45 +248,66 @@ export default function ChatsPanel() {
       <section className={`min-h-0 min-w-0 flex-1 flex-col ${selectedId ? 'flex' : 'hidden md:flex'}`}>
         {selected ? (
           <>
-            <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-[#f0f2f5] px-3">
+            <header className="flex h-[60px] shrink-0 items-center gap-3 bg-[#f0f2f5] px-4">
               <button
                 type="button"
                 className="rounded-full px-2 py-1 text-[13px] font-semibold text-[#02735e] md:hidden"
                 onClick={() => setSelectedId('')}
               >
-                Chats
+                Atrás
               </button>
+              <span
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[14px] font-semibold text-white"
+                style={{ backgroundColor: avatarColor(selected.id) }}
+              >
+                {initials(selectedTitle)}
+              </span>
               <div className="min-w-0">
-                <p className="truncate text-[15px] font-semibold">{chatTitle(selected)}</p>
-                <p className="truncate text-[12px] text-slate-500">{formatArMobile(selected.peer_phone)}</p>
+                <p className="truncate text-[16px] font-medium">{selectedTitle}</p>
+                <p className="truncate text-[12px] text-[#667781]">{chatSubtitle(selected)}</p>
               </div>
             </header>
             <div
               ref={threadRef}
               onScroll={onThreadScroll}
-              className="min-h-0 flex-1 overflow-y-auto bg-[#efeae2] px-3 py-4"
-              style={{ backgroundImage: 'radial-gradient(rgba(17,27,33,0.04) 0.6px, transparent 0.6px)', backgroundSize: '14px 14px' }}
+              className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+              style={{
+                backgroundColor: '#efeae2',
+                backgroundImage: 'radial-gradient(rgba(17,27,33,0.045) 0.7px, transparent 0.7px)',
+                backgroundSize: '16px 16px',
+              }}
             >
-              {hasMore ? (
-                <div className="mb-3 flex justify-center">
-                  <button
-                    type="button"
-                    onClick={loadOlder}
-                    disabled={loadingOlder}
-                    className="rounded-full bg-white px-3 py-1 text-[12px] font-semibold text-slate-600 shadow-sm"
-                  >
-                    {loadingOlder ? 'Cargando…' : 'Mensajes anteriores'}
-                  </button>
-                </div>
-              ) : null}
-              <div className="mx-auto flex max-w-3xl flex-col gap-1.5">
-                {messages.map((message) => {
+              <div className="mx-auto flex min-h-full max-w-3xl flex-col justify-end gap-1">
+                {hasMore ? (
+                  <div className="mb-2 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={loadOlder}
+                      disabled={loadingOlder}
+                      className="rounded-full bg-white px-3 py-1 text-[12px] font-medium text-[#54656f] shadow-sm"
+                    >
+                      {loadingOlder ? 'Cargando…' : 'Mensajes anteriores'}
+                    </button>
+                  </div>
+                ) : null}
+                {messages.map((message, index) => {
                   const outgoing = message.direction === 'outgoing';
+                  const previous = messages[index - 1];
+                  const showDay = !previous || !sameDay(previous.sent_at, message.sent_at);
                   return (
-                    <div key={message.id} className={`flex ${outgoing ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[78%] rounded-lg px-2.5 py-1.5 shadow-sm ${outgoing ? 'bg-[#d9fdd3]' : 'bg-white'}`}>
-                        <p className="whitespace-pre-wrap break-words text-[14px] leading-5">{message.body || 'Mensaje'}</p>
-                        <p className="mt-0.5 text-right text-[11px] text-slate-400">{whenLabel(message.sent_at)}</p>
+                    <div key={message.id}>
+                      {showDay ? (
+                        <div className="my-2 flex justify-center">
+                          <span className="rounded-lg bg-white px-2 py-1 text-[12px] text-[#54656f] shadow-sm">
+                            {sameDay(message.sent_at, Date.now()) ? 'Hoy' : dayFormatter.format(Number(message.sent_at))}
+                          </span>
+                        </div>
+                      ) : null}
+                      <div className={`flex ${outgoing ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[75%] rounded-lg px-2 py-1 shadow-sm ${outgoing ? 'rounded-tr-none bg-[#d9fdd3]' : 'rounded-tl-none bg-white'}`}>
+                          <p className="whitespace-pre-wrap break-words px-1 text-[14.5px] leading-5">{message.body || 'Mensaje'}</p>
+                          <p className="px-1 text-right text-[11px] text-[#667781]">{whenLabel(message.sent_at)}</p>
+                        </div>
                       </div>
                     </div>
                   );
@@ -260,14 +316,12 @@ export default function ChatsPanel() {
             </div>
           </>
         ) : (
-          <div className="flex flex-1 items-center justify-center px-6 text-center">
-            <div>
-              <p className="text-[18px] font-semibold text-slate-700">Historial de WhatsApp</p>
-              <p className="mt-1 max-w-sm text-[13px] text-slate-500">
-                Elegí un chat para ver todos los mensajes de {formatArMobile(CHATS_LINE_PHONE)}. Se actualiza solo.
-              </p>
-              {error ? <p className="mt-3 text-[13px] text-rose-600">{error}</p> : null}
-            </div>
+          <div className="hidden flex-1 flex-col items-center justify-center bg-[#f0f2f5] px-8 text-center md:flex">
+            <p className="text-[28px] font-light text-[#41525d]">WhatsApp de Profesional</p>
+            <p className="mt-2 max-w-md text-[14px] leading-6 text-[#667781]">
+              Elegí un chat para ver el historial de {formatArMobile(CHATS_LINE_PHONE)}. El nombre es el de la agenda y, si no está guardado, el que figura en el chat.
+            </p>
+            {error ? <p className="mt-3 text-[13px] text-rose-600">{error}</p> : null}
           </div>
         )}
       </section>

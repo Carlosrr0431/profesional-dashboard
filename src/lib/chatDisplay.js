@@ -21,6 +21,23 @@ export function formatArMobile(phone) {
   return `+${digits}`;
 }
 
+export function chatSavedName(chat) {
+  return String(chat?.saved_name || '').replace(/\s+/g, ' ').trim();
+}
+
+export function chatShortName(chat) {
+  return String(chat?.peer_name || '').replace(/\s+/g, ' ').trim();
+}
+
+/** Nombre de la agenda de WhatsApp. Si no está agendado, el nombre corto del chat. */
+export function chatDisplayName(chat) {
+  const saved = chatSavedName(chat);
+  if (saved) return saved;
+  const shortName = chatShortName(chat);
+  if (shortName) return shortName;
+  return formatArMobile(chat?.peer_phone) || 'Contacto';
+}
+
 export function chatMessagePreview({ messageType, content, transcription } = {}) {
   const text = String(transcription || content || '').replace(/\s+/g, ' ').trim();
   if (text) return text.slice(0, 500);

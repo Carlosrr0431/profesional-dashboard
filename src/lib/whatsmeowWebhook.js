@@ -165,6 +165,7 @@ function toWasenderUpsert(msg, agentCode) {
         message: buildMessageObject(msg),
         messageBody: String(msg.poll_option || msg.body || '').trim() || undefined,
         pushName: msg.push_name || msg.pushName || null,
+        fullName: msg.full_name || msg.fullName || null,
         _whatsmeow: {
           type: msg.type,
           button_id: msg.button_id || null,

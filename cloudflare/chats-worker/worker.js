@@ -48,6 +48,7 @@ async function ingest(request, env) {
   const sentAt = Number(body?.sentAt);
   const when = Number.isFinite(sentAt) && sentAt > 0 ? Math.trunc(sentAt) : Date.now();
   const peerName = String(body?.peerName || '').trim().slice(0, 80) || null;
+  const savedName = String(body?.savedName || '').trim().slice(0, 80) || null;
   const chatId = `${LINE}:${peerPhone}`;
 
   const inserted = await env.DB.prepare(
@@ -60,10 +61,11 @@ async function ingest(request, env) {
 
   await env.DB.prepare(
     `INSERT INTO wa_chats (
-       id, line_phone, peer_phone, peer_name, last_body, last_type, last_direction, last_at, unread
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       id, line_phone, peer_phone, peer_name, saved_name, last_body, last_type, last_direction, last_at, unread
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        peer_name = COALESCE(excluded.peer_name, wa_chats.peer_name),
+       saved_name = COALESCE(excluded.saved_name, wa_chats.saved_name),
        last_body = CASE WHEN excluded.last_at >= wa_chats.last_at THEN excluded.last_body ELSE wa_chats.last_body END,
        last_type = CASE WHEN excluded.last_at >= wa_chats.last_at THEN excluded.last_type ELSE wa_chats.last_type END,
        last_direction = CASE WHEN excluded.last_at >= wa_chats.last_at THEN excluded.last_direction ELSE wa_chats.last_direction END,
@@ -74,6 +76,7 @@ async function ingest(request, env) {
     LINE,
     peerPhone,
     peerName,
+    savedName,
     text,
     messageType,
     direction,
@@ -87,7 +90,7 @@ async function ingest(request, env) {
 
 async function listChats(env) {
   const rows = await env.DB.prepare(
-    `SELECT id, peer_phone, peer_name, last_body, last_type, last_direction, last_at, unread
+    `SELECT id, peer_phone, peer_name, saved_name, last_body, last_type, last_direction, last_at, unread
      FROM wa_chats
      WHERE line_phone = ?
      ORDER BY last_at DESC

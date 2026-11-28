@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS wa_chats (
   line_phone TEXT NOT NULL,
   peer_phone TEXT NOT NULL,
   peer_name TEXT,
+  saved_name TEXT,
   last_body TEXT,
   last_type TEXT,
   last_direction TEXT,
