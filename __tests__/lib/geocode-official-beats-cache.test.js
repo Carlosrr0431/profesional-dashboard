@@ -33,8 +33,21 @@ jest.mock('../../shared/geo/georef', () => {
     placeId: 'georef:-24.7829215,-65.4222405',
     address: { road: 'JUAN MARTIN LEGUIZAMON', house_number: '1455', city: 'Salta' },
   };
+  const alsina = {
+    lat: -24.7796714,
+    lng: -65.4136409,
+    formattedAddress: 'ALSINA 864, Salta, Capital, Salta',
+    placeId: 'georef:-24.7796714,-65.4136409',
+    address: { road: 'ALSINA', house_number: '864', city: 'Salta' },
+  };
   const lookup = async (query) => {
     const text = String(query || '').toLowerCase();
+    if (text.includes('alsina') && text.includes('864')) {
+      if (/\bdr\b/.test(text) || /\bcalle\b/.test(text)) {
+        return { located: [], missingLabel: null };
+      }
+      return { located: [alsina], missingLabel: null };
+    }
     if (/\bj\.?\s*m\.?/.test(text) || /\bjm\b/.test(text)) {
       return { located: [], missingLabel: null };
     }
@@ -71,6 +84,14 @@ describe('una calle con altura no usa el pin de Google de la otra punta', () => 
     expect(pin.geocodeSource).toBe('georef');
     expect(pin.lat).toBeCloseTo(OFFICIAL.lat, 5);
     expect(pin.lng).toBeCloseTo(OFFICIAL.lng, 5);
+    expect(googleSearch).not.toHaveBeenCalled();
+  });
+
+  test('Calle Dr A Alsina 864 se ubica aunque Georef no conozca el título', async () => {
+    const pin = await officialHousePin('Calle Dr A Alsina 864, Salta');
+    expect(pin.geocodeSource).toBe('georef');
+    expect(pin.lat).toBeCloseTo(-24.7796714, 5);
+    expect(pin.lng).toBeCloseTo(-65.4136409, 5);
     expect(googleSearch).not.toHaveBeenCalled();
   });
 

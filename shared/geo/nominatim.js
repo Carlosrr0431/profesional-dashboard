@@ -1138,6 +1138,32 @@ const streetPointCache = new Map();
 const housePinCache = new Map();
 const housePinFlight = new Map();
 const HOUSE_PIN_TTL_MS = 30 * 60 * 1000;
+const OFFICIAL_PIN_TIMEOUT_MS = 2000;
+
+function stripStreetTypePrefix(value) {
+  return String(value || '')
+    .replace(/^(?:calle|avenida|avda|av|pasaje|pje|psje|diagonal|paseo)\.?\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Georef encuentra "Alsina 864" y no "Calle Dr A Alsina 864". */
+function officialPinCandidates(text) {
+  const expanded = expandAbbreviatedStreetQueries(text);
+  const ordered = [];
+  const add = (value) => {
+    const next = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!next || pickPrimaryHouseNumber(next) == null) return;
+    if (ordered.some((item) => item.toLowerCase() === next.toLowerCase())) return;
+    ordered.push(next);
+  };
+  for (const item of expanded) {
+    add(stripStreetTypePrefix(item));
+    add(item);
+  }
+  ordered.sort((a, b) => a.length - b.length);
+  return ordered.slice(0, 2);
+}
 const streetMissUntil = new Map();
 const STREET_MISS_MS = 10 * 60 * 1000;
 
@@ -1273,20 +1299,32 @@ async function officialHousePin(query) {
   if (housePinFlight.has(key)) return housePinFlight.get(key);
 
   const job = (async () => {
-    const candidate = expandAbbreviatedStreetQueries(text)[0] || text;
-    const pack = await withTimeout(
-      lookupGeorefHouseNumbers(candidate, 2).catch(() => ({ located: [] })),
-      700,
-      { located: [] },
-    );
-    const ranked = preferSpecificRoad(
-      candidate,
-      (pack.located || []).filter((hit) => (
-        georefHitMatchesStreetQuery(hit, candidate) || georefHitMatchesStreetQuery(hit, text)
-      )),
-    );
-    const best = pickOfficialHouseNumber(ranked);
-    if (!best || !Number.isFinite(Number(best.lat)) || !Number.isFinite(Number(best.lng))) return null;
+    const queries = officialPinCandidates(text);
+    const packs = await Promise.all((queries.length ? queries : [text]).map(async (candidate) => {
+      const pack = await withTimeout(
+        lookupGeorefHouseNumbers(candidate, 2).catch(() => ({ located: [] })),
+        OFFICIAL_PIN_TIMEOUT_MS,
+        { located: [] },
+      );
+      return { candidate, located: pack?.located || [] };
+    }));
+    let best = null;
+    let bestScore = -1;
+    for (const pack of packs) {
+      const ranked = preferSpecificRoad(
+        text,
+        pack.located.filter((hit) => (
+          georefHitMatchesStreetQuery(hit, pack.candidate) || georefHitMatchesStreetQuery(hit, text)
+        )),
+      );
+      const hit = pickOfficialHouseNumber(ranked);
+      if (!hit || !Number.isFinite(Number(hit.lat)) || !Number.isFinite(Number(hit.lng))) continue;
+      const score = roadTokenOverlap(text, hit?.address?.road);
+      if (best && score <= bestScore) continue;
+      best = hit;
+      bestScore = score;
+    }
+    if (!best) return null;
     const label = formatNominatimLabelForQuery(best, text);
     const formattedAddress = concreteAddress(text, label.full || best.formattedAddress);
     if (!formattedAddress) return null;
