@@ -60,11 +60,11 @@ function buildSelectedAddressLabel({ title, line, fallback }) {
 function filterSuggestionsByQuery(items, normalizedQuery) {
   const q = String(normalizedQuery || '').trim();
   if (!q) return [];
+  const street = q.replace(/\b\d{1,5}[a-z]?\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const needle = street.length >= 3 ? street : q;
   return items.filter((item) => {
-    const title = String(item?.title || '').toLowerCase();
-    const subtitle = String(item?.subtitle || '').toLowerCase();
-    const address = String(item?.address || '').toLowerCase();
-    return title.includes(q) || subtitle.includes(q) || address.includes(q);
+    const blob = `${item?.title || ''} ${item?.subtitle || ''} ${item?.address || ''}`.toLowerCase();
+    return blob.includes(needle);
   });
 }
 

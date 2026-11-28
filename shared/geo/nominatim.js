@@ -25,6 +25,7 @@ const {
   expandAbbreviatedStreetQueries,
   ensureStreetCatalog,
   searchStreetCatalog,
+  isVagueLocalityAddress,
 } = require('../salta-address');
 const { findPinnedAddresses, findPinnedAddress, pinnedAddressSuggestion, pinnedAddressById } = require('../pinned-addresses');
 
@@ -494,12 +495,23 @@ function toAutocompleteSuggestion(item, query, bonusScore = 0, titleOverride = n
  */
 const OFF_STREET_HOUSE_METERS = 700;
 
+/** Si Google o Nominatim devuelven solo el CP, se conserva la calle que escribió el operador. */
+function concreteAddress(query, formatted) {
+  const clean = String(formatted || '').trim();
+  if (clean && !isVagueLocalityAddress(clean)) return clean;
+  const [catalog] = getCatalogAddressVariants(query, 1);
+  if (catalog && !isVagueLocalityAddress(catalog)) return catalog;
+  const typed = String(query || '').trim();
+  if (typed && !isVagueLocalityAddress(typed)) return typed;
+  return '';
+}
+
 function officialHouseSuggestion(query, official) {
   const label = formatNominatimLabelForQuery(official, query);
   return {
     lat: Number(official.lat),
     lng: Number(official.lng),
-    formattedAddress: label.full || official.formattedAddress,
+    formattedAddress: concreteAddress(query, label.full || official.formattedAddress),
     placeId: official.placeId || null,
     title: label.title || null,
     subtitle: label.subtitle || null,
@@ -692,7 +704,14 @@ async function geocodeAddress(address, options = {}) {
   }
 
   const googleHouse = await lookupGoogleHousePoint(query, options);
-  if (googleHouse) return googleHouse;
+  if (googleHouse) {
+    const formattedAddress = concreteAddress(query, googleHouse.formattedAddress);
+    const vagueGoogle = isVagueLocalityAddress(googleHouse.formattedAddress || '');
+    const snappedToStreet = googleHouse.geocodeSource === 'georef';
+    if (formattedAddress && (!vagueGoogle || snappedToStreet)) {
+      return { ...googleHouse, formattedAddress };
+    }
+  }
 
   if (GOOGLE_POI_AUTOCOMPLETE_ENABLED && isGoogleConfigured()) {
     const official = await findOfficialHouseNumber(query);
@@ -719,10 +738,12 @@ async function geocodeAddress(address, options = {}) {
     if (!results.length) return null;
     const best = results[0];
     const label = formatNominatimLabelForQuery(best, query);
+    const formattedAddress = concreteAddress(query, label.full || best.formattedAddress);
+    if (!formattedAddress) return null;
     return {
       lat: best.lat,
       lng: best.lng,
-      formattedAddress: label.full || best.formattedAddress,
+      formattedAddress,
     };
   };
 
@@ -734,10 +755,12 @@ async function geocodeAddress(address, options = {}) {
       const best = pickOfficialHouseNumber(ranked);
       if (best) {
         const label = formatNominatimLabelForQuery(best, query);
+        const formattedAddress = concreteAddress(query, label.full || best.formattedAddress);
+        if (!formattedAddress) throw new Error('No se encontró la dirección');
         return {
           lat: best.lat,
           lng: best.lng,
-          formattedAddress: label.full || best.formattedAddress,
+          formattedAddress,
           placeId: best.placeId || null,
           geocodeSource: 'georef',
         };
@@ -749,7 +772,10 @@ async function geocodeAddress(address, options = {}) {
       ...options,
       cacheQueries: [query, pack.missingLabel].filter(Boolean),
     });
-    if (exact) return exact;
+    if (exact) {
+      const formattedAddress = concreteAddress(query, exact.formattedAddress);
+      if (formattedAddress) return { ...exact, formattedAddress };
+    }
     if (!(pack.missingLabel && isGoogleConfigured())) {
       const local = await fromOwnMap();
       if (local) return local;
@@ -1222,6 +1248,21 @@ function suggestionsForStreetCatalog(query, limit) {
   ));
 }
 
+/** Lista la calle con la altura escrita, sin red. "san juan 300" → Calle San Juan 300. */
+function instantStreetSuggestions(query, limit = 6) {
+  const number = pickPrimaryHouseNumber(query);
+  return suggestionsForStreetCatalog(query, limit).map((item) => {
+    if (number == null || pickPrimaryHouseNumber(item.title) != null) return item;
+    const title = `${item.title} ${number}`;
+    return {
+      ...item,
+      title,
+      address: `${title}, Salta`,
+      placeId: `street:${encodeURIComponent(title)}`,
+    };
+  });
+}
+
 async function autocompleteAddressSalta(query, limit = 8, options = {}) {
   const trimmed = String(query || '').trim();
   if (trimmed.length < 2) return [];
@@ -1552,13 +1593,29 @@ async function getPlaceDetails(placeId, options = {}) {
 
   if (id.startsWith('street:')) {
     const title = decodeURIComponent(id.slice('street:'.length));
+    if (pickPrimaryHouseNumber(title) != null) {
+      const { ranked } = await locatedOfficialHouseHits(title);
+      const best = pickOfficialHouseNumber(ranked);
+      if (best) {
+        const label = formatNominatimLabelForQuery(best, title);
+        return {
+          lat: best.lat,
+          lng: best.lng,
+          formattedAddress: concreteAddress(title, label.full || best.formattedAddress),
+          placeId: best.placeId || id,
+          geocodeSource: 'georef',
+          title,
+          subtitle: 'Salta',
+        };
+      }
+    }
     const point = await locateStreetTitle(title);
     if (!point) throw new Error('No se pudo obtener detalles del lugar');
     const label = formatNominatimLabelForQuery(point, title);
     return {
       lat: point.lat,
       lng: point.lng,
-      formattedAddress: label.full || point.formattedAddress,
+      formattedAddress: concreteAddress(title, label.full || point.formattedAddress),
       placeId: point.placeId || id,
       geocodeSource: 'georef',
       title,
@@ -1607,6 +1664,7 @@ module.exports = {
   reverseGeocodeForPin,
   reverseHitIsPrecise,
   autocompleteAddressSalta,
+  instantStreetSuggestions,
   getPlaceDetails,
   keepLocatableSuggestions,
   pickOfficialHouseNumber,

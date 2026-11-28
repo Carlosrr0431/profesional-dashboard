@@ -4,6 +4,7 @@ const {
   resolveFinalDestination,
   resolveTripLocation,
   buildPassengerQueuedTripPayload,
+  addressForQueuedPickup,
   fareFromClientPayload,
   mergePassengerRouteFare,
   resolveQueuedTripSource,
@@ -54,6 +55,26 @@ describe('passengerTripQueued', () => {
       destinationLng: finalDest.lng,
     });
     expect(resolved).toEqual(finalDest);
+  });
+
+  it('la calle escrita no se reemplaza por un código postal', () => {
+    const address = addressForQueuedPickup(
+      'san juan 300',
+      'A4400 Salta, Salta Province, Argentina',
+    );
+    expect(address).toBe('san juan 300');
+    const payload = buildPassengerQueuedTripPayload({
+      pickupLocation: {
+        formattedAddress: address,
+        lat: -24.785,
+        lng: -65.41,
+      },
+      finalDestinationLocation: null,
+      source: 'dashboard',
+    });
+    expect(payload.origin_address).toBe('san juan 300');
+    expect(payload.origin_lat).toBe(-24.785);
+    expect(payload.notes).toContain('[APPROACH_ONLY]');
   });
 
   it('el panel encola con las coordenadas ya elegidas, sin volver a geocodificar', async () => {

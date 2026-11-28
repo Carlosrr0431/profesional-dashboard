@@ -33,6 +33,16 @@ import {
   resolveHotZoneSurchargeForPoint,
 } from './hotZones';
 import { freshGoogleLocation } from './refreshStaleGooglePlace';
+import { isVagueLocalityAddress } from '../../shared/salta-address.js';
+
+/** El CP solo ("A4400 Salta") no puede pisar la calle que escribió el operador. */
+export function addressForQueuedPickup(typed, formatted) {
+  const fromGeo = String(formatted || '').trim();
+  if (fromGeo && !isVagueLocalityAddress(fromGeo)) return fromGeo;
+  const typedClean = String(typed || '').trim();
+  if (typedClean && !isVagueLocalityAddress(typedClean)) return typedClean;
+  return '';
+}
 
 function sanitizeText(value, maxLen = 500) {
   return String(value || '').trim().slice(0, maxLen);
@@ -88,24 +98,33 @@ export async function resolveTripLocation({ address, lat, lng, placeId, trustCli
     && cleanAddress
     && isWithinServiceArea(parsedLat, parsedLng)
   ) {
-    const chosen = {
-      formattedAddress: cleanAddress,
-      lat: parsedLat,
-      lng: parsedLng,
-    };
-    if (trustClientCoords) return chosen;
-    return freshGoogleLocation(chosen, placeId);
+    const formattedAddress = addressForQueuedPickup(cleanAddress, cleanAddress);
+    if (formattedAddress) {
+      const chosen = {
+        formattedAddress,
+        lat: parsedLat,
+        lng: parsedLng,
+      };
+      if (trustClientCoords) return chosen;
+      return freshGoogleLocation(chosen, placeId);
+    }
   }
 
   try {
     if (sanitizeText(placeId)) {
       const details = await getPlaceDetails(sanitizeText(placeId, 200));
       if (isWithinServiceArea(details.lat, details.lng)) {
-        return {
-          formattedAddress: details.formattedAddress || cleanAddress,
-          lat: details.lat,
-          lng: details.lng,
-        };
+        const formattedAddress = addressForQueuedPickup(
+          cleanAddress,
+          details.formattedAddress || cleanAddress,
+        );
+        if (formattedAddress) {
+          return {
+            formattedAddress,
+            lat: details.lat,
+            lng: details.lng,
+          };
+        }
       }
     }
 
@@ -114,11 +133,17 @@ export async function resolveTripLocation({ address, lat, lng, placeId, trustCli
         /salta/i.test(cleanAddress) ? cleanAddress : `${cleanAddress}, Salta, Argentina`,
       );
       if (isWithinServiceArea(resolved.lat, resolved.lng)) {
-        return {
-          formattedAddress: resolved.formattedAddress || cleanAddress,
-          lat: resolved.lat,
-          lng: resolved.lng,
-        };
+        const formattedAddress = addressForQueuedPickup(
+          cleanAddress,
+          resolved.formattedAddress || cleanAddress,
+        );
+        if (formattedAddress) {
+          return {
+            formattedAddress,
+            lat: resolved.lat,
+            lng: resolved.lng,
+          };
+        }
       }
     }
   } catch {

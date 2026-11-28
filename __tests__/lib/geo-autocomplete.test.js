@@ -1,5 +1,5 @@
 const { installGeoFetchMock } = require('../helpers/geo-fetch-mock');
-const { autocompleteAddressSalta, geocodeAddress, getPlaceDetails, keepLocatableSuggestions } = require('../../shared/geo/nominatim');
+const { autocompleteAddressSalta, geocodeAddress, getPlaceDetails, instantStreetSuggestions, keepLocatableSuggestions } = require('../../shared/geo/nominatim');
 const { setPlacesBudget } = require('../../shared/geo/googlePlaces');
 
 const FORBIDDEN_GOOGLE_URL_PATTERNS = [
@@ -76,6 +76,14 @@ describe('geo autocomplete', () => {
 
   afterEach(() => {
     setPlacesBudget(null);
+  });
+
+  it('san juan 300 lista la calle del padrón sin esperar a la red', () => {
+    const hits = instantStreetSuggestions('san juan 300', 6);
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].title).toMatch(/san juan 300/i);
+    expect(hits[0].placeId).toMatch(/^street:/);
+    expect(decodeURIComponent(hits[0].placeId.slice('street:'.length))).toMatch(/300/);
   });
 
   it('resuelve POIs como Unsa sin Places Autocomplete', async () => {

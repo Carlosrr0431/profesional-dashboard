@@ -38,6 +38,7 @@ export const {
   reverseGeocode,
   reverseGeocodeForPin,
   autocompleteAddressSalta,
+  instantStreetSuggestions,
   getPlaceDetails,
   keepLocatableSuggestions,
 } = nominatim;

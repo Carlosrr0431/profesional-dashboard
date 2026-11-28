@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { autocompleteAddressSalta, keepLocatableSuggestions, searchGooglePlacesLastResort } from '../../../../src/lib/geo/index.js';
+import { autocompleteAddressSalta, instantStreetSuggestions, keepLocatableSuggestions, searchGooglePlacesLastResort } from '../../../../src/lib/geo/index.js';
 import { loadFrequentPlaces } from '../../../../src/lib/frequentTripCatalog';
 import { mergePlaceSuggestions, searchFrequentPlaces } from '../../../../src/lib/frequentPickups';
 import { searchCachedPlaces } from '../../../../src/lib/googlePlacesBudgetStore';
@@ -88,7 +88,8 @@ function withRequestedHouseNumber(items, query) {
 
 function canOffer(item) {
   if (hasPin(item)) return true;
-  return String(item?.placeId || '').startsWith('google:');
+  const id = String(item?.placeId || '');
+  return id.startsWith('google:') || id.startsWith('street:');
 }
 
 function setCached(key, data) {
@@ -137,6 +138,28 @@ export async function GET(request) {
 
     const intersection = parseStreetIntersection(query);
     const googleQuery = intersection ? intersectionSearchLabel(intersection) : query;
+    const streets = intersection ? [] : instantStreetSuggestions(query, limit);
+    if (streets.length) {
+      const frequentPromise = loadFrequentPlaces()
+        .then((list) => ({ ok: true, items: searchFrequentPlaces(list, query, limit) }))
+        .catch(() => ({ ok: false, items: [] }));
+      const [frequent, cachedPlaces, saved] = await Promise.all([
+        within(frequentPromise, 80, { ok: false, items: [] }),
+        within(searchCachedPlaces(query, limit), 80, []),
+        within(findSavedPinnedAddresses(query).catch(() => []), 80, []),
+      ]);
+      const remembered = withRequestedHouseNumber(
+        rankNamedGoogleFirst([...(cachedPlaces || []), ...(frequent?.items || [])], query),
+        query,
+      );
+      let results = mergePlaceSuggestions(streets, remembered, limit);
+      if (saved.length) {
+        results = mergePlaceSuggestions(results, withRequestedHouseNumber(saved, query), limit);
+      }
+      results = dedupeSamePoint(results).map(omitUnusablePin);
+      if (results.length) setCached(cacheKey, results);
+      return NextResponse.json({ ok: true, data: results });
+    }
     const frequentPromise = loadFrequentPlaces()
       .then((list) => ({ ok: true, items: searchFrequentPlaces(list, query, limit) }))
       .catch(() => ({ ok: false, items: [] }));
