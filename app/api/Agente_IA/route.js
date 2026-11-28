@@ -100,6 +100,7 @@ import {
   isVagueLocalityAddress,
   formatIntersectionLabelFromQuery,
   placeLabelMatchesQuery,
+  stripAddressCourtesy,
 } from '../../../shared/salta-address.js';
 import { findPinnedAddress } from '../../../shared/pinned-addresses.js';
 import { findSavedPinnedAddresses } from '../../../src/lib/savedPinnedAddresses.js';
@@ -2716,8 +2717,9 @@ function ensurePrecisePickupLabel(formattedAddress, query) {
   }
 
   if (isVagueLocalityAddress(address)) {
-    const cleaned = sanitizeAddressInput(q)
+    const cleaned = stripAddressCourtesy(sanitizeAddressInput(q))
       .replace(/,?\s*salta(?:\s+capital)?(?:\s*,?\s*argentina)?\s*$/i, '')
+      .replace(/\s+/g, ' ')
       .trim();
     return cleaned ? `${cleaned}, Salta` : address;
   }

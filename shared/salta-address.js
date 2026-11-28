@@ -11,6 +11,18 @@ function sanitizeAddressInput(address) {
   return address.replace(/[<>{}[\]\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200);
 }
 
+/** "Güemes 2046 por favor" no es parte de la calle. */
+function stripAddressCourtesy(value) {
+  return String(value || '')
+    .replace(/\bx\s+favor\b/gi, ' ')
+    .replace(/\b(?:por\s+favor|porfa|porfis|please|pls|gracias)\b/gi, ' ')
+    .replace(/\s+,/g, ',')
+    .replace(/,\s*,+/g, ',')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[,\s]+|[,\s]+$/g, '');
+}
+
 function normalizeText(value) {
   return String(value || '')
     .toLowerCase()
@@ -541,7 +553,7 @@ function normalizeAddressPhrase(value) {
     return sanitizeAddressInput(knownPoi.geocodeQuery);
   }
 
-  return sanitizeAddressInput(
+  return sanitizeAddressInput(stripAddressCourtesy(
     work
       .replace(/\bavda\.?\b/gi, 'Avenida')
       .replace(/\bav\.?\b/gi, 'Avenida')
@@ -553,7 +565,8 @@ function normalizeAddressPhrase(value) {
       .replace(/\besq(?:uina)?\.?\s*/gi, 'y ')
       .replace(/\s+c\/\s*/gi, ' y ')
       .replace(/\bcasi\b/gi, 'y')
-      .replace(/\bx\s+favor\b/gi, 'por favor')
+      .replace(/\bx\s+favor\b/gi, ' ')
+      .replace(/\b(?:por\s+favor|porfa|porfis|please|pls|gracias)\b/gi, ' ')
       .replace(/\s+x\s+/gi, ' y ')
       .replace(/\bal\s+(\d{1,5})\b/gi, '$1')
       .replace(/\b(?:altura|nro\.?|numero|n[uú]mero)\s*(\d{1,5})\b/gi, '$1')
@@ -561,7 +574,7 @@ function normalizeAddressPhrase(value) {
       .replace(/\b(\d{1,5})\s+(?:dto\.?|depto\.?|departamento|dpto\.?|piso|of\.?|oficina|dep\.?|torre|bloque|block)?\s*[a-z]?\d{1,3}[a-z]?\b/gi, '$1')
       .replace(/^(?:en|por|desde|hasta|hacia|a)\s+/i, '')
       .trim()
-  );
+  ));
 }
 
 function buildAddressSearchQueries(address) {
@@ -1178,6 +1191,7 @@ function alignStreetNumberPins(items, query) {
 
 module.exports = {
   sanitizeAddressInput,
+  stripAddressCourtesy,
   normalizeAddressPhrase,
   buildAddressSearchQueries,
   getCatalogAddressVariants,

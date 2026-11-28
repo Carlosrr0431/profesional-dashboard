@@ -65,6 +65,9 @@ describe('whatsappTripAddressParse', () => {
     } = require('../../shared/salta-address.js');
 
     expect(normalizeAddressPhrase('Vélez Sarfield 105')).toMatch(/sarsfield/i);
+    expect(normalizeAddressPhrase('general Güemes 2046 por favor')).not.toMatch(/por favor/i);
+    expect(normalizeAddressPhrase('general Güemes 2046 por favor, Salta')).toMatch(/güemes 2046/i);
+    expect(normalizeAddressPhrase('Caseros 100 x favor')).not.toMatch(/\by\b/i);
 
     const variants = getCatalogAddressVariants('Vélez Sarfield 105, Salta');
     expect(variants.some((item) => /velez\s+sarsfield/i.test(item) && /\b105\b/.test(item))).toBe(true);
