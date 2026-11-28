@@ -41,22 +41,6 @@ function chatSubtitle(chat) {
   return phone;
 }
 
-function initials(name) {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
-  return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase();
-}
-
-const AVATAR_COLORS = ['#00a884', '#02735e', '#1f6f8b', '#7c4dff', '#c4516c', '#b86e00'];
-
-function avatarColor(id) {
-  const text = String(id || '');
-  let hash = 0;
-  for (let i = 0; i < text.length; i += 1) hash = (hash + text.charCodeAt(i)) % AVATAR_COLORS.length;
-  return AVATAR_COLORS[hash];
-}
-
 function mergeMessages(current, incoming) {
   const map = new Map(current.map((item) => [item.id, item]));
   for (const item of incoming) map.set(item.id, item);
@@ -215,14 +199,8 @@ export default function ChatsPanel() {
                 key={chat.id}
                 type="button"
                 onClick={() => openChat(chat)}
-                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left ${active ? 'bg-[#f0f2f5]' : 'hover:bg-[#f5f6f6]'}`}
+                className={`flex w-full items-center px-4 py-2.5 text-left ${active ? 'bg-[#f0f2f5]' : 'hover:bg-[#f5f6f6]'}`}
               >
-                <span
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold text-white"
-                  style={{ backgroundColor: avatarColor(chat.id) }}
-                >
-                  {initials(title)}
-                </span>
                 <span className="min-w-0 flex-1 border-b border-[#e9edef] py-1">
                   <span className="flex items-baseline justify-between gap-2">
                     <span className="truncate text-[16px]">{title}</span>
@@ -256,12 +234,6 @@ export default function ChatsPanel() {
               >
                 Atrás
               </button>
-              <span
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[14px] font-semibold text-white"
-                style={{ backgroundColor: avatarColor(selected.id) }}
-              >
-                {initials(selectedTitle)}
-              </span>
               <div className="min-w-0">
                 <p className="truncate text-[16px] font-medium">{selectedTitle}</p>
                 <p className="truncate text-[12px] text-[#667781]">{chatSubtitle(selected)}</p>
