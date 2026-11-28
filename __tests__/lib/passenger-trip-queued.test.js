@@ -1,3 +1,16 @@
+jest.mock('../../src/lib/geo/index.js', () => {
+  const actual = jest.requireActual('../../src/lib/geo/index.js');
+  return {
+    ...actual,
+    officialHousePin: jest.fn(async () => null),
+    getPlaceDetails: jest.fn(async () => null),
+    geocodeAddress: jest.fn(async (query) => {
+      if (String(query).includes('zzz')) throw new Error('No se encontró la dirección');
+      return { lat: -24.786, lng: -65.412, formattedAddress: 'Calle Nueva 50, Salta' };
+    }),
+  };
+});
+
 const {
   buildFinalDestJsonTag,
   resolveFinalDestinationFromClient,
@@ -99,6 +112,26 @@ describe('passengerTripQueued', () => {
     }, { trustClientCoords: true });
     expect(destination.lat).toBe(-24.791);
     expect(destination.lng).toBe(-65.375);
+  });
+
+  it('si el padrón no tiene la calle, el panel igual la ubica', async () => {
+    const origin = await resolveTripLocation({
+      address: 'Calle Nueva 50, Salta',
+      trustClientCoords: true,
+    });
+    expect(origin).toEqual({
+      formattedAddress: 'Calle Nueva 50, Salta',
+      lat: -24.786,
+      lng: -65.412,
+    });
+  });
+
+  it('un texto que no es una dirección sigue sin encolarse', async () => {
+    const origin = await resolveTripLocation({
+      address: 'zzz lugar imposible',
+      trustClientCoords: true,
+    });
+    expect(origin).toBeNull();
   });
 
   it('resolveFinalDestinationFromClient acepta destLat/destLng del panel', () => {

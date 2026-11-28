@@ -37,6 +37,48 @@ import {
 import { freshGoogleLocation } from './refreshStaleGooglePlace';
 import { isVagueLocalityAddress } from '../../shared/salta-address.js';
 
+function withinMs(promise, ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    Promise.resolve(promise).then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      () => { clearTimeout(timer); resolve(null); },
+    );
+  });
+}
+
+function pointInServiceArea(cleanAddress, hit) {
+  const lat = Number(hit?.lat);
+  const lng = Number(hit?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!isWithinServiceArea(lat, lng)) return null;
+  const formattedAddress = addressForQueuedPickup(cleanAddress, hit.formattedAddress || cleanAddress);
+  if (!formattedAddress) return null;
+  return { formattedAddress, lat, lng };
+}
+
+/**
+ * El padrón oficial primero. Si esa calle no tiene punto, el mismo geocoder
+ * del resto del sistema (lugar elegido, caché o mapa) antes de rechazar.
+ */
+async function locateDashboardAddress(cleanAddress, placeId) {
+  if (!cleanAddress) return null;
+  if (pickPrimaryHouseNumber(cleanAddress) != null) {
+    const official = await officialHousePin(cleanAddress).catch(() => null);
+    const fromOfficial = pointInServiceArea(cleanAddress, official);
+    if (fromOfficial) return fromOfficial;
+  }
+  const id = sanitizeText(placeId, 200);
+  if (id) {
+    const details = await withinMs(getPlaceDetails(id), 2500);
+    const fromPlace = pointInServiceArea(cleanAddress, details);
+    if (fromPlace) return fromPlace;
+  }
+  const query = /salta/i.test(cleanAddress) ? cleanAddress : `${cleanAddress}, Salta, Argentina`;
+  const resolved = await withinMs(geocodeAddress(query), 4000);
+  return pointInServiceArea(cleanAddress, resolved);
+}
+
 /** El CP solo ("A4400 Salta") no puede pisar la calle que escribió el operador. */
 export function addressForQueuedPickup(typed, formatted) {
   const fromGeo = String(formatted || '').trim();
@@ -113,23 +155,7 @@ export async function resolveTripLocation({ address, lat, lng, placeId, trustCli
   }
 
   if (trustClientCoords) {
-    if (cleanAddress && pickPrimaryHouseNumber(cleanAddress) != null) {
-      const official = await officialHousePin(cleanAddress).catch(() => null);
-      if (official && isWithinServiceArea(official.lat, official.lng)) {
-        const formattedAddress = addressForQueuedPickup(
-          cleanAddress,
-          official.formattedAddress || cleanAddress,
-        );
-        if (formattedAddress) {
-          return {
-            formattedAddress,
-            lat: official.lat,
-            lng: official.lng,
-          };
-        }
-      }
-    }
-    return null;
+    return locateDashboardAddress(cleanAddress, placeId);
   }
 
   try {
