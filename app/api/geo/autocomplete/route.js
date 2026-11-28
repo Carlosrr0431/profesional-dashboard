@@ -140,17 +140,12 @@ export async function GET(request) {
     const frequentPromise = loadFrequentPlaces()
       .then((list) => ({ ok: true, items: searchFrequentPlaces(list, query, limit) }))
       .catch(() => ({ ok: false, items: [] }));
-    const [frequent, cachedPlaces, geo, googleFast, saved] = await Promise.all([
+    const [frequent, cachedPlaces, geo, saved] = await Promise.all([
       within(frequentPromise, 160, { ok: false, items: [] }),
       within(searchCachedPlaces(query, limit), 160, []),
       within(
         autocompleteAddressSalta(query, limit, { sessionToken, expand, near }),
         280,
-        [],
-      ),
-      within(
-        searchGooglePlacesLastResort(googleQuery, limit, { sessionToken }).catch(() => []),
-        550,
         [],
       ),
       within(findSavedPinnedAddresses(query).catch(() => []), 160, []),
@@ -174,6 +169,16 @@ export async function GET(request) {
     }
     results = dedupeSamePoint(results);
     const wantedNumber = pickPrimaryHouseNumber(query);
+    const cacheAlreadyAnswers = (results || []).some((item) => (
+      canOffer(item) && (!intersection || intersectionHitMatches(item, intersection.street1, intersection.street2))
+    ));
+    const googleFast = cacheAlreadyAnswers
+      ? []
+      : await within(
+        searchGooglePlacesLastResort(googleQuery, limit, { sessionToken }).catch(() => []),
+        550,
+        [],
+      );
     const fresh = (googleFast || []).filter((item) => (
       canOffer(item) && (!intersection || intersectionHitMatches(item, intersection.street1, intersection.street2))
     ));
