@@ -67,7 +67,7 @@ import {
   buildScheduledStatusQueryReply,
   buildScheduledTripConfirmationReply,
 } from '../../../src/lib/scheduledTripWhatsAppMessages';
-import { isCannedWhatsappSpam, varyWhatsappPhrase } from '../../../src/lib/whatsappPhraseVariation';
+import { buildPassengerAckReply, isCannedWhatsappSpam, varyWhatsappPhrase } from '../../../src/lib/whatsappPhraseVariation';
 import { triggerDispatchWorker } from '../../../src/lib/triggerDispatchWorker';
 import {
   commissionFromPrice,
@@ -171,6 +171,7 @@ import {
   isAddressNoisePhrase,
   isAvailabilityAskWithoutRoute,
   isGreetingOnly,
+  looksLikeStatusQuery,
   isPriceInquiryCollecting,
   isShortAck,
   lastBotAskedForTripPrice,
@@ -4799,12 +4800,12 @@ async function insertOutgoingMessage({ phone, messageId, content, rawPayload = n
   });
 }
 
-async function sendWhatsAppText(phone, text) {
+async function sendWhatsAppText(phone, text, { vary = true } = {}) {
   if (!getActiveWasenderLine()?.agentCode) {
     const linePhone = await resolveWasenderLineForPassenger(phone, null);
     const line = linePhone ? resolveWasenderLine(linePhone) : null;
     if (line?.agentCode) {
-      return runWithWasenderLine(line, () => sendWhatsAppText(phone, text));
+      return runWithWasenderLine(line, () => sendWhatsAppText(phone, text, { vary }));
     }
   }
 
@@ -4822,7 +4823,9 @@ async function sendWhatsAppText(phone, text) {
     return { skipped: true };
   }
 
-  const outboundText = stripWhatsappFinalPeriods(await varyWhatsappPhrase(text, { phone }));
+  const outboundText = vary
+    ? stripWhatsappFinalPeriods(await varyWhatsappPhrase(text, { phone }))
+    : stripWhatsappFinalPeriods(text);
   if (!outboundText) {
     logWebhook('chat_out', {
       phone: maskPhone(phone),
@@ -4849,6 +4852,22 @@ async function sendWhatsAppText(phone, text) {
     rawPayload: result.payload,
   });
   return result.payload;
+}
+
+async function sendOpenTripAck(phone, text, trip) {
+  const reply = await buildPassengerAckReply({
+    passengerText: text,
+    tripStatus: trip?.status,
+    pickup: resolveTripPickupCoords(trip)?.address || trip?.origin_address || '',
+  });
+  await sendWhatsAppText(phone, reply, { vary: false });
+}
+
+function openTripConfirmationAlreadySent(trip) {
+  const live = ['accepted', 'going_to_pickup', 'in_progress'].includes(
+    String(trip?.status || '').toLowerCase(),
+  );
+  return live && Boolean(trip?.wa_notified_at);
 }
 
 /**
@@ -5229,7 +5248,7 @@ async function getTripById(tripId) {
   if (!tripId) return null;
   const { data, error } = await getSupabase()
     .from('trips')
-    .select('id, status, passenger_phone, destination_address, destination_lat, destination_lng, origin_address, origin_lat, origin_lng, driver_id, dispatch_status, notes, scheduled_for, created_at, completed_at, wa_context')
+    .select('id, status, passenger_phone, destination_address, destination_lat, destination_lng, origin_address, origin_lat, origin_lng, driver_id, dispatch_status, notes, scheduled_for, created_at, completed_at, wa_context, tracking_token, wa_notified_at')
     .eq('id', tripId)
     .maybeSingle();
   if (error) throw error;
@@ -5269,7 +5288,7 @@ async function getLatestOpenTripByPhone(phone) {
   if (!normalized) return null;
   const { data, error } = await getSupabase()
     .from('trips')
-    .select('id, status, passenger_phone, destination_address, destination_lat, destination_lng, origin_lat, origin_lng, driver_id, created_at, wa_context, dispatch_status, notes, scheduled_for')
+    .select('id, status, passenger_phone, destination_address, destination_lat, destination_lng, origin_address, origin_lat, origin_lng, driver_id, created_at, wa_context, dispatch_status, notes, scheduled_for, tracking_token, wa_notified_at')
     .eq('passenger_phone', normalized)
     .in('status', OPEN_TRIP_STATUSES)
     .order('created_at', { ascending: false })
@@ -10336,6 +10355,17 @@ async function processClaimedConversation(batch) {
 
     const streetGate = gatePickupStreetReply(fastText, openTripByPhone);
     if (streetGate === 'tracking') {
+      if (openTripConfirmationAlreadySent(openTripByPhone) && !looksLikeStatusQuery(fastText)) {
+        await sendOpenTripAck(batch.phone, fastText, openTripByPhone);
+        logWebhook('conversation_fast_path_ack', {
+          conversationId: batch?.id || null,
+          tripId: openTripByPhone.id,
+        });
+        return {
+          handled: true,
+          updates: { status: 'open', context: {}, last_trip_id: openTripByPhone.id, processing_started_at: null, last_processed_at: new Date().toISOString() },
+        };
+      }
       const trackingMsg = buildAcceptedTripTrackingMessage(openTripByPhone, TRACKING_BASE_URL);
       if (trackingMsg) {
         await sendWhatsAppText(batch.phone, trackingMsg);
@@ -10411,6 +10441,22 @@ async function processClaimedConversation(batch) {
           processing_started_at: null,
           last_processed_at: new Date().toISOString(),
         },
+      };
+    } else if (
+      isShortAck(fastText)
+      || (
+        openTripConfirmationAlreadySent(openTripByPhone)
+        && !looksLikeStatusQuery(fastText)
+      )
+    ) {
+      await sendOpenTripAck(batch.phone, fastText, openTripByPhone);
+      logWebhook('conversation_fast_path_ack', {
+        conversationId: batch?.id || null,
+        tripId: openTripByPhone.id,
+      });
+      return {
+        handled: true,
+        updates: { status: 'open', context: {}, last_trip_id: openTripByPhone.id, processing_started_at: null, last_processed_at: new Date().toISOString() },
       };
     } else {
       const openStatus = String(openTripByPhone.status || '').toLowerCase();
@@ -13474,7 +13520,7 @@ async function processWebhookBody(body, requestMeta = {}) {
             ? buildAcceptedTripTrackingMessage(latestOpenTrip, TRACKING_BASE_URL)
             : '';
 
-          if (activeStatusReply) {
+          if (activeStatusReply && !latestOpenTrip.wa_notified_at) {
             await sendWhatsAppText(phone, activeStatusReply).catch(() => {});
           }
           logWebhook('location_open_trip_blocked', {

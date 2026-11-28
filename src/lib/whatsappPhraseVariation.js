@@ -158,3 +158,78 @@ export async function varyWhatsappPhrase(text, { phone = '', timeoutMs = 1500 } 
   rememberPhrase(phone, variant);
   return variant;
 }
+
+const ACK_FALLBACKS_LIVE = [
+  'De nada, el móvil ya va para allá',
+  'Dale, cualquier cosa me escribís',
+  'Perfecto, te aviso si hay alguna novedad',
+];
+
+const ACK_FALLBACKS_WAITING = [
+  'De nada, el pedido ya está tomado',
+  'Dale, te aviso cuando salga el móvil',
+  'Perfecto, en un momento te confirmo',
+];
+
+function ackFallback({ tripStatus, passengerText }) {
+  const live = ['accepted', 'going_to_pickup', 'in_progress'].includes(
+    String(tripStatus || '').toLowerCase(),
+  );
+  const pool = live ? ACK_FALLBACKS_LIVE : ACK_FALLBACKS_WAITING;
+  const seed = `${passengerText || ''}|${tripStatus || ''}|${Date.now()}`;
+  const index = [...seed].reduce((sum, char) => sum + char.charCodeAt(0), 0) % pool.length;
+  return pool[index];
+}
+
+function ackReplyIsUsable(text) {
+  const out = String(text || '').trim();
+  if (!out || out.length > 180) return false;
+  if (/https?:\/\//i.test(out)) return false;
+  if (/segu[ií] el m[oó]vil|viaje est[aá] confirmado|link de seguimiento/i.test(out)) return false;
+  if (isCannedWhatsappSpam(out)) return false;
+  return true;
+}
+
+/** Respuesta corta a un "gracias" u otro mensaje, sin repetir la confirmación del viaje. */
+export async function buildPassengerAckReply({
+  passengerText = '',
+  tripStatus = '',
+  pickup = '',
+  timeoutMs = 2000,
+} = {}) {
+  const fallback = ackFallback({ tripStatus, passengerText });
+  const said = String(passengerText || '').trim();
+  if (!said || !isDeepSeekConfigured()) return fallback;
+
+  const where = pickup ? ` Retiro: ${pickup}.` : '';
+  let timer;
+  try {
+    const content = await Promise.race([
+      deepseekChatCompletion({
+        systemPrompt: [
+          'Sos Betto, el chat de un remis en Salta.',
+          'Respondé al mensaje de la persona con una sola frase corta, rioplatense y amable.',
+          'Tiene que sonar a una persona real y distinta cada vez.',
+          'No repitas la confirmación del viaje, no mandes links y no pidas de nuevo la dirección.',
+          'No cierres con punto final.',
+          'Respondé solo con la frase lista para enviar.',
+        ].join(' '),
+        userContent: `La persona dijo: "${said}". El viaje ya existe y está en estado ${tripStatus || 'en curso'}.${where}`,
+        model: DEEPSEEK_PRO_MODEL,
+        maxTokens: 80,
+        reasoningEffort: 'none',
+        purpose: 'whatsapp_ack',
+      }).then((result) => result?.content || ''),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(''), timeoutMs);
+      }),
+    ]);
+    const cleaned = cleanModelText(content).replace(/(?<!\.)\.(?!\.)\s*$/u, '').trim();
+    if (!ackReplyIsUsable(cleaned)) return fallback;
+    return cleaned;
+  } catch {
+    return fallback;
+  } finally {
+    clearTimeout(timer);
+  }
+}

@@ -13,6 +13,7 @@ const {
   isCannedWhatsappSpam,
   phraseKeepsFacts,
   varyWhatsappPhrase,
+  buildPassengerAckReply,
   resetWhatsappPhraseMemory,
 } = require('../../src/lib/whatsappPhraseVariation');
 const { deepseekChatCompletion, isDeepSeekConfigured } = require('../../src/lib/deepseekClient');
@@ -87,5 +88,31 @@ describe('whatsappPhraseVariation', () => {
     const out = await varyWhatsappPhrase(SOURCE, { phone: '5493870000002' });
     expect(out).toBe(SOURCE);
     expect(deepseekChatCompletion).not.toHaveBeenCalled();
+  });
+
+  test('un gracias no repite la confirmación y usa la frase de DeepSeek', async () => {
+    deepseekChatCompletion.mockResolvedValue({ content: 'De nada Silvia, cualquier cosa me escribís' });
+    const out = await buildPassengerAckReply({
+      passengerText: 'Gracias',
+      tripStatus: 'accepted',
+      pickup: 'general Güemes 2046',
+    });
+    expect(out).toBe('De nada Silvia, cualquier cosa me escribís');
+    expect(out).not.toMatch(/seguimiento|confirmado/i);
+    const prompt = deepseekChatCompletion.mock.calls[0][0].userContent;
+    expect(prompt).toContain('Gracias');
+    expect(prompt).toContain('Güemes 2046');
+  });
+
+  test('si DeepSeek repite el link, queda una frase corta de respaldo', async () => {
+    deepseekChatCompletion.mockResolvedValue({
+      content: 'Tu viaje está confirmado. Seguí el móvil acá: https://www.profesionalviajes.com.ar/seguimiento/abc',
+    });
+    const out = await buildPassengerAckReply({
+      passengerText: 'Gracias',
+      tripStatus: 'going_to_pickup',
+    });
+    expect(out).not.toMatch(/https?:\/\//);
+    expect(out.length).toBeGreaterThan(8);
   });
 });
