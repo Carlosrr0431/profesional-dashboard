@@ -38,6 +38,7 @@ import AdminUsersPanel from './components/admin/AdminUsersPanel';
 import BulkSmsPanel from './components/BulkSmsPanel';
 import PinnedAddressesPanel from './components/PinnedAddressesPanel';
 import ChatsPanel from './components/ChatsPanel';
+import CloudflareHealthPanel from './components/CloudflareHealthPanel';
 import DashboardBrand from './components/DashboardBrand';
 import DashboardLoadingScreen from './components/DashboardLoadingScreen';
 import { useTripStatistics } from './hooks/useTripStatistics';
@@ -60,6 +61,7 @@ const VIEWS = {
   sms: 'sms',
   addresses: 'addresses',
   chats: 'chats',
+  cloudflare: 'cloudflare',
 };
 
 const DASHBOARD_BASE = '/admin/dashboard';
@@ -78,6 +80,7 @@ const VIEW_SLUG = {
   [VIEWS.sms]: 'masivos',
   [VIEWS.addresses]: 'direcciones',
   [VIEWS.chats]: 'chats',
+  [VIEWS.cloudflare]: 'cloudflare',
 };
 
 const SLUG_VIEW = {
@@ -629,6 +632,20 @@ export default function App() {
 
       <NavTab
         compact={compact}
+        active={currentView === VIEWS.cloudflare}
+        onClick={() => goTo(currentView === VIEWS.cloudflare ? VIEWS.map : VIEWS.cloudflare)}
+        icon={
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+          </svg>
+        }
+      >
+        Cloudflare
+      </NavTab>
+
+      <NavTab
+        compact={compact}
         active={currentView === VIEWS.sms}
         onClick={() => goTo(currentView === VIEWS.sms ? VIEWS.map : VIEWS.sms)}
         icon={
@@ -722,6 +739,10 @@ export default function App() {
         onClick={() => goTo(currentView === VIEWS.chats ? VIEWS.map : VIEWS.chats)}
         icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8-1.05 0-2.05-.17-2.96-.48L3 21l1.64-4.37C3.61 15.4 3 13.76 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>}
         label="Chats" />
+      <SideNavItem active={currentView === VIEWS.cloudflare}
+        onClick={() => goTo(currentView === VIEWS.cloudflare ? VIEWS.map : VIEWS.cloudflare)}
+        icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>}
+        label="Cloudflare" />
       <SideNavItem active={currentView === VIEWS.sms}
         onClick={() => goTo(currentView === VIEWS.sms ? VIEWS.map : VIEWS.sms)}
         icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8-1.05 0-2.05-.17-2.96-.48L3 21l1.64-4.37C3.61 15.4 3 13.76 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>}
@@ -962,6 +983,10 @@ export default function App() {
         ) : currentView === VIEWS.chats ? (
           <div className="flex-1 min-h-0 flex w-full">
             <ChatsPanel />
+          </div>
+        ) : currentView === VIEWS.cloudflare ? (
+          <div className="flex-1 min-h-0 flex w-full">
+            <CloudflareHealthPanel />
           </div>
         ) : currentView === VIEWS.sms ? (
           <div className="flex-1 min-h-0 flex">

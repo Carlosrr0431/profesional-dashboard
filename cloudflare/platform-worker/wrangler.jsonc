@@ -1,0 +1,16 @@
+{
+  "name": "profesional-api",
+  "account_id": "af5ff01830b2cb5091d3ac512aa199d8",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-28",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "profesional-database",
+      "database_id": "5b42bd0b-e373-4f66-8ecf-eead72091618"
+    }
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
+}

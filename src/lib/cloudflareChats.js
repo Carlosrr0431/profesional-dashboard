@@ -1,5 +1,6 @@
 import { getPassengerWhatsmeowLine } from './whatsmeowLines';
 import { getWhatsmeowApiBase } from './whatsmeowClient';
+import { reportCloudflareFailure } from './cloudflarePlatform';
 import {
   CHATS_LINE_PHONE,
   chatMessagePreview,
@@ -74,7 +75,12 @@ export async function recordWhatsAppChatMessage(input = {}) {
       },
     });
     return { stored: true };
-  } catch {
+  } catch (error) {
+    await reportCloudflareFailure({
+      area: 'chats',
+      operation: 'ingest',
+      message: error?.message || 'No se pudo guardar el chat en Cloudflare',
+    });
     return { stored: false };
   }
 }
