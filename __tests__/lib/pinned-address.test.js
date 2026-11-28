@@ -32,11 +32,5 @@ describe('Santa Ana pasaje 20 casa 1421', () => {
     expect(independencia.lat).toBeCloseTo(-24.8083069, 6);
     expect(independencia.lng).toBeCloseTo(-65.4104266, 6);
     expect(findPinnedAddress('avenida independencia 100')).toBeNull();
-
-    const caseros = findPinnedAddress('Calle Caseros 2545, Salta');
-    expect(caseros.title).toBe('Caseros 2545');
-    expect(caseros.lat).toBeCloseTo(-24.7880819, 6);
-    expect(caseros.lng).toBeCloseTo(-65.4376924, 6);
-    expect(findPinnedAddress('Caseros 2500')).toBeNull();
   });
 });

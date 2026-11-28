@@ -46,19 +46,6 @@ const PINNED_ADDRESSES = [
     ],
   },
   {
-    id: 'caseros-2545',
-    title: 'Caseros 2545',
-    subtitle: 'Salta',
-    lat: -24.7880819,
-    lng: -65.4376924,
-    number: '2545',
-    aliases: [
-      'Calle Caseros 2545',
-      'Caseros 2545, Salta',
-      'Caseros 2545, A4400 Salta',
-    ],
-  },
-  {
     id: 'av-independencia-392',
     title: 'Av. Independencia 392',
     subtitle: 'Salta',

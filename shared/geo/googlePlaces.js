@@ -934,14 +934,16 @@ const GENERIC_PLACE_WORDS = new Set([
 
 /** Lugares ya guardados que cubren el nombre pedido, con coordenadas. Una palabra suelta no alcanza. */
 function cachedPlacesAnswerQuery(places, query) {
-  if (pickPrimaryHouseNumber(query) != null) return null;
+  const number = pickPrimaryHouseNumber(query);
   const tokens = placeQueryTokens(query);
-  const specific = tokens.filter((token) => !GENERIC_PLACE_WORDS.has(token));
+  const specific = tokens.filter((token) => !GENERIC_PLACE_WORDS.has(token) && !/^\d+$/.test(token));
   if (!specific.length) return null;
-  const exact = (places || []).filter((item) => (
-    hasUsableGeoPoint(item?.lat, item?.lng)
-    && cachedPoiMatches(`${item.title || ''} ${item.subtitle || ''} ${item.formattedAddress || ''} ${item.address || ''}`, query)
-  ));
+  const exact = (places || []).filter((item) => {
+    if (!hasUsableGeoPoint(item?.lat, item?.lng)) return false;
+    const blob = `${item.title || ''} ${item.subtitle || ''} ${item.formattedAddress || ''} ${item.address || ''}`;
+    if (!cachedPoiMatches(blob, query)) return false;
+    return number == null || pickPrimaryHouseNumber(blob) === number;
+  });
   return exact.length ? exact : null;
 }
 
@@ -1197,21 +1199,32 @@ async function rememberGoogleResolution(queries, place) {
       .map((item) => foldText(item))
       .filter((item) => item.length >= 3),
   )];
-  if (!placesBudget.getSearch) return;
+  if (persistentCacheProvider?.upsert) {
+    await persistentCacheProvider.upsert({
+      placeId,
+      formattedAddress: suggestion.formattedAddress,
+      title: suggestion.title,
+      subtitle: suggestion.subtitle,
+      lat,
+      lng,
+      types: suggestion.types,
+    }).catch(() => {});
+  }
+  if (!placesBudget.getSearch) {
+    await Promise.all(keys.map((key) => (
+      placesBudget.saveSearch(`c2::${key}`, withExpansionMark([suggestion])).catch(() => {})
+    )));
+    return;
+  }
   await Promise.all(keys.map(async (key) => {
     const cacheKey = `c2::${key}`;
     const existing = await placesBudget.getSearch(cacheKey).catch(() => null);
-    if (!Array.isArray(existing) || !existing.length) return;
-    const checked = expansionWasChecked(existing);
-    const base = withoutExpansionMark(existing);
+    const base = Array.isArray(existing) ? withoutExpansionMark(existing) : [];
     const index = base.findIndex((item) => item?.placeId === placeId);
-    if (index < 0) return;
     const next = base.slice();
-    next[index] = { ...next[index], ...suggestion };
-    await placesBudget.saveSearch(
-      cacheKey,
-      checked ? withExpansionMark(next) : next,
-    ).catch(() => {});
+    if (index < 0) next.unshift(suggestion);
+    else next[index] = { ...next[index], ...suggestion };
+    await placesBudget.saveSearch(cacheKey, withExpansionMark(next)).catch(() => {});
   }));
 }
 

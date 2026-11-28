@@ -375,8 +375,8 @@ async function materializeGeorefDirecciones(items) {
 }
 
 /**
- * Punto oficial de Georef. Si la altura no trae lat/lon, se proyecta sobre
- * la misma calle con alturas vecinas que sí tienen punto.
+ * Punto oficial de Georef. Si la altura no trae lat/lon, no se inventa:
+ * el llamador pide el punto a Google y lo deja en la caché.
  */
 async function lookupGeorefHouseNumbers(query, max = 3) {
   const trimmed = String(query || '').trim();
@@ -388,7 +388,7 @@ async function lookupGeorefHouseNumbers(query, max = 3) {
   const located = [];
   let missingLabel = null;
   for (const item of hits) {
-    const mapped = mapGeorefDireccion(item) || await estimateMissingGeorefPin(item);
+    const mapped = mapGeorefDireccion(item);
     if (mapped) {
       located.push(mapped);
       continue;

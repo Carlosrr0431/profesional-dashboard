@@ -75,7 +75,7 @@ async function locateDashboardAddress(cleanAddress, placeId) {
     if (fromPlace) return fromPlace;
   }
   const query = /salta/i.test(cleanAddress) ? cleanAddress : `${cleanAddress}, Salta, Argentina`;
-  const resolved = await withinMs(geocodeAddress(query), 4000);
+  const resolved = await withinMs(geocodeAddress(query), 8000);
   return pointInServiceArea(cleanAddress, resolved);
 }
 

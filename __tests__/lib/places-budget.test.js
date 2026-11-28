@@ -136,6 +136,27 @@ describe('búsqueda de Places con cupo y caché', () => {
     expect(body.locationBias).toBeUndefined();
   });
 
+  it('una altura ya guardada con coordenadas no vuelve a llamar a Google', async () => {
+    setPlacesBudget({
+      tryConsume: async () => true,
+      getSearch: async () => null,
+      findPlaces: async () => [{
+        placeId: 'google:caseros-2545',
+        title: 'Caseros 2545',
+        subtitle: 'Salta',
+        formattedAddress: 'Caseros 2545, A4400 Salta',
+        lat: -24.7880819,
+        lng: -65.4376924,
+      }],
+      saveSearch: async () => {},
+    });
+    global.fetch = jest.fn();
+    const results = await autocompleteAddressSalta('Caseros 2545', 5);
+    expect(results[0].lat).toBeCloseTo(-24.7880819, 6);
+    expect(results[0].lng).toBeCloseTo(-65.4376924, 6);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it('la lista de Google queda adelante y no se repite', () => {
     const merged = mergeGoogleFirst([
       { placeId: 'google:martin', title: 'General Martin Güemes 150' },
