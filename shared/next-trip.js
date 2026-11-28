@@ -137,11 +137,22 @@ function canOfferNextTripToBusyDriver({
   return true;
 }
 
+function isUnsetDestinationAddress(address) {
+  const text = String(address || '').trim().toLowerCase().replace(/\.+$/, '');
+  return !text || text === 'a confirmar' || text === 'destino a definir' || text === 'sin destino';
+}
+
 function resolveBusyAnchorCoords(currentTrip) {
-  const destLat = toFiniteNumber(currentTrip?.destination_lat);
-  const destLng = toFiniteNumber(currentTrip?.destination_lng);
-  if (destLat == null || destLng == null) return null;
-  return { lat: destLat, lng: destLng, source: 'dropoff' };
+  let dest = null;
+  try {
+    dest = require('./trip-contract').resolveTripFinalDestCoords(currentTrip);
+  } catch {
+    dest = null;
+  }
+  const lat = toFiniteNumber(dest?.lat);
+  const lng = toFiniteNumber(dest?.lng);
+  if (lat == null || lng == null || isUnsetDestinationAddress(dest?.address)) return null;
+  return { lat, lng, source: 'dropoff' };
 }
 
 function isDriverNearDefinedDropoff(driver, dropoff, maxKm = NEAR_DROPOFF_KM) {

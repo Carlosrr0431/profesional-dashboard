@@ -30,6 +30,7 @@ function makeLiveTrip(id, driverId, dest = PICKUP) {
     id,
     driver_id: driverId,
     status: 'in_progress',
+    destination_address: 'Belgrano 100, Salta',
     destination_lat: dest.lat,
     destination_lng: dest.lng,
   };
@@ -130,6 +131,43 @@ describe('next-trip dispatch', () => {
     expect(selected.nextTrip).toBe(true);
     expect(selected.currentTripId).toBe('live-near');
     expect(selected.anchorSource).toBe('dropoff');
+  });
+
+  it('no deriva un viaje en curso con destino A confirmar', () => {
+    const selected = pickBusyNextTripCandidate({
+      pickupLat: PICKUP.lat,
+      pickupLng: PICKUP.lng,
+      allowedRadiiKm: [2],
+      busyDrivers: [makeBusyDriver('d1', PICKUP)],
+      currentTripByDriverId: {
+        d1: {
+          ...makeLiveTrip('live-1', 'd1', PICKUP),
+          destination_address: 'A confirmar',
+          origin_address: 'Deán Funes 832, Salta',
+          origin_lat: PICKUP.lat,
+          origin_lng: PICKUP.lng,
+        },
+      },
+    });
+    expect(selected).toBeNull();
+  });
+
+  it('deriva cuando cargan el destino y el chofer ya está cerca', () => {
+    const dropoff = { lat: -24.785, lng: -65.42 };
+    const selected = pickBusyNextTripCandidate({
+      pickupLat: PICKUP.lat,
+      pickupLng: PICKUP.lng,
+      allowedRadiiKm: [1, 2],
+      busyDrivers: [makeBusyDriver('d1', dropoff)],
+      currentTripByDriverId: {
+        d1: {
+          ...makeLiveTrip('live-1', 'd1', dropoff),
+          destination_address: 'Belgrano 100, Salta',
+        },
+      },
+    });
+    expect(selected?.driver.id).toBe('d1');
+    expect(selected?.anchorSource).toBe('dropoff');
   });
 
   it('no deriva si el viaje actual no tiene destino', () => {
